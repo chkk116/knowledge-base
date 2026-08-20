@@ -1,0 +1,28 @@
+# Maven
+**/target/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Node / Vite
+node_modules/
+dist/
+dist-v*/
+dist-*/
+.vite/
+
+# 前端换色/构建备份（本地 tar.gz，非源码）
+src-backup-*.tar.gz
+
+# 运行时上传文件（头像/附件等，非源码，按环境生成）
+backend/uploads/
+
+# WorkBuddy 项目内部数据
+.workbuddy/
+
+# OS
+.DS_Store
+Thumbs.db

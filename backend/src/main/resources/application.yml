@@ -1,0 +1,53 @@
+server:
+  port: 8080
+  # 响应压缩：对文本类响应开启 gzip，减少 API / 静态资源传输体积（Spring Boot 原生支持，无需额外依赖）
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json,application/xml,image/svg+xml
+    min-response-size: 1024
+
+spring:
+  datasource:
+    # 本地 MySQL：请确认本机已安装 MySQL 8 并创建了 kb 库（见 db/init.sql）
+    url: jdbc:mysql://localhost:3306/kb?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: kb
+    password: kb
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+  jackson:
+    write-dates-as-timestamps: false   # 日期序列化为 ISO-8601 字符串（Spring Boot 4 默认 Jackson 3，显式锁定）
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+# ---- 自定义配置 ----
+kb:
+  security:
+    token-secret: ${KB_TOKEN_SECRET:kb-dev-secret-please-change-this-long-string-2026}   # 生产务必通过环境变量 KB_TOKEN_SECRET 注入足够长的随机串
+    token-ttl: 86400000   # 令牌有效期(ms)，默认 24 小时
+  ai:
+    enabled: false   # 预留总开关：接入模型并补好 Spring AI 依赖后改为 true
+  seed:
+    enabled: true    # 启动种子数据：库为空时插入示例文档，便于搜索开箱即用；设为 false 可关闭
+  upload:
+    dir: ./uploads   # 图片上传本地目录（运行时解析为绝对路径，静态映射到 /uploads/**）
+  # ---- 检索增强：Meilisearch（可选）----
+  # 搜索默认走 MySQL LIKE，开箱即用、零中间件。
+  # 想获得中文分词 / 容错 / 更好的相关度排序时，按下面三步启用：
+  #   1) 启动服务：docker compose --profile optional up -d meilisearch   （端口 7700，master key 见 docker-compose.yml）
+  #   2) 填好下面 host / api-key（index 可保持默认 documents）
+  #   3) 重启后端；启动时会自动把已发布文档灌入索引，之后增删改自动同步。
+  # 任何情况下 Meili 不可用都会自动回退 MySQL LIKE，搜索永远可用。
+  search:
+    meili:
+      host: ""            # 启用时填 http://localhost:7700 ；留空则禁用，回退 MySQL
+      api-key: ""         # Meilisearch master key / api key（docker-compose 默认 masterKey）
+      index: documents    # 索引 uid
+  # 备注：MinIO 等其余中间件当前未纳入编译，仅本地 MySQL 即可运行。

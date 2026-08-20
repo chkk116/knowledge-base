@@ -1,0 +1,461 @@
+/* ============================================================
+   知识库 · 暗色主题（B站风格夜间模式）
+   策略：Element Plus 官方暗色变量处理所有 el-* 组件；
+        自定义白底容器 / 文字 / 边框在此用 html.dark 统一翻深。
+   过渡：仅在切换瞬间（html.theme-anim）给全站加过渡，避免平时干扰 hover。
+   ============================================================ */
+
+/* ============================================================
+   配色约定
+   - 通用 element 组件（el-button / el-pagination / el-switch / 弹窗确认等）
+     保持 Element 自带天空蓝 #409eff，不强行统一成品牌色。
+   - 品牌强调色（菜单高亮、logo、链接、积分明细等）用手写靛紫 #6366f1 族，
+     与 element 天空蓝并存，互不覆盖。
+   ============================================================ */
+:root {
+  --el-color-primary: #409eff;
+  --el-color-primary-rgb: 64, 158, 255;
+  --el-color-primary-light-1: #66b1ff;
+  --el-color-primary-light-2: #79bbff;
+  --el-color-primary-light-3: #8cc5ff;
+  --el-color-primary-light-4: #a0cfff;
+  --el-color-primary-light-5: #b3d8ff;
+  --el-color-primary-light-6: #c6e2ff;
+  --el-color-primary-light-7: #d9ecff;
+  --el-color-primary-light-8: #ecf5ff;
+  --el-color-primary-light-9: #f5f9ff;
+  --el-color-primary-dark-2: #337ecc;
+}
+
+html.dark { color-scheme: dark; }
+
+/* 暗色下主色用 Element 自带天空蓝（light 阶由 element 暗色 theme 自带，不在此覆盖） */
+html.dark {
+  --el-color-primary: #409eff;
+  --el-color-primary-rgb: 64, 158, 255;
+}
+
+/* 切换瞬间的全局过渡（0.32s 后被移除） */
+.theme-anim,
+.theme-anim *,
+.theme-anim *::before,
+.theme-anim *::after {
+  transition: background-color .3s ease, border-color .3s ease,
+              color .3s ease, box-shadow .3s ease, fill .3s ease !important;
+}
+
+/* ---------- 顶层框架（App.vue 全局样式） ---------- */
+html.dark body { background: #0e0e12; color: #e7e7ee; }
+html.dark .aside { background: #17171f; border-right-color: #2a2a35; }
+html.dark .brand { color: #818cf8; }
+html.dark .header { background: #17171f; border-bottom-color: #2a2a35; }
+html.dark .crumb { color: #e7e7ee; }
+html.dark .fold-btn { color: #c7c8d4; }
+html.dark .avatar { background: #818cf8; color: #fff; border-color: #17171f; box-shadow: 0 0 0 1px #2a2a35; }
+html.dark .aside .el-menu-item { color: #c7c8d4; }
+html.dark .aside .el-menu-item.is-active { background: #232347; color: #818cf8; }
+
+/* ---------- 登录页 ---------- */
+html.dark .login-page { background: linear-gradient(135deg, #1a1a2e, #0e0e12); }
+html.dark .title { color: #818cf8; }
+html.dark .captcha-img { border-color: #2a2a35; background: #22222c; }
+html.dark .tip { color: #7b8190; }
+
+/* ---------- 首页 Home ---------- */
+html.dark .page { color: #e7e7ee; }
+html.dark .q { border-color: #3a3a47; background: #18181f; color: #e7e7ee; }
+html.dark .q:focus { border-color: #818cf8; }
+html.dark .go { background: #6366f1; }
+html.dark .filters select { border-color: #3a3a47; background: #18181f; color: #e7e7ee; }
+html.dark .hint { color: #7b8190; }
+html.dark .state { color: #7b8190; }
+html.dark .card { border-color: #2a2a35; background: #17171f; }
+html.dark .card:hover { border-color: #6366f1; box-shadow: 0 4px 14px rgba(0, 0, 0, .4); }
+html.dark .score { color: #818cf8; }
+html.dark .tag { background: #232347; color: #818cf8; }
+html.dark .tag.grey { background: #22222c; color: #9aa0ad; }
+html.dark .snippet { color: #9aa0ad; }
+html.dark .examples { border-top-color: #26262f; }
+html.dark .examples-head h2 { color: #d2d2dc; }
+
+/* ---------- 我的帖子 / 用户管理 / 帖子管理 / 黑名单（少量自定义类） ---------- */
+html.dark .hint { color: #7b8190; }
+
+/* ---------- 文档详情 PostDetail ---------- */
+html.dark .post { color: #e7e7ee; }
+html.dark .time { color: #7b8190; }
+html.dark .clist li { border-top-color: #26262f; }
+html.dark .citem { border-top-color: #26262f; }
+html.dark .ritem { border-top-color: #26262f; }
+html.dark .replies { border-left-color: #2a2a35; }
+html.dark .r-to { color: #818cf8; }
+html.dark .creply { color: #818cf8; }
+html.dark .reply-hint { background: #232347; border-color: #3a3a6b; color: #a5b4fc; }
+html.dark .reply-hint .x { color: #a5b4fc; }
+html.dark .chead { color: #d2d2dc; }
+html.dark .ctime { color: #7b8190; }
+html.dark .cbody { color: #9aa0ad; }
+/* 评论输入框（contenteditable）+ 表情按钮 */
+html.dark .cbox { background: #1f1f27; border-color: #2c2c36; color: #e7e7ee; }
+html.dark .cbox:focus { border-color: #6366f1; }
+html.dark .cbox.empty::before { color: #7b8190; }
+html.dark .emoji-btn { background: #26262f; border-color: #2c2c36; color: #c2c6d2; }
+html.dark .emoji-btn:hover { background: #2d2d3a; border-color: #4f46e5; color: #a5b4fc; }
+
+/* ---------- 写文章 / 编辑 PostEdit ---------- */
+html.dark .edit { color: #e7e7ee; }
+
+/* ---------- 个人资料 Profile ---------- */
+html.dark .cover-avatar { background: #18181f; box-shadow: 0 6px 20px rgba(0, 0, 0, .5); }
+html.dark .cover-avatar img,
+html.dark .cover-avatar span { background: #232347; color: #818cf8; }
+html.dark .side { background: #18181f; border-color: #26262f; }
+html.dark .name { color: #e7e7ee; }
+html.dark .username { color: #7b8190; }
+html.dark .bio { color: #9aa0ad; }
+html.dark .bio.muted { color: #5a606d; }
+html.dark .meta { border-top-color: #26262f; }
+html.dark .meta li { color: #9aa0ad; }
+html.dark .meta li b { color: #d2d2dc; }
+html.dark .stat { background: #22222c; border-color: #26262f; }
+html.dark .stat .num { color: #818cf8; }
+html.dark .stat .lbl { color: #9aa0ad; }
+html.dark .lv-card { background: #18171f; border-color: #2a2a35; }
+html.dark .lv-title { color: #818cf8; }
+html.dark .lv-points { color: #9aa0ad; }
+html.dark .lv-tip { color: #7b8190; }
+html.dark .card { background: #18181f; border-color: #26262f; }
+html.dark .card-title { color: #e7e7ee; }
+html.dark .card-sub { color: #7b8190; }
+html.dark .ro { color: #9aa0ad; }
+html.dark .empty { color: #7b8190; }
+html.dark .empty a { color: #818cf8; }
+html.dark .doc-list li { border-bottom-color: #26262f; }
+html.dark .doc-list li:hover { background: #22222c; }
+html.dark .doc-title { color: #d2d2dc; }
+html.dark .cat { color: #818cf8; background: #232347; }
+html.dark .time { color: #7b8190; }
+html.dark .arrow { color: #5a606d; }
+html.dark .overview li { border-bottom-color: #26262f; }
+html.dark .overview li span { color: #9aa0ad; }
+html.dark .overview li b { color: #d2d2dc; }
+html.dark .plog li { border-bottom-color: #26262f; }
+html.dark .pl-type { color: #818cf8; background: #232347; }
+html.dark .pl-reason { color: #9aa0ad; }
+html.dark .pl-bal { color: #7b8190; }
+html.dark .pl-time { color: #5a606d; }
+
+/* ---------- 积分排行榜 Ranking ---------- */
+html.dark .page-title { color: #818cf8; }
+html.dark .info-circle { border-color: #818cf8; background: #232347; color: #818cf8; }
+html.dark .info-circle:hover { background: #2a2a48; }
+html.dark .pop-title { color: #818cf8; }
+html.dark .pop-rules { color: #d2d2dc; }
+html.dark .pop-rules b { color: #818cf8; }
+html.dark .lv-table td { border-bottom-color: #26262f; }
+html.dark .lv-no { color: #818cf8; }
+html.dark .lv-name { color: #d2d2dc; }
+html.dark .lv-min { color: #7b8190; }
+html.dark .me-card { background: linear-gradient(120deg, #3b3b6b, #5b3b6b); }
+html.dark .me-avatar { background: rgba(255, 255, 255, .15); }
+html.dark .list { background: #18181f; border-color: #26262f; }
+html.dark .list li { border-bottom-color: #26262f; }
+html.dark .list li.mine { background: #232347; }
+html.dark .rk { color: #7b8190; }
+html.dark .av { background: #232347; color: #818cf8; }
+html.dark .nm { color: #d2d2dc; }
+html.dark .lv { color: #7b8190; }
+html.dark .pt { color: #818cf8; }
+html.dark .empty { color: #7b8190; }
+html.dark .total { color: #7b8190; }
+
+/* 写文章自管全屏面板（PostEdit）暗色 */
+html.dark .edit.writing-fullscreen { background: #16161c; }
+
+/* ---------- 富文本编辑器 RichEditor（wangEditor）暗色 ---------- */
+html.dark .tip { color: #7b8190; }
+html.dark .editor-wrap { border-color: #2f2f3a; }
+/* wangEditor 工具栏 / 编辑区 */
+html.dark .w-e-toolbar {
+  background: #23232e !important; border-color: #2f2f3a !important;
+  border-top-left-radius: 8px; border-top-right-radius: 8px;
+}
+html.dark .w-e-bar-item button,
+html.dark .w-e-bar-item button .w-e-bar-item-title { color: #c7c8d4 !important; }
+html.dark .w-e-bar-item button:hover { background: #2a2a35 !important; }
+html.dark .w-e-bar-item button.active { background: #232347 !important; color: #818cf8 !important; }
+html.dark .w-e-bar-divider { background: #2f2f3a !important; }
+html.dark .w-e-text-container {
+  background: #18181f !important; border-color: #2f2f3a !important;
+  border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;
+}
+html.dark .w-e-text-container .w-e-text {
+  background: #18181f !important; color: #e7e7ee !important;
+}
+html.dark .w-e-text-container .w-e-text p { color: #e7e7ee; }
+html.dark .w-e-text-container .w-e-text::before { color: #5a606d !important; }
+html.dark .w-e-text-container pre {
+  background: #23232e !important; color: #e7e7ee; border-radius: 8px;
+}
+html.dark .w-e-text-container code { background: #23232e !important; color: #e7e7ee; }
+html.dark .w-e-text-container blockquote {
+  border-left: 3px solid #3b3b6b !important; color: #b8b9c4; background: #1d1d27;
+}
+html.dark .w-e-text-container a { color: #818cf8; }
+html.dark .w-e-text-container img { max-width: 100%; border-radius: 8px; }
+/* 下拉面板 / 弹层 */
+html.dark .w-e-drop-panel,
+html.dark .w-e-modal { background: #1d1d27 !important; border-color: #2f2f3a !important; color: #e7e7ee; }
+html.dark .w-e-modal input,
+html.dark .w-e-modal textarea,
+html.dark .w-e-modal select { background: #23232e !important; border-color: #2f2f3a !important; color: #e7e7ee; }
+
+/* ============================================================
+   夜间模式补充翻深（修白底漏光）
+   ============================================================ */
+
+/* ---------- 帖子详情 · 右侧作者卡片 / 他的文章 ---------- */
+html.dark .author-card { background: #17171f; border-color: #2a2a35; box-shadow: none; }
+html.dark .author-card .ava { background: #23232e; }
+html.dark .author-card .ava.none { color: #9aa0ad; }
+html.dark .author-card .nm { color: #e7e7ee; }
+html.dark .author-card .astats { color: #9aa0ad; }
+html.dark .author-card .astats b { color: #e7e7ee; }
+html.dark .author-card .follow-btn.on { background: #23232e; color: #9aa0ad; border-color: #3a3a47; }
+html.dark .author-articles { background: #17171f; border-color: #2a2a35; box-shadow: none; }
+html.dark .author-articles .aa-title { color: #e7e7ee; }
+html.dark .author-articles .aa-all { color: #818cf8; }
+html.dark .author-articles .aa-name { color: #c7c8d4; }
+html.dark .author-articles .aa-list li { border-top-color: #26262f; }
+html.dark .author-articles .aa-list li:hover .aa-name { color: #818cf8; }
+html.dark .author-articles .aa-views { color: #7b8190; }
+html.dark .toc { background: #17171f; border-color: #2a2a35; box-shadow: none; }
+html.dark .toc-h { color: #e7e7ee; }
+html.dark .toc-i { color: #9aa0ad; border-left-color: #2a2a35; }
+html.dark .toc-i.lv3 { color: #6b6f7c; }
+html.dark .toc-i:hover { color: #818cf8; }
+html.dark .toc-i.on { color: #a5b4fc; border-left-color: #818cf8; }
+
+/* ---------- 帖子详情 · 左侧操作栏（点赞/收藏/回顶部） ---------- */
+html.dark .action-bar .act { background: #17171f; border-color: #2a2a35; color: #c7c8d4; }
+html.dark .action-bar .act:hover { border-color: #4f46e5; }
+html.dark .action-bar .act.on.like { background: #2a1a1a; color: #f87171; border-color: #4a2a2a; }
+html.dark .action-bar .act.on.fav { background: #2a2410; color: #fbbf24; border-color: #4a3a12; }
+html.dark .action-bar .act.comment { color: #818cf8; }
+html.dark .action-bar .act.comment:hover { background: #232347; border-color: #4f46e5; }
+html.dark .action-bar .act.top { color: #9aa0ad; border-top-color: #26262f; }
+html.dark .action-bar .act.top:hover { background: #232347; border-color: #4f46e5; }
+
+/* ---------- 帖子详情 · 审核条 / 评论 / 相关推荐 ---------- */
+html.dark .review-bar { background: #2a2410; border-color: #3f3312; }
+html.dark .review-bar .tip { color: #f0c46b; }
+html.dark .vt { color: #e7e7ee; }
+html.dark .vitem { border-top-color: #26262f; }
+
+/* ---------- 帖子正文渲染区 · 代码 / 引用 / 表格 翻深 ---------- */
+html.dark .post .content pre { background: #23232e; color: #e7e7ee; border-radius: 8px; }
+html.dark .post .content code { background: #23232e; color: #e7e7ee; }
+html.dark .post .content blockquote { background: #1d1d27; border-left-color: #3b3b6b; color: #b8b9c4; }
+html.dark .post .content table { border-color: #2a2a35; }
+html.dark .post .content th,
+html.dark .post .content td { border-color: #2a2a35; color: #c7c8d4; }
+/* 表格表头 / 斑马纹 / 悬停 背景翻深（浅色 #f8fafc / #fcfcfd / #f1f5f9 会花白） */
+html.dark .post .content th { background: #1d1d27; }
+html.dark .post .content tbody tr:nth-child(even) { background: #1a1a23; }
+html.dark .post .content tbody tr:hover { background: #23232e; }
+html.dark .post .content img:not(.kb-emoji) {
+  border: 1px solid #2a2a35;
+  border-radius: 8px;
+  background: #18181f;
+}
+
+/* ---------- 滑动验证码（登录弹层内） ---------- */
+html.dark .slide-captcha { background: #17171f; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); }
+html.dark .sc-subtitle { color: #e7e7ee; }
+html.dark .sc-stage { background: #23232e; }
+html.dark .sc-track { background: #2a2a35; }
+html.dark .sc-btn { background: #23232e; color: #9aa0ad; }
+html.dark .sc-btn:hover { background: #2a2a35; color: #c7c8d4; }
+
+/* ---------- 个人资料页·左下角组件（我点赞/我评论/我的收藏） ---------- */
+html.dark .mine-block { background: #17171f; border-color: #2a2a35; }
+html.dark .mine-hd { color: #e7e7ee; }
+html.dark .mine-hd .cnt { color: #8b8fa0; }
+html.dark .mine-list li { border-top-color: #26262f; }
+html.dark .mine-list .t { color: #b8b9c4; }
+html.dark .mine-empty { color: #6b6f7c; }
+
+/* ---------- 个人资料页·互动概览 / 帖子统计（👍💬⭐ 与 帖子/已发布/草稿） ---------- */
+html.dark .interact .ic { background: #1a1a23; border-color: #2a2a35; }
+html.dark .interact .n { color: #818cf8; }
+html.dark .interact .l { color: #8b8fa0; }
+html.dark .stat { background: #1a1a23; border-color: #2a2a35; }
+html.dark .stat .num { color: #818cf8; }
+html.dark .stat .lbl { color: #8b8fa0; }
+html.dark .meta { border-top-color: #26262f; }
+html.dark .meta li { color: #8b8fa0; }
+html.dark .meta li b { color: #c7c8d4; }
+
+/* ---------- 知识库首页·标签云 / 卡片标签 / 筛选 ---------- */
+html.dark .tagcloud .lbl { color: #8b8fa0; }
+html.dark .chip { background: #18181f; border-color: #2a2a35; color: #b8b9c4; }
+html.dark .chip:hover { border-color: #818cf8; color: #818cf8; }
+html.dark .chip.on { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+html.dark .filters select { background: #18181f; border-color: #3a3a47; color: #e7e7ee; }
+html.dark .tag { background: #232347; color: #a5b4fc; }
+html.dark .tag.grey { background: #23232e; color: #a0a4b2; }
+html.dark .tag.grey:hover { background: #2a2a35; color: #c7c8d4; }
+html.dark .author-banner { background: #232347; border-color: #2f2f5a; color: #a5b4fc; }
+html.dark .author-banner .clear { color: #818cf8; }
+
+/* ---------- 分类标签管理 TaxonomyManage（小标签 / 卡片 / 树 翻深） ---------- */
+html.dark .tax { color: #e7e7ee; }
+html.dark .tax h2 { color: #e7e7ee; }
+html.dark .tax .tip { color: #7b8190; }
+html.dark .tax .card { background: #17171f; border-color: #2a2a35; }
+html.dark .tax .hd { color: #e7e7ee; }
+html.dark .tax .sel { color: #a5b4fc; }
+html.dark .tax .ctree { border-color: #2a2a35; background: #1a1a23; }
+html.dark .tax .empty { color: #7b8190; }
+/* 小标签胶囊（与首页 .chip / 详情 .tag 同色系，保持暗色一致） */
+html.dark .tax .tg { background: #232347; color: #a5b4fc; }
+html.dark .tax .tg i { opacity: .7; }
+html.dark .tax .tg .x { color: #a5b4fc; }
+html.dark .tax .tg .x:hover { color: #f87171; }
+
+/* ---------- 公告栏 AnnouncementBar（右侧边栏卡片） ---------- */
+html.dark .ann-card { background: #17171f; border-color: #2a2a35; }
+html.dark .ann-card-head { background: #1d1d28; border-bottom-color: #26262f; color: #e7e7ee; }
+html.dark .ann-head-ic { color: #fbbf24; }
+html.dark .announcement-item { border-bottom-color: #26262f; }
+html.dark .announcement-item.pinned { background: #2a2410; }
+html.dark .ann-body { color: #c7c8d4; }
+html.dark .ann-title { color: #e7e7ee; }
+html.dark .ann-content { color: #9aa0ad; }
+
+/* ---------- 公告管理 AnnouncementManage ---------- */
+html.dark .ann-manage { color: #e7e7ee; }
+html.dark .ann-manage h2 { color: #e7e7ee; }
+html.dark .row-actions .el-button { margin-left: 0; }
+
+/* ---------- 公告·置顶居中弹窗（暗色） ---------- */
+html.dark .ann-pinned-head { color: #fca5a5; }
+html.dark .ann-pinned-bell { color: #f87171; }
+html.dark .ann-pinned-card { background: #2a1a1a; border-color: #5b2b2b; }
+html.dark .ann-pinned-title { color: #fecaca; }
+html.dark .ann-pinned-content { color: #e7c8c8; }
+
+/* ---------- 通知页·未读项 ---------- */
+html.dark .item { background: #17171f; border-color: #2a2a35; }
+html.dark .item:hover { border-color: #818cf8; }
+html.dark .item.unread { background: #20203a; border-color: #3a3a6b; }
+html.dark .dot { background: #818cf8; }
+html.dark .txt { color: #a0a4b2; }
+html.dark .summary { color: #b8b9c4; }
+html.dark .time { color: #8b8fa0; }
+
+/* ---------- 文章「小窗阅读」浮窗（全局，渲染于 App.vue，切页不消失） ---------- */
+.reader-float { position: fixed; z-index: 2100; background: #fff; border-radius: 12px; box-shadow: 0 12px 40px rgba(15,23,42,.22); display: flex; flex-direction: column; overflow: hidden; }
+.reader-float .rf-bar { flex: none; height: 40px; cursor: move; user-select: none; padding: 0 8px 0 14px; display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border-bottom: 1px solid #eef2f7; }
+.rf-title { font-size: 13px; font-weight: 600; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-close { border: none; background: none; font-size: 20px; line-height: 1; color: #94a3b8; cursor: pointer; padding: 0 4px; }
+.rf-close:hover { color: #ef4444; }
+.reader-float .rf-body { flex: 1; overflow: auto; padding: 16px; }
+/* 缩放手柄：明显放大的斜纹抓握区，hover 高亮，便于一眼找到可拖拽处 */
+.reader-float .rf-resize { position: absolute; right: 0; bottom: 0; width: 26px; height: 26px; cursor: nwse-resize; z-index: 2; border-bottom-right-radius: 12px;
+  background: repeating-linear-gradient(135deg, #94a3b8 0 2px, transparent 2px 8px);
+  background-color: transparent; }
+.reader-float .rf-resize:hover { background: repeating-linear-gradient(135deg, #6366f1 0 2px, transparent 2px 8px); }
+.reader-float .rf-resize:active { background: repeating-linear-gradient(135deg, #4f46e5 0 2px, transparent 2px 8px); }
+/* 浮窗正文基础排版（与详情页 .content 一致；浮窗已脱离 PostDetail 作用域，这里全局补齐，否则正文无样式） */
+.reader-float .content { line-height: 1.8; font-size: 15px; overflow-wrap: anywhere; word-break: normal; color: #0f172a; }
+.reader-float .content p, .reader-float .content li, .reader-float .content blockquote, .reader-float .content td, .reader-float .content th { overflow-wrap: anywhere; }
+.reader-float .content pre { white-space: pre-wrap; word-break: break-all; max-width: 100%; overflow-x: auto; background: #f1f5f9; padding: 12px 14px; border-radius: 8px; }
+.reader-float .content code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+.reader-float .content blockquote { border-left: 3px solid #e2e8f0; background: #f8fafc; padding: 8px 14px; color: #475569; margin: 12px 0; }
+.reader-float .content a { color: #6366f1; }
+.reader-float .content img { max-width: 100%; }
+.reader-float .content img.kb-emoji { height: 20px; vertical-align: middle; margin: 0 1px; }
+.reader-float .content table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; table-layout: fixed; }
+.reader-float .content th, .reader-float .content td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+.reader-float .content th { background: #f8fafc; font-weight: 600; color: #334155; }
+.reader-float .content tbody tr:nth-child(even) { background: #fcfcfd; }
+.reader-float .content tbody tr:hover { background: #f1f5f9; }
+
+/* ---------- 文章「小窗阅读」浮窗 暗色 ---------- */
+html.dark .mini-reader-btn { background: #23232e; border-color: #2a2a35; color: #c2c6d2; }
+html.dark .mini-reader-btn:hover { border-color: #6366f1; color: #a5b4fc; }
+html.dark .reader-float { background: #17171f; box-shadow: 0 14px 44px rgba(0, 0, 0, .55); }
+html.dark .reader-float .rf-bar { background: #23232e; border-bottom-color: #2a2a35; }
+html.dark .rf-title { color: #e7e7ee; }
+html.dark .rf-close { color: #9aa0ad; }
+html.dark .rf-close:hover { color: #f87171; }
+html.dark .reader-float .rf-resize { background: repeating-linear-gradient(135deg, #5a5a68 0 2px, transparent 2px 8px); }
+html.dark .reader-float .rf-resize:hover { background: repeating-linear-gradient(135deg, #818cf8 0 2px, transparent 2px 8px); }
+html.dark .reader-float .rf-resize:active { background: repeating-linear-gradient(135deg, #a5b4fc 0 2px, transparent 2px 8px); }
+/* 暗色下浮窗正文排版 */
+html.dark .reader-float .content { color: #e7e7ee; }
+html.dark .reader-float .content pre { background: #23232e; color: #e7e7ee; }
+html.dark .reader-float .content code { background: #23232e; color: #e7e7ee; }
+html.dark .reader-float .content blockquote { background: #1d1d27; border-left-color: #3b3b6b; color: #b8b9c4; }
+html.dark .reader-float .content table { border-color: #2a2a35; }
+html.dark .reader-float .content th, html.dark .reader-float .content td { border-color: #2a2a35; color: #c7c8d4; }
+html.dark .reader-float .content th { background: #1d1d27; }
+html.dark .reader-float .content tbody tr:nth-child(even) { background: #1a1a23; }
+html.dark .reader-float .content tbody tr:hover { background: #23232e; }
+html.dark .reader-float .content a { color: #818cf8; }
+
+/* ---------- 独立阅读窗口 正文排版（与浮窗 .content 一致） ---------- */
+.reader-win { line-height: 1.8; font-size: 15px; overflow-wrap: anywhere; word-break: normal; color: #0f172a; padding: 16px; }
+.reader-win p, .reader-win li, .reader-win blockquote, .reader-win td, .reader-win th { overflow-wrap: anywhere; }
+.reader-win pre { white-space: pre-wrap; word-break: break-all; max-width: 100%; overflow-x: auto; background: #f1f5f9; padding: 12px 14px; border-radius: 8px; }
+.reader-win code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+.reader-win blockquote { border-left: 3px solid #e2e8f0; background: #f8fafc; padding: 8px 14px; color: #475569; margin: 12px 0; }
+.reader-win a { color: #6366f1; }
+.reader-win img { max-width: 100%; }
+.reader-win img.kb-emoji { height: 20px; vertical-align: middle; margin: 0 1px; }
+.reader-win table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; table-layout: fixed; }
+.reader-win th, .reader-win td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+.reader-win th { background: #f8fafc; font-weight: 600; color: #334155; }
+.reader-win tbody tr:nth-child(even) { background: #fcfcfd; }
+.reader-win tbody tr:hover { background: #f1f5f9; }
+html.dark .reader-win { color: #e7e7ee; }
+html.dark .reader-win pre { background: #23232e; color: #e7e7ee; }
+html.dark .reader-win code { background: #23232e; color: #e7e7ee; }
+html.dark .reader-win blockquote { background: #1d1d27; border-left-color: #3b3b6b; color: #b8b9c4; }
+html.dark .reader-win table { border-color: #2a2a35; }
+html.dark .reader-win th, html.dark .reader-win td { border-color: #2a2a35; color: #c7c8d4; }
+html.dark .reader-win th { background: #1d1d27; }
+html.dark .reader-win tbody tr:nth-child(even) { background: #1a1a23; }
+html.dark .reader-win tbody tr:hover { background: #23232e; }
+html.dark .reader-win a { color: #818cf8; }
+
+/* 首页帖子卡片作者名（暗色） */
+html.dark .author { color: #c7c8d4; }
+html.dark .author::after { color: #3a3a45; }
+
+/* ---------- 积分明细详情页 PointsLog（暗色） ----------
+   全部类名带 pl- 前缀，避免与首页 .chip / .title / .state 等裸类名互相污染。
+   仅重写 CSS 变量 + 少量结构色，保持与亮色版同一套排版规则。 */
+html.dark .pl-page {
+  --pl-primary: #818cf8;
+  --pl-line: #2a2a35;
+  --pl-line-soft: #23242b;
+  --pl-bg-soft: #18171f;
+  --pl-text: #e7e7ee;
+  --pl-text-2: #b4b8c2;
+  --pl-text-3: #7b8190;
+  --pl-up: #4ade80;
+  --pl-down: #f87171;
+  color: var(--pl-text);
+}
+html.dark .pl-crumb-sep { color: #3a3b45; }
+html.dark .pl-overview,
+html.dark .pl-table { background: #17181d; box-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
+html.dark .pl-lv-tag { background: #16233b; border-color: #244071; color: #a5b4fc; }
+html.dark .pl-lv-bar { background: #26272f; }
+html.dark .pl-seg { background: #18171f; border-color: #2a2a35; }
+html.dark .pl-seg-item.on { background: #23252d; color: #a5b4fc; box-shadow: 0 1px 2px rgba(0, 0, 0, .4); }
+html.dark .pl-group { background: #1b1c22; }
+html.dark .pl-row:hover { background: #1e1f26; }
+

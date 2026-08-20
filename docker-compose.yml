@@ -1,0 +1,41 @@
+# 可选基础设施：本地 MySQL 模式下默认不需要 Docker。
+# 仅在你想启用检索增强（Meilisearch）或附件存储（MinIO）时，用下面命令按需启动：
+#   docker compose --profile optional up -d meilisearch
+#   docker compose --profile optional up -d minio
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    profiles: ["optional"]
+    environment:
+      MEILI_MASTER_KEY: masterKey
+      MEILI_ENV: development
+    ports:
+      - "7700:7700"
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["optional"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  # 模型服务（RAG 预留，可选）：
+  #   docker compose --profile ai up -d ollama
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - ai
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollamadata:/root/.ollama
+
+volumes:
+  miniodata:
+  ollamadata:
