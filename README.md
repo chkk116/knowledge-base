@@ -1,6 +1,6 @@
-# 知识库平台（Vue 3 + Spring Boot 3.5，本地 MySQL，AI/RAG 预留）
+# 知识库平台（Vue 3 + Spring Boot 4.1，本地 MySQL，AI/RAG 预留）
 
-技术栈：**Vue 3 + Vite** 前端，**Spring Boot 3.5 (Java 21)** 后端；数据用 **本地 MySQL 8**，
+技术栈：**Vue 3 + Vite** 前端，**Spring Boot 4.1 (Java 21)** 后端；数据用 **本地 MySQL 8**，
 检索默认走 **本地 MySQL（LIKE，开箱即用，零中间件）**。**Meilisearch / MinIO 等中间件当前未纳入编译**，
 作为后续「docker 服务」阶段的可选增强（见文末「可选增强：Meilisearch / MinIO」）。
 **AI/RAG 问答为预留模块**——当前未引入 Spring AI 依赖（Spring AI 2.0 尚无稳定正式版，会导致依赖解析失败），待后续接入。
@@ -12,7 +12,7 @@
 knowledge-base/
 ├── docker-compose.yml        # 可选基础设施（meilisearch / minio / ollama，默认都不启动）
 ├── db/init.sql               # 本地 MySQL 建库脚本
-├── backend/                  # Spring Boot 3.5 多包模块化单体
+├── backend/                  # Spring Boot 4.1 多包模块化单体
 │   └── src/main/java/com/kb/kbplatform/
 │       ├── config/           # 应用配置（当前仅数据库相关；Meili/MinIO 配置已移出默认编译）
 │       ├── security/         # 登录鉴权：PasswordUtil(salt+SHA256) / TokenUtil(HMAC-SHA256) / AuthFilter
@@ -35,7 +35,7 @@ knowledge-base/
 5. 运行前端：用 `Frontend (npm run dev)` 配置，或 `frontend/` 终端 `npm install && npm run dev`。
 6. 浏览器访问 `http://localhost:5173`。
 
-> JDK 需 21（Spring Boot 3.5 支持 17/21，建议 21）。若本机没装 Maven，IDEA 可用内置 Maven 构建（无需 Maven Wrapper）。
+> JDK 需 21（Spring Boot 4.1 支持 17/21，建议 21）。若本机没装 Maven，IDEA 可用内置 Maven 构建（无需 Maven Wrapper）。
 > `Frontend` 配置若报「Node interpreter not configured」：在 `Settings → Languages & Frameworks → Node.js` 指定本机 Node（建议 20+）。
 
 ### 已内置运行配置（Run/Debug Configurations）
