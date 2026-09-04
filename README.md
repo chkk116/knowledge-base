@@ -1,5 +1,13 @@
 # 知识库平台（Vue 3 + Spring Boot + 实时协同 + Electron 桌面端 + Capacitor 移动端）
 
+![License](https://img.shields.io/badge/License-MulanPSL--2-blue)
+![Java](https://img.shields.io/badge/Java-21%2B-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.x-green)
+![Vue](https://img.shields.io/badge/Vue-3-brightgreen)
+![MySQL](https://img.shields.io/badge/MySQL-8-blue)
+![Gitee Stars](https://img.shields.io/gitee/stars/beixun/knowledge-base)
+![Last Commit](https://img.shields.io/gitee/last-commit/beixun/knowledge-base/master)
+
 一站式企业内网知识库：**文章/文档、评论互动、实时协同编辑、文档级细粒度权限、考试培训、课程学习、积分徽章排行、通知公告、AI 问答（RAG）**，配 **桌面客户端（Electron）** 与 **移动端（Capacitor / Android APK）**。
 
 技术栈：
