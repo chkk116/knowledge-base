@@ -16,7 +16,11 @@ public class Comment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private Long docId;     // 关联文档
+    // 评论挂载对象类型：DOC=知识库帖子，CHAPTER=培训章节（通用评论体系，docId 复用为 targetId）
+    @Column(nullable = false)
+    private String targetType = "DOC";
+
+    private Long docId;     // 关联目标 id（帖子 id 或章节 id，由 targetType 决定语义）
     private Long parentId;  // 父评论 id（楼中楼回复；顶层评论为 null）
     private Long userId;    // 评论人 id（可空）
     private String username; // 评论人用户名（冗余，便于展示）
@@ -33,6 +37,9 @@ public class Comment {
 
     public Long getDocId() { return docId; }
     public void setDocId(Long docId) { this.docId = docId; }
+
+    public String getTargetType() { return targetType; }
+    public void setTargetType(String targetType) { this.targetType = targetType; }
 
     public Long getParentId() { return parentId; }
     public void setParentId(Long parentId) { this.parentId = parentId; }

@@ -35,14 +35,66 @@ html.dark {
   --el-color-primary-rgb: 64, 158, 255;
 }
 
-/* 切换瞬间的全局过渡（0.32s 后被移除） */
+/* ============================================================
+   切换瞬间的全局过渡（仅切换期间挂在 html 上，结束后移除）
+   - 属性尽量全：渐变 / SVG 描边 / 轮廓 / 滤镜一并纳入
+   - transition-delay 归零：避免 el-dialog、el-drawer 等自带延迟
+     的组件慢半拍，出现"有的先变有的后变"的割裂感
+   ============================================================ */
 .theme-anim,
 .theme-anim *,
 .theme-anim *::before,
 .theme-anim *::after {
-  transition: background-color .3s ease, border-color .3s ease,
-              color .3s ease, box-shadow .3s ease, fill .3s ease !important;
+  transition:
+    background-color .42s cubic-bezier(.4, 0, .2, 1),
+    background-image  .42s cubic-bezier(.4, 0, .2, 1),
+    border-color      .42s cubic-bezier(.4, 0, .2, 1),
+    color             .42s cubic-bezier(.4, 0, .2, 1),
+    fill              .42s cubic-bezier(.4, 0, .2, 1),
+    stroke            .42s cubic-bezier(.4, 0, .2, 1),
+    box-shadow        .42s cubic-bezier(.4, 0, .2, 1),
+    outline-color     .42s cubic-bezier(.4, 0, .2, 1),
+    text-decoration-color .42s cubic-bezier(.4, 0, .2, 1),
+    filter            .42s cubic-bezier(.4, 0, .2, 1) !important;
+  transition-delay: 0s !important;
 }
+
+/* ============================================================
+   整页柔和淡入（View Transitions，Chromium 111+）
+   解决纯 CSS 过渡兜不住的部分：body 背景向画布传播、linear-gradient
+   背景、背景图、滚动条区域等"硬切"元素 —— 由整页快照淡入覆盖，
+   观感上是整屏一起变暗，而不是各组件各变各的。
+   做法：旧快照保持不透明不动，新快照从透明淡入覆盖上去（避免两层
+   半透明叠加导致中途发灰）。
+   ============================================================ */
+::view-transition-old(root) {
+  animation: none;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  animation: kb-theme-fade-in .42s cubic-bezier(.4, 0, .2, 1) both;
+  mix-blend-mode: normal;
+}
+@keyframes kb-theme-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* 走整页淡入时关掉逐元素 CSS 过渡：否则快照捕获到的会是"刚起步"的颜色，
+   淡入结束后又突然跳一下 */
+html.theme-vt,
+html.theme-vt *,
+html.theme-vt *::before,
+html.theme-vt *::after {
+  transition: none !important;
+}
+
+/* ============================================================
+   顶层背景：body 背景会向画布(canvas)传播，传播绘制不过渡，
+   会表现为"整屏底色瞬变"。给 html 也定一份背景色，让底色参与过渡。
+   ============================================================ */
+html { background: #f8fafc; }
+html.dark { background: #0e0e12; }
 
 /* ---------- 顶层框架（App.vue 全局样式） ---------- */
 html.dark body { background: #0e0e12; color: #e7e7ee; }

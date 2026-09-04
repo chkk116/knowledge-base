@@ -28,6 +28,10 @@ public final class HtmlSanitizer {
                     && (val.startsWith("/uploads/") || val.startsWith("/emojis/"))) {
                 return true;
             }
+            // 限制 data: 协议仅允许图片类型，杜绝 data:image/svg+xml 等可含脚本的向量
+            if ("img".equals(tagName) && "src".equals(key) && val.startsWith("data:")) {
+                return val.matches("^data:image/(png|jpe?g|gif|webp|bmp);base64,.*");
+            }
             // 放行站内相对链接（如 /post/123、/#anchor），避免文章内跳转失效；
             // 注意禁止协议相对地址（//evil.com）——否则会被浏览器当作 https://evil.com 用于钓鱼/跳转
             if ("a".equals(tagName) && "href".equals(key)
@@ -49,12 +53,42 @@ public final class HtmlSanitizer {
             .addProtocols("img", "src", "data", "http", "https")  // 允许 data:/http(s): 以及经上方覆写放行的 /uploads 相对路径
             .preserveRelativeLinks(true);
 
-    /** 净化富文本 HTML，去除危险标签/属性；并为正文图片注入 loading="lazy" 实现懒加载 */
+    /** 仅保留无害的排版类 style 属性，剔除 position/z-index/background-url 等可造成点击劫持或追踪信标的 CSS */
+    private static final java.util.Set<String> SAFE_STYLE_PROPS = java.util.Set.of(
+            "color", "background-color", "font-size", "font-weight", "font-style", "font-family",
+            "text-align", "text-decoration", "line-height", "letter-spacing", "text-indent",
+            "vertical-align", "white-space", "word-break", "text-transform", "list-style-type");
+
+    private static String safeStyle(String style) {
+        if (style == null || style.isBlank()) return "";
+        String lower = style.toLowerCase();
+        if (lower.contains("url(") || lower.contains("expression(")) return ""; // 整体含 url()/expression 直接作废
+        StringBuilder sb = new StringBuilder();
+        for (String decl : style.split(";")) {
+            int idx = decl.indexOf(':');
+            if (idx <= 0) continue;
+            String prop = decl.substring(0, idx).trim().toLowerCase();
+            String val = decl.substring(idx + 1).trim();
+            if (!SAFE_STYLE_PROPS.contains(prop)) continue;
+            if (val.contains("<") || val.contains(">")) continue;
+            sb.append(prop).append(":").append(val).append(";");
+        }
+        return sb.toString();
+    }
+
+    /** 净化富文本 HTML，去除危险标签/属性；收紧 style、外链强制 noopener、正文图片注入懒加载 */
     public static String sanitize(String html) {
         if (html == null) return "";
         String clean = Jsoup.clean(html, WHITELIST);
-        // 二次解析，统一给所有 <img> 加懒加载属性（已在白名单内，不会被剥离）
         org.jsoup.nodes.Document doc = Jsoup.parse(clean);
+        // 收紧 style：仅保留白名单排版属性，剔除危险 CSS（点击劫持 / 追踪信标）
+        doc.select("[style]").forEach(el -> {
+            String safe = safeStyle(el.attr("style"));
+            if (safe.isEmpty()) el.removeAttr("style");
+            else el.attr("style", safe);
+        });
+        // 外链强制 noopener，防 reverse tabnabbing
+        doc.select("a[target=_blank]").forEach(a -> a.attr("rel", "noopener noreferrer"));
         doc.select("img").forEach(img -> {
             img.attr("loading", "lazy");
             img.attr("decoding", "async");
@@ -66,5 +100,24 @@ public final class HtmlSanitizer {
     public static String toText(String html) {
         if (html == null) return "";
         return Jsoup.clean(html, Safelist.none());
+    }
+
+    /**
+     * 生成通知/看板等“摘要预览”：优先保留原始富文本（含站内表情 {@code <img class="kb-emoji">}），
+     * 仅当可见纯文本超过 max 时才退化为截断的纯文本（避免把表情 <img> 标签从中间切断导致裂图/裸标签）。
+     */
+    public static String preview(String html, int max) {
+        if (html == null) return "";
+        String clean = sanitize(html);
+        String text = toText(clean);
+        if (text.length() <= max) return clean;
+        return text.substring(0, max) + "…";
+    }
+
+    /** 转义纯文本用于安全插入 HTML 属性/标题（防注入与标签截断） */
+    public static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\"", "&quot;").replace("'", "&#39;");
     }
 }

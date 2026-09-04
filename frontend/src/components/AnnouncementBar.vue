@@ -195,4 +195,26 @@ const closePinned = () => {
   line-height: 1.6;
   white-space: pre-wrap;
 }
+
+/* 暗色模式适配 */
+html.dark .ann-card { border-color: var(--el-border-color); background: var(--el-bg-color); }
+html.dark .ann-card-head { color: var(--el-text-color-primary); border-bottom-color: var(--el-border-color-lighter); background: var(--el-fill-color-light); }
+html.dark .ann-head-ic { color: #fbbf24; }
+html.dark .ann-close { color: var(--el-text-color-placeholder); }
+html.dark .ann-close:hover { color: #f87171; }
+html.dark .announcement-item { border-bottom-color: var(--el-border-color-lighter); }
+html.dark .announcement-item.pinned { background: rgba(250, 204, 21, .10); }
+html.dark .ann-body { color: var(--el-text-color-regular); }
+html.dark .ann-title { color: var(--el-text-color-primary); }
+html.dark .ann-content { color: var(--el-text-color-secondary); }
+html.dark .ann-pinned-head { color: #fca5a5; }
+html.dark .ann-pinned-bell { color: #f87171; }
+html.dark .ann-pinned-card { border-color: rgba(248, 113, 113, .35); background: rgba(239, 68, 68, .12); }
+html.dark .ann-pinned-title { color: #fca5a5; }
+html.dark .ann-pinned-content { color: #e8b4b4; }
+
+/* 置顶弹窗为 el-dialog 内部 DOM（不带 scoped 属性），需 :deep() 命中 */
+html.dark .ann-pinned-dialog :deep(.el-dialog__header) { background: var(--el-fill-color-light); border-bottom: 1px solid var(--el-border-color-lighter); margin-right: 0; }
+html.dark .ann-pinned-dialog :deep(.el-dialog__body) { background: var(--el-bg-color-overlay); padding-top: 16px; }
+html.dark .ann-pinned-dialog :deep(.el-dialog__footer) { background: var(--el-bg-color-overlay); border-top: 1px solid var(--el-border-color-lighter); }
 </style>

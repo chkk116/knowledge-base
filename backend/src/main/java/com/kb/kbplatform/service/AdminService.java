@@ -76,19 +76,34 @@ public class AdminService {
         return userRepo.save(u);
     }
 
+    /** 审计/控制器用：按 id 取用户（不存在抛异常） */
+    public User requireUser(Long id) {
+        return userRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+    }
+
     @Transactional
     public User updateUser(Long id, UpdateReq r) {
         User u = userRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        // 身份类字段（角色 / 权限 / 启用状态）一旦变更，必须让该用户的旧 token 立即失效。
+        // 因为 AuthFilter 的鉴权完全读取 token 内的 role/permissions 快照，不回查数据库；
+        // 若不递增 tokenVersion，被降权/撤销权限的用户在 token 剩余有效期内仍保有原权限。
+        boolean identityChanged = false;
+
         if (r.displayName != null && !r.displayName.isBlank()) {
             u.setDisplayName(r.displayName.trim());
         }
         if (r.role != null && !r.role.isBlank()) {
+            String oldRole = u.getRole();
             u.setRole(normalizeRole(r.role));
             // 角色改为 ADMIN 时清空细粒度权限（ADMIN 隐式拥有全部，无需冗余存储）
             if ("ADMIN".equals(u.getRole())) u.setPermissions("");
+            if (!java.util.Objects.equals(oldRole, u.getRole())) identityChanged = true;
         }
         if (r.permissions != null) {
-            u.setPermissions(normalizePerms(r.permissions));
+            String oldPerms = u.getPermissions() == null ? "" : u.getPermissions();
+            String newPerms = normalizePerms(r.permissions);
+            u.setPermissions(newPerms);
+            if (!oldPerms.equals(newPerms)) identityChanged = true;
         }
         if (r.password != null && !r.password.isBlank()) {
             if (r.password.length() < 6) throw new IllegalArgumentException("密码至少 6 位");
@@ -96,7 +111,15 @@ public class AdminService {
             u.setTokenVersion(u.getTokenVersion() + 1);   // 管理员改用户密码后，旧 token 立即失效
         }
         if (r.enabled != null) {
+            boolean oldEnabled = u.isEnabled();
             u.setEnabled(r.enabled);
+            if (oldEnabled != u.isEnabled()) identityChanged = true;
+        }
+        if (r.storageQuota != null) {
+            u.setStorageQuota(r.storageQuota == 0L ? null : r.storageQuota);  // 0 表示恢复系统默认 5GB
+        }
+        if (identityChanged) {
+            u.setTokenVersion(u.getTokenVersion() + 1);   // 角色/权限/启用状态变更 → 旧 token 立即失效
         }
         return userRepo.save(u);
     }
@@ -141,7 +164,8 @@ public class AdminService {
 
     /** 规范化权限码串：仅保留白名单内的码，去重、去空、逗号分隔；非法内容丢弃 */
     private static final java.util.Set<String> PERM_WHITELIST =
-            java.util.Set.of("USER_MANAGE", "DOC_REVIEW", "STATS_VIEW", "BLACKLIST_MANAGE", "TAXONOMY_MANAGE", "ANNOUNCEMENT_MANAGE");
+            java.util.Set.of("USER_MANAGE", "DOC_REVIEW", "STATS_VIEW", "BLACKLIST_MANAGE", "TAXONOMY_MANAGE", "ANNOUNCEMENT_MANAGE", "COURSE_MANAGE", "EXAM_MANAGE",
+                    "SHARE_CREATE", "SHARE_VIEW", "SHARE_DELETE", "SHARE_CAPACITY", "CORE_MAINTAIN", "DOC_EXPORT", "BANNED_WORDS_MANAGE");
     private String normalizePerms(String perms) {
         if (perms == null || perms.isBlank()) return "";
         StringBuilder sb = new StringBuilder();
@@ -163,6 +187,7 @@ public class AdminService {
         public String displayName;
         public Boolean enabled;
         public String permissions;   // 细粒度权限码（逗号分隔），仅 ADMIN 操作者可下发
+        public Long storageQuota;    // 个人存储总容量（字节）；null = 系统默认 5GB
     }
 
     public static class UpdateReq {
@@ -171,5 +196,6 @@ public class AdminService {
         public String password;
         public Boolean enabled;
         public String permissions;   // 细粒度权限码（逗号分隔）
+        public Long storageQuota;    // 个人存储总容量（字节）；0 = 恢复系统默认 5GB
     }
 }

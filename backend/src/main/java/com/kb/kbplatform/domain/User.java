@@ -3,6 +3,11 @@ package com.kb.kbplatform.domain;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Entity
 @Table(name = "kb_user")
@@ -45,6 +50,16 @@ public class User {
     private LocalDateTime createdAt = LocalDateTime.now();   // 注册时间
 
     private long tokenVersion = 0L;   // 令牌版本号：改密/重置密码时自增，使该用户所有旧 token 立即失效
+
+    @Column(nullable = true)
+    private Long storageQuota;   // 管理员分配的个人存储总容量（字节）；null = 使用系统默认 5GB
+
+    @Column(columnDefinition = "text")
+    private String aiPersona;   // 用户 AI 偏好/习惯（JSON：语气、关注领域、自定义指令、回复长度等）
+
+    // 佩戴展示的徽章 id 列表（逗号分隔，最多 3 枚；仅可佩戴已获得徽章；null/空 = 未佩戴）
+    @Column(length = 64)
+    private String displayBadge;
 
 
     public Long getId() { return id; }
@@ -94,5 +109,42 @@ public class User {
 
     public long getTokenVersion() { return tokenVersion; }
     public void setTokenVersion(long tokenVersion) { this.tokenVersion = tokenVersion; }
+
+    public Long getStorageQuota() { return storageQuota; }
+    public void setStorageQuota(Long storageQuota) { this.storageQuota = storageQuota; }
+
+    public String getAiPersona() { return aiPersona; }
+    public void setAiPersona(String aiPersona) { this.aiPersona = aiPersona; }
+
+    public String getDisplayBadge() { return displayBadge; }
+    public void setDisplayBadge(String displayBadge) { this.displayBadge = displayBadge; }
+
+    /** 最多同时佩戴的勋章数 */
+    public static final int MAX_WORN = 3;
+
+    /** 把逗号分隔的佩戴列表解析为有序、去空白、去重的数组（与前端逻辑一致） */
+    public List<String> getWornList() {
+        if (displayBadge == null || displayBadge.isBlank()) return new ArrayList<>();
+        return Arrays.stream(displayBadge.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
+    }
+
+    /** 写入佩戴列表：去重、保序、截断到 MAX_WORN 枚，空列表则清空字段 */
+    public void setWornList(List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            displayBadge = null;
+            return;
+        }
+        List<String> clean = ids.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .limit(MAX_WORN)
+                .collect(Collectors.toList());
+        displayBadge = clean.isEmpty() ? null : String.join(",", clean);
+    }
 }
 

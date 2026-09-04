@@ -9,6 +9,7 @@ import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
 import com.kb.kbplatform.security.SensitiveWordFilter;
 import com.kb.kbplatform.security.TokenClaims;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -43,27 +44,45 @@ public class CommentService {
         this.notificationService = notificationService;
     }
 
+    /** 列出某帖子（DOC）的评论（旧接口，等价于 list("DOC", docId)） */
     public List<Comment> list(Long docId) {
-        return repo.findByDocIdOrderByCreatedAtAsc(docId);
+        return list("DOC", docId);
     }
 
-    /** 切换评论点赞：已赞则取消（返回 false），未赞则点赞（返回 true），并同步维护 Comment.likes 计数 */
-    @Transactional
+    /** 通用：按对象类型 + 目标 id 列出评论（DOC 帖子 / CHAPTER 章节） */
+    public List<Comment> list(String targetType, Long targetId) {
+        return repo.findByTargetTypeAndDocIdOrderByCreatedAtAsc(targetType, targetId);
+    }
+
+    /** 切换评论点赞：已赞则取消（返回 false），未赞则点赞（返回 true）。
+     *  计数用原子 UPDATE 维护；并发双击的重复插入由 (userId,commentId) 唯一约束拦下，
+     *  noRollbackFor 保证事务仍可提交，按"已点赞"返回。 */
+    @Transactional(noRollbackFor = DataIntegrityViolationException.class)
     public Map<String, Object> like(Long commentId, Long userId) {
-        Comment c = repo.findById(commentId)
+        repo.findById(commentId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "评论不存在"));
         boolean liked;
         if (likeRepo.existsByUserIdAndCommentId(userId, commentId)) {
             likeRepo.deleteByUserIdAndCommentId(userId, commentId);
-            c.setLikes(Math.max(0, c.getLikes() - 1));
+            repo.decrementLikes(commentId);
             liked = false;
         } else {
-            likeRepo.save(new CommentLike(userId, commentId));
-            c.setLikes(c.getLikes() + 1);
+            try {
+                likeRepo.saveAndFlush(new CommentLike(userId, commentId));
+            } catch (DataIntegrityViolationException e) {
+                // 并发双击：另一请求已插入点赞行，本次不重复计数
+                return Map.of("liked", true, "likes", likeCount(commentId));
+            }
+            repo.incrementLikes(commentId);
             liked = true;
         }
-        repo.save(c);
-        return Map.of("liked", liked, "likes", c.getLikes());
+        return Map.of("liked", liked, "likes", likeCount(commentId));
+    }
+
+    /** 当前评论点赞数（标量查询绕过一级缓存，保证原子更新后读到最新值） */
+    private int likeCount(Long commentId) {
+        Integer n = repo.findLikesById(commentId);
+        return n == null ? 0 : n;
     }
 
     /** 我点过赞的评论 id 集合（用于前端标记点赞填充态） */
@@ -85,17 +104,32 @@ public class CommentService {
                 .collect(Collectors.toList());
     }
 
+    /** 公开发表评论到帖子（DOC），保留原有通知逻辑 */
     public Comment add(Long docId, TokenClaims claims, String rawContent, Long parentId) {
-        // 敏感词（和谐词）检查：命中则拒绝提交，返回 400
-        if (sensitiveWordFilter.contains(rawContent)) {
-            throw new IllegalArgumentException("评论内容包含敏感词：" + String.join("、", sensitiveWordFilter.find(rawContent)));
-        }
+        return add("DOC", docId, claims, rawContent, parentId);
+    }
+
+    /**
+     * 通用评论发表：targetType ∈ {DOC, CHAPTER}；DOC 走文章作者/回复通知，CHAPTER 仅入库不通知。
+     * 需要事务：评论入库 + 最多 3 处通知写入（@提及 / 回复 / 作者）必须一起成功，
+     * 否则会出现「评论已发出但作者收不到通知」的静默不一致。
+     */
+    @Transactional
+    public Comment add(String targetType, Long targetId, TokenClaims claims, String rawContent, Long parentId) {
         String content = HtmlSanitizer.sanitize(rawContent);
         if (content == null || content.isBlank()) {
-            throw new IllegalArgumentException("评论内容不能为空");
+            throw new IllegalArgumentException("评论内容不能为空或仅含不支持的内容");
+        }
+        // 敏感词检查必须针对「去掉标签后的可见纯文本」：
+        // 若直接拿原始 HTML 匹配，粘贴图片的 base64 data URI 是一串随机大小写字母数字，
+        // 极易撞上词库里的短 ASCII 词（sb / cnm / tmd / nmd 等），导致带图的正常评论被拒（400）。
+        String plainText = HtmlSanitizer.toText(content);
+        if (sensitiveWordFilter.contains(plainText)) {
+            throw new IllegalArgumentException("评论内容包含敏感词：" + String.join("、", sensitiveWordFilter.find(plainText)));
         }
         Comment c = new Comment();
-        c.setDocId(docId);
+        c.setTargetType(targetType);
+        c.setDocId(targetId);   // 复用 docId 列作为通用 targetId
         c.setParentId(parentId);
         c.setUserId(claims == null ? null : claims.userId());
         c.setUsername(claims == null ? "匿名" : claims.username());
@@ -103,27 +137,30 @@ public class CommentService {
         Comment saved = repo.save(c);
         String actorName = claims == null ? "匿名" : claims.username();
         Long actorId = claims == null ? null : claims.userId();
-        // 评论含 @用户名 时，给被提及的已存在用户发站内通知（排除自己）
-        notificationService.notifyMention(docId, actorName, saved.getId(), rawContent);
-        Document doc = docRepo.findById(docId).orElse(null);
-        String docTitle = doc == null ? "" : doc.getTitle();
-        if (parentId != null) {
-            // 楼中楼回复：通知父评论作者（排除自己）；父评论不存在则退化为顶层评论逻辑
-            Comment parent = repo.findById(parentId).orElse(null);
-            if (parent != null && !Objects.equals(parent.getUsername(), claims == null ? null : claims.username())) {
-                String preview = rawContent.length() > 40 ? rawContent.substring(0, 40) + "…" : rawContent;
-                notificationService.notifyReply(docId, parent.getUserId(), actorName, saved.getId(), docTitle, preview);
+        if ("DOC".equals(targetType)) {
+            // 评论含 @用户名 时，给被提及的已存在用户发站内通知（排除自己）
+            notificationService.notifyMention(targetId, actorName, saved.getId(), rawContent);
+            Document doc = docRepo.findById(targetId).orElse(null);
+            String docTitle = doc == null ? "" : doc.getTitle();
+            if (parentId != null) {
+                // 楼中楼回复：通知父评论作者（排除自己）；父评论不存在则退化为顶层评论逻辑
+                Comment parent = repo.findById(parentId).orElse(null);
+                if (parent != null && !Objects.equals(parent.getUsername(), claims == null ? null : claims.username())) {
+                    String preview = HtmlSanitizer.preview(rawContent, 40);
+                    notificationService.notifyReply(targetId, parent.getUserId(), actorName, saved.getId(), docTitle, preview);
+                }
+            } else if (doc != null) {
+                // 顶层评论：通知文章作者（评论自己文章不重复通知）
+                String preview = HtmlSanitizer.preview(rawContent, 40);
+                notificationService.notifyComment(targetId, doc.getOwnerId(), actorId, actorName,
+                        saved.getId(), docTitle, preview);
             }
-        } else if (doc != null) {
-            // 顶层评论：通知文章作者（评论自己文章不重复通知）
-            String preview = rawContent.length() > 40 ? rawContent.substring(0, 40) + "…" : rawContent;
-            notificationService.notifyComment(docId, doc.getOwnerId(), actorId, actorName,
-                    saved.getId(), docTitle, preview);
         }
         return saved;
     }
 
     /** 删除自己的评论：仅评论作者本人可删（按 username 判定归属，兼容旧数据 userId 为空的情况） */
+    @Transactional
     public void deleteOwn(Long id, TokenClaims claims) {
         if (claims == null) throw new ResponseStatusException(FORBIDDEN, "请先登录");
         Comment c = repo.findById(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "评论不存在"));
@@ -131,11 +168,14 @@ public class CommentService {
         if (!isOwner) {
             throw new ResponseStatusException(FORBIDDEN, "只能删除自己的评论");
         }
+        likeRepo.deleteByCommentId(id);   // 先清点赞记录，避免 kb_comment_like 残留孤儿
         repo.deleteById(id);
     }
 
     /** 管理员删除（保留原语义） */
+    @Transactional
     public void delete(Long id) {
+        likeRepo.deleteByCommentId(id);
         repo.deleteById(id);
     }
 }

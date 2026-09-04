@@ -1,0 +1,45 @@
+# ============================================================
+# 生产环境配置（激活：SPRING_PROFILES_ACTIVE=prod）
+#
+# 原则：本文件只放「结构」，所有会因换服务器/换域名/换密钥而变的值一律走环境变量，
+#       由 deploy/env.prod 集中提供。因此 mvn package 打出的 jar 通吃所有环境，
+#       换机器只改 deploy/env.prod，不需要改代码、不需要重新打包。
+#
+# 端口约定（与 deploy/nginx-example.conf 保持一致）：
+#   后端 8080 / 协同中继 1234
+# ============================================================
+
+server:
+  port: ${KB_SERVER_PORT:8080}
+
+spring:
+  datasource:
+    # 生产库 kb（与测试库 kb_test 隔离）。DB 跑在本机，故 host 恒为 localhost，无公网 IP。
+    url: jdbc:mysql://${KB_DB_HOST:localhost}:${KB_DB_PORT:3306}/${KB_DB_NAME:kb}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${KB_DB_USER:kb}
+    password: ${KB_DB_PASSWORD:kb}
+  jpa:
+    hibernate:
+      # 生产建议 validate（只校验不改动表结构），避免 ddl-auto=update 意外改表
+      ddl-auto: ${KB_DDL_AUTO:validate}
+
+kb:
+  security:
+    # 生产必须注入足够长的随机串；未注入时会启动失败（无默认值兜底，防止带弱密钥上线）
+    token-secret: ${KB_TOKEN_SECRET}
+  ai:
+    zhipu:
+      # 无默认值 → 缺环境变量即启动失败，避免生产带占位 Key 上线后 AI 静默不可用
+      api-key: ${KB_ZHIPU_API_KEY}
+  cors:
+    # 前后端经 Nginx 同源反代时留空即可（不注册 CORS 规则，零开销）。
+    # 若前端独立域名部署，填前端域名，多个用英文逗号分隔。
+    allowed-origins: ${KB_CORS_ORIGINS:}
+    allow-credentials: ${KB_CORS_ALLOW_CREDENTIALS:false}
+  collab:
+    port: ${KB_COLLAB_PORT:1234}      # 生产协同中继端口（Nginx /collab/ 反代到此）
+  upload:
+    # 必须是绝对路径：相对路径会按进程工作目录解析，换启动方式会导致历史图片"消失"。
+    dir: ${KB_UPLOAD_DIR:/var/www/kb/uploads}
+  seed:
+    enabled: false                    # 生产不自动灌示例数据

@@ -31,6 +31,8 @@ const unblock = async (d) => {
     await unblockDoc(d.id)
     ElMessage.success('已解封')
     await load()
+    // 解封后该条离开列表：末页删完会停在空页码，回退一页再拉一次
+    if (docs.value.length === 0 && page.value > 1) { page.value--; await load() }
   } catch (e) {
     ElMessage.error('操作失败')
   }
@@ -51,8 +53,8 @@ onMounted(load)
       :closable="false"
       style="margin-bottom: 12px;"
     />
-    <el-table v-else :data="docs" border stripe v-loading="loading">
-      <el-table-column prop="id" label="ID" width="70" />
+    <el-table v-stack-table v-else :data="docs" border stripe v-loading="loading">
+      <el-table-column prop="id" label="ID" width="70"  class-name="stack-hide" />
       <el-table-column label="标题">
         <template #default="{ row }">
           <span class="link" @click="goDetail(row)">{{ row.title }}</span>
@@ -78,4 +80,18 @@ onMounted(load)
 .link { color: #4f46e5; cursor: pointer; }
 .link:hover { text-decoration: underline; }
 .pager { margin-top: 14px; justify-content: flex-end; }
+
+/* ============================================================
+   响应式布局（断点统一：≤1024 平板 / ≤640 手机）
+   本页无定宽容器，表格靠 el-table 自带横向滚动，只需收紧字号与间距
+   ============================================================ */
+@media (max-width: 1024px) {
+  .pager { margin-top: 12px; justify-content: center; }
+}
+
+@media (max-width: 640px) {
+  :deep(.el-table) { font-size: 13px; }
+  .link { word-break: break-word; }
+  .pager { margin-top: 10px; }
+}
 </style>

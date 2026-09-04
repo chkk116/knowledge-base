@@ -3,7 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   UserFilled, Delete, EditPen, Switch, Key, Coin,
-  DocumentAdd, Lock, Unlock, Select, Close, Search,
+  DocumentAdd, DocumentDelete, Lock, Unlock, Select, Close, Search,
+  DocumentCopy, User, FolderOpened, Reading,
 } from '@element-plus/icons-vue'
 import { listAudit } from '../../api/admin'
 
@@ -19,8 +20,20 @@ const actor = ref('')               // 操作人（模糊）
 const dateRange = ref([])           // [开始Date, 结束Date]
 
 const USER_ACTIONS = new Set([
-  'CREATE_USER', 'DELETE_USER', 'UPDATE_USER', 'TOGGLE_USER', 'RESET_PWD', 'ADJUST_POINTS',
+  'CREATE_USER', 'DELETE_USER', 'UPDATE_USER', 'TOGGLE_USER', 'RESET_PWD', 'ADJUST_POINTS', 'UPDATE_USER_QUOTA',
 ])
+
+const USER_QUOTA_ACTIONS = new Set(['UPDATE_USER_QUOTA'])
+
+const SHARE_ACTIONS = new Set([
+  'CREATE_SHARE_SPACE', 'UPDATE_SHARE_SPACE', 'DELETE_SHARE_SPACE', 'UPDATE_SHARE_CAPACITY',
+  'UPDATE_SHARE_MEMBER',
+  'CREATE_SHARE_DOC', 'UPDATE_SHARE_DOC', 'DELETE_SHARE_DOC',
+])
+
+const SHARE_SPACE_ACTIONS = new Set(['CREATE_SHARE_SPACE', 'UPDATE_SHARE_SPACE', 'DELETE_SHARE_SPACE', 'UPDATE_SHARE_CAPACITY'])
+const SHARE_MEMBER_ACTIONS = new Set(['UPDATE_SHARE_MEMBER'])
+const SHARE_DOC_ACTIONS = new Set(['CREATE_SHARE_DOC', 'UPDATE_SHARE_DOC', 'DELETE_SHARE_DOC'])
 
 const ACTION_META = {
   CREATE_USER:    { label: '创建用户', icon: UserFilled,  color: '#3b82f6', bg: '#eff6ff' },
@@ -29,22 +42,40 @@ const ACTION_META = {
   TOGGLE_USER:    { label: '启用/禁用', icon: Switch,     color: '#f59e0b', bg: '#fffbeb' },
   RESET_PWD:      { label: '重置密码', icon: Key,         color: '#f59e0b', bg: '#fffbeb' },
   ADJUST_POINTS:  { label: '调整积分', icon: Coin,        color: '#10b981', bg: '#ecfdf5' },
+  UPDATE_USER_QUOTA: { label: '调整用户配额', icon: Coin,   color: '#f59e0b', bg: '#fffbeb' },
   CREATE_DOC:     { label: '创建文档', icon: DocumentAdd, color: '#3b82f6', bg: '#eff6ff' },
   DELETE_DOC:     { label: '删除文档', icon: Delete,      color: '#ef4444', bg: '#fef2f2' },
   BLOCK_DOC:      { label: '封禁文档', icon: Lock,        color: '#ef4444', bg: '#fef2f2' },
   UNBLOCK_DOC:    { label: '解封文档', icon: Unlock,      color: '#10b981', bg: '#ecfdf5' },
   APPROVE_DOC:    { label: '通过审核', icon: Select,      color: '#10b981', bg: '#ecfdf5' },
   REJECT_DOC:     { label: '驳回审核', icon: Close,       color: '#ef4444', bg: '#fef2f2' },
+  CREATE_SHARE_SPACE:    { label: '创建团队空间', icon: FolderOpened,  color: '#3b82f6', bg: '#eff6ff' },
+  UPDATE_SHARE_SPACE:    { label: '更新团队空间', icon: EditPen,       color: '#6366f1', bg: '#eef2ff' },
+  DELETE_SHARE_SPACE:    { label: '删除团队空间', icon: Delete,        color: '#ef4444', bg: '#fef2f2' },
+  UPDATE_SHARE_CAPACITY: { label: '调整空间容量', icon: EditPen,       color: '#f59e0b', bg: '#fffbeb' },
+  UPDATE_SHARE_MEMBER:   { label: '调整空间成员', icon: User,          color: '#8b5cf6', bg: '#f5f3ff' },
+  CREATE_SHARE_DOC:      { label: '创建空间文档', icon: DocumentAdd,   color: '#3b82f6', bg: '#eff6ff' },
+  UPDATE_SHARE_DOC:      { label: '更新空间文档', icon: EditPen,       color: '#6366f1', bg: '#eef2ff' },
+  DELETE_SHARE_DOC:      { label: '删除空间文档', icon: DocumentDelete,color: '#ef4444', bg: '#fef2f2' },
 }
 const meta = (a) => ACTION_META[a] || { label: a, icon: EditPen, color: '#64748b', bg: '#f1f5f9' }
 
-// 客户端的领域分组（用户/文档）过滤，作用于当前页数据
+// 客户端的领域分组（用户 / 文档 / 共享空间）过滤，作用于当前页数据
 const filtered = computed(() => {
   if (domain.value === 'all') return logs.value
-  return logs.value.filter((l) =>
-    (USER_ACTIONS.has(l.action) ? 'user' : 'doc') === domain.value,
-  )
+  if (domain.value === 'user') return logs.value.filter((l) => USER_ACTIONS.has(l.action))
+  if (domain.value === 'doc') return logs.value.filter((l) => !USER_ACTIONS.has(l.action) && !SHARE_ACTIONS.has(l.action))
+  if (domain.value === 'share') return logs.value.filter((l) => SHARE_ACTIONS.has(l.action))
+  return logs.value
 })
+
+const subGroup = (action) => {
+  if (USER_QUOTA_ACTIONS.has(action)) return { label: '配额', color: '#f59e0b' }
+  if (SHARE_SPACE_ACTIONS.has(action)) return { label: '空间', color: '#3b82f6' }
+  if (SHARE_MEMBER_ACTIONS.has(action)) return { label: '成员', color: '#8b5cf6' }
+  if (SHARE_DOC_ACTIONS.has(action)) return { label: '文档', color: '#10b981' }
+  return null
+}
 
 const relTime = (iso) => {
   if (!iso) return '-'
@@ -100,13 +131,14 @@ onMounted(load)
   <div class="audit">
     <div class="audit-header">
       <h2>操作审计</h2>
-      <span class="tip">记录管理员的关键操作（用户 / 文档管理、权限变更、重置密码等）</span>
+      <span class="tip">记录管理员的关键操作（用户 / 文档 / 共享空间管理、权限变更、重置密码等）</span>
     </div>
 
     <el-tabs v-model="domain" class="seg" @tab-change="onDomain">
       <el-tab-pane label="全部" name="all" />
       <el-tab-pane label="用户操作" name="user" />
       <el-tab-pane label="文档操作" name="doc" />
+      <el-tab-pane label="空间操作" name="share" />
     </el-tabs>
 
     <!-- 搜索条：操作人 + 时间范围 -->
@@ -122,7 +154,7 @@ onMounted(load)
       <el-button @click="onReset">重置</el-button>
     </div>
 
-    <el-table :data="filtered" border stripe v-loading="loading" style="width: 100%">
+    <el-table v-stack-table :data="filtered" border stripe v-loading="loading" style="width: 100%">
       <el-table-column type="expand" width="44">
         <template #default="{ row }">
           <div class="expand">
@@ -134,11 +166,15 @@ onMounted(load)
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="动作" width="160">
+      <el-table-column label="动作" width="180">
         <template #default="{ row }">
           <span class="act" :style="{ color: meta(row.action).color, background: meta(row.action).bg }">
             <el-icon><component :is="meta(row.action).icon" /></el-icon>
             {{ meta(row.action).label }}
+          </span>
+          <span v-if="subGroup(row.action)" class="sub-group"
+                :style="{ color: subGroup(row.action).color, background: subGroup(row.action).color + '15' }">
+            {{ subGroup(row.action).label }}
           </span>
         </template>
       </el-table-column>
@@ -154,7 +190,8 @@ onMounted(load)
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column prop="detail" label="说明" min-width="200" show-overflow-tooltip />
+      <!-- 说明：手机卡片里隐藏（展开行有完整详情，避免一张卡片十几行） -->
+      <el-table-column prop="detail" label="说明" min-width="200" show-overflow-tooltip class-name="stack-hide" />
       <el-table-column label="时间" width="150">
         <template #default="{ row }"><span class="time">{{ relTime(row.createdAt) }}</span></template>
       </el-table-column>
@@ -179,10 +216,42 @@ onMounted(load)
 .search-bar .s-date { width: 280px; }
 .act { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 500; }
 .act .el-icon { font-size: 15px; }
+.sub-group { display: inline-flex; align-items: center; margin-left: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; }
 .sub { color: #94a3b8; font-size: 12px; }
 .target { color: #334155; font-weight: 500; }
 .time { color: #64748b; font-size: 13px; }
 .pager { margin-top: 14px; justify-content: flex-end; }
 .expand { padding: 6px 14px; line-height: 1.9; color: #475569; font-size: 13px; }
 .expand .sub { margin-left: 4px; }
+
+/* 暗色模式适配：本页 .tip / .time 已由全局 theme.css 覆盖，此处只补未被覆盖的深色文字 */
+html.dark .audit-header h2 { color: var(--el-text-color-primary); }
+html.dark .target { color: var(--el-text-color-regular); }
+html.dark .expand { color: var(--el-text-color-regular); }
+
+/* ============================================================
+   响应式布局（断点统一：≤1024 平板 / ≤640 手机）
+   只写 width / flex / padding / margin / font-size
+   ============================================================ */
+@media (max-width: 1024px) {
+  .audit { padding: 14px; }
+  /* 标题与说明挤不下时换行，不再硬撑一行 */
+  .audit-header { flex-wrap: wrap; gap: 8px; }
+  .search-bar { gap: 8px; }
+  .search-bar .s-actor { width: 180px; }
+  .search-bar .s-date { width: 260px; }
+  .pager { margin-top: 12px; }
+}
+
+@media (max-width: 640px) {
+  .audit { padding: 12px; }
+  .audit-header h2 { font-size: 18px; }
+  .tip { font-size: 12px; }
+  /* 操作人 / 时间范围各占整行，避免和搜索按钮挤成一团 */
+  .search-bar .s-actor,
+  .search-bar .s-date { width: 100%; }
+  /* 展开详情收紧（≤640 表格已由 v-stack-table 转成卡片，不再横向滚动） */
+  .expand { padding: 6px 12px; font-size: 12px; line-height: 1.7; }
+  :deep(.el-table) { font-size: 13px; }
+}
 </style>

@@ -1,0 +1,4 @@
+node_modules/
+dist-electron/
+# 前端构建产物（由 npm run build:web 生成）
+web/

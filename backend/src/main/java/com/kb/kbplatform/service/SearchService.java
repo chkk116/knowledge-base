@@ -84,16 +84,22 @@ public class SearchService {
         final String cat = (category == null || category.isBlank()) ? null : category;
         final String kwLower = kw.toLowerCase();
 
-        // 作者名映射，用于结果展示 ownerName（避免列表里看不到是谁写的）
+        // 作者名映射，用于结果展示 ownerName（避免列表里看不到是谁写的）。
+        // 只取候选文档涉及的作者（findAllById），禁止全表加载所有用户。
+        Set<Long> ownerIds = new HashSet<>();
+        for (Document d : docs) if (d.getOwnerId() != null) ownerIds.add(d.getOwnerId());
         Map<Long, String> nameMap = new HashMap<>();
-        for (User u : userRepo.findAll()) {
-            nameMap.put(u.getId(), (u.getDisplayName() != null && !u.getDisplayName().isBlank())
-                    ? u.getDisplayName() : u.getUsername());
+        if (!ownerIds.isEmpty()) {
+            for (User u : userRepo.findAllById(ownerIds)) {
+                nameMap.put(u.getId(), (u.getDisplayName() != null && !u.getDisplayName().isBlank())
+                        ? u.getDisplayName() : u.getUsername());
+            }
         }
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (Document doc : docs) {
-            if ("BLOCKED".equals(doc.getStatus())) continue; // 排除封禁（黑名单）文档
+            // 免登录公开接口：只暴露已发布文档，草稿/待审核/驳回/封禁一律不进结果
+            if (!"PUBLISHED".equals(doc.getStatus())) continue;
             if (cat != null && !cat.equals(doc.getCategory())) continue;
             if (finalAuthorIds != null && !finalAuthorIds.contains(doc.getOwnerId())) continue;
             Map<String, Object> row = new LinkedHashMap<>();

@@ -1,0 +1,37 @@
+{
+  "name": "kb-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "知识库平台桌面客户端（Electron 套壳现有 Vue3 Web，前端零改动）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --mode=dev",
+    "start:prod": "electron .",
+    "build:web": "node build-web.js",
+    "pack": "npm run build:web && electron-builder --win --x64",
+    "dist": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.kb.kbplatform.desktop",
+    "productName": "知识库",
+    "files": [
+      "main.js",
+      "preload.js",
+      "login.html",
+      "web/**/*",
+      "build/icon.ico",
+      "build/icon.png"
+    ],
+    "directories": {
+      "output": "dist-electron"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    }
+  }
+}

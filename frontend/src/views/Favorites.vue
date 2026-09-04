@@ -1,12 +1,21 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { myFavorites, toggleFavorite } from '../api/kb'
+import PageBar from '../components/PageBar.vue'
 
 const router = useRouter()
 const posts = ref([])
 const loading = ref(false)
+
+// 前端分页：收藏变多时分页浏览
+const currentPage = ref(1)
+const pageSize = ref(12)
+const total = computed(() => posts.value.length)
+const pagedPosts = computed(() =>
+  posts.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value)
+)
 
 // 去掉 HTML 标签得到纯文本摘要
 const stripHtml = (html) => {
@@ -52,7 +61,7 @@ onMounted(load)
     <h2 class="h">我的收藏 <span class="count">共 {{ posts.length }} 篇</span></h2>
     <p v-if="loading" class="state">加载中…</p>
     <ul class="grid" v-else-if="posts.length">
-      <li v-for="d in posts" :key="d.id" class="card" @click="openPost(d.id)">
+      <li v-for="d in pagedPosts" :key="d.id" class="card" @click="openPost(d.id)">
         <div class="row">
           <span class="title">{{ d.title }}</span>
           <span class="side">
@@ -68,6 +77,8 @@ onMounted(load)
       </li>
     </ul>
     <el-empty v-else description="还没有收藏，去首页给喜欢的帖子点个★吧" />
+
+    <PageBar v-if="posts.length" v-model="currentPage" :total="total" :page-size="pageSize" />
   </div>
 </template>
 
@@ -90,5 +101,25 @@ onMounted(load)
 .tag { background: #eef2ff; color: #4f46e5; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
 .tag.grey { background: #f1f5f9; color: #64748b; }
 .snippet { margin: 6px 0 0; color: #475569; font-size: 14px; line-height: 1.5; }
-@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+/* 分页样式由 PageBar 组件提供 */
+
+/* 暗色模式适配：本页 .page / .card / .tag / .snippet / .state 已由全局 theme.css 覆盖，
+   .hot 徽标与 .fav 星标色在暗底对比度达标，此处只补计数文字 */
+html.dark .count { color: var(--el-text-color-secondary); }
+
+/* ---------- 响应式布局（断点统一 1024 / 640）---------- */
+@media (max-width: 1024px) {
+  .page { padding: 16px; }
+  .row { gap: 8px; }
+  .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+@media (max-width: 640px) {
+  .page { padding: 12px; }
+  .h { font-size: 18px; margin: 0 0 10px; }
+  .grid { grid-template-columns: 1fr; gap: 10px; }
+  .card { padding: 12px; }
+  .title { font-size: 15px; }
+  .snippet { font-size: 13px; }
+}
 </style>

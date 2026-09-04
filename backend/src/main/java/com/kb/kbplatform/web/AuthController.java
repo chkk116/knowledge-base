@@ -8,7 +8,9 @@ import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AuthService;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -62,17 +64,55 @@ public class AuthController {
         return authService.login(r.username, r.password);
     }
 
-    /** 获取登录滑动拼图背景图：返回 { token, image(base64 PNG) } */
+    /** 获取登录滑动拼图：返回 { token, bg, piece, w, h, pieceW, pieceH, pieceY }（正确缺口坐标仅存服务端） */
     @GetMapping("/captcha")
-    public Map<String, String> captcha() {
+    public Map<String, Object> captcha(jakarta.servlet.http.HttpServletRequest request) {
+        String ip = request.getRemoteAddr();
+        if (!rateLimit.allow("captcha:ip:" + ip, 60, 60L * 1000)) {
+            throw new RuntimeException("验证码请求过于频繁，请稍后再试");
+        }
         return captchaService.generate();
     }
 
-    /** 滑动成功后由前端回调：标记票据为已通过 */
+    /** 滑动成功后由前端回调：回传用户偏移 x，服务端校验对齐后才标记通过 */
     @PostMapping("/captcha/slide")
-    public Map<String, Object> captchaSlide(@RequestBody Map<String, String> body) {
-        boolean ok = captchaService.markPassed(body.get("token"));
-        return Map.of("ok", ok);
+    public Map<String, Object> captchaSlide(@RequestBody Map<String, Object> body,
+                                            jakarta.servlet.http.HttpServletRequest request) {
+        // 真实客户端 IP：经 Nginx 等反代时 RemoteAddr 是代理地址（会让全站共享一个 IP 被锁），
+        // 优先取 X-Forwarded-For 首个地址；环回地址由 CaptchaService 免锁定。
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isBlank()) ip = request.getRemoteAddr();
+        else ip = ip.split(",")[0].trim();
+        if (!rateLimit.allow("slide:ip:" + ip, 30, 60L * 1000)) {
+            return slideFail("验证过于频繁，请稍后再试");
+        }
+        String token = body.get("token") == null ? null : String.valueOf(body.get("token"));
+        Object xObj = body.get("x");
+        Integer x = (xObj instanceof Number) ? ((Number) xObj).intValue() : null;
+        List<Map<String, Object>> traj = null;
+        Object trajObj = body.get("trajectory");
+        if (trajObj instanceof List) {
+            try { traj = (List<Map<String, Object>>) trajObj; } catch (Exception ignore) {}
+        }
+        // IP 级锁定优先提示，避免脚本高频试探时只收到笼统的 false
+        if (captchaService.isBlocked(ip)) {
+            return slideFail("验证失败次数过多，账号已被临时锁定 10 分钟，请稍后再试");
+        }
+        boolean ok = captchaService.markPassed(token, x, traj, ip);
+        if (!ok) {
+            // 对齐失败 / 轨迹异常 / 票据超次：明确告知需重新拖动。返回 200 + ok:false（业务结果，非 HTTP 错误），
+            // 避免浏览器把正常"没拼对"标红成 400 影响观感；前端按 data.ok 判定，提示文案见 error。
+            return slideFail("滑动验证未通过，请重新拖动拼图完成验证");
+        }
+        return Map.of("ok", true);
+    }
+
+    /** 滑动验证失败的统一回包：HTTP 200 + { ok:false, error }，让前端按业务结果处理，不产生控制台 4xx 红字 */
+    private Map<String, Object> slideFail(String msg) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("ok", false);
+        m.put("error", msg);
+        return m;
     }
 
     @GetMapping("/me")
@@ -90,6 +130,9 @@ public class AuthController {
         String bio = u.isPresent() && u.get().getBio() != null ? u.get().getBio() : "";
         String gender = u.isPresent() && u.get().getGender() != null ? u.get().getGender() : "";
         boolean hideGender = u.isPresent() && u.get().isHideGender();
+        String aiPersona = u.isPresent() && u.get().getAiPersona() != null ? u.get().getAiPersona() : "";
+        String displayBadge = u.isPresent() && u.get().getDisplayBadge() != null ? u.get().getDisplayBadge() : "";
+        List<String> wornBadges = u.isPresent() ? u.get().getWornList() : new ArrayList<>();
         // 注意：Map.of 最多支持 10 个键值对，此处字段超过 10 个，改用 LinkedHashMap 保持顺序且可扩展
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("username", claims.username());
@@ -105,6 +148,9 @@ public class AuthController {
         m.put("points", u.isPresent() ? u.get().getPoints() : 0);
         m.put("createdAt", u.isPresent() && u.get().getCreatedAt() != null
                 ? u.get().getCreatedAt().toString() : "");
+        m.put("aiPersona", aiPersona);
+        m.put("displayBadge", displayBadge);
+        m.put("wornBadges", wornBadges);
         return m;
     }
 
@@ -125,18 +171,25 @@ public class AuthController {
                 r.gender, r.hideGender);
         String displayName = u.getDisplayName() == null || u.getDisplayName().isBlank()
                 ? u.getUsername() : u.getDisplayName();
-        return Map.of(
-                "username", u.getUsername(),
-                "role", u.getRole(),
-                "displayName", displayName,
-                "avatar", u.getAvatar() == null ? "" : u.getAvatar(),
-                "email", u.getEmail() == null ? "" : u.getEmail(),
-                "bio", u.getBio() == null ? "" : u.getBio(),
-                "gender", u.getGender() == null ? "" : u.getGender(),
-                "hideGender", u.isHideGender(),
-                "points", u.getPoints(),
-                "createdAt", u.getCreatedAt() == null ? "" : u.getCreatedAt().toString()
-        );
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("username", u.getUsername());
+        m.put("role", u.getRole());
+        // 必须与 /auth/me 返回同样的身份字段：前端 setProfile() 会用这份响应整体覆盖
+        // auth.user，缺 id/permissions 会导致「保存资料后后台权限全部丢失」（hasPerm 恒 false）。
+        m.put("permissions", u.getPermissions() == null ? "" : u.getPermissions());
+        m.put("id", u.getId());
+        m.put("displayName", displayName);
+        m.put("avatar", u.getAvatar() == null ? "" : u.getAvatar());
+        m.put("email", u.getEmail() == null ? "" : u.getEmail());
+        m.put("bio", u.getBio() == null ? "" : u.getBio());
+        m.put("gender", u.getGender() == null ? "" : u.getGender());
+        m.put("hideGender", u.isHideGender());
+        m.put("points", u.getPoints());
+        m.put("createdAt", u.getCreatedAt() == null ? "" : u.getCreatedAt().toString());
+        m.put("aiPersona", u.getAiPersona() == null ? "" : u.getAiPersona());
+        m.put("displayBadge", u.getDisplayBadge() == null ? "" : u.getDisplayBadge());
+        m.put("wornBadges", u.getWornList());
+        return m;
     }
 
     @PostMapping("/register")

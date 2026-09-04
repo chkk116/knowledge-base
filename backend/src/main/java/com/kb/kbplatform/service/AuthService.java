@@ -9,6 +9,7 @@ import com.kb.kbplatform.security.PasswordUtil;
 import com.kb.kbplatform.security.TokenUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -19,9 +20,11 @@ import java.util.LinkedHashMap;
 public class AuthService {
 
     // 积分规则
-    public static final int LOGIN_POINTS = 5;     // 每日登录
-    public static final int PUBLISH_POINTS = 20;  // 每发布一篇
-    public static final int HOT_POINTS = 50;      // 帖子成为热帖
+    public static final int LOGIN_POINTS = 5;          // 每日登录
+    public static final int PUBLISH_POINTS = 20;       // 每发布一篇
+    public static final int HOT_POINTS = 50;           // 帖子成为热帖
+    public static final int COURSE_CHAPTER_POINTS = 10; // 每完成一门课程的某一章节
+    public static final int EXAM_PASS_POINTS = 30;      // 每次考试及格
 
     private final UserRepository userRepo;
     private final PointsLogRepository pointsLogRepo;
@@ -37,35 +40,42 @@ public class AuthService {
         this.pointsLogRepo = pointsLogRepo;
     }
 
-    /** 给指定用户累加积分并落库（无明细记录，按系统调整处理） */
+    /**
+     * 给指定用户累加积分并落库（无明细记录，按系统调整处理）。
+     * 必须标注事务：内部自调用 awardPoints 不会触发 AOP，事务不被继承；而 addPointsRaw 是
+     * @Modifying 更新查询，无事务会抛 "No active transaction for update or delete query"。
+     */
+    @Transactional
     public void addPoints(String username, int delta) {
         userRepo.findByUsername(username).ifPresent(u -> awardPoints(u.getId(), delta, "SYSTEM", "系统调整"));
     }
 
     /** 按用户 id 累加积分（无明细记录，按系统调整处理） */
+    @Transactional
     public void addPointsByUserId(Long userId, int delta) {
         awardPoints(userId, delta, "SYSTEM", "系统调整");
     }
 
     /** 管理员手动调整积分：写入 ADJUST 类型明细，便于追溯 */
+    @Transactional
     public void adjustPoints(Long userId, int delta, String reason) {
         awardPoints(userId, delta, "ADJUST", reason == null || reason.isBlank() ? "管理员调整" : reason);
     }
 
     /**
-     * 统一的积分变动入口：更新积分余额并写入积分明细（PointsLog）。
+     * 统一的积分变动入口：原子更新积分余额并写入积分明细（PointsLog）。
+     * 余额通过数据库增量 UPDATE 完成，避免并发 read-modify-write 互相覆盖导致积分少计。
      * @param type  变动类型 LOGIN / PUBLISH / HOT / ADJUST / SYSTEM
      * @param reason 变动说明（如「发布《标题》」）
      * @return 变动后的积分余额
      */
+    @Transactional
     public int awardPoints(Long userId, int delta, String type, String reason) {
         if (delta == 0) return 0;
         User u = userRepo.findById(userId).orElse(null);
         if (u == null) return 0;
-        int newBalance = u.getPoints() + delta;
-        u.setPoints(newBalance);
-        userRepo.save(u);
-
+        userRepo.addPointsRaw(userId, delta);              // 数据库原子增量
+        int newBalance = userRepo.findPointsById(userId);   // 标量查询取最新余额（绕过一级缓存）
         PointsLog log = new PointsLog();
         log.setUserId(u.getId());
         log.setUsername(u.getUsername());
@@ -78,6 +88,7 @@ public class AuthService {
         return newBalance;
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> login(String username, String password) {
         User u = userRepo.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
@@ -110,6 +121,7 @@ public class AuthService {
         m.put("bio", u.getBio() == null ? "" : u.getBio());
         m.put("points", u.getPoints());
         m.put("createdAt", u.getCreatedAt() == null ? "" : u.getCreatedAt().toString());
+        m.put("aiPersona", u.getAiPersona() == null ? "" : u.getAiPersona());
         return m;
     }
 

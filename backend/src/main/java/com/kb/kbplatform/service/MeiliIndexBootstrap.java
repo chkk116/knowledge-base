@@ -29,7 +29,8 @@ public class MeiliIndexBootstrap implements ApplicationRunner {
         if (!meili.isEnabled()) return;
         try {
             meili.reindexAll(docSvc.listAll());
-            log.info("Meilisearch 索引已在启动时重建，已发布文档 {} 篇", docSvc.listPublic().size());
+            // 只取计数（COUNT 查询），不要为打条日志把全部已发布文档连正文拉进内存
+            log.info("Meilisearch 索引已在启动时重建，已发布文档 {} 篇", docSvc.countPublic());
         } catch (Exception e) {
             log.warn("启动时重建 Meilisearch 索引失败（搜索将回退 MySQL，可在管理后台重试）：{}", e.getMessage());
         }

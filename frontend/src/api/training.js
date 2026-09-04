@@ -1,0 +1,98 @@
+import api from './request'
+
+// ===================== 培训（学员侧） =====================
+export const listCourses = (category) =>
+  api.get('/courses', { params: category ? { category } : {} })
+
+export const courseCategories = () =>
+  api.get('/courses/categories')
+
+export const getCourse = (id) =>
+  api.get('/courses/' + id)
+
+export const courseProgress = (id) =>
+  api.get('/courses/' + id + '/progress')
+
+export const finishChapter = (courseId, chapterId) =>
+  api.post('/courses/' + courseId + '/chapters/' + chapterId + '/finish')
+
+export const myLearning = () =>
+  api.get('/courses/mine')
+
+export const myCertificates = () =>
+  api.get('/courses/certificates')
+
+export const courseCertificate = (id) =>
+  api.get('/courses/' + id + '/certificate')
+
+// ===================== 培训（管理侧） =====================
+export const adminCourses = () =>
+  api.get('/admin/courses')
+
+export const adminCreateCourse = (c) =>
+  api.post('/admin/courses', c)
+
+export const adminUpdateCourse = (id, c) =>
+  api.put('/admin/courses/' + id, c)
+
+export const adminDeleteCourse = (id) =>
+  api.delete('/admin/courses/' + id)
+
+export const adminChapters = (courseId) =>
+  api.get('/admin/courses/' + courseId + '/chapters')
+
+export const adminCreateChapter = (ch) =>
+  api.post('/admin/courses/chapters', ch)
+
+export const adminUpdateChapter = (id, ch) =>
+  api.put('/admin/courses/chapters/' + id, ch)
+
+export const adminDeleteChapter = (id) =>
+  api.delete('/admin/courses/chapters/' + id)
+
+// ===================== 考试（学员侧） =====================
+export const listPapers = () =>
+  api.get('/exams')
+
+export const getPaper = (id) =>
+  api.get('/exams/' + id)
+
+export const startExam = (id) =>
+  api.post('/exams/' + id + '/start')
+
+export const submitExam = (paperId, recordId, items) =>
+  api.post('/exams/' + paperId + '/submit', { recordId, items })
+
+export const myExams = () =>
+  api.get('/exams/mine')
+
+export const examRecord = (rid) =>
+  api.get('/exams/records/' + rid)
+
+// ===================== 考试（管理侧） =====================
+export const adminQuestions = (category) =>
+  api.get('/admin/exams/questions', { params: category ? { category } : {} })
+
+export const adminCreateQuestion = (question, options) =>
+  api.post('/admin/exams/questions', { question, options })
+
+export const adminUpdateQuestion = (id, question, options) =>
+  api.put('/admin/exams/questions/' + id, { question, options })
+
+export const adminDeleteQuestion = (id) =>
+  api.delete('/admin/exams/questions/' + id)
+
+export const adminPapers = () =>
+  api.get('/admin/exams/papers')
+
+export const adminCreatePaper = (p) =>
+  api.post('/admin/exams/papers', p)
+
+export const adminUpdatePaper = (id, p) =>
+  api.put('/admin/exams/papers/' + id, p)
+
+export const adminDeletePaper = (id) =>
+  api.delete('/admin/exams/papers/' + id)
+
+export const adminAssemble = (paperId, items) =>
+  api.post('/admin/exams/papers/' + paperId + '/assemble', { items })

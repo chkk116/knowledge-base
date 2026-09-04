@@ -52,6 +52,11 @@ const onAudioPicked = async (e) => {
 }
 
 const form = ref({ title: '', category: '', tags: '', content: '' })
+
+// 文档层级归属：由「在该文档下新建」跳转带入（/write?parent=yy），将挂到指定父文档下
+const toId = (v) => { const n = Number(v); return v && !Number.isNaN(n) ? n : null }
+const parentId = ref(toId(route.query.parent))
+const parentTitle = ref('')
 const categoryTree = ref([])      // 分类树（发帖选择）
 const tagOptions = ref([])        // 规范标签（发帖多选）
 const selectedTags = ref([])      // 当前选中的标签名数组（写回 form.tags 逗号串）
@@ -148,6 +153,10 @@ onMounted(async () => {
       ElMessage.error('加载文档失败')
     }
   }
+  // 归属提示：把父文档标题查出来，避免只给用户看 id
+  if (parentId.value) {
+    try { parentTitle.value = ((await getDoc(parentId.value)).data || {}).title || '' } catch (e) {}
+  }
   // 进入页面时，若 localStorage 里有未提交草稿，弹出"恢复/放弃"提示
   const d = loadDraft()
   if (d) pendingDraft.value = d
@@ -177,6 +186,8 @@ const save = async (status) => {
     form.value.tags = selectedTags.value.join(',')
     const payload = { ...form.value }
     if (status) payload.status = status
+    // 层级归属（新建时生效；编辑接口只采纳标题/正文/分类/标签，不会覆盖层级）
+    if (parentId.value) payload.parentId = parentId.value
     if (isEdit) {
       // 管理员可改任意帖子；普通用户只能改自己的
       if (auth.isAdmin) await updateDoc(id, payload)
@@ -274,6 +285,11 @@ const restoreVersion = async (v) => {
       type="info" :closable="false" style="margin: 14px 0;"
     />
     <el-form label-width="80px" style="margin-top: 18px;">
+      <el-alert v-if="parentId" type="info" :closable="false" show-icon class="parent-tip">
+        <template #title>
+          将创建为「{{ parentTitle || ('#' + parentId) }}」的子文档
+        </template>
+      </el-alert>
       <el-form-item label="标题">
         <el-input v-model="form.title" placeholder="文章标题" />
       </el-form-item>
@@ -360,6 +376,7 @@ const restoreVersion = async (v) => {
 </template>
 
 <style scoped>
+.parent-tip { margin-bottom: 14px; }
 .edit { max-width: 960px; margin: 0 auto; color: #0f172a; }
 .editor-extra { margin-bottom: 6px; }
 .editor-extra :deep(.el-button) { color: #6366f1; }
@@ -380,4 +397,43 @@ const restoreVersion = async (v) => {
 .ver-detail { max-height: 50vh; overflow: auto; }
 .ver-detail-title { font-weight: 700; margin-bottom: 8px; color: #111827; }
 .ver-detail-body { font-size: 14px; line-height: 1.7; color: #334155; }
+
+/* 暗色模式适配（页面正文色、全屏写作底色、自动保存提示、版本历史文字等硬编码浅色） */
+html.dark .edit { color: var(--el-text-color-primary); }
+html.dark .editor-extra :deep(.el-button) { color: #a5b4fc; }
+html.dark .autosaved { color: #4ade80; }
+html.dark .edit.writing-fullscreen { background: var(--el-bg-color); color: var(--el-text-color-primary); }
+html.dark .ver-empty { color: var(--el-text-color-secondary); }
+html.dark .ver-editor { color: var(--el-text-color-secondary); }
+html.dark .ver-title { color: var(--el-text-color-primary); }
+html.dark .ver-detail-title { color: var(--el-text-color-primary); }
+html.dark .ver-detail-body { color: var(--el-text-color-regular); }
+
+/* wangEditor 内部 DOM 由 JS 生成、不带 scoped 属性，必须用 :deep() 命中；仅作用于本页编辑器 */
+html.dark .edit :deep(.w-e-toolbar) { background-color: var(--el-bg-color-overlay) !important; border-color: var(--el-border-color) !important; }
+html.dark .edit :deep(.w-e-toolbar .w-e-bar-item button) { color: var(--el-text-color-regular) !important; }
+html.dark .edit :deep(.w-e-text-container) { background-color: var(--el-bg-color-overlay) !important; }
+html.dark .edit :deep(.w-e-text-container .w-e-text) { color: var(--el-text-color-primary) !important; }
+
+/* ===== 响应式（统一断点 1024 / 640，只写布局与尺寸） ===== */
+@media (max-width: 1024px) {
+  .edit { max-width: 100%; }
+  .el-form { margin-top: 14px !important; }
+  .editor-extra { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* wangEditor：工具栏允许换行，编辑区不许撑破容器 */
+  .edit :deep(.w-e-toolbar) { flex-wrap: wrap; max-width: 100%; height: auto; }
+  .edit :deep(.w-e-text-container) { max-width: 100%; }
+}
+@media (max-width: 640px) {
+  .edit { padding: 0 2px; }
+  .el-form { margin-top: 10px !important; }
+  .editor-extra :deep(.el-button) { padding-left: 6px; padding-right: 6px; }
+  .edit :deep(.el-form-item__content) { flex-wrap: wrap; gap: 8px; }
+  .edit :deep(.el-form-item__content) > .el-button { margin-left: 0; flex: 1 1 auto; }
+  .draft-tip { margin: 10px 0; }
+  .draft-tip :deep(.el-alert__content) { gap: 8px; }
+  .edit.writing-fullscreen { padding: 12px 14px 18px; }
+  .edit.writing-fullscreen :deep(.w-editor) { height: calc(100vh - 260px); }
+  .ver-detail { max-height: 44vh; }
+}
 </style>

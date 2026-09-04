@@ -5,12 +5,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import { useHistoryStore } from '../store/history'
 import { openReader } from '../store/reader'
-import { getDoc, getComments, addComment, deleteComment, myCommentLikes, toggleCommentLike, toggleFavorite, myFavoriteIds, toggleLike, myLikeIds, getUserCard, followUser, unfollowUser, getUserArticles } from '../api/kb'
+import { getDoc, getComments, addComment, deleteComment, myCommentLikes, toggleCommentLike, toggleFavorite, myFavoriteIds, toggleLike, myLikeIds, getUserCard, followUser, unfollowUser, getUserArticles, exportDoc, getRelatedDocs, subscribeDoc, unsubscribeDoc, getDocSubscription, docBreadcrumb, checkDocBanned } from '../api/kb'
 import { approveDoc, rejectDoc } from '../api/admin'
 import { fromNow, fmtDateTime } from '../utils/time'
 import { getLevel } from '../utils/level'
 import EmojiPanel from '../components/EmojiPanel.vue'
 import TocNode from '../components/TocNode.vue'
+import WornBadgeStrip from '../components/WornBadgeStrip.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,6 +19,86 @@ const auth = useAuthStore()
 const history = useHistoryStore()
 
 const doc = ref(null)
+// 文档面包屑：从最顶层祖先到当前文档（含自身）的链路
+const crumbs = ref([])
+// 审核工具条：一键违禁词检查 + 正文高亮
+const bannedHits = ref([])
+const checking = ref(false)
+
+const escapeReg = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** 一键检查：对正文纯文本跑违禁词匹配，命中则在正文文本节点上包 <mark> 高亮 */
+const checkBanned = async () => {
+  if (!doc.value) return
+  checking.value = true
+  try {
+    const { data } = await checkDocBanned(doc.value.id)
+    bannedHits.value = data.hits || []
+    if (!bannedHits.value.length) {
+      clearHighlight()
+      ElMessage.success('未检测到违禁词')
+      return
+    }
+    ElMessage.warning(`发现 ${bannedHits.value.length} 个疑似违禁词，已在正文中高亮`)
+    await nextTick()
+    highlightBanned()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '检查失败')
+  } finally {
+    checking.value = false
+  }
+}
+
+/** 在 contentRef 文本节点中把命中词包成 <mark class="banned-hl">（保留原有 DOM 结构） */
+const highlightBanned = () => {
+  const root = contentRef.value
+  if (!root || !bannedHits.value.length) return
+  const terms = bannedHits.value.filter(Boolean).map(escapeReg).sort((a, b) => b.length - a.length)
+  if (!terms.length) return
+  const re = new RegExp('(' + terms.join('|') + ')', 'g')
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.textContent || !node.textContent.trim()) return NodeFilter.FILTER_REJECT
+      if (node.parentNode && node.parentNode.nodeName === 'MARK') return NodeFilter.FILTER_REJECT
+      return NodeFilter.FILTER_ACCEPT
+    }
+  })
+  const targets = []
+  let n
+  while ((n = walker.nextNode())) targets.push(n)
+  for (const textNode of targets) {
+    const text = textNode.textContent
+    re.lastIndex = 0
+    let m, last = 0, matched = false
+    const frag = document.createDocumentFragment()
+    while ((m = re.exec(text))) {
+      matched = true
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)))
+      const mark = document.createElement('mark')
+      mark.className = 'banned-hl'
+      mark.textContent = m[0]
+      frag.appendChild(mark)
+      last = m.index + m[0].length
+    }
+    if (matched) {
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)))
+      textNode.parentNode.replaceChild(frag, textNode)
+    }
+  }
+}
+
+/** 清除高亮：把 <mark> 还原为纯文本 */
+const clearHighlight = () => {
+  const root = contentRef.value
+  if (!root) return
+  root.querySelectorAll('mark.banned-hl').forEach((m) => {
+    const parent = m.parentNode
+    if (!parent) return
+    parent.replaceChild(document.createTextNode(m.textContent), m)
+    parent.normalize()
+  })
+  bannedHits.value = []
+}
 
 // 在桌面弹出真实浏览器窗口独立阅读（window.open 带名字，同一文章不重复开，只聚焦已有窗口）
 const openStandalone = () => {
@@ -190,8 +271,25 @@ const decorateContent = async () => {
   })
   el.querySelectorAll('img').forEach((img) => {
     if (img.classList.contains('kb-emoji')) return
+    // 屏幕外的图不解码进 GPU 内存：长文多图时显著省内存、防老机卡顿
+    img.loading = 'lazy'
+    img.decoding = 'async'
     img.style.cursor = 'zoom-in'
-    img.addEventListener('click', () => { lightboxSrc.value = img.getAttribute('src') })
+    const srcAttr = img.getAttribute('src') || ''
+    // 本站上传图按容器宽度请求缩略图（后端等比缩放并重编码），避免老机解码数兆像素原图
+    if (!img.dataset.thumb) {
+      let u = null
+      try { u = new URL(srcAttr, location.origin) } catch (e) { u = null }
+      if (u && u.pathname.startsWith('/uploads/')) {
+        const rel = u.pathname.slice('/uploads/'.length)
+        const W = Math.max(320, Math.min(1280, Math.ceil((contentRef.value?.clientWidth || 900) / 80) * 80))
+        img.dataset.full = srcAttr // 灯箱仍用原图
+        img.dataset.thumb = '1'
+        img.src = '/api/thumb?src=' + encodeURIComponent(rel) + '&w=' + W
+      }
+    }
+    if (!img.dataset.full) img.dataset.full = srcAttr
+    img.addEventListener('click', () => { lightboxSrc.value = img.dataset.full || srcAttr })
   })
 }
 // 把树压平成有序数组（用于滚动时高亮当前章节）
@@ -254,6 +352,8 @@ const authorCard = ref(null)
 const authorArticles = ref([])
 // 作者等级（帖子王主题，由卡片返回的积分计算）
 const authorLevel = computed(() => authorCard.value ? getLevel(authorCard.value.points || 0) : null)
+// 作者佩戴的勋章 id 列表（最多 3 枚，后端 getCard 返回 wornBadges）
+const authorWornIds = computed(() => authorCard.value?.wornBadges || [])
 const loadAuthorCard = async (ownerId) => {
   if (!ownerId) return
   try { authorCard.value = (await getUserCard(ownerId)).data } catch (e) {}
@@ -340,13 +440,57 @@ const onReject = async () => {
   } catch (e) { ElMessage.error('操作失败') } finally { reviewing.value = false }
 }
 
+// 相关文档 & 文档订阅
+const relatedDocs = ref([])
+const subscribed = ref(false)
+const subCount = ref(0)
+
+const loadRelated = async () => {
+  try {
+    const { data } = await getRelatedDocs(route.params.id, 6)
+    relatedDocs.value = data || []
+  } catch (e) { relatedDocs.value = [] }   // 推荐失败不影响正文与评论
+}
+
+const loadSubscription = async () => {
+  try {
+    const { data } = await getDocSubscription(route.params.id)
+    subscribed.value = !!data?.subscribed
+    subCount.value = data?.count || 0
+  } catch (e) { subscribed.value = false; subCount.value = 0 }
+}
+
+const onToggleSubscribe = async () => {
+  if (!auth.loggedIn) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
+  }
+  try {
+    const { data } = await (subscribed.value ? unsubscribeDoc(route.params.id) : subscribeDoc(route.params.id))
+    subscribed.value = !!data?.subscribed
+    subCount.value = data?.count || 0
+    ElMessage.success(subscribed.value ? '已订阅，文档更新时会通知你' : '已取消订阅')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+  }
+}
+
 const load = async () => {
   loading.value = true
   try {
     const { data } = await getDoc(route.params.id)
     doc.value = data
+    // 面包屑：层级链路（根→…→父→自身），平铺文档无 parent 时返回空，不展示
+    try {
+      crumbs.value = (await docBreadcrumb(route.params.id)).data || []
+    } catch (e) {
+      crumbs.value = []
+    }
     processContent(data.content)
     decorateContent()
+    loadRelated()
+    loadSubscription()
     // 记录浏览历史（localStorage，按本机存储）
     history.add({ id: data.id, title: data.title, category: data.category, author: data.authorName || data.ownerName || '', views: data.views })
     loadAuthorCard(data.ownerId)
@@ -464,6 +608,50 @@ const onDeleteComment = async (c) => {
   }
 }
 
+// 导出 Word：后端返回 HTML 封装的 .doc（中文无乱码，Word/WPS 可打开）
+const exportWord = async () => {
+  if (!doc.value) return
+  try {
+    const { data } = await exportDoc(doc.value.id, 'word')
+    const blob = new Blob([data], { type: 'application/msword' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = (doc.value.title || 'document').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + '.doc'
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+    ElMessage.success('已导出 Word（.doc）')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '导出失败')
+  }
+}
+
+// 导出 PDF：纯前端 window.print，把正文装进独立打印窗口（CJK 排版最佳、零依赖）
+const exportPdf = () => {
+  if (!doc.value) return
+  const w = window.open('', '_blank', 'width=900,height=700')
+  if (!w) { ElMessage.warning('请允许浏览器弹出窗口以导出 PDF'); return }
+  const safeTitle = (doc.value.title || '').replace(/[<>]/g, '')
+  const html = renderedContent.value || ''
+  w.document.open()
+  w.document.write(
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + safeTitle + '</title>' +
+    '<style>@page{margin:16mm}body{font-family:"Microsoft YaHei","SimSun",sans-serif;line-height:1.8;font-size:14px;color:#222;max-width:780px;margin:0 auto;padding:24px 8px}' +
+    'h1{font-size:24px;text-align:center;margin:0 0 10px}h2{font-size:20px;margin:18px 0 6px}h3{font-size:17px;margin:14px 0 4px}' +
+    'img{max-width:100%}table{border-collapse:collapse;width:100%;margin:12px 0}td,th{border:1px solid #ccc;padding:6px 10px}' +
+    'pre{background:#1e293b;color:#e2e8f0;padding:12px;border-radius:6px;white-space:pre-wrap;word-break:break-all;font-size:13px}' +
+    'code{font-family:Consolas,monospace;background:#f1f5f9;padding:1px 5px;border-radius:4px}blockquote{border-left:3px solid #a5b4fc;background:#f8faff;margin:10px 0;padding:8px 16px}' +
+    'a{color:#4f46e5}</style></head><body><h1>' + safeTitle + '</h1>' + html + '</body></html>'
+  )
+  w.document.close()
+  w.focus()
+  setTimeout(() => { try { w.print() } catch (e) {} }, 400)
+}
+
+// 文档归属者或管理员可查看版本历史
+const canManageDoc = computed(() => auth.loggedIn && doc.value &&
+  (auth.isAdmin || (auth.user && doc.value.ownerId === auth.user.id)))
+
 // 拆分标签
 const splitTags = (s) => (s ? s.split(',').map(x => x.trim()).filter(Boolean) : [])
 // 点击标签跳首页按该标签筛选
@@ -542,6 +730,16 @@ onBeforeUnmount(() => {
         </aside>
 
         <div class="post-main">
+          <!-- 文档层级面包屑：上级 / … / 当前（文档树路径），仅当存在祖先时展示 -->
+          <nav v-if="crumbs.length" class="crumbs">
+            <router-link v-for="(c, i) in crumbs" :key="c.id" :to="c.id === doc.id ? '#' : ('/post/' + c.id)" class="crumb" :class="{ current: c.id === doc.id }">
+              {{ c.title }}
+              <span v-if="i < crumbs.length - 1" class="sep">/</span>
+            </router-link>
+          </nav>
+          <div v-if="auth.isAdmin || (doc.ownerId && auth.user && doc.ownerId === auth.user.id)" class="doc-actions">
+            <el-button size="small" @click="router.push('/write?parent=' + doc.id)">在该文档下新建子文档</el-button>
+          </div>
           <h1 class="title">{{ doc.title }}</h1>
 
           <!-- 管理员审核条：仅对非发布状态（待审核/草稿/封禁）显示 -->
@@ -552,6 +750,8 @@ onBeforeUnmount(() => {
             <span class="tip">该文章尚未发布，仅你（管理员）可见预览</span>
             <el-button v-if="doc.status === 'PENDING_REVIEW'" size="small" type="success" :loading="reviewing" @click="onApprove">通过审核</el-button>
             <el-button v-if="doc.status === 'PENDING_REVIEW'" size="small" type="warning" :loading="reviewing" @click="onReject">驳回</el-button>
+            <el-button size="small" type="danger" plain :loading="checking" @click="checkBanned">违禁词检查</el-button>
+            <el-button v-if="bannedHits.length" size="small" @click="clearHighlight">清除高亮</el-button>
           </div>
 
           <div class="meta">
@@ -566,8 +766,29 @@ onBeforeUnmount(() => {
       <div class="content-bar">
         <button class="mini-reader-btn" type="button" @click="openStandalone" title="在桌面弹出独立窗口阅读（可单独最小化/移动）">⧉ 独立窗口</button>
         <button class="mini-reader-btn" type="button" @click="openReader(doc.title, renderedContent)" title="把文章拖到页面内小窗阅读（切页不关闭）">⊞ 小窗阅读</button>
+        <button class="mini-reader-btn" type="button" v-if="canManageDoc" @click="router.push('/post/' + doc.id + '/versions')" title="查看/回滚历史版本">🕑 版本历史</button>
+        <button class="mini-reader-btn" type="button" v-if="auth.hasPerm('DOC_EXPORT')" @click="exportWord" title="导出为 Word 文档（.doc）">⬇ Word</button>
+        <button class="mini-reader-btn" type="button" v-if="auth.hasPerm('DOC_EXPORT')" @click="exportPdf" title="导出为 PDF（浏览器打印另存）">⬇ PDF</button>
+        <button class="mini-reader-btn" type="button" :class="{ 'on': subscribed }" @click="onToggleSubscribe"
+                :title="subscribed ? '取消订阅（文档更新时不再通知）' : '订阅该文档，更新时收到站内通知'">
+          {{ subscribed ? '★ 已订阅' : '☆ 订阅' }}<span v-if="subCount > 0" class="sub-cnt">{{ subCount }}</span>
+        </button>
       </div>
       <div class="content" ref="contentRef" v-html="renderedContent"></div>
+
+      <!-- 相关文档推荐：同分类 + 标签重叠，避免内容孤岛 -->
+      <div v-if="relatedDocs.length" class="related-box">
+        <div class="related-title">相关文档</div>
+        <div class="related-list">
+          <div v-for="r in relatedDocs" :key="r.id" class="related-item" @click="router.push('/post/' + r.id)">
+            <span class="related-name">{{ r.title }}</span>
+            <span class="related-meta">
+              <el-tag v-if="r.category" size="small" type="info">{{ r.category }}</el-tag>
+              <span class="related-views">👁 {{ r.views || 0 }}</span>
+            </span>
+          </div>
+        </div>
+      </div>
 
       <el-divider />
 
@@ -644,11 +865,16 @@ onBeforeUnmount(() => {
         <aside class="post-side">
           <template v-if="authorCard">
             <div class="author-card">
-            <div class="author-top" @click="goUser(authorCard.id)" style="cursor:pointer">
-              <img v-if="authorCard.avatar" class="ava" :src="authorCard.avatar" alt="" />
-              <div v-else class="ava none">{{ (authorCard.displayName || authorCard.username || '?').slice(0, 1) }}</div>
-              <div class="ainfo">
-                <span class="nm">{{ authorCard.displayName || authorCard.username }}</span>
+            <div class="author-top" style="cursor:pointer">
+              <div class="ava-wrap" @click.stop="goUser(authorCard.id)">
+                <img v-if="authorCard.avatar" class="ava" :src="authorCard.avatar" alt="" />
+                <div v-else class="ava none">{{ (authorCard.displayName || authorCard.username || '?').slice(0, 1) }}</div>
+              </div>
+              <div class="ainfo" @click="goUser(authorCard.id)">
+                <div class="nm-row">
+                  <span class="nm">{{ authorCard.displayName || authorCard.username }}</span>
+                  <WornBadgeStrip v-if="authorWornIds.length" :badge-ids="authorWornIds" :size="20" />
+                </div>
                 <span class="lv-tag" v-if="authorLevel">Lv{{ authorLevel.level }} · {{ authorLevel.title }}</span>
                 <div class="astats">
                   <span><b>{{ authorCard.original }}</b> 原创</span>
@@ -705,6 +931,14 @@ onBeforeUnmount(() => {
 <style scoped>
 .post { max-width: 1240px; margin: 0 auto; color: #0f172a; }
 .title { margin: 14px 0 8px; font-size: 24px; }
+/* 文档层级面包屑：上级 / … / 当前（文档树路径） */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; margin: 2px 0 10px; font-size: 13px; color: #64748b; }
+.crumbs .crumb { color: #6366f1; text-decoration: none; padding: 2px 4px; border-radius: 6px; transition: background .15s, color .15s; }
+.crumbs .crumb:hover { background: #eef2ff; }
+.crumbs .crumb.current { color: #0f172a; font-weight: 600; cursor: default; }
+.crumbs .crumb.current:hover { background: transparent; }
+.crumbs .sep { color: #cbd5e1; margin: 0 2px 0 4px; }
+.doc-actions { margin: 0 0 10px; }
 /* 管理员审核条（待审核/草稿/封禁预览时显示） */
 .review-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; margin: 4px 0 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; }
 .review-bar .tip { color: #92400e; font-size: 13px; }
@@ -715,9 +949,11 @@ onBeforeUnmount(() => {
 /* 作者小卡片：右侧边栏 */
 .author-card { background: #fff; border: 1px solid #eef2f7; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
 .author-top { display: flex; align-items: center; gap: 12px; }
+.author-card .ava-wrap { position: relative; flex: none; display: inline-flex; overflow: visible; }
 .author-card .ava { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; flex: none; background: #e2e8f0; }
 .author-card .ava.none { display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 20px; font-weight: 700; }
 .author-card .ainfo { flex: 1; min-width: 0; }
+.author-card .nm-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .author-card .nm { font-weight: 700; color: #1e293b; font-size: 15px; }
 .author-card .lv-tag { display: inline-block; margin-top: 4px; padding: 1px 8px; border-radius: 10px; background: linear-gradient(120deg, #f59e0b, #ef4444); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; }
 .author-card .astats { display: flex; gap: 12px; margin-top: 6px; color: #64748b; font-size: 12px; }
@@ -757,6 +993,8 @@ onBeforeUnmount(() => {
 .action-bar .an { font-size: 12px; font-weight: 700; }
 
 .content { line-height: 1.8; font-size: 15px; overflow-wrap: anywhere; word-break: normal; }
+/* 审核工具条「一键违禁词检查」高亮：v-html 内容需用 :deep 命中 */
+.content :deep(mark.banned-hl) { background: #fef08a; color: #b91c1c; padding: 0 2px; border-radius: 3px; box-shadow: 0 0 0 1px #facc15; }
 .content :deep(p), .content :deep(li), .content :deep(blockquote), .content :deep(td), .content :deep(th) { overflow-wrap: anywhere; }
 .content :deep(pre) { white-space: pre-wrap; word-break: break-all; max-width: 100%; overflow-x: auto; position: relative; }
 /* 代码块复制按钮：渲染后由 decorateContent 动态注入到每个 pre 内 */
@@ -822,6 +1060,22 @@ onBeforeUnmount(() => {
 .mini-reader-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #e2e8f0; background: #fff; color: #475569; border-radius: 8px; padding: 5px 11px; font-size: 13px; cursor: pointer; transition: .15s; }
 .mini-reader-btn:hover { border-color: #6366f1; color: #6366f1; }
 /* 小窗阅读浮窗样式已移至全局 theme.css（浮窗现渲染于 App.vue，脱离 PostDetail 作用域，切页不消失） */
+
+/* 订阅按钮：已订阅高亮 + 订阅人数角标（用 Element 变量，暗色自动适配） */
+.mini-reader-btn.on { border-color: #6366f1; background: #eef2ff; color: #4f46e5; font-weight: 600; }
+.sub-cnt { margin-left: 4px; padding: 0 5px; border-radius: 999px; background: var(--el-fill-color); color: var(--el-text-color-secondary); font-size: 11px; line-height: 16px; }
+
+/* 相关文档推荐 */
+.related-box { margin-top: 22px; padding: 14px 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-fill-color-lighter); }
+.related-title { margin-bottom: 8px; color: var(--el-text-color-primary); font-size: 14px; font-weight: 600; }
+.related-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; }
+.related-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: .15s; }
+.related-item:hover { background: var(--el-fill-color); }
+.related-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--el-text-color-regular); font-size: 13px; }
+.related-item:hover .related-name { color: #6366f1; }
+.related-meta { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.related-views { color: var(--el-text-color-secondary); font-size: 12px; }
+
 .more-replies { display: inline-block; margin: 4px 0 0 16px; border: none; background: none; color: #6366f1; cursor: pointer; font-size: 13px; padding: 2px 0; }
 .more-replies:hover { text-decoration: underline; }
 
@@ -854,11 +1108,64 @@ onBeforeUnmount(() => {
 .lightbox .lb-close { position: absolute; top: 18px; right: 22px; width: 40px; height: 40px; border: none; border-radius: 50%; background: rgba(255,255,255,.15); color: #fff; font-size: 24px; line-height: 1; cursor: pointer; }
 .lightbox .lb-close:hover { background: rgba(255,255,255,.3); }
 
-@media (max-width: 760px) {
-  .post-body { flex-direction: column; }
-  .post-side { position: static; width: 100%; margin: 0 0 14px; order: -1; }
-  .author-card { width: 100%; }
-  .action-bar { width: 100%; flex-direction: row; justify-content: center; position: static; }
-  .action-bar .act { flex-direction: row; width: auto; padding: 8px 14px; }
+/* 暗色模式适配：theme.css 已覆盖 .post/.author-card/.toc/.action-bar/.content 正文等，
+   此处补它未覆盖的：评论排序切换、评论点赞胶囊、目录箭头、版本元信息、灯箱占位底 */
+html.dark .csort { background: #23232e; }
+html.dark .csort button { color: #9aa0ad; }
+html.dark .csort button.on { background: var(--el-bg-color-overlay); color: #a5b4fc; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+html.dark .clike { border-color: #2a2a35; background: #23232e; color: #9aa0ad; }
+html.dark .clike:hover { border-color: #7f1d1d; background: #2a1a1a; color: #f87171; }
+html.dark .clike.on { border-color: #7f1d1d; background: #2a1a1a; color: #f87171; }
+html.dark .stat { color: #8b8fa0; }
+html.dark .toc-caret { color: #8b8fa0; }
+html.dark .vmeta { color: #8b8fa0; }
+html.dark .lightbox img { background: transparent; }
+/* 评论区标题「评论（N）」：原 #1e293b 深底深字不可读，改随主题翻转 */
+html.dark .ch { color: var(--el-text-color-primary); }
+/* 评论输入框与表情按钮：原写死白底深字，暗色下是刺眼白块 */
+html.dark .cbox { background: var(--el-bg-color-overlay); border-color: var(--el-border-color); color: var(--el-text-color-primary); }
+html.dark .emoji-btn { background: var(--el-bg-color-overlay); border-color: var(--el-border-color); color: var(--el-text-color-regular); }
+html.dark .emoji-btn:hover { background: var(--el-fill-color-light); border-color: var(--el-color-primary); color: var(--el-color-primary); }
+
+/* ============================================================
+   响应式：≤1024 单列（正文在上，作者卡 / 目录落到正文下方）
+          ≤ 640 手机：字号与内边距收紧，操作栏贴底常驻
+   ============================================================ */
+@media (max-width: 1024px) {
+  .post-body { flex-direction: column; gap: 16px; }
+  .post-main { max-width: 100%; }
+  /* 右栏：不再吸顶、不再内部滚动，作为整块排在正文后面 */
+  .post-side { position: static; width: 100%; max-height: none; overflow: visible; margin-bottom: 8px; }
+  /* 左操作栏：单列后竖排会吃掉一屏高度，改横向一排 */
+  .action-bar {
+    position: static; width: 100%;
+    flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 8px;
+  }
+  .action-bar .act { width: auto; flex-direction: row; align-items: center; gap: 6px; padding: 8px 14px; }
+  .action-bar .act.top { margin-top: 0; border-top-style: solid; border-radius: 12px; }
+  /* 相关文档：两列网格在窄屏容易挤成两半，改单列 */
+  .related-list { grid-template-columns: 1fr; gap: 4px; }
+}
+
+@media (max-width: 640px) {
+  .title { margin: 10px 0 6px; font-size: 20px; }
+  .content { font-size: 14px; }
+  .content :deep(table) { font-size: 13px; }
+  .content :deep(th), .content :deep(td) { padding: 6px 8px; }
+  /* 正文工具条：按钮多，换行平铺不再右挤 */
+  .content-bar { flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
+  .mini-reader-btn { padding: 5px 9px; font-size: 12px; }
+  /* 操作栏贴底：长文滚到哪都能点赞 / 评论 / 回顶 */
+  .action-bar { position: sticky; bottom: 8px; z-index: 10; gap: 6px; }
+  .action-bar .act { padding: 6px 10px; }
+  .action-bar .ai { font-size: 16px; }
+  .action-bar .at, .action-bar .an { font-size: 12px; }
+  .meta { gap: 6px; margin-bottom: 10px; }
+  .time { font-size: 11px; }
+  .review-bar { padding: 8px 10px; }
+  .ch-row { flex-wrap: wrap; gap: 8px; }
+  .related-box { margin-top: 16px; padding: 12px; }
+  .toc-list { max-height: 46vh; }
+  .lightbox { padding: 12px; }
 }
 </style>

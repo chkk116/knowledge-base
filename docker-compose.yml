@@ -7,10 +7,25 @@ services:
     image: getmeili/meilisearch:v1.12
     profiles: ["optional"]
     environment:
-      MEILI_MASTER_KEY: masterKey
-      MEILI_ENV: development
+      # master key 同时充当 API key；后端 kb.search.meili.api-key 填同一个值。生产务必改成强随机串！
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-masterKey}
+      MEILI_ENV: development          # 内网用 development（不强制 HTTPS）；生产建议 production + TLS
     ports:
       - "7700:7700"
+    volumes:
+      - meili_data:/meili_data        # 持久化索引，否则容器重启后索引清空需重新灌库
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: kb-redis
+    profiles: ["optional"]
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-kb-redis-dev-pass}"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
@@ -39,3 +54,5 @@ services:
 volumes:
   miniodata:
   ollamadata:
+  redis_data:
+  meili_data:

@@ -193,5 +193,59 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
 .tag.grey { background: #f1f5f9; color: #64748b; }
 .snippet { margin: 6px 0 0; color: #475569; font-size: 14px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 :deep(mark) { background: #fde68a; color: #7c2d12; padding: 0 2px; border-radius: 3px; }
-@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+/* 暗色模式适配（原生 input / select / button 不继承 Element 变量，需显式覆盖背景、边框与文字色） */
+html.dark .page { color: var(--el-text-color-primary); }
+html.dark .q { background: var(--el-fill-color-blank); border-color: var(--el-border-color); color: var(--el-text-color-primary); }
+html.dark .q:focus { border-color: #818cf8; }
+html.dark .filters select { background: var(--el-fill-color-blank); border-color: var(--el-border-color); color: var(--el-text-color-primary); }
+html.dark .back { background: var(--el-fill-color); border-color: var(--el-border-color); color: var(--el-text-color-regular); }
+html.dark .back:hover { border-color: #818cf8; color: #a5b4fc; }
+html.dark .hint { color: var(--el-text-color-secondary); }
+html.dark .hint b { color: #a5b4fc; }
+html.dark .tabs { border-bottom-color: var(--el-border-color-light); }
+html.dark .tab { color: var(--el-text-color-secondary); }
+html.dark .tab:hover { color: #a5b4fc; }
+html.dark .tab.on { color: #a5b4fc; border-bottom-color: #818cf8; }
+html.dark .author-banner { background: rgba(99,102,241,.16); border-color: rgba(129,140,248,.3); color: #a5b4fc; }
+html.dark .author-banner b { color: #a5b4fc; }
+html.dark .state { color: var(--el-text-color-secondary); }
+html.dark .state.err { color: #f87171; }
+html.dark .state .retry { background: transparent; border-color: #f87171; color: #f87171; }
+html.dark .empty { color: var(--el-text-color-secondary); }
+html.dark .empty h3 { color: var(--el-text-color-primary); }
+html.dark .empty a { color: #a5b4fc; }
+html.dark .card { background: var(--el-bg-color-overlay); border-color: var(--el-border-color-light); }
+html.dark .card:hover { border-color: #818cf8; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+html.dark .score { color: #a5b4fc; }
+html.dark .au { color: var(--el-text-color-secondary); }
+html.dark .time { color: var(--el-text-color-secondary); }
+html.dark .tag { background: rgba(99,102,241,.18); color: #a5b4fc; }
+html.dark .tag.grey { background: var(--el-fill-color); color: var(--el-text-color-secondary); }
+html.dark .snippet { color: var(--el-text-color-regular); }
+/* mark 为 v-html 动态生成的高亮标签，不带 scoped 属性，用 :deep() 命中 */
+html.dark :deep(mark) { background: rgba(250,204,21,.24); color: #fde68a; }
+
+/* ---------- 响应式布局（断点统一 1024 / 640）---------- */
+@media (max-width: 1024px) {
+  .page { padding: 16px; }
+  .filters { flex-wrap: wrap; gap: 10px; }
+  .tabs { flex-wrap: wrap; }
+  .row { gap: 8px; }
+  .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+@media (max-width: 640px) {
+  .page { padding: 12px; }
+  .search .bar { flex-wrap: wrap; gap: 8px; }
+  .q { flex: 1 1 100%; padding: 10px 12px; font-size: 14px; }
+  .go { flex: 1; padding: 10px 14px; font-size: 14px; }
+  .filters { gap: 8px; }
+  .filters select { flex: 1 1 100%; }
+  .back { flex: 1 1 100%; }
+  .grid { grid-template-columns: 1fr; gap: 10px; }
+  .card { padding: 12px; }
+  .title { font-size: 15px; }
+  .snippet { font-size: 13px; }
+  .empty { padding: 28px 12px; }
+}
 </style>

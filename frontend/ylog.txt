@@ -1,0 +1,31 @@
+npm error code EPERM
+npm error syscall open
+npm error path C:\Users\Administrator\AppData\Local\npm-cache\_cacache\index-v5\10\c4\d018f38dd19af6fda263ee3d456d7c57f7734ec716eabafeabb262e85843
+npm error errno EPERM
+npm error FetchError: Invalid response body while trying to fetch https://registry.npmjs.org/@wangeditor%2feditor: EPERM: operation not permitted, open 'C:\Users\Administrator\AppData\Local\npm-cache\_cacache\index-v5\10\c4\d018f38dd19af6fda263ee3d456d7c57f7734ec716eabafeabb262e85843'
+npm error     at C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\minipass-fetch\lib\body.js:170:15
+npm error     at async Response.json (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\minipass-fetch\lib\body.js:75:17)
+npm error     at async RegistryFetcher.packument (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\pacote\lib\registry.js:98:25)
+npm error     at async RegistryFetcher.manifest (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\pacote\lib\registry.js:128:23)
+npm error     at async #fetchManifest (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:1202:20)
+npm error     at async #nodeFromEdge (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:1040:19)
+npm error     at async #buildDepStep (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:904:11)
+npm error     at async Arborist.buildIdealTree (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:181:7)
+npm error     at async Promise.all (index 1)
+npm error     at async Arborist.reify (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:133:5) {
+npm error   code: 'EPERM',
+npm error   errno: 'EPERM',
+npm error   syscall: 'open',
+npm error   path: 'C:\\Users\\Administrator\\AppData\\Local\\npm-cache\\_cacache\\index-v5\\10\\c4\\d018f38dd19af6fda263ee3d456d7c57f7734ec716eabafeabb262e85843',
+npm error   type: 'system',
+npm error   requiredBy: '.'
+npm error }
+npm error
+npm error The operation was rejected by your operating system.
+npm error It's possible that the file was already in use (by a text editor or antivirus),
+npm error or that you lack permissions to access it.
+npm error
+npm error If you believe this might be a permissions issue, please double-check the
+npm error permissions of the file and its containing directories, or try running
+npm error the command again as root/Administrator.
+npm error A complete log of this run can be found in: C:\Users\Administrator\AppData\Local\npm-cache\_logs\2026-08-21T02_01_04_174Z-debug-0.log

@@ -1,0 +1,15 @@
+{
+  "name": "kb-collab-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "共享文档实时协同中继（Yjs + Hocuspocus），自研 HMAC 令牌鉴权，Yjs 状态直写 MySQL",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@hocuspocus/server": "2.15.3",
+    "mysql2": "^3.14.0",
+    "yjs": "^13.6.20"
+  }
+}

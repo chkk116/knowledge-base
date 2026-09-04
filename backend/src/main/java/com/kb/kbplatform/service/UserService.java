@@ -8,6 +8,8 @@ import com.kb.kbplatform.repository.FollowRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import java.time.Year;
@@ -32,6 +34,7 @@ public class UserService {
     }
 
     /** 作者小卡片：原创数 / 获赞数 / 被收藏数 / 粉丝 / 关注 / 码龄 / 当前访客是否已关注 */
+    @Cacheable(cacheNames = "userCard", key = "#id + '_' + #viewerId", unless = "#result == null")
     public Map<String, Object> getCard(Long id, Long viewerId) {
         User u = userRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在"));
@@ -58,11 +61,14 @@ public class UserService {
         m.put("fans", fans);
         m.put("following", following);
         m.put("points", u.getPoints());
+        m.put("displayBadge", u.getDisplayBadge());
+        m.put("wornBadges", u.getWornList());
         m.put("isFollowing", isFollowing);
         return m;
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "userCard", allEntries = true)
     public boolean follow(Long viewerId, Long targetId) {
         if (viewerId.equals(targetId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能关注自己");
@@ -78,6 +84,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "userCard", allEntries = true)
     public boolean unfollow(Long viewerId, Long targetId) {
         followRepo.deleteByFollowerIdAndFollowingId(viewerId, targetId);
         return true;

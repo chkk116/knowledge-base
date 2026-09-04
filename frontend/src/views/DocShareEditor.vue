@@ -1,0 +1,985 @@
+<script setup>
+import { ref, computed, onBeforeUnmount, watch, onMounted } from 'vue'
+import { useEditor, EditorContent } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import Placeholder from '@tiptap/extension-placeholder'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
+import Table from '@tiptap/extension-table'
+import TableRow from '@tiptap/extension-table-row'
+import TableHeader from '@tiptap/extension-table-header'
+import TableCell from '@tiptap/extension-table-cell'
+import Collaboration from '@tiptap/extension-collaboration'
+import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
+import { RefreshLeft, RefreshRight, ArrowDown } from '@element-plus/icons-vue'
+import * as Y from 'yjs'
+import { HocuspocusProvider } from '@hocuspocus/provider'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { updateShareDoc, saveShareDocVersion, listShareDocVersions, restoreShareDocVersion } from '../api/docShare'
+import { useAuthStore } from '../store/auth'
+import { fromNow, fmtDateTime } from '../utils/time'
+
+const props = defineProps({
+  shareId: { type: Number, required: true },
+  docId: { type: Number, required: true },
+  canWrite: { type: Boolean, default: false },
+  // 旧版 HTML 内容，仅用于首次协同时把历史内容种入 Yjs 文档（一次性迁移）
+  legacyContent: { type: String, default: '' },
+})
+
+const auth = useAuthStore()
+const meName = computed(() => auth.user?.displayName || auth.user?.username || '我')
+
+// 中继地址：优先 VITE_COLLAB_WS 覆盖；**留空则自动跟随当前访问域名**。
+// 自动推导规则（.env.production / .env.test 默认留空，因此走这里）：
+//   https 页面 → wss://{当前域名}/collab/   经 Nginx 反代升级为 wss。
+//                 https 下若用 ws:// 会被浏览器按混合内容拦截，表现为协同"静默连不上"。
+//   http  页面 → ws://{当前域名}:1234       内网直连 / 本地开发保持原有行为。
+// 这样前端 build 一份产物即可在任意域名（www / test / 未来换域名）下使用，换域名无需重新打包。
+const collabScheme = location.protocol === 'https:' ? 'wss' : 'ws'
+const wsOverride = (import.meta.env.VITE_COLLAB_WS || '').trim()
+const WS_URL = wsOverride
+  || (location.protocol === 'https:'
+    ? collabScheme + '://' + location.host + '/collab/'
+    : collabScheme + '://' + location.hostname + ':1234')
+const token = localStorage.getItem('kb_token') || ''
+
+const status = ref('connecting') // connecting | connected | disconnected
+const peers = ref([])
+const saving = ref(false)
+const seeded = ref(false)
+const wordCount = ref(0)
+
+// 断线重连兜底：浏览器后台标签页会冻结 WS 心跳，中继侧超时断开后，
+// HocuspocusProvider 的自带重连在后台往往发不出心跳，切回前台也不会自动恢复，
+// 表现为"切走再切回就断了、得切文档靠组件重建才连上"。这里手动兜底：
+//   1) 断开后延迟重连；
+//   2) 标签页重新可见时立即重连。
+let destroyed = false
+let reconnectTimer = null
+function scheduleReconnect(delay = 1500) {
+  if (destroyed) return
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    if (destroyed) return
+    try { provider.connect() } catch (e) { /* ignore */ }
+  }, delay)
+}
+function onVisibility() {
+  if (document.visibilityState === 'visible' && status.value !== 'connected') {
+    try { provider.connect() } catch (e) { /* ignore */ }
+  }
+}
+
+const CURSOR_COLORS = ['#f43f5e', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#ef4444']
+function colorFor(seed) {
+  let h = 0
+  for (const c of String(seed)) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return CURSOR_COLORS[h % CURSOR_COLORS.length]
+}
+
+// 创建 Yjs 文档与 Hocuspocus 中继连接（documentName = shareId:docId）
+const ydoc = new Y.Doc()
+const provider = new HocuspocusProvider({
+  url: WS_URL,
+  name: `${props.shareId}:${props.docId}`,
+  token,
+  document: ydoc,
+  onStatus: (e) => {
+    status.value = e.status
+    // 只读端每次（重）连接后都清空本地 awareness，确保本地光标/选区不被广播
+    if (e.status === 'connected' && !props.canWrite) {
+      try { provider.awareness.setLocalState(null) } catch (err) { /* ignore */ }
+    }
+    // 断线后兜底重连（后台标签页 WS 被冻结后切回前台不会自动恢复）
+    if (e.status === 'disconnected') scheduleReconnect()
+  },
+  onAwarenessUpdate: ({ states }) => {
+    peers.value = states.filter((s) => s.user).map((s) => s.user)
+  },
+  onSynced: () => seedIfEmpty(),
+})
+
+function seedIfEmpty() {
+  if (seeded.value) return
+  seeded.value = true
+  // 只读端绝不做 setContent：否则会修改协同文档并推送更新（即便中继拦截，本地也会脏写）
+  if (!props.canWrite) return
+  if (editor.value && editor.value.isEmpty && props.legacyContent && props.legacyContent.trim()) {
+    // 把旧版 HTML 一次性注入协同文档，随后由中继落库为 yjs_state
+    editor.value.commands.setContent(props.legacyContent)
+  }
+}
+
+const editor = useEditor({
+  editable: props.canWrite,
+  extensions: [
+    StarterKit.configure({ history: false }), // 协同模式禁用本地 history，由 Yjs 管理撤销
+    Placeholder.configure({ placeholder: props.canWrite ? '开始输入正文，邀请的成员会实时看到你的编辑…' : '你当前为只读，无法编辑此文档' }),
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    Table.configure({ resizable: true }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    Collaboration.configure({ document: ydoc }),
+    // 只读（canWrite=false）时不挂载协同光标扩展：
+    // 避免本地光标/选区被广播到其他协作者屏幕上，造成「别人能移动你的光标」的错觉，
+    // 同时只读端本身也不应产生可编辑光标。
+    ...(props.canWrite ? [CollaborationCursor.configure({
+      provider,
+      user: { name: meName.value, color: colorFor(meName.value), avatar: auth.user?.avatar || '' },
+    })] : []),
+  ],
+  editorProps: {
+    attributes: { class: 'kb-collab-body' },
+  },
+  onUpdate: () => {
+    const text = editor.value?.getText() || ''
+    wordCount.value = text.replace(/\s/g, '').length
+  },
+})
+
+const statusText = computed(() => ({
+  connected: '已连接', connecting: '连接中…', disconnected: '连接已断开',
+}[status.value] || status.value))
+
+// ---------- 工具栏 ----------
+function cmd(name) {
+  const e = editor.value
+  if (!e) return
+  const c = e.chain().focus()
+  switch (name) {
+    case 'undo': c.undo().run(); break
+    case 'redo': c.redo().run(); break
+    case 'paragraph': c.setParagraph().run(); break
+    case 'h1': c.toggleHeading({ level: 1 }).run(); break
+    case 'h2': c.toggleHeading({ level: 2 }).run(); break
+    case 'h3': c.toggleHeading({ level: 3 }).run(); break
+    case 'bold': c.toggleBold().run(); break
+    case 'italic': c.toggleItalic().run(); break
+    case 'strike': c.toggleStrike().run(); break
+    case 'inlineCode': c.toggleCode().run(); break
+    case 'bullet': c.toggleBulletList().run(); break
+    case 'ordered': c.toggleOrderedList().run(); break
+    case 'task': c.toggleTaskList().run(); break
+    case 'quote': c.toggleBlockquote().run(); break
+    case 'codeBlock': c.toggleCodeBlock().run(); break
+    case 'hr': c.setHorizontalRule().run(); break
+    case 'clear': c.unsetAllMarks().clearNodes().run(); break
+    case 'table': c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); break
+    case 'addRow': c.addRowAfter().run(); break
+    case 'addColumn': c.addColumnAfter().run(); break
+    case 'delRow': c.deleteRow().run(); break
+    case 'delColumn': c.deleteColumn().run(); break
+    case 'delTable': c.deleteTable().run(); break
+  }
+}
+
+// 注意：attrs 不传时保持 undefined（Tiptap isActive 的默认参数只认 undefined，传 null 会崩）
+const on = (name, attrs) => !!editor.value?.isActive(name, attrs)
+
+// 把当前协同内容快照为 HTML 写入 content 列，供非协同预览/搜索兼容
+async function saveSnapshot() {
+  if (!props.canWrite || !editor.value) return
+  saving.value = true
+  try {
+    await updateShareDoc(props.shareId, props.docId, { content: editor.value.getHTML() })
+    ElMessage.success('已保存快照')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+// ---------- 导出：Markdown / HTML ----------
+function safeName(s) {
+  return (s || 'document').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'document'
+}
+function download(filename, content, mime) {
+  const blob = new Blob([content], { type: mime + ';charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+/** 纯前端 HTML -> Markdown（覆盖本编辑器所用元素，零依赖，避免沙箱装包） */
+function htmlToMarkdown(html) {
+  const el = document.createElement('div')
+  el.innerHTML = html || ''
+  const block = (node) => {
+    let out = ''
+    node.childNodes.forEach((n) => { out += inline(n) })
+    return out
+  }
+  const inline = (n) => {
+    if (n.nodeType === 3) return (n.textContent || '').replace(/[ \t]+\n/g, '\n')
+    if (n.nodeType !== 1) return ''
+    const tag = n.tagName.toLowerCase()
+    const txt = () => Array.from(n.childNodes).map(inline).join('')
+    switch (tag) {
+      case 'br': return '\n'
+      case 'hr': return '\n---\n'
+      case 'strong': case 'b': return '**' + txt() + '**'
+      case 'em': case 'i': return '*' + txt() + '*'
+      case 's': case 'del': return '~~' + txt() + '~~'
+      case 'u': return txt() // Markdown 无下划线语义，保留文本
+      case 'code': return '`' + txt() + '`'
+      case 'a': return '[' + txt() + '](' + (n.getAttribute('href') || '') + ')'
+      case 'img': return '![' + (n.getAttribute('alt') || '') + '](' + (n.getAttribute('src') || '') + ')'
+      case 'span': case 'font': return txt() // 行内样式包裹，直接取文本
+      default: return txt()
+    }
+  }
+  const walk = (node, depth) => {
+    let md = ''
+    node.childNodes.forEach((n) => {
+      if (n.nodeType === 3) {
+        const t = (n.textContent || '').replace(/^[ \t]+|[ \t]+$/g, '')
+        if (t) md += t
+        return
+      }
+      if (n.nodeType !== 1) return
+      const tag = n.tagName.toLowerCase()
+      const child = () => walk(n, depth)
+      if (tag === 'h1') md += '\n# ' + block(n) + '\n'
+      else if (tag === 'h2') md += '\n## ' + block(n) + '\n'
+      else if (tag === 'h3') md += '\n### ' + block(n) + '\n'
+      else if (tag === 'h4') md += '\n#### ' + block(n) + '\n'
+      else if (tag === 'h5') md += '\n##### ' + block(n) + '\n'
+      else if (tag === 'h6') md += '\n###### ' + block(n) + '\n'
+      else if (tag === 'p') md += '\n' + block(n) + '\n'
+      else if (tag === 'blockquote') md += '\n> ' + block(n).replace(/\n/g, '\n> ') + '\n'
+      else if (tag === 'pre') md += '\n```\n' + (n.textContent || '').replace(/\n$/, '') + '\n```\n'
+      else if (tag === 'ul' || tag === 'ol') {
+        md += '\n'
+        Array.from(n.children).forEach((li, i) => {
+          const prefix = tag === 'ol' ? (i + 1) + '. ' : '- '
+          md += prefix + (li.textContent || '').trim() + '\n'
+        })
+      }
+      else if (tag === 'table') {
+        const rows = Array.from(n.querySelectorAll('tr'))
+        if (rows.length) {
+          md += '\n'
+          rows.forEach((r, ri) => {
+            const cells = Array.from(r.children).map((c) => (c.textContent || '').trim().replace(/\|/g, '\\|'))
+            md += '| ' + cells.join(' | ') + ' |\n'
+            if (ri === 0) md += '| ' + cells.map(() => '---').join(' | ') + ' |\n'
+          })
+        }
+      }
+      else if (tag === 'br') md += '\n'
+      else if (tag === 'hr') md += '\n---\n'
+      else md += block(n)
+    })
+    return md
+  }
+  let result = walk(el, 0).replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\n+$/, '\n')
+  return result
+}
+
+// ---------- 导出：Excel (.xlsx) 零依赖 ----------
+// 手写最小 xlsx：5 个 XML 部件 + store 模式（无压缩）zip，浏览器原生生成，
+// 不需要 xlsx/JSZip 等任何 npm 包（沙箱装不了包，本机也免装依赖）。
+const XLSX_CONTENT_TYPES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+  '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+  '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+  '<Default Extension="xml" ContentType="application/xml"/>' +
+  '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+  '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+  '</Types>'
+const XLSX_ROOT_RELS = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+  '</Relationships>'
+const XLSX_WORKBOOK = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+  '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+  'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+  '<sheets><sheet name="文档内容" sheetId="1" r:id="rId1"/></sheets></workbook>'
+const XLSX_WORKBOOK_RELS = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+  '</Relationships>'
+
+function xmlEscape(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+}
+// 1-based 列号 → Excel 列字母（A、B、…、Z、AA…）
+function colLetter(n) {
+  let s = ''
+  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26) }
+  return s
+}
+
+// 编辑器 HTML → 二维数组（每行一个数组；标题/段落/列表/代码为单列行，表格按原结构展开成单元格矩阵）
+function htmlToAoa(html) {
+  const el = document.createElement('div')
+  el.innerHTML = html || ''
+  const rows = []
+  const inlineText = (n) => {
+    let out = ''
+    n.childNodes.forEach((c) => {
+      if (c.nodeType === 3) out += c.textContent || ''
+      else if (c.nodeType === 1) {
+        const t = c.tagName.toLowerCase()
+        if (t === 'br') out += '\n'
+        else if (t === 'img') out += c.getAttribute('alt') || ''
+        else out += inlineText(c)
+      }
+    })
+    return out
+  }
+  const push = (v) => rows.push([v == null ? '' : String(v)])
+  const walk = (node) => {
+    node.childNodes.forEach((n) => {
+      if (n.nodeType === 3) {
+        const t = (n.textContent || '').replace(/^[ \t]+|[ \t]+$/g, '')
+        if (t) push(t)
+        return
+      }
+      if (n.nodeType !== 1) return
+      const tag = n.tagName.toLowerCase()
+      const txt = () => (inlineText(n) || '').replace(/\s+/g, ' ').trim()
+      if (tag === 'h1') push('# ' + txt())
+      else if (tag === 'h2') push('## ' + txt())
+      else if (tag === 'h3') push('### ' + txt())
+      else if (tag === 'h4') push('#### ' + txt())
+      else if (tag === 'h5') push('##### ' + txt())
+      else if (tag === 'h6') push('###### ' + txt())
+      else if (tag === 'p') push(txt())
+      else if (tag === 'blockquote') push('> ' + txt())
+      else if (tag === 'pre') (n.textContent || '').replace(/\n$/, '').split('\n').forEach((l) => push(l))
+      else if (tag === 'ul' || tag === 'ol') {
+        Array.from(n.children).forEach((li, i) => {
+          const box = li.querySelector('input[type="checkbox"]')
+          const body = (li.textContent || '').trim()
+          if (box) push((box.checked ? '[x] ' : '[ ] ') + body)
+          else push((tag === 'ol' ? (i + 1) + '. ' : '- ') + body)
+        })
+      }
+      else if (tag === 'table') {
+        // 表格：每个 tr 一行、每个单元格一列（Excel 原生结构，导出后可直接继续编辑）
+        Array.from(n.querySelectorAll('tr')).forEach((tr) => {
+          rows.push(Array.from(tr.children).map((c) => (c.textContent || '').trim()))
+        })
+        rows.push([])
+      }
+      else if (tag === 'br') push('')
+      else if (tag === 'hr') push('---')
+      else push(txt())
+    })
+  }
+  walk(el)
+  while (rows.length && rows[0].length === 1 && !rows[0][0]) rows.shift()
+  while (rows.length && rows[rows.length - 1].length === 1 && !rows[rows.length - 1][0]) rows.pop()
+  return rows
+}
+
+function aoaToSheetXml(aoa) {
+  let maxCols = 1
+  aoa.forEach((r) => { if (r.length > maxCols) maxCols = r.length })
+  // 列宽：正文（单列）给宽列；含表格（多列）按列数均匀分配
+  let cols
+  if (maxCols === 1) cols = '<cols><col min="1" max="1" width="72" customWidth="1"/></cols>'
+  else {
+    const w = Math.max(12, Math.min(40, Math.floor(96 / maxCols)))
+    cols = '<cols>' + Array.from({ length: maxCols }, (_, i) =>
+      `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols>'
+  }
+  let body = ''
+  aoa.forEach((r, i) => {
+    const rowNum = i + 1
+    let cells = ''
+    r.forEach((v, j) => {
+      const s = xmlEscape(v == null ? '' : String(v))
+      cells += `<c r="${colLetter(j + 1)}${rowNum}" t="inlineStr"><is><t xml:space="preserve">${s}</t></is></c>`
+    })
+    body += `<row r="${rowNum}">${cells}</row>`
+  })
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    cols + '<sheetData>' + body + '</sheetData></worksheet>'
+}
+
+// CRC32（zip store 模式校验用），标准查表实现
+let crcTable = null
+function crc32(buf) {
+  if (!crcTable) {
+    crcTable = new Int32Array(256)
+    for (let i = 0; i < 256; i++) {
+      let c = i
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1)
+      crcTable[i] = c
+    }
+  }
+  let crc = -1
+  for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ crcTable[(crc ^ buf[i]) & 0xFF]
+  return (crc ^ -1) >>> 0
+}
+
+// 把 {name, data(Uint8Array)} 列表打成 zip（store 无压缩，避免 deflate，Excel 兼容）
+function zipStore(files) {
+  const enc = new TextEncoder()
+  const localParts = []
+  const centralParts = []
+  let offset = 0
+  files.forEach((f) => {
+    const nameB = enc.encode(f.name)
+    const dataB = f.data
+    const crc = crc32(dataB)
+    const local = new Uint8Array(30 + nameB.length + dataB.length)
+    const dv = new DataView(local.buffer)
+    dv.setUint32(0, 0x04034b50, true)
+    dv.setUint16(4, 20, true)
+    dv.setUint16(6, 0, true)
+    dv.setUint16(8, 0, true)  // method 0 = store
+    dv.setUint16(10, 0, true)
+    dv.setUint16(12, 0x21, true) // 1980-01-01
+    dv.setUint32(14, crc, true)
+    dv.setUint32(18, dataB.length, true)
+    dv.setUint32(22, dataB.length, true)
+    dv.setUint16(26, nameB.length, true)
+    dv.setUint16(28, 0, true)
+    local.set(nameB, 30)
+    local.set(dataB, 30 + nameB.length)
+    localParts.push(local)
+    const cen = new Uint8Array(46 + nameB.length)
+    const cdv = new DataView(cen.buffer)
+    cdv.setUint32(0, 0x02014b50, true)
+    cdv.setUint16(4, 20, true)
+    cdv.setUint16(6, 20, true)
+    cdv.setUint16(8, 0, true)
+    cdv.setUint16(10, 0, true)
+    cdv.setUint16(12, 0, true)
+    cdv.setUint16(14, 0x21, true)
+    cdv.setUint32(16, crc, true)
+    cdv.setUint32(20, dataB.length, true)
+    cdv.setUint32(24, dataB.length, true)
+    cdv.setUint16(28, nameB.length, true)
+    cdv.setUint16(30, 0, true)
+    cdv.setUint16(32, 0, true)
+    cdv.setUint16(34, 0, true)
+    cdv.setUint16(36, 0, true)
+    cdv.setUint32(38, 0, true)
+    cdv.setUint32(42, offset, true)
+    cen.set(nameB, 46)
+    centralParts.push(cen)
+    offset += local.length
+  })
+  const cdSize = centralParts.reduce((s, c) => s + c.length, 0)
+  const eocd = new Uint8Array(22)
+  const edv = new DataView(eocd.buffer)
+  edv.setUint32(0, 0x06054b50, true)
+  edv.setUint16(4, 0, true)
+  edv.setUint16(6, 0, true)
+  edv.setUint16(8, files.length, true)
+  edv.setUint16(10, files.length, true)
+  edv.setUint32(12, cdSize, true)
+  edv.setUint32(16, offset, true)
+  edv.setUint16(20, 0, true)
+  const out = new Uint8Array(offset + cdSize + 22)
+  let pos = 0
+  localParts.forEach((p) => { out.set(p, pos); pos += p.length })
+  centralParts.forEach((c) => { out.set(c, pos); pos += c.length })
+  out.set(eocd, pos)
+  return out
+}
+
+function exportXlsx() {
+  if (!editor.value) return
+  const aoa = htmlToAoa(editor.value.getHTML())
+  if (!aoa.length) { ElMessage.warning('文档为空，无可导出内容'); return }
+  const enc = new TextEncoder()
+  const zip = zipStore([
+    { name: '[Content_Types].xml', data: enc.encode(XLSX_CONTENT_TYPES) },
+    { name: '_rels/.rels', data: enc.encode(XLSX_ROOT_RELS) },
+    { name: 'xl/workbook.xml', data: enc.encode(XLSX_WORKBOOK) },
+    { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(XLSX_WORKBOOK_RELS) },
+    { name: 'xl/worksheets/sheet1.xml', data: enc.encode(aoaToSheetXml(aoa)) },
+  ])
+  const blob = new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = safeName(props.docId ? ('doc-' + props.docId) : 'shared-doc') + '.xlsx'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+  ElMessage.success('已导出 Excel')
+}
+
+function onExport(command) {
+  if (!editor.value) return
+  const html = editor.value.getHTML()
+  const base = safeName(props.docId ? ('doc-' + props.docId) : 'shared-doc')
+  if (command === 'xlsx') { exportXlsx(); return }
+  if (command === 'html') {
+    const full = '<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><title>' + base +
+      '</title></head>\n<body>\n' + html + '\n</body>\n</html>'
+    download(base + '.html', full, 'text/html')
+    ElMessage.success('已导出 HTML')
+  } else {
+    download(base + '.md', htmlToMarkdown(html), 'text/markdown')
+    ElMessage.success('已导出 Markdown')
+  }
+}
+
+// ---------- 共享文档版本历史 ----------
+const versionDrawer = ref(false)
+const versions = ref([])
+const versionLoading = ref(false)
+const savingVersion = ref(false)
+
+async function openVersions() {
+  versionDrawer.value = true
+  await loadVersions()
+}
+async function loadVersions() {
+  versionLoading.value = true
+  try {
+    versions.value = (await listShareDocVersions(props.shareId, props.docId)).data || []
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '加载版本失败')
+  } finally {
+    versionLoading.value = false
+  }
+}
+async function saveCurrentVersion() {
+  if (!props.canWrite) { ElMessage.warning('只读模式不可保存版本'); return }
+  savingVersion.value = true
+  try {
+    await saveShareDocVersion(props.shareId, props.docId)
+    ElMessage.success('已保存当前版本')
+    await loadVersions()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '保存版本失败')
+  } finally {
+    savingVersion.value = false
+  }
+}
+async function restoreVersion(v) {
+  try {
+    await ElMessageBox.confirm('回滚到该版本？当前内容会先自动存为一份快照，便于随时再退回来。', '回滚版本', { type: 'warning' })
+  } catch { return }
+  try {
+    await restoreShareDocVersion(props.shareId, props.docId, v.id)
+    ElMessage.success('已恢复，正在重新加载文档…')
+    versionDrawer.value = false
+    // 后端把版本 yjs_state 写回 kb_shared_document，中继在客户端（重）连接时按最新状态重新下发；
+    // 先断开再连接以触发 onLoadDocument，把恢复的内容应用到编辑器。
+    try { provider.disconnect() } catch (e) { /* ignore */ }
+    setTimeout(() => { try { provider.connect() } catch (e) { /* ignore */ } }, 250)
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '恢复失败')
+  }
+}
+const versionSnippet = (html) => {
+  if (!html) return ''
+  const div = document.createElement('div')
+  div.innerHTML = html
+  const t = (div.textContent || '').replace(/\s+/g, ' ').trim()
+  return t.length > 100 ? t.slice(0, 100) + '…' : t
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibility)
+})
+
+onBeforeUnmount(() => {
+  destroyed = true
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  document.removeEventListener('visibilitychange', onVisibility)
+  provider?.destroy()
+  editor.value?.destroy()
+})
+
+// 只读保护：canWrite 为 false 时强制不可编辑、失焦，并清空本地 awareness（不广播光标/选区），
+// 杜绝只读用户点击产生可编辑光标、或本地光标被同步到其他协作者屏幕上。
+function enforceReadOnly() {
+  if (editor.value) {
+    editor.value.setEditable(false)
+    editor.value.commands.blur()
+  }
+  // 彻底不广播本地光标/在线状态（CollaborationCursor 未挂载时仍可能因 awareness 连接残留本地状态）
+  try { provider.awareness.setLocalState(null) } catch (e) { /* awareness 未就绪忽略 */ }
+}
+watch(() => props.canWrite, (w) => {
+  if (!w) enforceReadOnly()
+  else if (editor.value) editor.value.setEditable(true)
+}, { immediate: true })
+</script>
+
+<template>
+  <div class="collab">
+    <!-- 顶部工具栏（飞书式：白底分组按钮 + 右侧在线状态） -->
+    <div class="collab-toolbar">
+      <div class="tb-left" v-if="canWrite">
+        <div class="tb-group">
+          <button class="tb-btn" title="撤销" @click="cmd('undo')"><el-icon :size="15"><RefreshLeft /></el-icon></button>
+          <button class="tb-btn" title="重做" @click="cmd('redo')"><el-icon :size="15"><RefreshRight /></el-icon></button>
+        </div>
+        <span class="tb-sep" />
+        <div class="tb-group">
+          <button class="tb-btn txt" :class="{ on: on('paragraph') }" title="正文" @click="cmd('paragraph')">正文</button>
+          <button class="tb-btn" :class="{ on: on('heading', { level: 1 }) }" title="标题 1" @click="cmd('h1')"><b>H1</b></button>
+          <button class="tb-btn" :class="{ on: on('heading', { level: 2 }) }" title="标题 2" @click="cmd('h2')"><b>H2</b></button>
+          <button class="tb-btn" :class="{ on: on('heading', { level: 3 }) }" title="标题 3" @click="cmd('h3')"><b>H3</b></button>
+        </div>
+        <span class="tb-sep" />
+        <div class="tb-group">
+          <button class="tb-btn" :class="{ on: on('bold') }" title="加粗" @click="cmd('bold')"><b>B</b></button>
+          <button class="tb-btn" :class="{ on: on('italic') }" title="斜体" @click="cmd('italic')"><i>I</i></button>
+          <button class="tb-btn" :class="{ on: on('strike') }" title="删除线" @click="cmd('strike')"><s>S</s></button>
+          <button class="tb-btn code-ic" :class="{ on: on('code') }" title="行内代码" @click="cmd('inlineCode')">&lt;/&gt;</button>
+        </div>
+        <span class="tb-sep" />
+        <div class="tb-group">
+          <button class="tb-btn" :class="{ on: on('bulletList') }" title="无序列表" @click="cmd('bullet')">•••</button>
+          <button class="tb-btn num" :class="{ on: on('orderedList') }" title="有序列表" @click="cmd('ordered')">1.</button>
+          <button class="tb-btn chk" :class="{ on: on('taskList') }" title="待办清单" @click="cmd('task')">☑</button>
+        </div>
+        <span class="tb-sep" />
+        <div class="tb-group">
+          <button class="tb-btn" :class="{ on: on('blockquote') }" title="引用" @click="cmd('quote')">❝</button>
+          <button class="tb-btn code-ic" :class="{ on: on('codeBlock') }" title="代码块" @click="cmd('codeBlock')">{&nbsp;}</button>
+          <button class="tb-btn dash" title="分割线" @click="cmd('hr')">—</button>
+          <button class="tb-btn" title="清除格式" @click="cmd('clear')">✕格式</button>
+        </div>
+        <span class="tb-sep" />
+        <div class="tb-group">
+          <button class="tb-btn" :class="{ on: on('table') }" title="插入 3×3 表格" @click="cmd('table')">▦ 表格</button>
+          <template v-if="on('table')">
+            <button class="tb-btn txt" title="在下方插入一行" @click="cmd('addRow')">+行</button>
+            <button class="tb-btn txt" title="在右侧插入一列" @click="cmd('addColumn')">+列</button>
+            <button class="tb-btn txt" title="删除当前行" @click="cmd('delRow')">删行</button>
+            <button class="tb-btn txt" title="删除当前列" @click="cmd('delColumn')">删列</button>
+            <button class="tb-btn txt danger" title="删除整个表格" @click="cmd('delTable')">删表</button>
+          </template>
+        </div>
+        <span class="tb-sep" />
+        <button class="tb-btn txt" :class="{ saving }" title="把当前内容保存为 HTML 快照" @click="saveSnapshot">
+          {{ saving ? '保存中…' : '存快照' }}
+        </button>
+      </div>
+
+      <div class="tb-right">
+        <el-button size="small" class="ver-btn" @click="openVersions" title="查看 / 回滚历史版本">🕑 版本</el-button>
+        <el-dropdown trigger="click" @command="onExport">
+          <el-button size="small" class="export-btn">导出<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="md">导出 Markdown (.md)</el-dropdown-item>
+              <el-dropdown-item command="html">导出 HTML (.html)</el-dropdown-item>
+              <el-dropdown-item command="xlsx">导出 Excel (.xlsx)</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+
+      <div class="presence">
+        <span class="ro-tag" v-if="!canWrite">只读模式</span>
+        <span class="peer-count" v-if="peers.length > 1">{{ peers.length }} 人正在编辑</span>
+        <span class="peer-stack" v-if="peers.length">
+          <el-tooltip v-for="(p, i) in peers.slice(0, 6)" :key="(p.clientId ?? p.name) + i" :content="p.name" placement="bottom">
+            <span class="peer" :style="p.avatar ? {} : { background: p.color }">
+              <img v-if="p.avatar" :src="p.avatar" class="peer-img" :alt="p.name" />
+              <template v-else>{{ (p.name || '?').slice(0, 1) }}</template>
+            </span>
+          </el-tooltip>
+          <span class="peer more" v-if="peers.length > 6">+{{ peers.length - 6 }}</span>
+        </span>
+        <span class="conn" :class="status">
+          <span class="dot" />{{ statusText }}
+        </span>
+      </div>
+    </div>
+
+    <!-- 灰色画布 + 居中纸张（飞书式版面） -->
+    <div class="collab-canvas" :class="{ ro: !canWrite }">
+      <div class="page" @click.self="canWrite && editor?.commands.focus('end')">
+        <editor-content :editor="editor" class="page-inner" />
+      </div>
+    </div>
+
+    <!-- 版本历史抽屉 -->
+    <el-drawer v-model="versionDrawer" title="版本历史" direction="rtl" size="420px">
+      <div class="ver-head">
+        <el-button size="small" type="primary" :loading="savingVersion" :disabled="!canWrite" @click="saveCurrentVersion">
+          保存当前版本
+        </el-button>
+        <span class="ver-tip">每次保存编辑会自动留档；可回滚到任意历史版本。</span>
+      </div>
+      <div v-loading="versionLoading" class="ver-list">
+        <el-empty v-if="!versions.length" description="暂无版本（编辑保存后会自动生成）" :image-size="90" />
+        <div class="ver-item" v-for="v in versions" :key="v.id">
+          <div class="ver-info">
+            <div class="ver-t">#{{ v.id }} {{ v.title || '（无标题）' }}</div>
+            <div class="ver-meta">
+              编辑于 {{ fromNow(v.createdAt) }}（{{ fmtDateTime(v.createdAt) }}）
+              <template v-if="v.editorName"> · {{ v.editorName }}</template>
+              <template v-else-if="v.editorId"> · 用户#{{ v.editorId }}</template>
+            </div>
+            <div class="ver-snip" v-if="versionSnippet(v.content)">{{ versionSnippet(v.content) }}</div>
+          </div>
+          <el-button size="small" type="warning" @click="restoreVersion(v)">回滚</el-button>
+        </div>
+      </div>
+    </el-drawer>
+  </div>
+</template>
+
+<style scoped>
+.collab { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* ---------- 工具栏 ---------- */
+.collab-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px; background: #fff; border-bottom: 1px solid #eef0f3;
+  position: relative; z-index: 5;
+}
+.tb-left { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tb-right { display: flex; align-items: center; margin-left: 8px; }
+.tb-right .export-btn { font-size: 13px; }
+.tb-right .ver-btn { font-size: 13px; margin-right: 8px; }
+.ver-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.ver-tip { color: #94a3b8; font-size: 12px; }
+.ver-list { display: flex; flex-direction: column; gap: 10px; }
+.ver-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid #eef2f7; border-radius: 10px; }
+.ver-info { min-width: 0; flex: 1; }
+.ver-t { font-weight: 600; color: #1e293b; font-size: 14px; }
+.ver-meta { color: #94a3b8; font-size: 12px; margin-top: 3px; }
+.ver-snip { color: #64748b; font-size: 13px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tb-group { display: flex; align-items: center; gap: 2px; }
+.tb-sep { width: 1px; height: 18px; background: #e4e7ec; margin: 0 4px; }
+.tb-btn {
+  min-width: 30px; height: 30px; padding: 0 7px;
+  border: none; background: transparent; border-radius: 6px;
+  color: #4b5563; font-size: 13.5px; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.tb-btn:hover { background: #f1f5f9; color: #1e293b; }
+.tb-btn.on { background: #eef2ff; color: #4f46e5; }
+.tb-btn.txt { font-size: 12.5px; padding: 0 8px; }
+.tb-btn.txt.saving { color: #94a3b8; cursor: default; }
+.tb-btn.txt.danger:hover { background: #fef2f2; color: #dc2626; }
+.tb-btn.num { font-size: 12.5px; font-weight: 600; }
+.tb-btn.chk { font-size: 14px; }
+.tb-btn.dash { letter-spacing: -1px; }
+.tb-btn.code-ic { font-size: 11.5px; font-family: ui-monospace, Consolas, monospace; }
+
+/* ---------- 在线状态 ---------- */
+.presence { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.peer-count { color: #64748b; font-size: 12.5px; white-space: nowrap; }
+/* 飞书等距堆叠：line-height:0 消除 inline-flex 子元素空白节点把间距撑大，
+   否则实际重叠量被放大 → 第一个头像被第二个挤掉过多（"被遮太多"根因） */
+.peer-stack { display: inline-flex; align-items: center; padding-left: 8px; line-height: 0; }
+/* 负 margin 统一加在直接子元素（含 el-tooltip 外层 wrapper），避免 tooltip 包裹导致堆叠错位穿样式 */
+/* 重叠 8px：与 28px 头像 + 2px 白圈搭配，每个头像露出约 20px 主体 + 完整白圈，不会被压没 */
+.peer-stack > * { margin-left: -8px; flex: none; position: relative; line-height: normal; }
+.peer-stack > *:first-child { margin-left: 0; }
+/* 后排头像压前排：z-index 按位置递增，hover 时升到最上层（飞书/企业微信通用做法） */
+.peer-stack > *:nth-child(1) { z-index: 1; }
+.peer-stack > *:nth-child(2) { z-index: 2; }
+.peer-stack > *:nth-child(3) { z-index: 3; }
+.peer-stack > *:nth-child(4) { z-index: 4; }
+.peer-stack > *:nth-child(5) { z-index: 5; }
+.peer-stack > *:nth-child(6) { z-index: 6; }
+.peer-stack > *:hover { z-index: 10; }
+/* 白圈用 box-shadow 画在头像外（不要用 border + overflow:hidden，
+   否则重叠时 border 会被对面背景切掉，表现为"白边消失 + 头像穿样式"）。
+   单层 2px 纯白圈，不要叠外层灰影（灰影会加深"压住"的视觉感）。 */
+.peer {
+  width: 28px; height: 28px; border-radius: 50%;
+  color: #fff; font-size: 12px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #94a3b8;
+  box-shadow: 0 0 0 0 2px #fff;
+  overflow: hidden; cursor: default;
+}
+.peer-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.peer.more { background: #94a3b8; font-size: 10.5px; }
+.conn { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #64748b; white-space: nowrap; }
+.conn .dot { width: 7px; height: 7px; border-radius: 50%; }
+.conn.connected .dot { background: #10b981; }
+.conn.connecting .dot { background: #f59e0b; }
+.conn.disconnected .dot { background: #ef4444; }
+.ro-tag { color: #94a3b8; font-size: 12.5px; background: #f1f5f9; border-radius: 4px; padding: 2px 8px; }
+
+/* ---------- 画布与纸张 ---------- */
+.collab-canvas { flex: 1; overflow: auto; background: #f2f3f5; }
+.collab-canvas.ro .page { background: #fbfcfd; }
+.page {
+  max-width: 860px; min-height: calc(100% - 64px); margin: 24px auto 48px;
+  background: #fff; border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05), 0 4px 16px rgba(15, 23, 42, .04);
+  padding: 40px 64px 72px; box-sizing: border-box;
+  cursor: text;
+}
+.page-inner { min-height: 100%; outline: none; }
+/* 只读态物理锁：彻底禁止聚焦/选择，杜绝只读端产生本地光标或 selection */
+.collab-canvas.ro .page-inner :deep(.kb-collab-body) { user-select: none; -webkit-user-select: none; cursor: default; }
+.collab-canvas.ro .page-inner :deep(.ProseMirror) { caret-color: transparent; }
+
+/* ---------- 正文排版 ---------- */
+.page-inner :deep(.kb-collab-body) { outline: none; color: #262a2e; font-size: 15.5px; line-height: 1.78; }
+.page-inner :deep(.kb-collab-body > *) + * { margin-top: 6px; }
+.page-inner :deep(.kb-collab-body h1) { font-size: 26px; font-weight: 700; color: #0f172a; margin: 26px 0 8px; line-height: 1.35; }
+.page-inner :deep(.kb-collab-body h2) { font-size: 21px; font-weight: 700; color: #0f172a; margin: 22px 0 6px; line-height: 1.35; }
+.page-inner :deep(.kb-collab-body h3) { font-size: 17.5px; font-weight: 600; color: #1e293b; margin: 18px 0 4px; line-height: 1.4; }
+.page-inner :deep(.kb-collab-body p) { margin: 2px 0; }
+.page-inner :deep(.kb-collab-body ul),
+.page-inner :deep(.kb-collab-body ol) { padding-left: 1.5em; margin: 4px 0; }
+.page-inner :deep(.kb-collab-body li) { margin: 3px 0; }
+.page-inner :deep(.kb-collab-body li::marker) { color: #6366f1; }
+.page-inner :deep(.kb-collab-body ul.task-list) { list-style: none; padding-left: 2px; }
+.page-inner :deep(.kb-collab-body ul.task-list li) { display: flex; gap: 8px; align-items: flex-start; }
+.page-inner :deep(.kb-collab-body ul.task-list li > label) { margin-top: 5px; user-select: none; }
+.page-inner :deep(.kb-collab-body ul.task-list li > div) { flex: 1; }
+.page-inner :deep(.kb-collab-body input[type='checkbox']) { accent-color: #6366f1; width: 15px; height: 15px; cursor: pointer; }
+.page-inner :deep(.kb-collab-body blockquote) {
+  border-left: 3px solid #a5b4fc; background: #f8faff; color: #4b5563;
+  margin: 10px 0; padding: 8px 16px; border-radius: 0 6px 6px 0;
+}
+.page-inner :deep(.kb-collab-body pre) {
+  background: #1e293b; color: #e2e8f0; padding: 14px 18px; border-radius: 8px;
+  overflow: auto; font-size: 13.5px; line-height: 1.65; margin: 10px 0;
+  font-family: ui-monospace, Consolas, 'JetBrains Mono', monospace;
+}
+.page-inner :deep(.kb-collab-body code) {
+  font-family: ui-monospace, Consolas, monospace; font-size: .9em;
+  background: #f1f5f9; color: #4f46e5; border-radius: 4px; padding: 1px 5px;
+}
+.page-inner :deep(.kb-collab-body pre code) { background: none; color: inherit; padding: 0; }
+.page-inner :deep(.kb-collab-body hr) { border: none; border-top: 1px solid #e2e8f0; margin: 18px auto; width: 72%; }
+.page-inner :deep(.kb-collab-body a) { color: #4f46e5; }
+
+/* 表格（飞书式：细边框 + 浅灰表头 + 选中高亮 + 列宽拖拽把手） */
+.page-inner :deep(.kb-collab-body .tableWrapper) { overflow: visible; margin: 10px 0; }
+.page-inner :deep(.kb-collab-body table) { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; margin: 0; border: 1px solid #e2e8f0; border-right: 0; border-bottom: 0; }
+.page-inner :deep(.kb-collab-body td),
+.page-inner :deep(.kb-collab-body th) {
+  border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;
+  padding: 7px 12px; vertical-align: top;
+  position: relative; min-width: 2em; box-sizing: border-box;
+}
+.page-inner :deep(.kb-collab-body th) { background: #f7f8fa; font-weight: 600; text-align: left; }
+.page-inner :deep(.kb-collab-body td > p),
+.page-inner :deep(.kb-collab-body th > p) { margin: 0; }
+.page-inner :deep(.kb-collab-body .selectedCell::after) {
+  content: ''; position: absolute; inset: 0;
+  background: rgba(99, 102, 241, .12); pointer-events: none;
+}
+.page-inner :deep(.kb-collab-body .column-resize-handle) {
+  position: absolute; right: -2px; top: 0; bottom: 0; width: 4px;
+  background: #6366f1; cursor: col-resize; z-index: 2;
+}
+.page-inner :deep(.kb-collab-body.resize-cursor) { cursor: col-resize; }
+
+/* 占位文案 */
+.page-inner :deep(.kb-collab-body p.is-editor-empty:first-child::before) {
+  content: attr(data-placeholder); color: #b6bdc7; float: left; height: 0; pointer-events: none;
+}
+
+/* ---------- 飞书式多人光标：彩条 + 上浮名牌 ---------- */
+.page-inner :deep(.collaboration-cursor__caret) {
+  border-left: 2px solid; border-right: none; margin: 0 -1px 0 0;
+  pointer-events: none; position: relative; word-break: normal; display: inline;
+  /* 提升 stacking 优先级，避免被表格单元格内容/边框压住；同时加双层 drop-shadow 让 2px 竖线在表格线上醒目 */
+  z-index: 2147483647;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, .35)) drop-shadow(0 0 1px rgba(255, 255, 255, .7));
+}
+.page-inner :deep(.collaboration-cursor__label) {
+  /* 关键：label 放在 caret 紧贴的下方/右侧（完全在 cell 内部），
+     避开 td/th 的 position:relative 形成的局部层叠 + .collab-canvas overflow:auto 切内容的问题。
+     在 table 内即使 z-index 2147483647 也无法跨 cell 盖内容，所以改在 cell 内部。 */
+  position: absolute; left: -2px; top: 100%; transform: translateY(2px);
+  font-size: 12px; line-height: 1; font-weight: 500;
+  color: #fff; padding: 4px 8px; border-radius: 0 4px 4px 4px;
+  white-space: nowrap; user-select: none; opacity: .92;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .18);
+  z-index: 2147483647;
+  animation: cur-in .16s ease-out;
+}
+@keyframes cur-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: .92; transform: translateY(2px); } }
+
+/* 本地选区（靛紫浅色，避免与系统默认蓝冲突） */
+.page-inner :deep(.kb-collab-body ::selection) { background: #c7d2fe; }
+
+/* ---------- 暗黑模式 ---------- */
+html.dark .collab-toolbar { background: #17171f; border-bottom-color: #2a2a35; }
+html.dark .tb-btn { color: #c2c6d2; }
+html.dark .tb-btn:hover { background: #232347; color: #e7e7ee; }
+html.dark .tb-btn.on { background: #232347; color: #a5b4fc; }
+html.dark .tb-btn.txt.danger:hover { background: #2a1a1a; color: #f87171; }
+html.dark .tb-sep { background: #2a2a35; }
+html.dark .peer-count { color: #9aa0ad; }
+html.dark .conn { color: #9aa0ad; }
+html.dark .ro-tag { color: #9aa0ad; background: #23232e; }
+html.dark .collab-canvas { background: #0e0e12; }
+html.dark .collab-canvas.ro .page { background: #13131a; }
+html.dark .page {
+  background: #17171f;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 16px rgba(0, 0, 0, .35);
+}
+html.dark .page-inner :deep(.kb-collab-body) { color: #e7e7ee; }
+html.dark .page-inner :deep(.kb-collab-body h1),
+html.dark .page-inner :deep(.kb-collab-body h2) { color: #f1f5f9; }
+html.dark .page-inner :deep(.kb-collab-body h3) { color: #e7e7ee; }
+html.dark .page-inner :deep(.kb-collab-body li::marker) { color: #a5b4fc; }
+html.dark .page-inner :deep(.kb-collab-body blockquote) { background: #1d1d27; color: #b8b9c4; border-left-color: #3b3b6b; }
+html.dark .page-inner :deep(.kb-collab-body pre) { background: #0d1117; color: #e2e8f0; }
+html.dark .page-inner :deep(.kb-collab-body code) { background: #23232e; color: #a5b4fc; }
+html.dark .page-inner :deep(.kb-collab-body hr) { border-top-color: #2a2a35; }
+html.dark .page-inner :deep(.kb-collab-body a) { color: #a5b4fc; }
+html.dark .page-inner :deep(.kb-collab-body table) { border-color: #2a2a35; }
+html.dark .page-inner :deep(.kb-collab-body th) { background: #1d1d27; }
+html.dark .page-inner :deep(.kb-collab-body td),
+html.dark .page-inner :deep(.kb-collab-body th) { border-right-color: #2a2a35; border-bottom-color: #2a2a35; }
+html.dark .page-inner :deep(.kb-collab-body .selectedCell::after) { background: rgba(129, 140, 248, .18); }
+
+/* ===================== 响应式布局（追加在末尾） ===================== */
+/* 平板 / 窄屏：工具栏整条独占一行并允许换行（不许被截断），
+   右侧「导出 / 版本 / 在线状态」换行到第二行；纸张内边距收紧 */
+@media (max-width: 1024px) {
+  .collab-toolbar { flex-wrap: wrap; row-gap: 6px; padding: 6px 10px; }
+  .tb-left { flex: 1 1 100%; }
+  .tb-right { margin-left: 0; }
+  .presence { margin-left: auto; }
+  .page { margin: 16px auto 32px; padding: 32px 36px 56px; }
+  /* 宽表格在窄屏自己横向滚动，不撑破纸张 */
+  .page-inner :deep(.kb-collab-body .tableWrapper) { overflow-x: auto; }
+  .ver-item { flex-wrap: wrap; }
+}
+
+/* 手机：工具按钮再缩一档、在线状态独占一行；纸张贴边、正文降 1px */
+@media (max-width: 640px) {
+  .collab-toolbar { padding: 6px 8px; gap: 6px; }
+  .tb-left { gap: 4px; }
+  .tb-btn { min-width: 28px; height: 28px; padding: 0 6px; font-size: 12.5px; }
+  .tb-btn.txt { padding: 0 7px; font-size: 12px; }
+  .tb-sep { margin: 0 2px; }
+  .presence { width: 100%; margin-left: 0; flex-wrap: wrap; gap: 6px 8px; }
+  .peer-count { font-size: 12px; }
+  .page { margin: 10px auto 24px; padding: 20px 16px 40px; }
+  .page-inner :deep(.kb-collab-body) { font-size: 14.5px; }
+  .page-inner :deep(.kb-collab-body h1) { font-size: 22px; }
+  .page-inner :deep(.kb-collab-body h2) { font-size: 19px; }
+  .page-inner :deep(.kb-collab-body h3) { font-size: 16.5px; }
+  .page-inner :deep(.kb-collab-body pre) { padding: 12px 14px; font-size: 12.5px; }
+  .page-inner :deep(.kb-collab-body td),
+  .page-inner :deep(.kb-collab-body th) { padding: 6px 8px; }
+  .ver-head { gap: 8px; }
+  .ver-item { flex-wrap: wrap; padding: 10px; }
+}
+</style>

@@ -1,0 +1,694 @@
+package com.kb.kbplatform.service;
+
+import com.kb.kbplatform.domain.DocShare;
+import com.kb.kbplatform.domain.DocSharePermission;
+import com.kb.kbplatform.domain.SharedDocument;
+import com.kb.kbplatform.domain.SharedDocPermission;
+import com.kb.kbplatform.domain.SharedDocVersion;
+import com.kb.kbplatform.domain.User;
+import jakarta.annotation.PostConstruct;
+import com.kb.kbplatform.repository.DocSharePermissionRepository;
+import com.kb.kbplatform.repository.DocShareRepository;
+import com.kb.kbplatform.repository.SharedDocPermissionRepository;
+import com.kb.kbplatform.repository.SharedDocumentRepository;
+import com.kb.kbplatform.repository.SharedDocVersionRepository;
+import com.kb.kbplatform.repository.UserRepository;
+import com.kb.kbplatform.security.HtmlSanitizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDateTime;
+import java.util.*;
+
+@Service
+public class DocShareService {
+
+    private static final Logger log = LoggerFactory.getLogger(DocShareService.class);
+
+    private final DocShareRepository shareRepo;
+    private final DocSharePermissionRepository permRepo;
+    private final SharedDocumentRepository docRepo;
+    private final SharedDocPermissionRepository docPermRepo;
+    private final UserRepository userRepo;
+    private final SharedDocVersionRepository sharedDocVerRepo;
+    private final TransactionTemplate tx;
+
+    public DocShareService(DocShareRepository shareRepo, DocSharePermissionRepository permRepo,
+                           SharedDocumentRepository docRepo, SharedDocPermissionRepository docPermRepo,
+                           UserRepository userRepo, SharedDocVersionRepository sharedDocVerRepo,
+                           TransactionTemplate tx) {
+        this.shareRepo = shareRepo;
+        this.permRepo = permRepo;
+        this.docRepo = docRepo;
+        this.docPermRepo = docPermRepo;
+        this.userRepo = userRepo;
+        this.sharedDocVerRepo = sharedDocVerRepo;
+        this.tx = tx;
+    }
+
+    /** 启动幂等迁移：存量团队空间若未设容量上限（null=不限），统一补默认 2GB。
+     *  已显式设置过上限（含 0=取消上限）的记录不受影响。 */
+    @PostConstruct
+    public void backfillSpaceCapacity() {
+        // 原来这里直接自调用 protected + @Transactional 方法，双重失效：
+        //   ① @PostConstruct 内同类自调用走不到 AOP 代理；
+        //   ② Spring 的事务属性源默认只认 public 方法，protected 上的 @Transactional 被忽略。
+        // 改为显式 TransactionTemplate，保证迁移真在事务里跑；失败只告警不阻断启动。
+        try {
+            tx.executeWithoutResult(status -> migrateTeamCapacity());
+        } catch (Exception e) {
+            log.warn("[capacity-migrate] 存量团队空间容量回填失败，不影响启动", e);
+        }
+    }
+
+    private void migrateTeamCapacity() {
+        List<DocShare> legacy = shareRepo.findByTypeAndCapacityIsNull("TEAM");
+        if (legacy.isEmpty()) return;
+        for (DocShare s : legacy) s.setCapacity(DEFAULT_SPACE_CAPACITY_BYTES);
+        shareRepo.saveAll(legacy);
+        log.info("[capacity-migrate] 已为 {} 个存量团队空间补默认容量 2GB", legacy.size());
+    }
+
+    // ---------- 权限帮助方法 ----------
+
+    /** 取我在某空间的实际权限：OWNER / ADMIN / WRITE / READ / null */
+    public String myPermission(Long shareId, Long userId, boolean sysAdmin) {
+        if (sysAdmin) return "OWNER";
+        DocShare share = shareRepo.findById(shareId).orElse(null);
+        if (share == null) return null;
+        if (share.getOwnerId().equals(userId)) return "OWNER";
+        return permRepo.findByShareIdAndUserId(shareId, userId).map(DocSharePermission::getPermission).orElse(null);
+    }
+
+    private boolean canRead(String perm) { return perm != null; }
+    private boolean canWrite(String perm) { return "WRITE".equals(perm) || "ADMIN".equals(perm) || "OWNER".equals(perm); }
+    private boolean canAdmin(String perm) { return "ADMIN".equals(perm) || "OWNER".equals(perm); }
+
+    /** 公开帮助方法：当前用户对某空间是否拥有管理权限（OWNER/ADMIN） */
+    public boolean canAdminSpace(Long shareId, Long userId, boolean sysAdmin) {
+        return canAdmin(myPermission(shareId, userId, sysAdmin));
+    }
+    /** 公开帮助方法：当前用户对某空间是否可读 */
+    public boolean canReadSpace(Long shareId, Long userId, boolean sysAdmin) {
+        return canRead(myPermission(shareId, userId, sysAdmin));
+    }
+
+    // ---------- 文档级权限（空间权限 ∪ 文档单独权限，文档级优先） ----------
+
+    /** 某用户对某文档的有效权限：OWNER 始终 OWNER；否则若文档级有专门记录则用之，否则继承空间权限。 */
+    public String docPermission(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        if (sysAdmin) return "OWNER";
+        DocShare share = shareRepo.findById(shareId).orElse(null);
+        if (share != null && share.getOwnerId().equals(userId)) return "OWNER";
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId).orElse(null);
+        if (d != null && d.getOwnerId().equals(userId)) return "OWNER";
+        // 文档级单独设置优先
+        SharedDocPermission dp = docPermRepo.findByDocIdAndUserId(docId, userId).orElse(null);
+        if (dp != null) return dp.getPermission();
+        // 否则继承空间权限
+        return myPermission(shareId, userId, sysAdmin);
+    }
+
+    private boolean canReadDoc(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        return canRead(docPermission(shareId, docId, userId, sysAdmin));
+    }
+    private boolean canWriteDoc(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        return canWrite(docPermission(shareId, docId, userId, sysAdmin));
+    }
+    private boolean canAdminDoc(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        // 文档管理员：空间管理员/所有者，或文档级 ADMIN，或文档所有者
+        return canAdmin(docPermission(shareId, docId, userId, sysAdmin));
+    }
+
+    /** 列出某文档的权限成员（空间全部成员 + 各自在该文档的有效权限与是否单独设置） */
+    public List<Map<String, Object>> listDocMembers(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        // 校验：可管理该文档 或 可读
+        if (!canAdminDoc(shareId, docId, userId, sysAdmin) && !canReadDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权访问该文档");
+        List<DocSharePermission> spaceMembers = permRepo.findByShareIdOrderByCreatedAtAsc(shareId);
+        List<SharedDocPermission> docOverrides = docPermRepo.findByDocId(docId);
+        List<Map<String, Object>> result = new ArrayList<>();
+        // 空间成员
+        for (DocSharePermission sp : spaceMembers) {
+            User u = userRepo.findById(sp.getUserId()).orElse(null);
+            if (u == null) continue;
+            SharedDocPermission ov = docOverrides.stream().filter(o -> o.getUserId().equals(sp.getUserId())).findFirst().orElse(null);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("userId", u.getId());
+            m.put("username", u.getUsername());
+            m.put("displayName", u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+            m.put("avatar", u.getAvatar());
+            m.put("spacePermission", sp.getPermission());                 // 空间级
+            m.put("permission", ov != null ? ov.getPermission() : sp.getPermission()); // 有效（文档级优先）
+            m.put("override", ov != null);                               // 是否单独设置
+            result.add(m);
+        }
+        // 单独设置但非空间成员的用户（理论上不应出现，但防御性列出）
+        for (SharedDocPermission ov : docOverrides) {
+            if (result.stream().anyMatch(r -> r.get("userId").equals(ov.getUserId()))) continue;
+            User u = userRepo.findById(ov.getUserId()).orElse(null);
+            if (u == null) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("userId", u.getId());
+            m.put("username", u.getUsername());
+            m.put("displayName", u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+            m.put("avatar", u.getAvatar());
+            m.put("spacePermission", null);
+            m.put("permission", ov.getPermission());
+            m.put("override", true);
+            result.add(m);
+        }
+        return result;
+    }
+
+    /** 设置某文档对某个空间成员的权限（READ/WRITE/ADMIN）；传与空间权限相同的值即视为清除单独设置（回退继承） */
+    @Transactional
+    public SharedDocPermission setDocMember(Long shareId, Long docId, Long targetUserId, String permission,
+                                           Long userId, boolean sysAdmin) {
+        if (!canAdminDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要文档管理员权限");
+        if (shareRepo.findById(shareId).orElse(null) == null)
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "空间不存在");
+        if (docRepo.findByIdAndShareId(docId, shareId).orElse(null) == null)
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在");
+        DocSharePermission spacePerm = permRepo.findByShareIdAndUserId(shareId, targetUserId).orElse(null);
+        String perm = normalizeDocPerm(permission);
+        SharedDocPermission existing = docPermRepo.findByDocIdAndUserId(docId, targetUserId).orElse(null);
+        // 若等于空间权限则清除单独设置，回退继承（保持简洁）
+        if (spacePerm != null && spacePerm.getPermission().equals(perm)) {
+            if (existing != null) docPermRepo.delete(existing);
+            return null;
+        }
+        if (existing == null) {
+            existing = new SharedDocPermission();
+            existing.setShareId(shareId);
+            existing.setDocId(docId);
+            existing.setUserId(targetUserId);
+        }
+        existing.setPermission(perm);
+        SharedDocPermission saved = docPermRepo.save(existing);
+        // 注入展示字段
+        userRepo.findById(targetUserId).ifPresent(u -> {
+            saved.setUsername(u.getUsername());
+            saved.setDisplayName(u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+            saved.setAvatar(u.getAvatar());
+        });
+        return saved;
+    }
+
+    /** 清除某文档对某个成员的单独权限（回退继承空间权限） */
+    @Transactional
+    public void clearDocMember(Long shareId, Long docId, Long targetUserId, Long userId, boolean sysAdmin) {
+        if (!canAdminDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要文档管理员权限");
+        docPermRepo.deleteByDocIdAndUserId(docId, targetUserId);
+    }
+
+    private String normalizeDocPerm(String p) {
+        if (p == null) return "READ";
+        String t = p.trim().toUpperCase();
+        return switch (t) {
+            case "WRITE" -> "WRITE";
+            case "ADMIN" -> "ADMIN";
+            default -> "READ";
+        };
+    }
+
+    private User resolveUser(Long userId) {
+        return userRepo.findById(userId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在"));
+    }
+
+    private void fillOwnerName(DocShare share) {
+        userRepo.findById(share.getOwnerId()).ifPresent(u -> share.setOwnerName(u.getDisplayName() != null ? u.getDisplayName() : u.getUsername()));
+    }
+
+    private void fillMemberNames(List<DocSharePermission> list) {
+        for (DocSharePermission p : list) {
+            userRepo.findById(p.getUserId()).ifPresent(u -> {
+                p.setUsername(u.getUsername());
+                p.setDisplayName(u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+                p.setAvatar(u.getAvatar());
+            });
+        }
+    }
+
+    private void fillDocOwnerName(SharedDocument doc) {
+        userRepo.findById(doc.getOwnerId()).ifPresent(u -> {
+            doc.setOwnerName(u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+            doc.setOwnerAvatar(u.getAvatar());
+        });
+    }
+
+    // ---------- 个人存储配额（默认每人 200MB，管理员可调） ----------
+    public static final long PER_USER_QUOTA_BYTES = 200L * 1024 * 1024;
+
+    /** 团队空间创建时的默认容量上限（2GB），需要更多时由管理员在后台调大 */
+    public static final long DEFAULT_SPACE_CAPACITY_BYTES = 2L * 1024 * 1024 * 1024;
+
+    /** 每个有创建权限的用户最多可拥有的团队空间数量；超出须走「创建申请」审批流程 */
+    public static final long MAX_TEAM_SPACE_PER_USER = 2L;
+
+    /** 某用户作为所有者拥有的团队空间数量（含归档），用于创建上限判定 */
+    public long countUserTeamSpaces(Long ownerId) {
+        return shareRepo.countByOwnerIdAndType(ownerId, "TEAM");
+    }
+
+    /** 某用户作为文档所有者已用字节数（content + yjs_state 之和） */
+    public long storageUsage(Long userId) {
+        return docRepo.sumSizeByOwnerId(userId);
+    }
+
+    /** 用户有效总配额：管理员分配过则用之，否则系统默认 200MB（见 PER_USER_QUOTA_BYTES） */
+    public long effectiveUserQuota(Long userId) {
+        User u = userRepo.findById(userId).orElse(null);
+        if (u != null && u.getStorageQuota() != null) return u.getStorageQuota();
+        return PER_USER_QUOTA_BYTES;
+    }
+
+    // ---------- 共享空间 CRUD ----------
+
+    @Transactional
+    public DocShare create(String name, String description, Long ownerId, String type, Long capacity, String color,
+                           List<Long> memberIds, String memberPermission) {
+        if (name == null || name.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "空间名称不能为空");
+        DocShare s = new DocShare();
+        s.setName(name.trim());
+        s.setDescription(description == null ? "" : description.trim());
+        s.setOwnerId(ownerId);
+        s.setStatus("ACTIVE");
+        s.setType(type);
+        // 团队空间未显式指定容量时默认 2GB；需要更多由管理员在后台调大
+        if (capacity != null) {
+            s.setCapacity(capacity == 0L ? null : capacity);
+        } else if (s.getType() == null || "TEAM".equals(s.getType())) {
+            s.setCapacity(DEFAULT_SPACE_CAPACITY_BYTES);
+        }
+        s.setColor(color == null || color.isBlank() ? null : color.trim().toLowerCase());
+        s.setUpdatedAt(LocalDateTime.now());
+        DocShare saved = shareRepo.save(s);
+        fillOwnerName(saved);
+        saved.setMyPermission("OWNER");
+        // 创建时直接带入成员（统一权限，创建后可在成员管理中单独调整）
+        if (memberIds != null) {
+            String perm = normalizePerm(memberPermission);
+            for (Long mid : new LinkedHashSet<>(memberIds)) {
+                if (mid == null || mid.equals(ownerId)) continue;
+                User target = userRepo.findById(mid).orElse(null);
+                if (target == null || !target.isEnabled()) continue;
+                if (permRepo.findByShareIdAndUserId(saved.getId(), mid).isPresent()) continue;
+                DocSharePermission p = new DocSharePermission();
+                p.setShareId(saved.getId());
+                p.setUserId(mid);
+                p.setPermission(perm);
+                permRepo.save(p);
+            }
+        }
+        fillMemberSnapshot(saved);
+        return saved;
+    }
+
+    /** 填充成员快照（前 12 个头像 + 总数），列表页头像组堆叠/hover 展开展示用 */
+    private void fillMemberSnapshot(DocShare s) {
+        List<DocSharePermission> perms = permRepo.findByShareIdOrderByCreatedAtAsc(s.getId());
+        List<Map<String, Object>> snap = new ArrayList<>();
+        for (DocSharePermission p : perms) {
+            if (snap.size() >= 12) break;
+            User u = userRepo.findById(p.getUserId()).orElse(null);
+            if (u == null) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("userId", u.getId());
+            m.put("displayName", u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+            m.put("avatar", u.getAvatar());
+            snap.add(m);
+        }
+        s.setMembers(snap);
+        s.setMemberCount((long) perms.size());
+    }
+
+    /** 选人搜索（创建/邀请成员用）：用户名或昵称模糊匹配，仅启用用户，排除自己，最多 20 条。
+     *  空关键词时只取前 30 个启用用户（DB LIMIT），不全量加载用户表。 */
+    public List<Map<String, Object>> searchInviteUsers(String keyword, Long excludeUserId) {
+        String kw = keyword == null ? "" : keyword.trim();
+        List<User> users = kw.isEmpty()
+                ? userRepo.findByEnabledTrue(PageRequest.of(0, 30)).getContent()
+                : userRepo.findByUsernameContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(kw, kw);
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (User u : users) {
+            if (!u.isEnabled()) continue;
+            if (excludeUserId != null && excludeUserId.equals(u.getId())) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", u.getId());
+            m.put("username", u.getUsername());
+            m.put("displayName", u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+            m.put("avatar", u.getAvatar());
+            result.add(m);
+            if (result.size() >= 20) break;
+        }
+        return result;
+    }
+
+    public List<DocShare> listMine(Long userId, boolean sysAdmin) {
+        List<DocShare> list;
+        if (sysAdmin) {
+            list = shareRepo.findAll();
+        } else {
+            ensurePersonalSpace(userId);   // 普通用户保证有专属个人空间
+            list = shareRepo.findByOwnerIdOrMemberUserIdOrderByUpdatedAtDesc(userId);
+        }
+        for (DocShare s : list) {
+            fillOwnerName(s);
+            s.setMyPermission(myPermission(s.getId(), userId, sysAdmin));
+            fillMemberSnapshot(s);
+            // 注入空间已用字节数，供列表卡片容量进度展示（避免前端逐个请求）
+            s.setUsed(docRepo.sumSizeByShareId(s.getId()));
+        }
+        return list;
+    }
+
+    /** 每个普通用户保证存在唯一个人空间（type=PERSONAL）；已存在则跳过。
+     *  synchronized：查询-再插入是 TOCTOU，并发首请求会建出两份个人空间（单实例部署，进程内锁足够）。 */
+    private synchronized void ensurePersonalSpace(Long userId) {
+        List<DocShare> existing = shareRepo.findByOwnerIdAndTypeOrderByUpdatedAtDesc(userId, "PERSONAL");
+        if (!existing.isEmpty()) return;
+        DocShare s = new DocShare();
+        s.setName("我的空间");
+        s.setDescription("个人专属空间，仅你自己可见");
+        s.setOwnerId(userId);
+        s.setStatus("ACTIVE");
+        s.setType("PERSONAL");
+        s.setUpdatedAt(LocalDateTime.now());
+        DocShare saved = shareRepo.save(s);
+        fillOwnerName(saved);
+    }
+
+    public DocShare get(Long shareId, Long userId, boolean sysAdmin) {
+        DocShare s = shareRepo.findById(shareId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "共享空间不存在"));
+        String perm = myPermission(shareId, userId, sysAdmin);
+        if (!canRead(perm)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权访问该共享空间");
+        fillOwnerName(s);
+        s.setMyPermission(perm);
+        return s;
+    }
+
+    @Transactional
+    public DocShare update(Long shareId, String name, String description, String status, Long capacity, Long userId, boolean sysAdmin) {
+        DocShare s = get(shareId, userId, sysAdmin);
+        if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
+        if (name != null && !name.isBlank()) s.setName(name.trim());
+        if (description != null) s.setDescription(description.trim());
+        if (status != null && ("ACTIVE".equals(status) || "ARCHIVED".equals(status))) s.setStatus(status);
+        if (capacity != null) s.setCapacity(capacity == 0L ? null : capacity);  // 0 表示取消空间上限
+        s.setUpdatedAt(LocalDateTime.now());
+        return shareRepo.save(s);
+    }
+
+    @Transactional
+    public void delete(Long shareId, Long userId, boolean sysAdmin) {
+        DocShare s = shareRepo.findById(shareId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "共享空间不存在"));
+        if (!sysAdmin && !s.getOwnerId().equals(userId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只有所有者或系统管理员可删除空间");
+        docRepo.deleteAll(docRepo.findByShareIdOrderByUpdatedAtDesc(shareId));
+        permRepo.deleteAll(permRepo.findByShareIdOrderByCreatedAtAsc(shareId));
+        docPermRepo.deleteAllByShareId(shareId); // 清理空间下所有文档级权限
+        shareRepo.delete(s);
+    }
+
+    // ---------- 成员权限管理 ----------
+
+    public List<DocSharePermission> listMembers(Long shareId, Long userId, boolean sysAdmin) {
+        get(shareId, userId, sysAdmin); // 校验可读
+        List<DocSharePermission> list = permRepo.findByShareIdOrderByCreatedAtAsc(shareId);
+        fillMemberNames(list);
+        return list;
+    }
+
+    @Transactional
+    public DocSharePermission addMember(Long shareId, Long targetUserId, String permission, Long userId, boolean sysAdmin) {
+        DocShare s = get(shareId, userId, sysAdmin);
+        if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
+        if (s.getOwnerId().equals(targetUserId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "所有者无需单独授权");
+        User target = resolveUser(targetUserId);
+        if (permRepo.findByShareIdAndUserId(shareId, targetUserId).isPresent())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该成员已存在");
+        String perm = normalizePerm(permission);
+        DocSharePermission p = new DocSharePermission();
+        p.setShareId(shareId);
+        p.setUserId(targetUserId);
+        p.setPermission(perm);
+        DocSharePermission saved = permRepo.save(p);
+        saved.setUsername(target.getUsername());
+        saved.setDisplayName(target.getDisplayName() != null ? target.getDisplayName() : target.getUsername());
+        saved.setAvatar(target.getAvatar());
+        s.setUpdatedAt(LocalDateTime.now());
+        shareRepo.save(s);
+        return saved;
+    }
+
+    @Transactional
+    public DocSharePermission updateMember(Long shareId, Long targetUserId, String permission, Long userId, boolean sysAdmin) {
+        DocShare s = get(shareId, userId, sysAdmin);
+        if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
+        if (s.getOwnerId().equals(targetUserId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能修改所有者权限");
+        DocSharePermission p = permRepo.findByShareIdAndUserId(shareId, targetUserId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "成员不存在"));
+        p.setPermission(normalizePerm(permission));
+        DocSharePermission saved = permRepo.save(p);
+        fillMemberNames(List.of(saved));
+        s.setUpdatedAt(LocalDateTime.now());
+        shareRepo.save(s);
+        return saved;
+    }
+
+    @Transactional
+    public void removeMember(Long shareId, Long targetUserId, Long userId, boolean sysAdmin) {
+        DocShare s = get(shareId, userId, sysAdmin);
+        if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
+        if (s.getOwnerId().equals(targetUserId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能移除所有者");
+        permRepo.deleteByShareIdAndUserId(shareId, targetUserId);
+        s.setUpdatedAt(LocalDateTime.now());
+        shareRepo.save(s);
+    }
+
+    private String normalizePerm(String p) {
+        if (p == null) return "READ";
+        String t = p.trim().toUpperCase();
+        return switch (t) {
+            case "WRITE" -> "WRITE";
+            case "ADMIN" -> "ADMIN";
+            default -> "READ";
+        };
+    }
+
+    // ---------- 共享文档 CRUD ----------
+
+    public List<SharedDocument> listDocs(Long shareId, Long userId, boolean sysAdmin) {
+        get(shareId, userId, sysAdmin); // 校验可读（空间级）
+        List<SharedDocument> list = docRepo.findByShareIdOrderByUpdatedAtDesc(shareId);
+        for (SharedDocument d : list) {
+            fillDocOwnerName(d);
+            // 列表接口不返回大字段（content / yjs_state），仅注入展示用的字节数与头像
+            d.setSize((d.getContent() != null ? d.getContent().getBytes(java.nio.charset.StandardCharsets.UTF_8).length : 0)
+                    + (d.getYjsState() != null ? d.getYjsState().length : 0));
+            d.setContent(null);
+            // 注入当前用户在该文档的有效权限（空间权限 ∪ 文档级，文档级优先）
+            d.setMyPerm(docPermission(shareId, d.getId(), userId, sysAdmin));
+        }
+        return list;
+    }
+
+    public SharedDocument getDoc(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        // 用文档级裁决：空间可读 且 文档可读
+        get(shareId, userId, sysAdmin);
+        if (!canReadDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权访问该文档");
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        fillDocOwnerName(d);
+        d.setMyPerm(docPermission(shareId, docId, userId, sysAdmin));
+        return d;
+    }
+
+    @Transactional
+    public SharedDocument createDoc(Long shareId, String title, String content, Long userId, boolean sysAdmin) {
+        DocShare s = get(shareId, userId, sysAdmin);
+        if (!canWrite(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要写入权限");
+        long incoming = (content == null ? 0 : content.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                + (title == null ? 0 : title.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        // ① 用户总配额（管理员分配过或系统默认 200MB）
+        long userQuota = effectiveUserQuota(userId);
+        long userUsed = storageUsage(userId);
+        if (userUsed + incoming > userQuota)
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                    "个人存储空间不足（已用 " + formatSize(userUsed) + " / 配额 " + formatSize(userQuota) + "），如需扩容请联系管理员");
+        // ② 空间容量上限（默认 2GB，管理员可调；0/null 表示不限）
+        if (s.getCapacity() != null) {
+            long spaceUsed = docRepo.sumSizeByShareId(shareId);
+            if (spaceUsed + incoming > s.getCapacity())
+                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                        "空间「" + s.getName() + "」容量不足（已用 " + formatSize(spaceUsed) + " / 上限 " + formatSize(s.getCapacity()) + "），如需扩容请联系管理员");
+        }
+        SharedDocument d = new SharedDocument();
+        d.setShareId(shareId);
+        d.setTitle(title == null || title.isBlank() ? "未命名文档" : title.trim());
+        d.setContent(content == null ? "" : HtmlSanitizer.sanitize(content));
+        d.setOwnerId(userId);
+        SharedDocument saved = docRepo.save(d);
+        fillDocOwnerName(saved);
+        s.setUpdatedAt(LocalDateTime.now());
+        shareRepo.save(s);
+        return saved;
+    }
+
+    @Transactional
+    public SharedDocument updateDoc(Long shareId, Long docId, String title, String content, Long userId, boolean sysAdmin) {
+        DocShare s = get(shareId, userId, sysAdmin);
+        if (!canWriteDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "对该文档无写入权限");
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        // 改前先留一版快照（版本历史）
+        SharedDocVersion snap = new SharedDocVersion();
+        snap.setSharedDocId(docId);
+        snap.setTitle(d.getTitle());
+        snap.setContent(d.getContent());
+        snap.setYjsState(d.getYjsState());
+        snap.setEditorId(userId);
+        snap.setCreatedAt(LocalDateTime.now());
+        sharedDocVerRepo.save(snap);
+        if (title != null) d.setTitle(title.isBlank() ? "未命名文档" : title.trim());
+        if (content != null) d.setContent(HtmlSanitizer.sanitize(content));
+        // 注意：更新不得变更所有者。此前无条件 setOwnerId(userId) 会让仅有编辑权限者夺取所有权，
+        // 进而在 deleteDoc/moveDoc（按 owner 判定）中删除或搬走他人文档。owner 仅在创建时设定。
+        d.setUpdatedAt(LocalDateTime.now());
+        SharedDocument saved = docRepo.save(d);
+        fillDocOwnerName(saved);
+        s.setUpdatedAt(LocalDateTime.now());
+        shareRepo.save(s);
+        return saved;
+    }
+
+    @Transactional
+    public void deleteDoc(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        DocShare s = get(shareId, userId, sysAdmin);
+        // 空间管理员可删任意文档；文档所有者（创建者）可删自己的文档；文档级 ADMIN 也可管理该文档
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        boolean isOwnerOfDoc = d.getOwnerId().equals(userId);
+        if (!canAdminDoc(shareId, docId, userId, sysAdmin) && !isOwnerOfDoc)
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间/文档管理员权限或文档所有者身份");
+        docRepo.delete(d);
+        docPermRepo.deleteAllByDocId(docId); // 清理文档级权限
+        s.setUpdatedAt(LocalDateTime.now());
+        shareRepo.save(s);
+    }
+
+    @Transactional
+    public SharedDocument moveDoc(Long shareId, Long docId, Long targetShareId, Long userId, boolean sysAdmin) {
+        DocShare src = get(shareId, userId, sysAdmin);
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        boolean isOwnerOfDoc = d.getOwnerId().equals(userId);
+        if (!canAdminDoc(shareId, docId, userId, sysAdmin) && !isOwnerOfDoc)
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间/文档管理员权限或文档所有者身份");
+        // 目标空间必须存在且本人可写（配额随原所有者，移动不转移归属）
+        DocShare target = shareRepo.findById(targetShareId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "目标空间不存在"));
+        String targetPerm = myPermission(targetShareId, userId, sysAdmin);
+        if (!canWrite(targetPerm)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "目标空间无写入权限");
+        d.setShareId(targetShareId);
+        d.setUpdatedAt(LocalDateTime.now());
+        SharedDocument saved = docRepo.save(d);
+        fillDocOwnerName(saved);
+        // 移动后文档级权限失效（归属空间变化），清理之
+        docPermRepo.deleteAllByDocId(docId);
+        src.setUpdatedAt(LocalDateTime.now());
+        shareRepo.save(src);
+        target.setUpdatedAt(LocalDateTime.now());
+        shareRepo.save(target);
+        return saved;
+    }
+
+    // ---------- 共享文档版本历史 ----------
+
+    /** 手动保存当前文档状态为一份版本快照（标题 / 正文 / 协同态） */
+    @Transactional
+    public void snapshotSharedDoc(Long shareId, Long docId, Long editorId, boolean sysAdmin) {
+        getDoc(shareId, docId, editorId, sysAdmin); // 校验可读
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        SharedDocVersion v = new SharedDocVersion();
+        v.setSharedDocId(docId);
+        v.setTitle(d.getTitle());
+        v.setContent(d.getContent());
+        v.setYjsState(d.getYjsState());
+        v.setEditorId(editorId);
+        v.setCreatedAt(LocalDateTime.now());
+        sharedDocVerRepo.save(v);
+    }
+
+    /** 列出某共享文档的全部历史版本（倒序） */
+    public List<SharedDocVersion> listSharedDocVersions(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        getDoc(shareId, docId, userId, sysAdmin); // 校验可读
+        return sharedDocVerRepo.findBySharedDocIdOrderByCreatedAtDesc(docId);
+    }
+
+    /** 恢复到指定版本：写回 title/content/yjs_state；协同端下次加载（重连）即生效。恢复前自动留一份当前快照 */
+    @Transactional
+    public SharedDocument restoreSharedDocVersion(Long shareId, Long docId, Long vid, Long editorId, boolean sysAdmin) {
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        SharedDocVersion v = sharedDocVerRepo.findById(vid)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "版本不存在"));
+        if (!v.getSharedDocId().equals(docId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该版本不属于此文档");
+        if (!canAdminDoc(shareId, docId, editorId, sysAdmin) && !d.getOwnerId().equals(editorId))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间/文档管理员权限或文档所有者身份");
+        snapshotSharedDoc(shareId, docId, editorId, sysAdmin);   // 恢复前先存当前快照，便于回退
+        d.setTitle(v.getTitle());
+        d.setContent(v.getContent());
+        d.setYjsState(v.getYjsState());   // 写回 Yjs 状态；协同端重连后 onLoadDocument 会加载此状态
+        d.setUpdatedAt(LocalDateTime.now());
+        SharedDocument saved = docRepo.save(d);
+        DocShare s = shareRepo.findById(shareId).orElse(null);
+        if (s != null) { s.setUpdatedAt(LocalDateTime.now()); shareRepo.save(s); }
+        fillDocOwnerName(saved);
+        return saved;
+    }
+
+    /** 字节数转人类可读（用于配额报错文案），如 1.2 GB */
+    public static String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        double v = bytes;
+        String[] u = { "KB", "MB", "GB", "TB" };
+        int i = -1;
+        do { v /= 1024; i++; } while (v >= 1024 && i < u.length - 1);
+        return String.format("%.1f %s", v, u[i]);
+    }
+
+    // 空间用量（已用 / 上限 / 所有者总配额），供空间页与后台展示
+    public Map<String, Object> spaceStorage(Long shareId, Long userId, boolean sysAdmin) {
+        DocShare s = get(shareId, userId, sysAdmin); // 校验可读
+        long used = docRepo.sumSizeByShareId(shareId);
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("used", used);
+        m.put("capacity", s.getCapacity());          // 可能为 null（不限制）
+        m.put("hasCapacity", s.getCapacity() != null);
+        m.put("ownerQuota", effectiveUserQuota(s.getOwnerId()));
+        m.put("ownerUsed", storageUsage(s.getOwnerId()));
+        return m;
+    }
+
+    // 管理员：列出所有空间（含所有者名）
+    public List<DocShare> listAll(Long userId, boolean sysAdmin) {
+        if (!sysAdmin) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要管理员权限");
+        List<DocShare> list = shareRepo.findAll();
+        for (DocShare s : list) {
+            fillOwnerName(s);
+            s.setMyPermission("OWNER");
+        }
+        return list;
+    }
+}

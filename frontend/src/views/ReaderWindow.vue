@@ -53,4 +53,22 @@ html.dark .rw-title { color: #e7e7ee; }
 .rw-body { flex: 1; overflow: auto; }
 .rw-tip { padding: 24px; color: #94a3b8; font-size: 14px; }
 .rw-err { color: #ef4444; }
+
+/* ===================== 响应式布局（追加在末尾） ===================== */
+/* 平板 / 窄屏：正文定宽容器放开为满宽，内边距收紧 */
+@media (max-width: 1024px) {
+  .reader-win { padding: 14px; width: 100%; max-width: 100%; box-sizing: border-box; }
+  .rw-body { overflow-x: hidden; }
+  .reader-win :deep(table) { display: block; width: 100%; overflow-x: auto; }
+}
+
+/* 手机：标题栏与正文进一步收紧，表格自身横向滚动 */
+@media (max-width: 640px) {
+  .rw-bar { height: 38px; padding: 0 6px 0 12px; }
+  .rw-title { font-size: 12.5px; }
+  .reader-win { padding: 12px; font-size: 14px; }
+  .reader-win :deep(th),
+  .reader-win :deep(td) { padding: 6px 8px; }
+  .rw-tip { padding: 16px 12px; font-size: 13px; }
+}
 </style>

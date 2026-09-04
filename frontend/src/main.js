@@ -1,16 +1,94 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
-import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
+// Element Plus 按需引入：只注册项目实际用到的组件与指令。
+// JS 走 tree-shake（package.json sideEffects 已排除 es 目录）；CSS 用各组件
+// 的 style/css 单独引入，替换全量 360KB 的 dist/index.css。
+// ⚠️ 新增页面用到新组件时：在下面 import 与 EP_COMPONENTS 各补一行，
+// 并在 style 清单里补对应样式，否则组件解析不到（静默空白）或无样式。
 import {
-  HomeFilled, EditPen, Files, Star, Medal, Document, User,
-  CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification
+  ElAlert, ElAside, ElAvatar, ElAvatarGroup, ElBadge, ElButton, ElCard,
+  ElCheckbox, ElCheckboxGroup, ElCol, ElColorPicker, ElContainer, ElDatePicker,
+  ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem, ElDropdownMenu,
+  ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElInput, ElInputNumber, ElMain,
+  ElMenu, ElMenuItem, ElOption, ElPageHeader, ElPagination, ElPopconfirm,
+  ElPopover, ElProgress, ElRadio, ElRadioButton, ElRadioGroup, ElRow, ElSelect,
+  ElSkeleton, ElSlider, ElSubMenu, ElSwitch, ElTabPane, ElTable, ElTableColumn,
+  ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip, ElTree, ElTreeSelect,
+  ElUpload, ElWatermark, ElConfigProvider, ElLoadingDirective
+} from 'element-plus'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+// —— 按需样式：56 个组件 + message/message-box/loading（命令式 API/指令）——
+import 'element-plus/es/components/alert/style/css'
+import 'element-plus/es/components/aside/style/css'
+import 'element-plus/es/components/avatar/style/css'
+import 'element-plus/es/components/avatar-group/style/css'
+import 'element-plus/es/components/badge/style/css'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/card/style/css'
+import 'element-plus/es/components/checkbox/style/css'
+import 'element-plus/es/components/checkbox-group/style/css'
+import 'element-plus/es/components/col/style/css'
+import 'element-plus/es/components/color-picker/style/css'
+import 'element-plus/es/components/container/style/css'
+import 'element-plus/es/components/date-picker/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/divider/style/css'
+import 'element-plus/es/components/drawer/style/css'
+import 'element-plus/es/components/dropdown/style/css'
+import 'element-plus/es/components/dropdown-item/style/css'
+import 'element-plus/es/components/dropdown-menu/style/css'
+import 'element-plus/es/components/empty/style/css'
+import 'element-plus/es/components/form/style/css'
+import 'element-plus/es/components/form-item/style/css'
+import 'element-plus/es/components/header/style/css'
+import 'element-plus/es/components/icon/style/css'
+import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/input-number/style/css'
+import 'element-plus/es/components/main/style/css'
+import 'element-plus/es/components/menu/style/css'
+import 'element-plus/es/components/menu-item/style/css'
+import 'element-plus/es/components/option/style/css'
+import 'element-plus/es/components/page-header/style/css'
+import 'element-plus/es/components/pagination/style/css'
+import 'element-plus/es/components/popconfirm/style/css'
+import 'element-plus/es/components/popover/style/css'
+import 'element-plus/es/components/progress/style/css'
+import 'element-plus/es/components/radio/style/css'
+import 'element-plus/es/components/radio-button/style/css'
+import 'element-plus/es/components/radio-group/style/css'
+import 'element-plus/es/components/row/style/css'
+import 'element-plus/es/components/select/style/css'
+import 'element-plus/es/components/skeleton/style/css'
+import 'element-plus/es/components/slider/style/css'
+import 'element-plus/es/components/sub-menu/style/css'
+import 'element-plus/es/components/switch/style/css'
+import 'element-plus/es/components/tab-pane/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
+import 'element-plus/es/components/tabs/style/css'
+import 'element-plus/es/components/tag/style/css'
+import 'element-plus/es/components/timeline/style/css'
+import 'element-plus/es/components/timeline-item/style/css'
+import 'element-plus/es/components/tooltip/style/css'
+import 'element-plus/es/components/tree/style/css'
+import 'element-plus/es/components/tree-select/style/css'
+import 'element-plus/es/components/upload/style/css'
+import 'element-plus/es/components/watermark/style/css'
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
+import 'element-plus/es/components/loading/style/css'
+import 'element-plus/es/components/config-provider/style/css'
+import {
+  HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
+  CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
+  Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
+  Setting, Tools, Edit, Warning, Switch, Delete
 } from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
+import { stackTable } from './utils/stackTable'
 import './theme.css'
+import './responsive.css'
 
 // 初始化主题：localStorage('kb_theme') 优先，否则跟随系统偏好
 const savedTheme = localStorage.getItem('kb_theme')
@@ -21,14 +99,37 @@ if (savedTheme === 'dark' || (savedTheme === null && prefersDark)) {
 
 const app = createApp(App)
 
-// 按需注册 Element Plus 图标（仅注册实际用到的 14 个，避免全量注册撑大主包）
+// 按需注册 Element Plus 组件（模板里直接写 <el-xxx> 靠全局注册解析）
+const EP_COMPONENTS = {
+  ElAlert, ElAside, ElAvatar, ElAvatarGroup, ElBadge, ElButton, ElCard,
+  ElCheckbox, ElCheckboxGroup, ElCol, ElColorPicker, ElContainer, ElDatePicker,
+  ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem, ElDropdownMenu,
+  ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElInput, ElInputNumber, ElMain,
+  ElMenu, ElMenuItem, ElOption, ElPageHeader, ElPagination, ElPopconfirm,
+  ElPopover, ElProgress, ElRadio, ElRadioButton, ElRadioGroup, ElRow, ElSelect,
+  ElSkeleton, ElSlider, ElSubMenu, ElSwitch, ElTabPane, ElTable, ElTableColumn,
+  ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip, ElTree, ElTreeSelect,
+  ElUpload, ElWatermark, ElConfigProvider
+}
+for (const [key, component] of Object.entries(EP_COMPONENTS)) {
+  app.component(key, component)
+}
+// v-loading 指令（服务端同款 Loading）
+app.directive('loading', ElLoadingDirective)
+
+// 按需注册 Element Plus 图标（仅注册实际用到的图标，避免全量注册撑大主包）
 const icons = {
-  HomeFilled, EditPen, Files, Star, Medal, Document, User,
-  CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification
+  HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
+  CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
+  Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
+  Setting, Tools, Edit, Warning, Switch, Delete
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)
 }
+
+// 全局指令：窄屏把 el-table 转成卡片堆叠列表（详见 utils/stackTable.js）
+app.directive('stack-table', stackTable)
 
 // 全局错误兜底：把未捕获异常显示成页面底部浮条（避免 Vite 红色浮层反复闪屏）
 function reportError(msg) {
@@ -46,11 +147,14 @@ function reportError(msg) {
 window.__kbError = reportError
 app.config.errorHandler = (err, _vm, info) => reportError((err && err.stack) || String(err) + '\n' + info)
 // ResizeObserver loop 是浏览器在布局重排时的无害警告（Element Plus 表格/分页常见），不应当作运行时错误兜出红条
+// 另：reportAllChanges / startTime 来自外部注入的 web-vitals 性能探针（浏览器扩展或企业监控脚本，非本应用代码），
+// 其 PerformanceObserver 偶发读到 undefined entry 抛错，与本应用功能无关，同样过滤，避免红条刷屏。
 window.addEventListener('error', (e) => {
   const m = e.message || (e.error && e.error.message) || ''
   if (m.includes('ResizeObserver loop completed with undelivered notifications')) return
+  if (m.includes('reportAllChanges') || m.includes("reading 'startTime'") || m.includes('reading "startTime"')) return
   reportError((e.error && e.error.stack) || e.message)
 })
 window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + ((e.reason && e.reason.stack) || e.reason)))
 
-app.use(createPinia()).use(ElementPlus, { locale: zhCn }).use(router).mount('#app')
+app.use(createPinia()).use(router).mount('#app')

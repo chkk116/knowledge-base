@@ -350,7 +350,9 @@ onMounted(async () => {
 .state .retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; border-radius: 6px; padding: 3px 12px; cursor: pointer; font-size: 13px; }
 .state .retry:hover { background: #ef4444; color: #fff; }
 .grid { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; cursor: pointer; transition: .15s; }
+.card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; cursor: pointer; transition: .15s;
+  /* 屏外卡片跳过布局/绘制：长列表滚动不卡、保留的显示列表内存骤降（旧机友好，零行为风险） */
+  content-visibility: auto; contain-intrinsic-size: auto 150px; }
 .card:hover { border-color: #4f46e5; box-shadow: 0 4px 14px rgba(79, 70, 229,.12); }
 .row { display: flex; justify-content: space-between; align-items: center; }
 .title { font-weight: 600; font-size: 16px; }
@@ -374,10 +376,41 @@ onMounted(async () => {
 .ic-svg { vertical-align: -2px; }
 .snippet { margin: 6px 0 0; color: #475569; font-size: 14px; line-height: 1.5; }
 .pager { margin-top: 18px; justify-content: center; }
-/* 窄屏：边栏收到列表上方，主内容占满宽度 */
-@media (max-width: 900px) {
-  .content { flex-direction: column; }
-  .side-rail { width: 100%; position: static; order: -1; }
+
+/* 暗色模式适配：theme.css 已覆盖 .page/.card/.snippet/.tag/.chip/.state/.author 等通用类，
+   此处只补它未覆盖的少数项（次要按钮、错误重试按钮、点赞计数） */
+html.dark .go.ghost { background: #2a2a35; color: #c7c8d4; }
+html.dark .go.ghost:hover { background: #33333f; color: #e7e7ee; }
+html.dark .state .retry { background: var(--el-fill-color-blank); }
+html.dark .like { color: #8b8fa0; }
+
+/* ---------- 响应式布局（断点统一 1024 / 640）---------- */
+@media (max-width: 1024px) {
+  .page { padding: 16px; }
+  /* 内容 + 右侧公告栏：单列，公告栏移到列表下方 */
+  .content { flex-direction: column; gap: 14px; }
+  .side-rail { width: 100%; position: static; }
+  .filters { flex-wrap: wrap; gap: 10px; }
+  .row { gap: 8px; }
+  .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
-@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  .page { padding: 12px; }
+  .search .bar { flex-wrap: wrap; gap: 8px; }
+  .q { flex: 1 1 100%; padding: 10px 12px; font-size: 14px; }
+  .go { flex: 1; padding: 10px 14px; font-size: 14px; }
+  .filters { gap: 8px; }
+  .filters select { flex: 1 1 100%; }
+  .filters :deep(.el-select) { width: 100% !important; }
+  /* minmax(0, 1fr) + min-width:0 让卡片真能缩到容器宽以下；
+     否则 1fr 会被 min-content 撑开（标题/标签/按钮连写一行时超 375px 视口） */
+  .grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .card { padding: 12px; min-width: 0; }
+  .row { gap: 8px; min-width: 0; }
+  .title { font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side { flex-wrap: wrap; row-gap: 4px; }
+  .meta { flex-wrap: wrap; gap: 6px; font-size: 12px; }
+  .snippet { font-size: 13px; }
+  .author-banner { padding: 8px 12px; }
+}
 </style>

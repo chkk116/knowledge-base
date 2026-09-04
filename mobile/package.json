@@ -1,0 +1,11 @@
+{
+  "name": "kb-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "知识库移动端（Capacitor 套壳）",
+  "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1"
+  }
+}

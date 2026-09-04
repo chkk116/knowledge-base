@@ -3,7 +3,6 @@ package com.kb.kbplatform.service;
 import com.kb.kbplatform.domain.Tag;
 import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.repository.TagRepository;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -19,16 +18,25 @@ public class TagService {
         this.docRepo = docRepo;
     }
 
-    /** 标签列表（带已发布文档计数，按计数倒序），用于标签体系管理与标签云 */
+    /** 标签列表（带已发布文档计数，按计数倒序），用于标签体系管理与标签云。
+     *  一条 SQL 拉全部已发布文档的 tags 列（短逗号串），内存拆分计数——
+     *  替代旧"逐标签 LIKE COUNT"的 N 次查询（标签云是首页热路径）。 */
     public List<Map<String, Object>> listWithCount() {
         List<Tag> tags = repo.findAll();
+        Map<String, Long> counts = new HashMap<>();
+        for (String raw : docRepo.findAllTagsRaw()) {
+            if (raw == null || raw.isBlank()) continue;
+            for (String part : raw.split(",")) {
+                String t = part.trim();
+                if (!t.isEmpty()) counts.merge(t, 1L, Long::sum);
+            }
+        }
         List<Map<String, Object>> res = new ArrayList<>();
         for (Tag t : tags) {
-            long cnt = docRepo.findByTag(t.getName(), PageRequest.of(0, 1)).getTotalElements();
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", t.getId());
             m.put("name", t.getName());
-            m.put("count", cnt);
+            m.put("count", counts.getOrDefault(t.getName(), 0L));
             res.add(m);
         }
         res.sort((a, b) -> Long.compare((Long) b.get("count"), (Long) a.get("count")));

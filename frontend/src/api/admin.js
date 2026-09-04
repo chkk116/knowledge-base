@@ -14,12 +14,15 @@ export const toggleUser = (id, enabled) => api.post('/admin/users/' + id + '/tog
 export const adjustPoints = (id, delta, reason) => api.post('/admin/users/' + id + '/points', { delta, reason })
 // 管理员重置用户密码（返回明文新密码）
 export const resetPassword = (id) => api.post('/admin/users/' + id + '/reset-password')
+// 管理员查看任意用户存储用量（已用 / 有效配额）
+export const adminUserStorage = (id) => api.get('/admin/users/' + id + '/storage')
 
 // ---- 操作审计日志（仅管理员）----
 export const listAudit = (params = {}) => api.get('/admin/audit', { params })
 
 // ---- 附件（孤儿文件）管理（仅管理员）----
-export const listOrphanFiles = () => api.get('/admin/files/orphans')
+// 服务端分页 + 过滤：listOrphanFiles({ page, size, kind, q })
+export const listOrphanFiles = (params = {}) => api.get('/admin/files/orphans', { params })
 export const deleteOrphanFile = (url) => api.delete('/admin/files/orphan', { params: { url } })
 
 // ---- 帖子管理（仅管理员）----

@@ -1,0 +1,47 @@
+{
+  "name": "知识库 · KB",
+  "short_name": "知识库",
+  "description": "团队知识库：文章/评论/权限/审计/共享协同",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#6366f1",
+  "theme_color": "#4f46e5",
+  "lang": "zh-CN",
+  "categories": ["productivity", "education"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "新建文档",
+      "short_name": "写文章",
+      "url": "/post/new",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "我的主页",
+      "short_name": "我",
+      "url": "/u/me",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

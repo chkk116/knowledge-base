@@ -3,23 +3,70 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore, permLabel } from './store/auth'
+import { useWatermarkStore, buildContent } from './store/watermark'
+import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import { useNotificationStore } from './store/notification'
 import { reader, closeReader, startDrag, startResize, clampToViewport } from './store/reader'
+import { featureMap } from './api/features'
+import { applyTheme } from './utils/theme'
+import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const notification = useNotificationStore()
+const wm = useWatermarkStore()
+
+// 核心维护：功能开关状态（featureKey → { enabled, closeMode, maintenanceMsg, expectedRestoreAt }）
+const featureFlags = ref({})
+async function loadFlags() {
+  try {
+    const { data } = await featureMap()
+    featureFlags.value = data || {}
+  } catch { featureFlags.value = {} }
+}
+// 该功能入口是否在侧边栏展示：
+//  - 未配置 / 开启 → 展示
+//  - 关闭 + MAINTENANCE（维护界面模式）→ 展示（点进去看维护页）
+//  - 关闭 + HIDDEN（默认）→ 隐藏
+function featureOpen(key) {
+  if (!key) return true
+  const st = featureFlags.value[key]
+  if (!st) return true            // 无记录视为开放
+  if (st.enabled) return true
+  return st.closeMode === 'MAINTENANCE'
+}
+
+// 全局水印：启用且已登录时，按当前用户身份构建内容；否则空数组（不绘制）
+const wmContent = computed(() => {
+  if (!wm.config.enabled || !auth.loggedIn) return []
+  return buildContent(auth.user, wm.config, new Date(), wm.clientInfo)
+})
+const wmFont = computed(() => wm.font)
+const wmGap = computed(() => wm.gap)
 
 // 启动时用本地令牌恢复会话；登录态则建立 SSE 实时通知长连接（替代路由切换轮询未读）
 onMounted(async () => {
   await auth.fetchMe()
-  if (auth.loggedIn) notification.connect()
+  wm.dark = isDark.value   // 初始化水印主题状态（与当前页面主题一致）
+  // 水印配置与 client-info 都要求登录态（匿名访问会 401），仅登录后拉取；
+  // 匿名用户本就不显示水印，无需请求。等 fetchMe 恢复登录态/令牌后再调，避免 401 噪音。
+  if (auth.loggedIn) wm.load()
+  if (auth.loggedIn) { notification.connect(); loadFlags() }
 })
 
+// 核心维护开关变更后即时刷新侧边栏菜单（无需整页刷新）：
+// 监听全局事件 + 路由守卫缓存重置，保证普通用户立即看到入口变化。
+function onFlagsChanged() {
+  loadFlags()
+}
+window.addEventListener('kb:feature-flags-changed', onFlagsChanged)
+onUnmounted(() => window.removeEventListener('kb:feature-flags-changed', onFlagsChanged))
+
 // 登录态变化（登录 / 登出 / 令牌过期）时同步 SSE 连接与未读
+// 登录成功后补拉水印配置（覆盖「本页登录」场景，否则水印参数仍是 localStorage 兜底值）
 watch(() => auth.loggedIn, (v) => {
-  if (v) notification.connect()
+  if (v) { notification.connect(); wm.load() }
   else { notification.disconnect(); notification.setUnread(0) }
 })
 
@@ -49,19 +96,42 @@ function toggleSidebar() {
   localStorage.setItem('kb_sidebar_collapsed', collapsed.value ? '1' : '0')
 }
 
+// ---------- 响应式骨架 ----------
+// ≤1024px 视为窄屏：侧边栏改为抽屉（覆盖式滑出 + 遮罩），不再占文档流宽度；
+// >1024px 保持原来的"折叠/展开"两态。
+const MOBILE_MQ = '(max-width: 1024px)'
+const isNarrow = ref(window.matchMedia ? window.matchMedia(MOBILE_MQ).matches : false)
+const drawerOpen = ref(false)
+let mq = null
+function onMqChange(e) {
+  isNarrow.value = e.matches
+  if (!e.matches) drawerOpen.value = false      // 回到桌面宽度时收起抽屉
+}
+onMounted(() => {
+  if (!window.matchMedia) return
+  mq = window.matchMedia(MOBILE_MQ)
+  mq.addEventListener('change', onMqChange)
+})
+onUnmounted(() => { if (mq) mq.removeEventListener('change', onMqChange) })
+
+// 顶栏菜单按钮：窄屏开合抽屉，宽屏折叠侧栏
+function toggleMenu() {
+  if (isNarrow.value) drawerOpen.value = !drawerOpen.value
+  else toggleSidebar()
+}
+// 窄屏下点菜单跳转后自动收起抽屉（否则菜单挡住内容）
+watch(() => route.fullPath, () => { drawerOpen.value = false })
+
 // 夜间模式切换（B站风格：月亮/太阳 + 旋转淡入 + 过渡）
 const isDark = ref(document.documentElement.classList.contains('dark'))
 const spinning = ref(false)
 function toggleTheme() {
-  const html = document.documentElement
-  const next = !html.classList.contains('dark')
-  html.classList.add('theme-anim')           // 开启全局过渡
-  html.classList.toggle('dark', next)         // 切换暗色
+  const next = !isDark.value
+  applyTheme(next)          // 整页柔和淡入（不支持则回退全局颜色过渡）
   isDark.value = next
-  localStorage.setItem('kb_theme', next ? 'dark' : 'light')
-  spinning.value = true                       // 图标旋转一次
-  setTimeout(() => html.classList.remove('theme-anim'), 340)
-  setTimeout(() => (spinning.value = false), 480)
+  wm.dark = next            // 同步水印暗色状态，使水印颜色按主题自适应（暗色下用浅色，保证可见）
+  spinning.value = true     // 图标旋转一次
+  setTimeout(() => (spinning.value = false), 520)
 }
 
 // 菜单项：按角色个性化
@@ -70,13 +140,23 @@ function toggleTheme() {
 const menus = computed(() => {
   const base = [{ index: '/', title: '知识库首页', icon: 'HomeFilled' }]
   if (auth.loggedIn) {
-    base.push(
+    // 普通功能入口：受核心维护开关控制，关闭则不在侧边栏展示
+    if (featureOpen('docs')) base.push(
       { index: '/write', title: '写文章', icon: 'EditPen' },
       { index: '/my/posts', title: '我的帖子', icon: 'Files' },
+      { index: '/recycle', title: '回收站', icon: 'Delete' },
+      { index: '/subscriptions', title: '我的订阅', icon: 'Notification' },
+    )
+    if (featureOpen('profile')) base.push(
       { index: '/favorites', title: '我的收藏', icon: 'Star' },
       { index: '/history', title: '浏览历史', icon: 'Clock' },
-      { index: '/ranking', title: '积分排行榜', icon: 'Medal' },
+      { index: '/badges', title: '我的勋章', icon: 'Medal' },
     )
+    if (featureOpen('ranking')) base.push({ index: '/ranking', title: '积分排行榜', icon: 'Medal' })
+    if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: 'AI 问答', icon: 'ChatDotRound' })
+    if (featureOpen('courses')) base.push({ index: '/study/courses', title: '培训', icon: 'Reading' })
+    if (featureOpen('quiz')) base.push({ index: '/quiz', title: '答题', icon: 'Trophy' })
+    if (featureOpen('doc_shares')) base.push({ index: '/doc-shares', title: '共享文档', icon: 'DocumentCopy' })
   }
 
   // 二级分组：用户与权限（用户管理 / 黑名单 / 操作审计）——账号、权限、黑名单与「谁操作了什么」归人域
@@ -94,8 +174,14 @@ const menus = computed(() => {
   if (auth.hasPerm('DOC_REVIEW')) contentMgmt.push({ index: '/admin/docs', title: '帖子管理', icon: 'Document' })
   if (auth.hasPerm('TAXONOMY_MANAGE')) contentMgmt.push({ index: '/admin/taxonomy', title: '分类标签', icon: 'Collection' })
   if (auth.hasPerm('ANNOUNCEMENT_MANAGE')) contentMgmt.push({ index: '/admin/announcements', title: '公告管理', icon: 'Notification' })
+  if (auth.hasPerm('BANNED_WORDS_MANAGE')) contentMgmt.push({ index: '/admin/banned-words', title: '违禁词管理', icon: 'Warning' })
   if (auth.isAdmin) contentMgmt.push({ index: '/admin/files', title: '附件管理', icon: 'Files' })
   if (auth.hasPerm('STATS_VIEW')) contentMgmt.push({ index: '/admin/stats', title: '数据看板', icon: 'DataLine' })
+  if (auth.hasPerm('COURSE_MANAGE')) contentMgmt.push({ index: '/admin/courses', title: '培训管理', icon: 'Notebook' })
+  if (auth.hasPerm('EXAM_MANAGE')) contentMgmt.push({ index: '/admin/exams', title: '题库与试卷', icon: 'Trophy' })
+  if (auth.hasPerm('SHARE_VIEW')) contentMgmt.push({ index: '/admin/doc-shares', title: '共享文档管理', icon: 'DocumentCopy' })
+  if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/maintain', title: '核心维护', icon: 'Setting' })
+  if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/watermark', title: '水印设置', icon: 'Tools' })
   if (contentMgmt.length) base.push({ index: 'g-content', title: '内容管理', icon: 'Document', children: contentMgmt })
 
   if (auth.loggedIn) {
@@ -119,15 +205,100 @@ function goProfile() { router.push('/profile') }
 const permText = computed(() =>
   auth.permissions.map(c => permLabel(c)).join('、')
 )
+
+// ---- 帮助中心：操作手册与规范（内联展示，同时作为知识库文档供 AI 检索）----
+const helpVisible = ref(false)
+const helpActive = ref('start')
+const helpData = [
+  { key: 'start', title: '快速开始', html: `<h3>快速开始</h3>
+<p>嗨，欢迎来到知识库 👋 第一次来？先登录就好：</p>
+<ul>
+  <li>点右上角「登录」，输入账号密码，滑一下<strong>滑动验证码</strong>就能进来啦。</li>
+  <li>还没账号？点「注册」就能开一个；密码忘了也不怕，登录页有「修改密码」。</li>
+</ul>
+<p>登录后你就到了知识库首页，这儿能看到「最新」「最热」的文章，顶部搜索框还能搜全站内容。</p>` },
+  { key: 'write', title: '写文章与发布', html: `<h3>写文章与发布</h3>
+<ul>
+  <li>左侧菜单「写文章」进入富文本编辑器（支持标题、加粗、列表、图片、表格、代码块等）。</li>
+  <li>填写<strong>标题</strong>，选择<strong>分类</strong>与<strong>标签</strong>，便于他人检索。</li>
+  <li>点击「提交」进入<strong>待审核</strong>状态，管理员审核通过后公开；也可「保存草稿」稍后继续。</li>
+  <li>「我的帖子」可查看自己文章的状态（已发布 / 待审核 / 草稿 / 已封禁）。</li>
+</ul>` },
+  { key: 'read', title: '阅读与互动', html: `<h3>阅读与互动</h3>
+<ul>
+  <li><strong>搜索</strong>：顶部搜索框或「搜索结果」页，按关键词检索文章标题与正文。</li>
+  <li><strong>收藏 / 点赞 / 评论</strong>：在文章详情页操作；收藏的文章见于「我的收藏」。</li>
+  <li><strong>浏览历史</strong>：自动记录你读过的文章，见于「浏览历史」。</li>
+  <li>文章内「小窗阅读」可在悬浮窗中阅读，不影响继续浏览其他页面。</li>
+</ul>` },
+  { key: 'ai', title: 'AI 智能问答', html: `<h3>AI 智能问答</h3>
+<p>有啥想问的，来「AI 问答」跟我聊～</p>
+<ul>
+  <li>两种模式：<strong>知识库</strong>（我会先在本站已发布的文档里找答案，还会给你标出来源，点一下就能看原文）；<strong>通用</strong>（就是跟大模型闲聊、聊啥都行）。</li>
+  <li>你可以开好几个对话，还能设置「对话条例」和「个人习惯」，让我更懂你的口味。</li>
+  <li>小提醒：每小时每位用户最多问 20 次哦。</li>
+  <li>要是看到「AI 问答暂不可用」，那是管理员还没把 AI 服务打开（需要配置智谱 API Key），找管理员帮帮忙就好。</li>
+</ul>` },
+  { key: 'share', title: '共享文档协作', html: `<h3>共享文档协作</h3>
+<p>想跟同事一起写文档？进「共享文档」建个团队空间就好啦。</p>
+<ul>
+  <li>新建的空间默认给你 <strong>2GB</strong> 容量，够日常用了。</li>
+  <li>容量不够了？在空间里点「申请扩容」，填好想要的容量和理由，交给管理员审批通过就生效～ 创建之后容量只能由管理员帮你调，自己改不了哦。</li>
+  <li>空间里支持<strong>多人实时一起编辑</strong>（用的是 CRDT 技术，你能看到别人正停在哪儿、敲了啥）。</li>
+  <li>在空间里你会被赋予不同的操作权限：有的能只看、有的能一起改、有的能帮忙管理——具体能做什么，空间主人会帮你安排好，你按提示操作就行，不用记那些角色名。</li>
+</ul>` },
+  { key: 'course', title: '培训与学习', html: `<h3>培训与学习</h3>
+<ul>
+  <li>进入「培训」浏览课程；点开课程查看章节列表。</li>
+  <li>每章为<strong>独立学习页</strong>，支持正文阅读与<strong>章节笔记</strong>（自动保存）。</li>
+  <li>学完点击「标记完成」，进度自动累积。</li>
+</ul>` },
+  { key: 'exam', title: '考试与答题', html: `<h3>考试与答题</h3>
+<ul>
+  <li>「在线考试」：参加测评、提交后查看成绩与解析。</li>
+  <li>「答题」：闯关模式，趣味答题积累积分。</li>
+</ul>` },
+  { key: 'points', title: '积分体系', html: `<h3>积分体系</h3>
+<ul>
+  <li>发帖、评论、获得点赞等行为可累积<strong>积分</strong>。</li>
+  <li>「积分排行榜」查看全站排名，激励优质内容创作。</li>
+</ul>` },
+  { key: 'profile', title: '个人中心', html: `<h3>个人中心</h3>
+<ul>
+  <li>「个人资料」：修改头像、简介、登录密码。</li>
+  <li>「我的收藏」「浏览历史」「通知」：管理你的内容与消息。</li>
+</ul>` },
+  { key: 'rule', title: '使用规范', html: `<h3>使用规范与社区公约</h3>
+<ul>
+  <li>发布内容须<strong>合法合规</strong>，禁止传播违法违规、谣言、色情、暴力等信息。</li>
+  <li>尊重<strong>知识产权</strong>，转载请注明出处，勿上传侵权内容。</li>
+  <li>文明互动：禁止人身攻击、刷屏、发布垃圾广告。</li>
+  <li>账号安全：妥善保管密码，不共享账号；发现异常及时修改密码或联系管理员。</li>
+</ul>` },
+]
+const currentHelp = computed(() => helpData.find(s => s.key === helpActive.value) || helpData[0])
+function openHelp() { helpVisible.value = true }
 </script>
 
 <template>
+  <!-- 全局中文 locale（Element Plus 已改按需注册，locale 由 ConfigProvider 提供） -->
+  <el-config-provider :locale="zhCn">
   <!-- 登录页 / 独立阅读窗口：独立整页，不带菜单 -->
   <router-view v-if="barePage" />
 
   <!-- 其余页面：左侧菜单 + 顶栏 -->
-  <el-container v-else class="layout">
-    <el-aside :width="collapsed ? '64px' : '210px'" class="aside" :class="{ collapsed }">
+  <el-watermark v-else
+    :content="wmContent"
+    :font="wmFont"
+    :rotate="wm.config.rotate"
+    :gap="wmGap"
+    :z-index="wm.config.zIndex">
+  <el-container class="layout" :class="{ 'is-narrow': isNarrow }">
+    <!-- 窄屏抽屉遮罩：点击关闭 -->
+    <div v-if="isNarrow && drawerOpen" class="aside-mask" @click="drawerOpen = false"></div>
+    <el-aside :width="isNarrow ? '210px' : (collapsed ? '64px' : '210px')"
+              class="aside"
+              :class="{ collapsed: collapsed && !isNarrow, 'is-drawer': isNarrow, 'drawer-open': drawerOpen }">
       <div class="brand" :title="collapsed ? '知识库' : ''" @click="goHome">
         <img class="brand-ico" src="/logo.gif" alt="" />
         <span v-show="!collapsed" class="brand-txt">知识库</span>
@@ -156,12 +327,17 @@ const permText = computed(() =>
     <el-container>
       <el-header class="header">
         <div class="head-left">
-          <el-button class="fold-btn" text :title="collapsed ? '展开菜单' : '收起菜单'" @click="toggleSidebar">
-            <el-icon size="18"><component :is="collapsed ? 'Expand' : 'Fold'" /></el-icon>
+          <el-button class="fold-btn" text
+                     :title="isNarrow ? '打开菜单' : (collapsed ? '展开菜单' : '收起菜单')"
+                     @click="toggleMenu">
+            <el-icon size="18"><component :is="(isNarrow ? !drawerOpen : collapsed) ? 'Expand' : 'Fold'" /></el-icon>
           </el-button>
           <div class="crumb">{{ route.meta.title || '知识库' }}</div>
         </div>
         <div class="right">
+          <el-button class="help-btn" text circle title="帮助中心" @click="openHelp">
+            <el-icon size="18"><InfoFilled /></el-icon>
+          </el-button>
           <el-button class="theme-toggle" text circle
                      :title="isDark ? '切换到日间模式' : '切换到夜间模式'"
                      @click="toggleTheme">
@@ -175,33 +351,39 @@ const permText = computed(() =>
                 <el-icon size="18"><Bell /></el-icon>
               </el-button>
             </el-badge>
-            <el-dropdown>
-              <span class="avatar">
-                <img v-if="auth.user?.avatar" :src="auth.user.avatar" alt="" class="avatar-img" />
-                <span v-else>{{ (auth.user?.displayName || auth.user?.username || '?').charAt(0) }}</span>
-              </span>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item disabled>
-                    {{ auth.user?.displayName || auth.user?.username }}
-                  </el-dropdown-item>
-                  <el-dropdown-item disabled>角色：{{ auth.user?.role === 'ADMIN' ? '管理员' : '普通用户' }}</el-dropdown-item>
-                  <el-dropdown-item v-if="!auth.isAdmin && auth.permissions.length" disabled>
-                    权限：{{ permText }}
-                  </el-dropdown-item>
-                  <el-dropdown-item disabled>积分：{{ auth.user?.points || 0 }}</el-dropdown-item>
-                  <el-dropdown-item divided @click="goProfile">个人资料</el-dropdown-item>
-                  <el-dropdown-item @click="onLogout">退出登录</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <!-- 头像 + 佩戴勋章：组成 inline-flex 单元，整组在 .right 中垂直居中，
+                 与左侧铃铛/月亮/帮助等按钮同一基线（修复合并后基线漂移问题） -->
+            <span class="avatar-cluster">
+              <WornBadgeStrip v-if="auth.user?.wornBadges?.length"
+                              :badge-ids="auth.user.wornBadges" :size="20" class="cluster-badges" />
+              <el-dropdown trigger="click">
+                <span class="avatar">
+                  <img v-if="auth.user?.avatar" :src="auth.user.avatar" alt="" class="avatar-img" />
+                  <span v-else>{{ (auth.user?.displayName || auth.user?.username || '?').charAt(0) }}</span>
+                </span>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item disabled>
+                      {{ auth.user?.displayName || auth.user?.username }}
+                    </el-dropdown-item>
+                    <el-dropdown-item disabled>角色：{{ auth.user?.role === 'ADMIN' ? '管理员' : '普通用户' }}</el-dropdown-item>
+                    <el-dropdown-item v-if="!auth.isAdmin && auth.permissions.length" disabled>
+                      权限：{{ permText }}
+                    </el-dropdown-item>
+                    <el-dropdown-item disabled>积分：{{ auth.user?.points || 0 }}</el-dropdown-item>
+                    <el-dropdown-item divided @click="goProfile">个人资料</el-dropdown-item>
+                    <el-dropdown-item @click="onLogout">退出登录</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </span>
           </template>
           <el-button v-else type="primary" @click="router.push('/login')">登录</el-button>
         </div>
       </el-header>
 
       <el-main class="main">
-        <router-view />
+        <router-view :key="$route.fullPath" />
       </el-main>
     </el-container>
 
@@ -215,7 +397,25 @@ const permText = computed(() =>
       <div class="rf-body content" v-html="reader.content"></div>
       <div class="rf-resize" @mousedown.stop.prevent="startResize" title="拖动右下角缩放"></div>
     </div>
+
+    <!-- 帮助中心：操作手册与规范 -->
+    <el-dialog v-model="helpVisible" title="帮助中心 · 操作手册与规范" width="820px" top="6vh" class="help-dialog">
+      <div class="help-wrap">
+        <aside class="help-nav">
+          <button v-for="s in helpData" :key="s.key" type="button"
+                  class="help-nav-item" :class="{ active: helpActive === s.key }" @click="helpActive = s.key">
+            {{ s.title }}
+          </button>
+        </aside>
+        <div class="help-content" v-html="currentHelp.html"></div>
+      </div>
+      <template #footer>
+        <span class="help-tip">仍有疑问？可在「AI 问答」中提问，或联系系统管理员。</span>
+      </template>
+    </el-dialog>
   </el-container>
+  </el-watermark>
+  </el-config-provider>
 </template>
 
 <style>
@@ -266,17 +466,26 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
 
 /* 整栏折叠(64px) */
 .aside.collapsed .menu { padding: 8px 6px; }
-.header { display: flex; align-items: center; justify-content: space-between; background: #fff; border-bottom: 1px solid #e2e8f0; }
+.header { display: flex; align-items: center; justify-content: space-between; background: #fff; border-bottom: 1px solid #e2e8f0; overflow: visible; }
+/* 顶栏右侧所有元素统一垂直居中（含不同尺寸的圆形按钮、弹层、头像、徽章组），
+   避免「铃铛 32px + 头像 38px + 徽章 20px」混排时各按自己的 inline-baseline 漂移 */
+.right { display: inline-flex; align-items: center; gap: 4px; }
 .head-left { display: flex; align-items: center; gap: 8px; }
 .fold-btn { padding: 6px; }
 .crumb { font-weight: 600; color: #0f172a; }
+/* 头像 + 佩戴徽章组成的 inline-flex 单元，与其它按钮同一基线；
+   没佩戴时 cluster 内只剩头像一个子节点，结构稳定 */
+.avatar-cluster { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; flex: none; }
+.avatar-cluster .cluster-badges { vertical-align: middle; }
 .avatar {
-  width: 38px; height: 38px; border-radius: 50%; background: #eef2ff; color: #6366f1;
+  /* 36x36 圆形头像，与左侧 el-button text-circle（约 32px）视觉等齐 */
+  width: 36px; height: 36px; flex: none; border-radius: 50%;
+  background: #eef2ff; color: #6366f1;
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
   font-weight: 600; outline: none; overflow: hidden; border: 2px solid #fff;
-  box-shadow: 0 0 0 1px #cbd5e1;
+  box-shadow: 0 0 0 1px #cbd5e1; vertical-align: middle;
 }
-.avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .main { padding: 20px; }
 
 /* 通知铃铛 */
@@ -293,4 +502,80 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
 }
 html.dark .theme-toggle { color: #c7c8d4; }
 html.dark .theme-toggle:hover { background: #232347; }
+
+/* 帮助中心按钮 */
+.help-btn { padding: 7px; color: #6366f1; }
+.help-btn:hover { background: #eef2ff; }
+html.dark .help-btn { color: #c7c8d4; }
+html.dark .help-btn:hover { background: #232347; }
+
+/* 帮助中心弹窗 */
+.help-wrap { display: flex; gap: 16px; height: 60vh; }
+.help-nav { width: 132px; flex-shrink: 0; overflow: auto; border-right: 1px solid #e2e8f0; padding-right: 8px; }
+.help-nav-item { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: #475569; font-size: 13px; transition: background-color .15s, color .15s; }
+.help-nav-item:hover { background: #f1f5f9; color: #4f46e5; }
+.help-nav-item.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+.help-content { flex: 1; overflow: auto; padding-right: 8px; line-height: 1.7; color: #334155; }
+.help-content h3 { margin: 4px 0 10px; color: #1e293b; font-size: 16px; }
+.help-content h4 { margin: 14px 0 6px; color: #334155; font-size: 14px; }
+.help-content p { margin: 6px 0; }
+.help-content ul { margin: 6px 0; padding-left: 20px; }
+.help-content li { margin: 4px 0; }
+.help-content code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.help-tip { font-size: 12px; color: #94a3b8; }
+html.dark .help-nav { border-right-color: #2a2a35; }
+html.dark .help-nav-item { color: #b7b8cd; }
+html.dark .help-nav-item:hover { background: #23234a; color: #a5b4fc; }
+html.dark .help-nav-item.active { background: #23234a; color: #a5b4fc; }
+html.dark .help-content { color: #c3c4d8; }
+html.dark .help-content h3, html.dark .help-content h4 { color: #e7e7ee; }
+html.dark .help-content code { background: #23234a; }
+
+/* ============================================================
+   响应式骨架
+   ≤1024：侧边栏从"占文档流"改为"覆盖式抽屉"，主内容占满整宽
+   ≤ 640：顶栏压缩、面包屑省略、帮助弹窗竖排
+   ============================================================ */
+.aside-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 1999; }
+
+@media (max-width: 1024px) {
+  .layout .aside {
+    position: fixed !important;
+    left: 0; top: 0; bottom: 0;
+    z-index: 2000;
+    transform: translateX(-100%);
+    transition: transform .26s cubic-bezier(.4, 0, .2, 1);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
+  }
+  .layout .aside.drawer-open { transform: translateX(0); }
+  .header { padding: 0 10px; }
+  .crumb { font-size: 15px; }
+}
+
+@media (max-width: 640px) {
+  .el-header.header { height: 52px; padding: 0 8px; }
+  .brand { font-size: 16px; padding: 12px 16px; }
+  .brand-ico { width: 30px; height: 30px; }
+  /* 面包屑：窄屏最多占 40% 宽，超出省略，别把右侧图标挤出去 */
+  .crumb {
+    font-size: 14px;
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .avatar { width: 30px; height: 30px; }
+  .bell, .theme-toggle, .help-btn { padding: 5px; }
+  /* 帮助中心：左侧导航改横向滚动条，正文在下 */
+  .help-wrap { flex-direction: column; gap: 10px; height: 56vh; }
+  .help-nav {
+    width: auto; flex: none; overflow-x: auto;
+    display: flex; gap: 6px;
+    border-right: none; padding: 0 0 8px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  html.dark .help-nav { border-bottom-color: #2a2a35; }
+  .help-nav-item { white-space: nowrap; }
+  .help-content { padding-right: 0; }
+}
 </style>

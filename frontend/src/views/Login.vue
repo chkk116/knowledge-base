@@ -1,10 +1,9 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
-import { captcha as apiCaptcha, captchaSlide } from '../api/auth'
 import SlideCaptcha from '../components/SlideCaptcha.vue'
 
 const auth = useAuthStore()
@@ -14,36 +13,17 @@ const router = useRouter()
 const username = ref('')
 const password = ref('')
 const captchaToken = ref('')
-const captchaImage = ref('')
 const slidePassed = ref(false)
 const loading = ref(false)
 const captchaOpen = ref(false) // 是否展开验证码
 const captchaNonce = ref(0)    // 强制重置验证码组件（失败重验时递增）
 
-// 拉取滑动拼图背景图（token 与 base64 图片）
-async function loadCaptcha() {
-  try {
-    const { data } = await apiCaptcha()
-    captchaToken.value = data.token
-    captchaImage.value = data.image
-    slidePassed.value = false
-  } catch (e) {
-    captchaImage.value = ''
-  }
-}
-
-// 滑动成功：前端已对齐。向后端标记票据（best-effort），再自动登录。
-// 注意：这里不立即关闭弹窗——等 doLogin 真正成功才关；失败则重新弹出重验。
-async function onSlideSuccess() {
+// 滑动验证通过（服务端已确认对齐）：组件返回本次票据 token，直接用于登录
+function onSlideSuccess(tk) {
+  captchaToken.value = tk
   slidePassed.value = true
-  try {
-    await captchaSlide(captchaToken.value)
-  } catch (e) {
-    // 后端标记失败（如后端尚未重启到滑动版）也先视为前端通过，由 doLogin 兜底
-  }
   doLogin()
 }
-const onSlideRefresh = () => loadCaptcha()
 function openCaptcha() {
   if (slidePassed.value) return
   captchaOpen.value = true
@@ -51,8 +31,6 @@ function openCaptcha() {
 function onCaptchaClose() {
   captchaOpen.value = false
 }
-
-onMounted(loadCaptcha)
 
 // 真正的登录请求
 async function doLogin() {
@@ -72,10 +50,9 @@ async function doLogin() {
       captchaOpen.value = false
       ElMessage.error(msg)
     } else {
-      // 验证码类错误：刷新图案并继续验证
+      // 验证码类错误：强制重挂组件，重新拉取并验证
       captchaNonce.value++
       captchaOpen.value = true
-      await loadCaptcha() // 刷新后端票据，防止重放
       ElMessage.error(msg)
     }
   } finally {
@@ -93,8 +70,7 @@ async function submit() {
     doLogin()
     return
   }
-  await loadCaptcha()        // 重新拉取最新验证码票据，避免首屏加载时后端未就绪导致 token 为空
-  captchaOpen.value = true
+  captchaOpen.value = true   // 组件自托管拉取拼图，无需此处预拉
 }
 
 // 忘记密码：无 SMTP 邮件找回，引导联系管理员（管理员可在后台重置）
@@ -130,7 +106,7 @@ function onForgot() {
     <!-- 点登录后弹出的滑块验证码 -->
     <div v-if="captchaOpen" class="captcha-mask" @click.self="onCaptchaClose">
       <div class="captcha-pop">
-        <SlideCaptcha :key="captchaNonce" @success="onSlideSuccess" @refresh="onSlideRefresh" @close="onCaptchaClose" />
+        <SlideCaptcha :key="captchaNonce" @success="onSlideSuccess" @close="onCaptchaClose" />
       </div>
     </div>
   </div>
@@ -177,4 +153,27 @@ function onForgot() {
   display: flex; align-items: center; justify-content: center;
 }
 .captcha-pop { width: 348px; }
+
+/* 暗色模式适配：theme.css 已覆盖 .login-page/.title/.captcha-img/.tip，此处补两处次要文字与 hover 底色 */
+html.dark .captcha-trigger:hover { border-color: #8b8fa0; background: #23232e; }
+html.dark .captcha-state { color: #8b8fa0; }
+
+/* ===================== 响应式布局（追加在末尾） ===================== */
+@media (max-width: 1024px) {
+  .login-card { width: 380px; max-width: calc(100vw - 32px); }
+}
+
+@media (max-width: 640px) {
+  .login-card { width: 100%; max-width: calc(100vw - 32px); padding: 4px 0; }
+  .title { font-size: 18px; gap: 8px; margin: 6px 0 14px; }
+  .login-logo { width: 32px; height: 32px; }
+  .fp { margin: 10px 0 4px; }
+
+  /* 滑块验证码：固定 320px 宽，窄屏跟随弹层一起收 */
+  .captcha-pop { width: calc(100vw - 24px); max-width: 348px; }
+  .captcha-pop :deep(.slide-captcha) { width: 100%; max-width: 100%; padding: 12px 12px 10px; }
+  .captcha-pop :deep(.sc-stage) { width: 100%; max-width: 320px; height: 160px; }
+  .captcha-pop :deep(.sc-bg) { width: 100%; height: 100%; }
+  .captcha-pop :deep(.sc-bar) { width: 100%; max-width: 320px; }
+}
 </style>

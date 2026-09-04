@@ -1,0 +1,310 @@
+/* ============================================================
+   全局响应式布局
+   ------------------------------------------------------------
+   断点（全项目统一，只允许用这两档）
+     > 1024px  桌面：左右分栏、多列网格
+     ≤ 1024px  平板 / 窄屏：侧边栏抽屉化、两栏降一栏
+     ≤  640px  手机：全部单列、表单标签置顶、分页精简
+
+   约定
+     - 本文件**只写布局与尺寸**，不写颜色（颜色归 theme.css / 各页 html.dark）
+     - 页面私有布局写在各自 <style scoped> 的断点块里；
+       本文件只放"Element 组件 + 通用容器"的兜底规则
+     - el-dialog / el-drawer 的宽度是内联样式，改不动具体值，
+       统一用 max-width 卡住，避免超出视口
+   ============================================================ */
+
+/* ---------- 通用兜底：任何页面都不允许横向撑破视口 ---------- */
+.el-main { overflow-x: hidden; }
+
+/* ============================================================
+   平板 / 窄屏（≤1024）
+   ============================================================ */
+@media (max-width: 1024px) {
+  /* 主内容区收紧内边距（App.vue 的 .main 默认 20px）
+     注意：组件内样式晚于本文件注入，这里必须提高特异性才盖得住 */
+  .el-main.main { padding: 14px !important; }
+
+  /* 弹窗 / 抽屉：不许超出视口宽度 */
+  .el-dialog { max-width: 92vw !important; margin-top: 8vh !important; }
+  .el-message-box { max-width: 92vw !important; }
+  .el-drawer { max-width: 92vw !important; }
+
+  /* 表格：字号与单元格内边距收紧，尽量少挤列 */
+  .el-table { font-size: 13px; }
+  .el-table .cell { padding-left: 8px; padding-right: 8px; }
+
+  /* 分页：允许换行并居中，避免右侧按钮被挤出容器 */
+  .el-pagination { flex-wrap: wrap; justify-content: center; }
+
+  /* 卡片头部的「标题 + 右侧操作」：允许换行，不再硬挤一行 */
+  .el-card__header { flex-wrap: wrap; gap: 8px; }
+}
+
+/* ============================================================
+   手机（≤640）
+   ============================================================ */
+@media (max-width: 640px) {
+  .el-main.main { padding: 10px !important; }
+
+  /* 弹窗：更贴边 + 内容区自己滚（防止长表单顶出屏幕） */
+  .el-dialog { max-width: 96vw !important; margin-top: 6vh !important; }
+  .el-dialog__body { padding: 14px 12px; max-height: 68vh; overflow-y: auto; }
+  .el-dialog__footer { padding: 10px 12px; }
+  .el-drawer { max-width: 96vw !important; }
+  .el-message-box { max-width: 94vw !important; }
+  .el-message { min-width: 88vw; max-width: 92vw; }
+
+  /* 表单：标签置顶、控件独占一行
+     Element 的 label 是 float + 固定宽度，小屏必须拆掉才能不挤
+     注意：必须保留 .el-form-item__label 的实际宽度计算，否则 el-form 的
+     labelWidthMap 在 deregister 时会得到 NaN，触发 [ElForm] unexpected width NaN */
+  .el-form:not(.el-form--inline) .el-form-item {
+    display: block !important;
+    margin-bottom: 12px;
+  }
+  .el-form:not(.el-form--inline) .el-form-item__label-wrap {
+    float: none !important;
+    display: block !important;
+    width: 100% !important;
+  }
+  .el-form:not(.el-form--inline) .el-form-item__label {
+    float: none !important;
+    display: inline-block !important;
+    width: auto !important;          /* label 文字宽度，不锁死 80px */
+    text-align: left !important;
+    padding: 0 0 4px !important;
+    line-height: 1.4 !important;
+  }
+  .el-form:not(.el-form--inline) .el-form-item__content {
+    margin-left: 0 !important;
+    display: block;
+    width: 100%;
+  }
+
+  /* 分页：只留上下页与页码，隐藏「每页条数」「跳页」 */
+  .el-pagination__sizes,
+  .el-pagination__jump { display: none !important; }
+  .el-pagination { justify-content: center; }
+  .el-pagination button,
+  .el-pagination li { min-width: 28px; }
+
+  /* 描述列表：标签给最小宽度，内容换行而不是压成一条 */
+  .el-descriptions__label { min-width: 88px; }
+  .el-descriptions__body { overflow-x: auto; }
+
+  /* 表格操作列里的按钮组：换行而不是把列撑宽 */
+  .el-table .cell > .el-button + .el-button { margin-left: 0; }
+
+  /* 标签页：头部横向滚动，避免标签被压缩成两行 */
+  .el-tabs__nav-wrap { overflow-x: auto; }
+
+  /* 穿梭框 / 树等宽组件：允许自身滚动 */
+  .el-transfer-panel { width: 100% !important; }
+  .el-transfer { display: flex; flex-direction: column; gap: 10px; }
+  .el-transfer__buttons { padding: 0 10px; transform: rotate(90deg); }
+
+  /* 时间选择器面板：小屏常常超宽 */
+  .el-picker-panel { max-width: 96vw; }
+  .el-date-range-picker .el-picker-panel__body { min-width: 0; }
+  .el-date-range-picker__content { width: 100%; }
+
+  /* 下拉/级联等浮层：不许超出视口 */
+  .el-select-dropdown,
+  .el-cascader__dropdown,
+  .el-popper { max-width: 92vw !important; }
+
+  /* 图片预览工具栏：缩小按钮，避免挤成一团 */
+  .el-image-viewer__actions { padding: 10px; }
+}
+
+/* ============================================================
+   通用布局工具类（供各页面按需取用，不改变既有 DOM）
+   ============================================================ */
+/* 多列卡片网格：列宽自适应，窄屏自动降列，无需再写媒体查询 */
+.resp-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+@media (max-width: 640px) {
+  .resp-grid { gap: 10px; grid-template-columns: 1fr; }
+}
+
+/* 「标题 + 右侧操作」工具栏：窄屏自动换行 */
+.resp-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 表格外层包裹：横向溢出时自己滚，不撑破页面 */
+.resp-table-scroll { width: 100%; overflow-x: auto; }
+
+/* ============================================================
+   手机（≤640）：el-table → 卡片堆叠列表
+   ------------------------------------------------------------
+   配合全局指令 v-stack-table（src/utils/stackTable.js）使用：
+   指令把表头文字写进每个 <td> 的 data-label，这里隐藏表头、
+   把每行渲染成一张卡片，用 ::before 显示字段名。
+   目的：管理页在手机上不再靠横向滚动看数据，而是手机上常见的
+   「一条数据一张卡」的排布。
+   ============================================================ */
+@media (max-width: 760px) {
+  /* el-table 卡片化时容器透明度提高，去掉 Element 默认的滚动/外框 */
+  .el-table.is-stacked {
+    overflow: visible;
+    background: transparent;
+    font-size: 14px;
+  }
+  /* el-table 用伪元素画外边框，卡片模式下不需要 */
+  .el-table.is-stacked::before,
+  .el-table.is-stacked::after,
+  .el-table.is-stacked .el-table__inner-wrapper::after,
+  .el-table.is-stacked .el-table__body-wrapper::before,
+  .el-table.is-stacked .el-table__body-wrapper::after { display: none !important; }
+  .el-table.is-stacked .el-table__inner-wrapper { display: block; overflow: visible; border: none; }
+
+  /* 表头：字段已由指令写进 data-label，这里隐藏 */
+  .el-table.is-stacked .el-table__header-wrapper { display: none !important; }
+
+  /* 滚动容器放开：卡片纵向排，不再横向滚 */
+  .el-table.is-stacked .el-table__body-wrapper,
+  .el-table.is-stacked .el-scrollbar,
+  .el-table.is-stacked .el-scrollbar__wrap,
+  .el-table.is-stacked .el-scrollbar__view {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+  .el-table.is-stacked .el-scrollbar__bar { display: none !important; }
+
+  .el-table.is-stacked .el-table__body,
+  .el-table.is-stacked .el-table__body tbody { display: block; width: 100%; }
+
+  /* ===== 卡片本体 ===== */
+  .el-table.is-stacked .el-table__body tr {
+    display: block;
+    width: 100%;
+    margin: 0 0 12px;
+    padding: 0;
+    border: 1px solid var(--el-border-color-lighter, #ebeef5);
+    border-radius: 12px;
+    background: var(--el-bg-color, #fff);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+    overflow: hidden;
+  }
+  .el-table.is-stacked .el-table__body tr:last-child { margin-bottom: 0; }
+  /* 斑马纹 / hover 底色在卡片里显得脏，统一清掉 */
+  .el-table.is-stacked .el-table__body tr:hover > td.el-table__cell,
+  .el-table.is-stacked .el-table__body tr.el-table__row--striped td.el-table__cell {
+    background: transparent !important;
+  }
+
+  /* 单元格默认：grid 排列（header / field 各自覆盖） */
+  .el-table.is-stacked .el-table__cell {
+    display: grid !important;
+    height: auto !important;
+    line-height: 1.55;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+  .el-table.is-stacked .el-table__cell > .cell {
+    min-width: 0;
+    padding: 0 !important;
+    white-space: normal !important;
+    word-break: break-word;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* --- 卡片 header（第 1 个 cell）：彩色顶条 + label chip + 大字主键 --- */
+  .el-table.is-stacked .el-table__cell[data-stack-role="header"] {
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+    row-gap: 6px;
+    align-items: center;
+    padding: 12px 14px 14px !important;
+    background: linear-gradient(
+      135deg,
+      var(--el-color-primary-light-9, #ecf0ff),
+      var(--el-color-primary-light-8, #e0e7ff)
+    );
+  }
+  .el-table.is-stacked .el-table__cell[data-stack-role="header"]::before {
+    content: attr(data-label);
+    display: inline-block;
+    grid-column: 1;
+    padding: 3px 9px;
+    border-radius: 5px;
+    background: var(--el-color-primary, #6366f1);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .6px;
+    line-height: 1.4;
+    box-shadow: 0 1px 2px rgba(99, 102, 241, .25);
+  }
+  .el-table.is-stacked .el-table__cell[data-stack-role="header"] > .cell {
+    grid-column: 1 / 3 !important;
+    font-size: 17px !important;
+    font-weight: 600;
+    color: var(--el-text-color-primary, #1f2937);
+    padding-top: 0 !important;
+  }
+
+  /* --- 卡片 detail（其他 cell）：上 label(灰底 chip) + 下 value(黑大) --- */
+  .el-table.is-stacked .el-table__cell[data-stack-role="field"] {
+    grid-template-columns: auto;
+    border-top: 1px solid var(--el-border-color-extra-light, #f2f3f5) !important;
+    padding: 8px 14px !important;
+  }
+  .el-table.is-stacked .el-table__cell[data-stack-role="field"]::before {
+    content: attr(data-label);
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: var(--el-fill-color-light, #f3f3f5);
+    color: var(--el-text-color-secondary, #606266);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .6px;
+    line-height: 1.4;
+    margin-bottom: 4px;
+  }
+  .el-table.is-stacked .el-table__cell[data-stack-role="field"] > .cell {
+    font-size: 14px;
+    color: var(--el-text-color-primary, #303133);
+  }
+
+  /* 单元格里的按钮组：给右下间距，挤不下自然换行（操作列常年 4~5 个按钮） */
+  .el-table.is-stacked .el-table__cell .el-button { margin: 0 6px 6px 0; }
+  .el-table.is-stacked .el-table__cell .el-button + .el-button { margin-left: 0; }
+
+  /* 固定列（sticky）在卡片布局里失效 */
+  .el-table.is-stacked .el-table-fixed-column--left,
+  .el-table.is-stacked .el-table-fixed-column--right { position: static !important; }
+
+  /* 空数据块 */
+  .el-table.is-stacked .el-table__empty-block {
+    width: 100%;
+    min-height: 96px;
+    border-radius: 12px;
+    border: 1px dashed var(--el-border-color, #dcdfe6);
+  }
+
+  /* 次要列：手机上隐藏，避免一张卡片十几行
+     用法 <el-table-column class-name="stack-hide"> */
+  .el-table.is-stacked .el-table__cell.stack-hide,
+  .el-table.is-stacked .el-table__cell[data-stack-hide="1"] { display: none !important; }
+
+  /* 展开行 / 合计行等 colspan 单元格不套字段名 */
+  .el-table.is-stacked .el-table__body td[colspan] { display: block !important; }
+  .el-table.is-stacked .el-table__body td[colspan]::before { display: none; }
+}
+
+/* 长文屏外块跳过布局/绘制：老机滚动不卡、保留的显示列表内存骤降。
+   不支持 content-visibility 的浏览器自动忽略，无副作用。 */
+.post-body .content > * { content-visibility: auto; contain-intrinsic-size: auto 80px; }

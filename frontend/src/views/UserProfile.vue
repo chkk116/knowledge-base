@@ -3,8 +3,12 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
-import { getUserCard, followUser, unfollowUser, getUserArticles, getUserFollowing, getUserFollowers } from '../api/kb'
+import { getUserCard, followUser, unfollowUser, getUserArticles, getUserFollowing, getUserFollowers, userBadges } from '../api/kb'
+import { BADGE_ICONS, DEFAULT_BADGE_ICON, tierGradient } from '../utils/badgeIcons'
+const g0 = (b) => tierGradient(b.tier)[0]
+const g1 = (b) => tierGradient(b.tier)[1]
 import { getLevel } from '../utils/level'
+import WornBadgeStrip from '../components/WornBadgeStrip.vue'
 import { fromNow, fmtDateTime } from '../utils/time'
 
 const route = useRoute()
@@ -19,8 +23,12 @@ const articles = ref([])
 const following = ref([])
 const followers = ref([])
 const loading = ref(false)
+const badges = ref([])
 
 const levelInfo = computed(() => card.value ? getLevel(card.value.points || 0) : null)
+
+// 当前佩戴的徽章 id 列表（供昵称旁展示）
+const wornIds = computed(() => card.value?.wornBadges || [])
 
 const loadCard = async (id) => {
   card.value = null
@@ -57,6 +65,18 @@ const reload = () => {
   const id = Number(route.params.id)
   loadCard(id)
   switchTab(activeTab.value)
+  loadBadges(id)
+}
+
+// 已获得徽章（访客主页展示）
+async function loadBadges(id) {
+  badges.value = []
+  try {
+    const { data } = await userBadges(id)
+    badges.value = Array.isArray(data) ? data : []
+  } catch (e) {
+    badges.value = []
+  }
 }
 
 const toggleFollow = async () => {
@@ -93,7 +113,10 @@ watch(() => route.params.id, reload)
 
     <div class="body">
       <aside class="side">
-        <div class="name">{{ card.displayName || card.username }}</div>
+        <div class="name">
+          {{ card.displayName || card.username }}
+          <WornBadgeStrip :badge-ids="wornIds" :size="22" />
+        </div>
         <div class="username">@{{ card.username }}</div>
         <div class="role-row">
           <el-tag v-if="levelInfo" size="small" effect="plain">Lv{{ levelInfo.level }} · {{ levelInfo.title }}</el-tag>
@@ -125,6 +148,16 @@ watch(() => route.params.id, reload)
         <el-button v-else-if="auth.user && card.id === auth.user.id" class="follow-btn ghost" @click="router.push('/profile')">
           编辑我的资料
         </el-button>
+
+        <!-- 已获得徽章 -->
+        <div class="badge-box" v-if="badges.length">
+          <div class="badge-hd">勋章 <span class="cnt">{{ badges.length }}</span></div>
+          <div class="badge-strip">
+            <span v-for="b in badges" :key="b.id" class="b-chip" :title="b.desc" :style="{ '--c1': g0(b), '--c2': g1(b) }">
+              <span class="b-ic"><component :is="BADGE_ICONS[b.id] || DEFAULT_BADGE_ICON" /></span><span class="b-name">{{ b.name }}</span>
+            </span>
+          </div>
+        </div>
       </aside>
 
       <main class="main">
@@ -181,14 +214,15 @@ watch(() => route.params.id, reload)
 .up-page { max-width: 920px; margin: 0 auto; }
 .cover {
   height: 170px; border-radius: 16px 16px 0 0;
-  background: url('../assets/profile-cover.png') no-repeat top center / cover;
+  background: url('../assets/profile-cover.jpg') no-repeat top center / cover;
   position: relative;
 }
 .cover-avatar { position: absolute; left: 28px; bottom: -42px; width: 96px; height: 96px; border-radius: 50%; background: #fff; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
 .cover-avatar img, .cover-avatar span { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 700; color: #6366f1; background: #eef2ff; }
 .body { display: grid; grid-template-columns: 280px 1fr; gap: 18px; margin-top: 58px; }
 .side { background: #fff; border: 1px solid #eef2f7; border-radius: 16px; padding: 18px; align-self: stretch; }
-.name { font-size: 19px; font-weight: 700; color: #0f172a; }
+.name { font-size: 19px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.name-badge { margin-left: 2px; }
 .username { color: #94a3b8; font-size: 13px; margin-top: 2px; }
 .role-row { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
 .bio { font-size: 13px; color: #475569; line-height: 1.6; margin: 10px 0; }
@@ -204,6 +238,26 @@ watch(() => route.params.id, reload)
 .follow-btn { width: 100%; margin-top: 6px; border: 1px solid #6366f1; background: #6366f1; color: #fff; border-radius: 16px; padding: 8px; cursor: pointer; font-size: 14px; }
 .follow-btn.on { background: #fff; color: #64748b; border-color: #e2e8f0; }
 .follow-btn.ghost { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+
+/* 访客主页：已获勋章 */
+.badge-box { margin-top: 14px; background: #fff; border: 1px solid #eef2f7; border-radius: 14px; padding: 12px; }
+.badge-hd { font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 8px; }
+.badge-hd .cnt { color: #94a3b8; font-weight: 600; margin-left: 4px; }
+.badge-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.b-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--c1, #6366f1) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--c1, #6366f1) 36%, #fff);
+}
+.b-ic {
+  width: 20px; height: 20px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--c1, #6366f1), var(--c2, #8b5cf6));
+  color: #fff;
+}
+.b-ic :deep(svg) { width: 12px; height: 12px; }
+.b-chip .b-name { font-size: 12px; font-weight: 700; color: #334155; }
 
 .main { background: #fff; border: 1px solid #eef2f7; border-radius: 16px; padding: 18px 20px; min-height: 360px; }
 .tabs { display: flex; gap: 6px; border-bottom: 1px solid #eef2f7; margin-bottom: 14px; }
@@ -231,5 +285,68 @@ watch(() => route.params.id, reload)
 
 .empty { color: #94a3b8; font-size: 14px; padding: 20px 0; text-align: center; }
 .loading { max-width: 920px; margin: 40px auto; text-align: center; color: #94a3b8; }
-@media (max-width: 720px) { .body { grid-template-columns: 1fr; margin-top: 54px; } .cover-avatar { left: 50%; transform: translateX(-50%); } }
+
+/* 暗色模式适配（侧栏 / 主栏为自定义白底卡片，需整体换成暗底 + Element 文字/边框变量；el-tag、el-button 由 Element 自动处理） */
+html.dark .cover-avatar { background: var(--el-bg-color-overlay); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+html.dark .cover-avatar img, html.dark .cover-avatar span { background: rgba(99,102,241,.18); color: #a5b4fc; }
+html.dark .side { background: var(--el-bg-color-overlay); border-color: var(--el-border-color-lighter); }
+html.dark .name { color: var(--el-text-color-primary); }
+html.dark .username { color: var(--el-text-color-secondary); }
+html.dark .bio { color: var(--el-text-color-regular); }
+html.dark .bio.muted { color: var(--el-text-color-placeholder); }
+html.dark .meta { border-top-color: var(--el-border-color-lighter); }
+html.dark .meta li { color: var(--el-text-color-secondary); }
+html.dark .meta li b { color: var(--el-text-color-primary); }
+html.dark .rel-item { background: var(--el-fill-color); border-color: var(--el-border-color-lighter); }
+html.dark .rel-item:hover { border-color: rgba(129,140,248,.5); }
+html.dark .rel-item b { color: #a5b4fc; }
+html.dark .rel-item span { color: var(--el-text-color-secondary); }
+html.dark .follow-btn.on { background: var(--el-fill-color); color: var(--el-text-color-secondary); border-color: var(--el-border-color); }
+html.dark .follow-btn.ghost { background: var(--el-fill-color); color: var(--el-text-color-regular); border-color: var(--el-border-color); }
+html.dark .badge-box { background: #1b1b26; border-color: #2c2c3a; }
+html.dark .badge-hd { color: #e8e8f0; }
+html.dark .b-chip { background: color-mix(in srgb, var(--c1, #6366f1) 18%, #1b1b26); border-color: color-mix(in srgb, var(--c1, #6366f1) 45%, #2c2c3a); }
+html.dark .b-chip .b-name { color: #cbd5e1; }
+html.dark .main { background: var(--el-bg-color-overlay); border-color: var(--el-border-color-lighter); }
+html.dark .tabs { border-bottom-color: var(--el-border-color-lighter); }
+html.dark .tabs button { color: var(--el-text-color-secondary); }
+html.dark .tabs button.on { color: #a5b4fc; border-bottom-color: #818cf8; }
+html.dark .doc-list li { border-bottom-color: var(--el-border-color-lighter); }
+html.dark .doc-list li:hover { background: var(--el-fill-color-light); }
+html.dark .doc-title { color: var(--el-text-color-primary); }
+html.dark .cat { background: rgba(99,102,241,.18); color: #a5b4fc; }
+html.dark .time { color: var(--el-text-color-secondary); }
+html.dark .user-list li { border-bottom-color: var(--el-border-color-lighter); }
+html.dark .user-list li:hover { background: var(--el-fill-color-light); }
+html.dark .ava { background: var(--el-fill-color); }
+html.dark .ava.none { color: var(--el-text-color-secondary); }
+html.dark .uinfo .nm { color: var(--el-text-color-primary); }
+html.dark .uinfo .ub { color: var(--el-text-color-secondary); }
+html.dark .empty { color: var(--el-text-color-secondary); }
+html.dark .loading { color: var(--el-text-color-secondary); }
+
+/* ============================================================
+   响应式：≤1024 单列（文章 / 关注 / 粉丝在上，资料侧栏移到下方）
+          ≤ 640 手机：头像居中、内边距与字号收紧
+   ============================================================ */
+@media (max-width: 1024px) {
+  .body { grid-template-columns: 1fr; margin-top: 54px; }
+  .main { order: 1; }
+  .side { order: 2; }
+  /* Tab 三个词在窄屏一行放不下时允许换行 */
+  .tabs { flex-wrap: wrap; }
+}
+
+@media (max-width: 640px) {
+  .cover { height: 130px; }
+  .cover-avatar { left: 50%; transform: translateX(-50%); width: 76px; height: 76px; }
+  .body { margin-top: 46px; gap: 14px; }
+  .side { padding: 14px; }
+  .main { padding: 14px; }
+  .name { font-size: 17px; }
+  .tabs button { padding: 8px 10px; font-size: 14px; }
+  .doc-title { font-size: 14px; }
+  .ava { width: 38px; height: 38px; }
+  .user-list li { gap: 10px; }
+}
 </style>

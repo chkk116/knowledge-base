@@ -2,9 +2,12 @@ package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.Notification;
 import com.kb.kbplatform.domain.User;
+import com.kb.kbplatform.repository.DocSubscriptionRepository;
 import com.kb.kbplatform.repository.NotificationRepository;
 import com.kb.kbplatform.repository.UserRepository;
+import com.kb.kbplatform.security.HtmlSanitizer;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashSet;
@@ -25,11 +28,14 @@ public class NotificationService {
     private final NotificationRepository repo;
     private final UserRepository userRepo;
     private final SseSessionRegistry sse;
+    private final DocSubscriptionRepository subRepo;
 
-    public NotificationService(NotificationRepository repo, UserRepository userRepo, SseSessionRegistry sse) {
+    public NotificationService(NotificationRepository repo, UserRepository userRepo, SseSessionRegistry sse,
+                               DocSubscriptionRepository subRepo) {
         this.repo = repo;
         this.userRepo = userRepo;
         this.sse = sse;
+        this.subRepo = subRepo;
     }
 
     /** 保存通知后立即通过 SSE 向接收者推送最新未读数（实时刷新顶栏红点） */
@@ -64,7 +70,7 @@ public class NotificationService {
         Matcher m = MENTION.matcher(rawContent);
         while (m.find()) mentions.add(m.group(1));
         if (mentions.isEmpty()) return;
-        String summary = rawContent.length() > 50 ? rawContent.substring(0, 50) + "…" : rawContent;
+        String summary = HtmlSanitizer.preview(rawContent, 50);
         String actorDisplay = actorName(actor);
         for (String name : mentions) {
             if (name.equals(actor)) continue;
@@ -152,6 +158,69 @@ public class NotificationService {
         }
     }
 
+    /** 共享空间相关审批结果通知申请人（容量审批 / 创建审批的通过或驳回）。
+     *  type 取值：SHARE_CAPACITY_APPROVED / SHARE_CAPACITY_REJECTED / SHARE_CREATE_APPROVED / SHARE_CREATE_REJECTED */
+    public void notifyShareApproval(Long userId, String type, String actorUsername, String summary) {
+        if (userId == null) return;
+        Notification n = new Notification();
+        n.setUserId(userId);
+        n.setType(type);
+        n.setActor(actorName(actorUsername));
+        n.setSummary(summary);
+        saveAndPush(n);
+    }
+
+    /** 共享空间审批提交：通知全体管理员（提交者本人若是管理员则不重复通知自己）。
+     *  type 取值：SHARE_CREATE_PENDING / SHARE_CAPACITY_PENDING */
+    public void notifyShareRequestSubmit(Long applicantId, String actorUsername, String type, String summary) {
+        if (summary == null || summary.isBlank()) return;
+        String actor = actorName(actorUsername);
+        for (User admin : userRepo.findByRole("ADMIN")) {
+            if (applicantId != null && Objects.equals(admin.getId(), applicantId)) continue;
+            Notification n = new Notification();
+            n.setUserId(admin.getId());
+            n.setType(type);
+            n.setActor(actor);
+            n.setSummary(summary);
+            saveAndPush(n);
+        }
+    }
+
+    /** 文档更新：通知全部订阅者（更新者本人不通知自己）。由 DocumentService 在文档更新后调用 */
+    public void notifyDocUpdate(Long docId, String docTitle, Long editorId, String editorUsername) {
+        if (docId == null) return;
+        List<Long> userIds;
+        try {
+            userIds = subRepo.findUserIdsByDocId(docId);
+        } catch (Exception e) {
+            return;   // 订阅查询失败不影响文档更新主流程
+        }
+        if (userIds == null || userIds.isEmpty()) return;
+        String t = clipTitle(docTitle);
+        String actor = actorName(editorUsername);
+        for (Long uid : userIds) {
+            if (uid == null || Objects.equals(uid, editorId)) continue;
+            Notification n = new Notification();
+            n.setUserId(uid);
+            n.setType("DOC_UPDATE");
+            n.setActor(actor);
+            n.setDocId(docId);
+            n.setSummary("你订阅的《" + t + "》有更新");
+            saveAndPush(n);
+        }
+    }
+
+    /** 结业证书颁发通知学员 */
+    public void notifyCertificate(Long userId, String actorUsername, String summary) {
+        if (userId == null) return;
+        Notification n = new Notification();
+        n.setUserId(userId);
+        n.setType("CERTIFICATE");
+        n.setActor(actorName(actorUsername));
+        n.setSummary(summary);
+        saveAndPush(n);
+    }
+
     public List<Notification> list(Long userId) {
         return repo.findByUserIdOrderByCreatedAtDesc(userId);
     }
@@ -169,6 +238,8 @@ public class NotificationService {
         saveAndPush(n);
     }
 
+    /** 全部标记已读：批量写入需事务，否则中途失败会留下「一半已读一半未读」 */
+    @Transactional
     public void markAllRead(Long userId) {
         List<Notification> all = repo.findByUserIdOrderByCreatedAtDesc(userId);
         for (Notification n : all) n.setRead(true);
@@ -187,14 +258,17 @@ public class NotificationService {
         sse.pushUnread(userId, unreadCount(userId));   // 若删的是未读，红点同步递减
     }
 
-    /** 批量删除：仅删除 id 列表中真正属于该用户的通知（其余忽略，不报错） */
+    /** 批量删除：仅删除 id 列表中真正属于该用户的通知（其余忽略，不报错）。
+     *  deleteByUserIdAndIdIn 是 JPQL DELETE 修改查询，必须有事务包裹。 */
+    @Transactional
     public void deleteMany(List<Long> ids, Long userId) {
         if (ids == null || ids.isEmpty()) return;
         repo.deleteByUserIdAndIdIn(userId, ids);
         sse.pushUnread(userId, unreadCount(userId));
     }
 
-    /** 清空本人全部通知 */
+    /** 清空本人全部通知（deleteByUserId 为修改查询，需事务） */
+    @Transactional
     public void deleteAll(Long userId) {
         repo.deleteByUserId(userId);
         sse.pushUnread(userId, 0);   // 全部清空，未读数归零

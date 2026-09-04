@@ -114,6 +114,8 @@ const remove = async (row) => {
     await deleteAnnouncement(row.id)
     ElMessage.success('已删除')
     await load()
+    // 删的是当前页最后一条时回退一页，避免停在空页码（列表有前端 tab 筛选，按可见项判断）
+    if (visibleItems.value.length === 0 && page.value > 1) { page.value--; await load() }
   } catch (e) {
     if (e !== 'cancel') ElMessage.error('删除失败')
   }
@@ -155,8 +157,8 @@ onMounted(load)
       <el-tab-pane label="禁用" name="disabled" />
     </el-tabs>
 
-    <el-table :data="visibleItems" border style="width: 100%" row-key="id" :row-class-name="rowClass" v-loading="loading">
-      <el-table-column prop="id" label="ID" width="70" />
+    <el-table v-stack-table :data="visibleItems" border style="width: 100%" row-key="id" :row-class-name="rowClass" v-loading="loading">
+      <el-table-column prop="id" label="ID" width="70"  class-name="stack-hide" />
       <el-table-column label="标题" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">
           <el-icon v-if="row.pinned" class="pin-ic"><Top /></el-icon>
@@ -170,7 +172,7 @@ onMounted(load)
           <span v-else class="st off"><el-icon><Hide /></el-icon> 禁用</span>
         </template>
       </el-table-column>
-      <el-table-column prop="sortOrder" label="排序" width="80" align="center" />
+      <el-table-column prop="sortOrder" label="排序" width="80" align="center" class-name="stack-hide" />
       <el-table-column label="更新时间" width="150">
         <template #default="{ row }"><span class="time">{{ relTime(row.updatedAt) }}</span></template>
       </el-table-column>
@@ -239,4 +241,24 @@ onMounted(load)
 html.dark :deep(.pinned-row) { background: #2a2410; }
 html.dark .st.ok { background: #14291f; }
 html.dark .st.off { background: #23232e; }
+
+/* ============================================================
+   响应式布局（断点统一：≤1024 平板 / ≤640 手机）
+   只写 width / flex / padding / margin / font-size / gap
+   ============================================================ */
+@media (max-width: 1024px) {
+  .ann-manage { padding: 14px; }
+  /* 页头「标题 + 新建按钮」：允许换行 */
+  .ann-header { flex-wrap: wrap; gap: 10px; }
+  .pager { margin-top: 12px; }
+}
+
+@media (max-width: 640px) {
+  .ann-manage { padding: 12px; }
+  .ann-header h2 { font-size: 18px; }
+  /* 操作列四个按钮已自带换行，这里再收紧间距与字号 */
+  .row-actions { gap: 4px; }
+  .st { font-size: 12px; padding: 2px 8px; }
+  :deep(.el-table) { font-size: 13px; }
+}
 </style>

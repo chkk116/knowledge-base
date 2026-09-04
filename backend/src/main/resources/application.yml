@@ -7,6 +7,10 @@ server:
     min-response-size: 1024
 
 spring:
+  # 环境切换开关：部署时设 SPRING_PROFILES_ACTIVE=prod|test 激活对应 application-<env>.yml；
+  # 不设则默认 dev（仅加载本文件，等价于原来的本地行为）。
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
     # 本地 MySQL：请确认本机已安装 MySQL 8 并创建了 kb 库（见 db/init.sql）
     url: jdbc:mysql://localhost:3306/kb?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
@@ -33,11 +37,45 @@ kb:
     token-secret: ${KB_TOKEN_SECRET:kb-dev-secret-please-change-this-long-string-2026}   # 生产务必通过环境变量 KB_TOKEN_SECRET 注入足够长的随机串
     token-ttl: 86400000   # 令牌有效期(ms)，默认 24 小时
   ai:
-    enabled: false   # 预留总开关：接入模型并补好 Spring AI 依赖后改为 true
+    enabled: true    # 总开关：true=启用智谱 RAG 问答；API Key 通过环境变量 KB_ZHIPU_API_KEY 注入
+    zhipu:
+      base-url: https://open.bigmodel.cn/api/paas/v4   # 智谱 OpenAI 兼容端点（国内直连）
+      # 不在仓库里存任何真实 Key：启动前通过环境变量注入（IDEA Run Configuration、
+      # set KB_ZHIPU_API_KEY=xxx 或 deploy/env.prod 均可），未注入时 AI 功能自动不可用。
+      api-key: ${KB_ZHIPU_API_KEY:}
+      model: glm-4-flash                                # 永久免费；更强可选 glm-4-plus / glm-5（付费）
+  # ---- 跨域白名单 ----
+  # 留空 = 不注册任何 CORS 规则（Nginx 同源反代场景，零开销零攻击面）。
+  # 前后端分离部署 / 独立子域联调时填入前端域名，多个用英文逗号分隔，例如：
+  #   https://www.example.com,https://test.example.com
+  # 注意：allow-credentials=true 时浏览器禁止 origin 为 *，这里只接受显式白名单。
+  cors:
+    allowed-origins: ${KB_CORS_ORIGINS:}
+    allow-credentials: ${KB_CORS_ALLOW_CREDENTIALS:false}
   seed:
     enabled: true    # 启动种子数据：库为空时插入示例文档，便于搜索开箱即用；设为 false 可关闭
+  # ---- 共享文档实时协同中继（内嵌启动）----
+  # Spring Boot 启动时自动拉起 collab-relay（Node/Hocuspocus）进程，关闭时一并销毁，
+  # 无需手动 `npm start`。前提：部署机已安装 Node。
+  collab:
+    enabled: true                       # false 可关闭内嵌中继（协同编辑将不可用）
+    port: 1234                          # 中继 WebSocket 端口，需与前端 VITE_COLLAB_WS 或默认 ws://host:1234 一致
+    relay-dir: ../collab-relay          # 中继目录（含 index.js），相对后端模块或绝对路径
+    node-path: node                     # node 可执行文件；若不在 PATH 可填绝对路径
+    auto-install: true                  # node_modules 缺失时自动 npm install
+    save-interval: 5000                 # 快照落库间隔(ms)：越小崩溃丢失窗口越小；-op_log 表已追加每次 update
   upload:
-    dir: ./uploads   # 图片上传本地目录（运行时解析为绝对路径，静态映射到 /uploads/**）
+    # 图片上传本地目录（运行时解析为绝对路径，静态映射到 /uploads/**）。
+    # 默认 ./uploads 会按「进程工作目录」解析 —— 用 systemd / 不同目录启动时会飘移，导致历史图片"找不到"。
+    # 生产/测试务必通过 KB_UPLOAD_DIR 注入绝对路径（见 deploy/env.prod）。
+    dir: ${KB_UPLOAD_DIR:./uploads}
+  # ---- 回收站自动清理 ----
+  # 软删除的文档不会自己消失，默认保留 30 天后由定时任务物理清除，避免回收站无限堆积。
+  # 每次清理都会写审计流水（actorName=「系统」，action=AUTO_PURGE_DOC），可追溯。
+  recycle:
+    cleanup-enabled: true      # false 关闭自动清理（仍可手动「彻底删除」）
+    retention-days: 30         # 保留天数：删除超过该天数的软删除文档；<=0 表示永不自动清理
+    cron: "0 0 3 * * *"        # 执行时间，默认每天凌晨 03:00（6 位 cron：秒 分 时 日 月 周）
   # ---- 检索增强：Meilisearch（可选）----
   # 搜索默认走 MySQL LIKE，开箱即用、零中间件。
   # 想获得中文分词 / 容错 / 更好的相关度排序时，按下面三步启用：
@@ -51,3 +89,14 @@ kb:
       api-key: ""         # Meilisearch master key / api key（docker-compose 默认 masterKey）
       index: documents    # 索引 uid
   # 备注：MinIO 等其余中间件当前未纳入编译，仅本地 MySQL 即可运行。
+
+  # ---- 缓存：Redis（可选，默认关闭）----
+  # 与 Meilisearch 同理：enabled=false 时完全不启用缓存，接口直查库，行为与引入前完全一致。
+  # 在本机/内网把 Redis 服务跑起来后，把 enabled 改为 true 即可生效，无需改任何代码。
+  redis:
+    enabled: false
+    host: 127.0.0.1      # Redis 主机；若 Redis 跑在另一台内网机，填其 IP（如 172.18.0.232）
+    port: 6379
+    password: ""         # 若 Redis 设了 requirepass 则填这里
+    database: 0
+    ttl-minutes: 30      # 缓存默认过期时间（分钟）

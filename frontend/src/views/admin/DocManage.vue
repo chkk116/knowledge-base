@@ -55,6 +55,16 @@ const onTab = () => { page.value = 1 }
 const edit = (d) => router.push('/write/edit/' + d.id)
 const goDetail = (d) => router.push('/post/' + d.id)
 
+// 删除/封禁/审核等操作会让条目离开当前列表（含前端 tab 筛选后这页为空的情况），
+// 重载后若当前页没内容就回退一页再拉一次，避免停在空页码。
+const reloadAfterRemoval = async () => {
+  await load()
+  if (visibleDocs.value.length === 0 && page.value > 1) {
+    page.value--
+    await load()
+  }
+}
+
 const remove = async (d) => {
   try {
     await ElMessageBox.confirm('确定删除《' + d.title + '》？', '提示', { type: 'warning' })
@@ -64,17 +74,17 @@ const remove = async (d) => {
   try {
     await deleteDoc(d.id)
     ElMessage.success('已删除')
-    await load()
+    await reloadAfterRemoval()
   } catch (e) {
     ElMessage.error('删除失败')
   }
 }
 const block = async (d) => {
-  try { await blockDoc(d.id); ElMessage.success('已加入黑名单'); await load() }
+  try { await blockDoc(d.id); ElMessage.success('已加入黑名单'); await reloadAfterRemoval() }
   catch { ElMessage.error('操作失败') }
 }
 const unblock = async (d) => {
-  try { await unblockDoc(d.id); ElMessage.success('已解封'); await load() }
+  try { await unblockDoc(d.id); ElMessage.success('已解封'); await reloadAfterRemoval() }
   catch { ElMessage.error('操作失败') }
 }
 const togglePin = async (d) => {
@@ -85,7 +95,7 @@ const togglePin = async (d) => {
   } catch { ElMessage.error('操作失败') }
 }
 const approve = async (d) => {
-  try { await approveDoc(d.id); ElMessage.success('已通过，帖子已公开'); await load() }
+  try { await approveDoc(d.id); ElMessage.success('已通过，帖子已公开'); await reloadAfterRemoval() }
   catch { ElMessage.error('操作失败') }
 }
 const reject = async (d) => {
@@ -97,7 +107,7 @@ const reject = async (d) => {
         inputValidator: (v) => (v && v.trim()) ? true : '请填写驳回理由后再提交' })
     reason = (r && r.value) ? r.value.trim() : ''
   } catch { return }
-  try { await rejectDoc(d.id, reason); ElMessage.success('已驳回，退回作者草稿'); await load() }
+  try { await rejectDoc(d.id, reason); ElMessage.success('已驳回，退回作者草稿'); await reloadAfterRemoval() }
   catch { ElMessage.error('操作失败') }
 }
 
@@ -128,8 +138,9 @@ onMounted(load)
       </el-select>
     </div>
 
-    <el-table :data="visibleDocs" border stripe @sort-change="onSortChange">
-      <el-table-column prop="id" label="ID" width="70" sortable="custom" :sort-orders="['ascending','descending']" />
+    <el-table v-stack-table :data="visibleDocs" border stripe @sort-change="onSortChange">
+      <!-- ID：手机卡片里隐藏（次要字段，标题/分类/状态才是筛选依据） -->
+      <el-table-column prop="id" label="ID" width="70" sortable="custom" :sort-orders="['ascending','descending']" class-name="stack-hide" />
       <el-table-column label="标题">
         <template #default="{ row }">
           <span class="link" @click="goDetail(row)">{{ row.title }}</span>
@@ -175,4 +186,32 @@ onMounted(load)
 .pin { color: #f59e0b; vertical-align: middle; margin-left: 4px; }
 .st { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 13px; font-weight: 500; }
 .st .el-icon { font-size: 14px; }
+
+/* 暗色模式适配（标题链接、置顶图标、状态 chip） */
+html.dark .link { color: #a5b4fc; }
+html.dark .pin { color: #fbbf24; }
+/* .st 的 color / background 由 STATUS_META 通过 :style 内联写入（<script> 不可改），常规选择器压不过内联样式，只能用 !important 去掉浅色底 */
+html.dark .st { background: rgba(255,255,255,.06) !important; }
+/* 草稿态的 #64748b 灰字在暗底上偏暗，单独提亮（其余绿/橙/红在暗底上对比度足够，保留原色相） */
+html.dark .st[style*="100, 116, 139"] { color: #94a3b8 !important; }
+
+/* ============================================================
+   响应式布局（断点统一：≤1024 平板 / ≤640 手机）
+   只写 width / flex / padding / margin / font-size
+   ============================================================ */
+@media (max-width: 1024px) {
+  /* 筛选条：搜索 + 排序挤不下时换行 */
+  .filters { flex-wrap: wrap; gap: 8px; }
+  .pager { margin-top: 12px; }
+}
+
+@media (max-width: 640px) {
+  /* 搜索框 / 排序下拉各占整行（宽度写在内联 style 上，需 !important 才能覆盖） */
+  .filters :deep(.el-input),
+  .filters :deep(.el-select) { width: 100% !important; }
+  /* ≤640 表格由 v-stack-table 转卡片，这里只收状态 chip 内距 */
+  :deep(.el-table) { font-size: 13px; }
+  .st { font-size: 12px; padding: 2px 8px; }
+  .pager { margin-top: 10px; }
+}
 </style>

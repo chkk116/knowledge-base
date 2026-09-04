@@ -9,8 +9,8 @@ export const me = () =>
 export const captcha = () =>
   api.get('/auth/captcha')
 
-export const captchaSlide = (token) =>
-  api.post('/auth/captcha/slide', { token })
+export const captchaSlide = (token, x, trajectory) =>
+  api.post('/auth/captcha/slide', { token, x, trajectory })
 
 export const register = (data) =>
   api.post('/auth/register', data)

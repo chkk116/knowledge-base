@@ -26,3 +26,12 @@ backend/uploads/
 # OS
 .DS_Store
 Thumbs.db
+
+# 移动端（Capacitor）同步产物（由 sync-web.js 从 desktop/web 生成）
+mobile/web-app/
+
+# 本地日志
+*.log
+
+# 会话/token 缓存等序列化文件
+*.pkl

@@ -1,0 +1,68 @@
+npm http fetch GET 200 https://registry.npmjs.org/@hocuspocus%2fserver 6941ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/y-protocols 2231ms (cache revalidated)
+npm http fetch GET 200 https://registry.npmjs.org/yjs 2207ms (cache revalidated)
+npm http fetch GET 200 https://registry.npmjs.org/mysql2 6246ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/@types%2fnode 89604ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/lib0 2801ms (cache revalidated)
+npm http fetch GET 200 https://registry.npmjs.org/uuid 6563ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/@hocuspocus%2fcommon 3749ms (cache revalidated)
+npm http fetch GET 200 https://registry.npmjs.org/async-lock 8596ms (cache miss)
+npm http cache https://registry.npmjs.org/lib0 2338ms (cache hit)
+npm http cache https://registry.npmjs.org/lib0 3504ms (cache hit)
+npm http fetch GET 200 https://registry.npmjs.org/kleur 10102ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/lru.min 76091ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/ws 91260ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/sql-escaper 12076ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/aws-ssl-profiles 7012ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/@types%2fnode 91382ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/long 93274ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/generate-function 6245ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/iconv-lite 94903ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/named-placeholders 7330ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/ws 89514ms (cache miss)
+npm http cache https://registry.npmjs.org/lib0 2052ms (cache hit)
+npm http fetch GET 200 https://registry.npmjs.org/isomorphic.js 2234ms (cache revalidated)
+npm http fetch GET 200 https://registry.npmjs.org/@types%2fnode 89572ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/long 89732ms (cache miss)
+npm http fetch GET 200 https://registry.npmjs.org/iconv-lite 77639ms (cache miss)
+npm warn ERESOLVE overriding peer dependency
+npm warn While resolving: mysql2@3.23.4
+npm warn Found: @types/node@undefined
+npm warn node_modules/@types/node
+npm warn
+npm warn Could not resolve dependency:
+npm warn peer @types/node@">= 8" from mysql2@3.23.4
+npm warn node_modules/mysql2
+npm warn   mysql2@"^3.14.0" from the root project
+npm http fetch GET 200 https://registry.npmjs.org/is-property 267ms (cache miss)
+npm error code EPERM
+npm error syscall open
+npm error path C:\Users\Administrator\AppData\Local\npm-cache\_cacache\index-v5\7d\e8\5446c5cdae0493e4ad3b10347b77c8df4b17b5fbe14834f5c6b06faa9f95
+npm error errno EPERM
+npm error FetchError: Invalid response body while trying to fetch https://registry.npmjs.org/ws: EPERM: operation not permitted, open 'C:\Users\Administrator\AppData\Local\npm-cache\_cacache\index-v5\7d\e8\5446c5cdae0493e4ad3b10347b77c8df4b17b5fbe14834f5c6b06faa9f95'
+npm error     at C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\minipass-fetch\lib\body.js:170:15
+npm error     at async Response.json (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\minipass-fetch\lib\body.js:75:17)
+npm error     at async RegistryFetcher.packument (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\pacote\lib\registry.js:98:25)
+npm error     at async RegistryFetcher.manifest (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\pacote\lib\registry.js:128:23)
+npm error     at async #fetchManifest (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:1202:20)
+npm error     at async #nodeFromEdge (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:1040:19)
+npm error     at async #buildDepStep (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:904:11)
+npm error     at async Arborist.buildIdealTree (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:181:7)
+npm error     at async Promise.all (index 1)
+npm error     at async Arborist.reify (C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:133:5) {
+npm error   code: 'EPERM',
+npm error   errno: 'EPERM',
+npm error   syscall: 'open',
+npm error   path: 'C:\\Users\\Administrator\\AppData\\Local\\npm-cache\\_cacache\\index-v5\\7d\\e8\\5446c5cdae0493e4ad3b10347b77c8df4b17b5fbe14834f5c6b06faa9f95',
+npm error   type: 'system',
+npm error   requiredBy: 'node_modules/@hocuspocus/server'
+npm error }
+npm error
+npm error The operation was rejected by your operating system.
+npm error It's possible that the file was already in use (by a text editor or antivirus),
+npm error or that you lack permissions to access it.
+npm error
+npm error If you believe this might be a permissions issue, please double-check the
+npm error permissions of the file and its containing directories, or try running
+npm error the command again as root/Administrator.
+npm error A complete log of this run can be found in: C:\Users\Administrator\AppData\Local\npm-cache\_logs\2026-08-21T01_55_56_626Z-debug-0.log

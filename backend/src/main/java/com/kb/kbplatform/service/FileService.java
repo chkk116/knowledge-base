@@ -1,6 +1,5 @@
 package com.kb.kbplatform.service;
 
-import com.kb.kbplatform.domain.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -142,15 +141,15 @@ public class FileService {
     private static int b(byte[] h, int i) { return h[i] & 0xFF; }
 
     /** 扫描上传目录中未被任何文档引用的孤儿图片（文档正文里出现的 /uploads/... 视为已引用；
-     *  extraUsed 可传入其他已引用 URL（如用户头像 /uploads/...），防止误删在用文件）。
+     *  contents 传入文档正文列表（标量投影即可，勿传全量实体）；extraUsed 可传入其他已引用
+     *  URL（如用户头像 /uploads/...），防止误删在用文件。
      *  返回 [{ url, size, lastModified }]，删除由 deleteByUrl 完成。 */
-    public List<Map<String, Object>> findOrphans(List<Document> docs, Set<String> extraUsed) {
+    public List<Map<String, Object>> findOrphans(List<String> contents, Set<String> extraUsed) {
         Set<String> used = new HashSet<>();
         if (extraUsed != null) used.addAll(extraUsed);
         Pattern p = Pattern.compile("/uploads/[^\"'\\s)]+");
-        for (Document d : docs) {
-            String content = d.getContent();
-            if (content == null) continue;
+        for (String content : contents) {
+            if (content == null || content.isEmpty()) continue;
             Matcher m = p.matcher(content);
             while (m.find()) used.add(m.group());
         }

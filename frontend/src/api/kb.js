@@ -23,6 +23,42 @@ export const allTags = () =>
 export const getDoc = (id) =>
   api.get('/docs/' + id)
 
+// 全局文档树（仅已发布，children 递归）：供「父文档」选择器与层级浏览使用
+export const docTree = () => api.get('/docs/tree')
+
+// 文档面包屑：从最顶层祖先到自身（含自身）
+export const docBreadcrumb = (id) => api.get('/docs/' + id + '/breadcrumb')
+
+// 移动文档：parentId 传 null 表示移到该空间根级
+export const moveDoc = (id, parentId, sortOrder) =>
+  api.post('/docs/' + id + '/move', { parentId, sortOrder })
+
+// 违禁词管理（需 BANNED_WORDS_MANAGE 或 ADMIN）
+// 词库：可分组建库 + 启停「选择加载」
+export const listBannedLibraries = () => api.get('/admin/banned-words/libraries')
+export const createBannedLibrary = (name, description) =>
+  api.post('/admin/banned-words/libraries', { name, description })
+export const updateBannedLibrary = (id, payload) =>
+  api.put('/admin/banned-words/libraries/' + id, payload)
+export const deleteBannedLibrary = (id) =>
+  api.delete('/admin/banned-words/libraries/' + id)
+
+// 词条：服务端分页（libraryId 可选，不传返回全部）
+export const listBannedWords = (libraryId, page = 0, size = 15) => {
+  const params = { page, size }
+  if (libraryId != null) params.libraryId = libraryId
+  return api.get('/admin/banned-words', { params })
+}
+export const addBannedWords = (libraryId, words) =>
+  api.post('/admin/banned-words', { libraryId, words })
+export const deleteBannedWord = (id) => api.delete('/admin/banned-words/' + id)
+// 离线词库导入：向指定词库批量导入文本 / 已下载的词库文件内容（每行一个词）
+export const importBannedWords = (libraryId, content) =>
+  api.post('/admin/banned-words/import', { libraryId, content })
+
+// 审核工具条：一键违禁词检查（对正文纯文本匹配，返回命中词）
+export const checkDocBanned = (id) => api.post('/docs/' + id + '/check-banned')
+
 export const categories = () =>
   api.get('/docs/categories')
 
@@ -31,6 +67,20 @@ export const getComments = (docId) =>
 
 export const addComment = (docId, content, parentId = null) =>
   api.post('/docs/' + docId + '/comments', parentId != null ? { content, parentId } : { content })
+
+// ===== 通用评论（跨对象：DOC 帖子 / CHAPTER 章节）=====
+export const getCommentsGeneric = (targetType, targetId) =>
+  api.get('/comments', { params: { targetType, targetId } })
+
+export const addCommentGeneric = (targetType, targetId, content, parentId = null) =>
+  api.post('/comments', parentId != null ? { targetType, targetId, content, parentId } : { targetType, targetId, content })
+
+// ===== 个人学习笔记（按章节，私有）=====
+export const getChapterNote = (chapterId) =>
+  api.get('/chapters/' + chapterId + '/note')
+
+export const saveChapterNote = (chapterId, content) =>
+  api.put('/chapters/' + chapterId + '/note', { content })
 
 export const deleteComment = (commentId) =>
   api.delete('/comments/' + commentId)
@@ -148,6 +198,18 @@ export const getUserFollowing = (id) =>
 export const getUserFollowers = (id) =>
   api.get('/users/' + id + '/followers')
 
+// ---- 徽章 / 勋章体系 ----
+// 当前登录用户的徽章墙：{ badges:[{id,name,desc,icon,color,tier,metric,threshold,current,earned,progress}], earned, total }
+export const listBadges = () =>
+  api.get('/badges')
+// 某用户已获得的徽章列表（公开，用于主页 / 资料页展示）
+export const userBadges = (id) =>
+  api.get('/badges/users/' + id)
+
+// 佩戴 / 卸下徽章：badgeId 为空串表示卸下
+export const wearBadge = (badgeId) =>
+  api.post('/badges/wear', { badgeId: badgeId || '' })
+
 // ---- 分类树 / 标签体系（规范表，管理后台与发帖选择共用）----
 // 分类层级树（{ id, name, parentId, children }）
 export const getCategoryTree = () =>
@@ -203,3 +265,52 @@ export const getDocVersion = (id, vid) =>
 
 export const restoreDocVersion = (id, vid) =>
   api.post('/docs/' + id + '/versions/' + vid + '/restore')
+
+// ---- 回收站 / 软删除 ----
+// 我的回收站（仅自己移入回收站的文档）
+export const listRecycle = () =>
+  api.get('/docs/recycle')
+
+// 从回收站恢复
+export const restoreDoc = (id) =>
+  api.post('/docs/' + id + '/restore')
+
+// 彻底删除（物理删除）
+export const purgeDoc = (id) =>
+  api.delete('/docs/' + id + '/purge')
+
+// 管理员：查看全部回收站文档
+export const listRecycleAdmin = () =>
+  api.get('/admin/docs/recycle')
+
+// 管理员：恢复任意回收站文档
+export const restoreDocAdmin = (id) =>
+  api.post('/admin/docs/' + id + '/restore')
+
+// 管理员：彻底删除任意回收站文档
+export const purgeDocAdmin = (id) =>
+  api.delete('/admin/docs/' + id + '/purge')
+
+// 导出文档：返回 Blob（Word .doc）。PDF 由前端 window.print 实现，不走该接口
+export const exportDoc = (id, format = 'word') =>
+  api.get('/docs/' + id + '/export', { params: { format }, responseType: 'blob' })
+
+// 相关文档推荐：同分类 + 标签重叠打分，不足时用高浏览文档补位
+export const getRelatedDocs = (id, limit = 6) =>
+  api.get('/docs/' + id + '/related', { params: { limit } })
+
+// 文档订阅：订阅后文档更新会收到站内通知（幂等，重复订阅无副作用）
+export const subscribeDoc = (id) =>
+  api.post('/docs/' + id + '/subscribe')
+
+// 取消文档订阅
+export const unsubscribeDoc = (id) =>
+  api.delete('/docs/' + id + '/subscribe')
+
+// 查询当前用户对某文档的订阅状态：{ subscribed, count }
+export const getDocSubscription = (id) =>
+  api.get('/docs/' + id + '/subscribed')
+
+// 我的订阅列表：含文档标题，文档已删除时 deleted=true
+export const listMySubscriptions = () =>
+  api.get('/docs/subscriptions')

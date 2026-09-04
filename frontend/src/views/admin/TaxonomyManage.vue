@@ -145,5 +145,34 @@ onMounted(load)
 .tg i { font-style: normal; opacity: .7; }
 .tg .x { border: none; background: none; color: #6366f1; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
 .tg .x:hover { color: #ef4444; }
-@media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+
+/* 暗色模式适配（卡片背景/边框、树容器、说明文字、标签 chip 等硬编码浅色） */
+html.dark .tax { color: var(--el-text-color-primary); }
+html.dark .tip { color: var(--el-text-color-secondary); }
+html.dark .card { background: var(--el-bg-color-overlay); border-color: var(--el-border-color); }
+html.dark .sel { color: #a5b4fc; }
+html.dark .ctree { border-color: var(--el-border-color-lighter); background: rgba(255,255,255,.02); }
+html.dark .empty { color: var(--el-text-color-placeholder); }
+html.dark .tg { background: rgba(99,102,241,.18); color: #a5b4fc; }
+html.dark .tg .x { color: #a5b4fc; }
+html.dark .tg .x:hover { color: #f87171; }
+
+/* ===== 响应式（统一断点 1024 / 640，只写布局与尺寸） ===== */
+@media (max-width: 1024px) {
+  .tax { padding: 18px; }
+  .cols { gap: 12px; }
+  .card { padding: 14px; }
+  .ctree { max-height: 300px; }
+}
+@media (max-width: 640px) {
+  .tax { padding: 12px; }
+  .tax h2 { font-size: 18px; }
+  .tip { font-size: 12px; margin-bottom: 12px; }
+  .cols { grid-template-columns: 1fr; }
+  .card { padding: 12px; }
+  .cat-actions { gap: 8px; }
+  .ctree { max-height: 260px; padding: 6px; }
+  .tag-add { flex-wrap: wrap; }
+  .tag-add :deep(.el-input) { width: 100%; }
+}
 </style>

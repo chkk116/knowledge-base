@@ -35,6 +35,17 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Redis 缓存：默认关闭，启用见 application.yml 的 kb.redis.enabled。
+             客户端用 Lettuce（Spring Data Redis 默认），无需额外依赖。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+
         <!-- 本地 MySQL 8 数据库驱动（库连接串见 application.yml；业务表由 JPA 自动建）-->
         <dependency>
             <groupId>com.mysql</groupId>

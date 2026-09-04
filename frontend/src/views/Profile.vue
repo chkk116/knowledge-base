@@ -5,10 +5,16 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import { useHistoryStore } from '../store/history'
 import { updateProfile, pointsLogPaged } from '../api/auth'
-import { listMyDocs, myLikedDocs, myCommentedDocs, myFavorites, changePassword } from '../api/kb'
+import { listMyDocs, myLikedDocs, myCommentedDocs, myFavorites, changePassword, userBadges } from '../api/kb'
+import { BADGE_ICONS, DEFAULT_BADGE_ICON, tierGradient } from '../utils/badgeIcons'
+const g0 = (b) => tierGradient(b.tier)[0]
+const g1 = (b) => tierGradient(b.tier)[1]
 import { uploadFile } from '../api/file'
+import { myCertificates } from '../api/training'
 import { getLevel } from '../utils/level'
 import { DEFAULT_AVATARS } from '../utils/defaultAvatars'
+import CertDialog from '../components/CertDialog.vue'
+import WornBadgeStrip from '../components/WornBadgeStrip.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -24,6 +30,24 @@ const uploading = ref(false)
 
 const myDocs = ref([])
 const loadingStats = ref(false)
+
+// 我已获得的徽章（资料页展示）
+const myBadges = ref([])
+const loadingBadges = ref(false)
+async function loadBadges() {
+  if (!auth.user?.id) return
+  loadingBadges.value = true
+  try {
+    const { data } = await userBadges(auth.user.id)
+    myBadges.value = Array.isArray(data) ? data : []
+  } catch (e) {
+    myBadges.value = []
+  } finally {
+    loadingBadges.value = false
+  }
+}
+// 当前佩戴的徽章 id 列表（供昵称旁展示，最多 3 枚）
+const wornIds = computed(() => auth.user?.wornBadges || [])
 
 // 积分明细：资料卡只预览最近 10 条，更多去独立明细页 /points/log（带分页）
 const logs = ref([])
@@ -59,7 +83,31 @@ onMounted(() => {
   loadDocs()
   loadLog()
   loadMine()
+  loadCerts()
+  loadBadges()
 })
+
+// 我的结业证书（学完章节 + 考试及格后由后端派生）
+const certs = ref([])
+const loadingCerts = ref(false)
+const certVisible = ref(false)
+const activeCert = ref(null)
+async function loadCerts() {
+  if (!auth.loggedIn) return
+  loadingCerts.value = true
+  try {
+    const { data } = await myCertificates()
+    certs.value = Array.isArray(data) ? data : []
+  } catch (e) {
+    certs.value = []
+  } finally {
+    loadingCerts.value = false
+  }
+}
+function viewCert(c) {
+  activeCert.value = c
+  certVisible.value = true
+}
 
 // 积分变动类型 → 中文标签
 const typeText = (t) => ({
@@ -242,7 +290,10 @@ async function changePwd() {
     <div class="body">
       <!-- 左侧信息栏 -->
       <aside class="side">
-        <div class="name">{{ displayName || auth.user?.username }}</div>
+        <div class="name">
+          {{ displayName || auth.user?.username }}
+          <WornBadgeStrip :badge-ids="wornIds" :size="22" />
+        </div>
         <div class="username">@{{ auth.user?.username }}</div>
         <div class="role-row">
           <el-tag :type="auth.isAdmin ? 'danger' : 'info'" size="small">
@@ -454,6 +505,27 @@ async function changePwd() {
           </ul>
         </section>
 
+        <!-- 我的结业证书 -->
+        <section class="card" v-if="certs.length">
+          <div class="card-hd">
+            <span class="card-title">🏆 我的结业证书</span>
+            <span class="card-sub">完成课程全部章节并通过结业考试获得</span>
+          </div>
+          <ul class="cert-list">
+            <li v-for="c in certs" :key="c.courseId" @click="viewCert(c)">
+              <div class="cert-main">
+                <div class="cert-title">{{ c.courseTitle }}</div>
+                <div class="cert-meta">
+                  <el-tag size="small" type="success" effect="plain">{{ c.score }} 分</el-tag>
+                  <span class="cert-no">{{ c.certNo }}</span>
+                  <span class="cert-time">{{ fmtDate(c.issuedAt) }}</span>
+                </div>
+              </div>
+              <span class="cert-view">查看 ›</span>
+            </li>
+          </ul>
+        </section>
+
         <!-- 账号概况 -->
         <section class="card">
           <div class="card-hd">
@@ -467,6 +539,26 @@ async function changePwd() {
             <li v-if="memberDays"><span>加入时长</span><b>{{ memberDays }} 天</b></li>
             <li><span>帖子总数</span><b>{{ myDocs.length }}</b></li>
           </ul>
+        </section>
+
+        <!-- 我的勋章 -->
+        <section class="card">
+          <div class="card-hd">
+            <span class="card-title">🏅 我的勋章</span>
+            <span class="card-sub">由你的积分 / 文章 / 获赞等数据自动解锁</span>
+            <button v-if="myBadges.length" class="card-link" type="button" @click="router.push('/badges')">
+              查看全部 →
+            </button>
+          </div>
+          <div v-if="loadingBadges" class="empty">加载中…</div>
+          <div v-else-if="myBadges.length === 0" class="empty">还没有勋章，多发布优质内容即可解锁～</div>
+          <div v-else class="badge-strip">
+            <div v-for="b in myBadges" :key="b.id" class="b-chip" :title="b.desc"
+                 :style="{ '--c1': g0(b), '--c2': g1(b) }">
+              <span class="b-ic"><component :is="BADGE_ICONS[b.id] || DEFAULT_BADGE_ICON" /></span>
+              <span class="b-name">{{ b.name }}</span>
+            </div>
+          </div>
         </section>
 
         <!-- 积分明细 -->
@@ -512,6 +604,9 @@ async function changePwd() {
         <el-button type="primary" :loading="changing" @click="changePwd">确定修改</el-button>
       </template>
     </el-dialog>
+
+    <!-- 结业证书弹窗 -->
+    <CertDialog :visible="certVisible" :cert="activeCert" @update:visible="certVisible = $event" />
   </div>
 </template>
 
@@ -519,7 +614,7 @@ async function changePwd() {
 .profile-page { max-width: 920px; margin: 0 auto; }
 .cover {
   height: 170px; border-radius: 16px 16px 0 0;
-  background: url('../assets/profile-cover.png') no-repeat top center / cover;
+  background: url('../assets/profile-cover.jpg') no-repeat top center / cover;
   position: relative;
 }
 .cover-avatar {
@@ -547,7 +642,8 @@ async function changePwd() {
 .interact .ic { flex: 1; background: #f8fafc; border: 1px solid #eef2f7; border-radius: 12px; padding: 10px 4px; text-align: center; }
 .interact .n { font-size: 15px; font-weight: 700; color: #6366f1; }
 .interact .l { font-size: 12px; color: #64748b; margin-top: 2px; }
-.name { font-size: 19px; font-weight: 700; color: #0f172a; }
+.name { font-size: 19px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.name-badge { margin-left: 2px; }
 .username { color: #94a3b8; font-size: 13px; margin-top: 2px; }
 .role-row { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
 .bio { font-size: 13px; color: #475569; line-height: 1.6; margin: 10px 0; }
@@ -652,7 +748,40 @@ async function changePwd() {
 
 /* 积分明细 */
 .plog { list-style: none; padding: 0; margin: 0; }
-.plog li {
+
+/* 我的结业证书 */
+.cert-list { list-style: none; padding: 0; margin: 0; }
+
+/* 我的勋章：已获徽章横向 chips */
+.badge-strip { display: flex; flex-wrap: wrap; gap: 10px; }
+.b-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 12px 5px 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--c1, #6366f1) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--c1, #6366f1) 38%, #fff);
+}
+.b-ic {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--c1, #6366f1), var(--c2, #8b5cf6));
+  color: #fff;
+}
+.b-ic :deep(svg) { width: 13px; height: 13px; }
+.b-chip .b-name { font-size: 13px; font-weight: 700; color: #334155; }
+html.dark .b-chip { background: color-mix(in srgb, var(--c1, #6366f1) 18%, #1b1b26); border-color: color-mix(in srgb, var(--c1, #6366f1) 45%, #2c2c3a); }
+html.dark .b-chip .b-name { color: #cbd5e1; }
+.cert-list li {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 4px; border-bottom: 1px solid #f1f5f9; cursor: pointer;
+}
+.cert-list li:last-child { border-bottom: none; }
+.cert-list li:hover { background: #fafbff; }
+.cert-list li:hover .cert-view { color: #4f46e5; }
+.cert-title { font-size: 15px; font-weight: 600; color: #1e293b; }
+.cert-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cert-no { font-size: 12px; color: #94a3b8; font-family: ui-monospace, Consolas, monospace; }
+.cert-time { font-size: 12px; color: #94a3b8; }
+.cert-view { font-size: 13px; color: #6366f1; font-weight: 600; flex: none; }.plog li {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 4px; border-bottom: 1px solid #f1f5f9; font-size: 13px;
 }
@@ -669,8 +798,43 @@ async function changePwd() {
 .pl-time { flex: none; color: #cbd5e1; font-size: 12px; }
 .log-more { text-align: center; margin-top: 6px; }
 
-@media (max-width: 720px) {
+/* 暗色模式适配：theme.css 已覆盖 .side/.name/.bio/.meta/.stat/.card/.overview/.pl-* 等，
+   此处补它未覆盖的：头像选择器（浅底圆/边框）、性别提示、证书编号与时间 */
+html.dark .av-prev { border-color: #2a2a35; }
+html.dark .av-opt { background: #23232e; }
+html.dark .gender-tip { color: #8b8fa0; }
+html.dark .cert-no { color: #8b8fa0; }
+html.dark .cert-time { color: #8b8fa0; }
+
+/* ============================================================
+   响应式：≤1024 单列（主内容在上，侧边资料移到下方）
+          ≤ 640 手机：头像居中、内边距与字号收紧
+   ============================================================ */
+@media (max-width: 1024px) {
   .body { grid-template-columns: 1fr; margin-top: 54px; }
-  .cover-avatar { left: 50%; transform: translateX(-50%); }
+  .main { order: 1; }
+  .side { order: 2; }
+  /* 侧栏落到下方后列表可以放宽限高 */
+  .mine-list.open { max-height: 260px; }
+}
+
+@media (max-width: 640px) {
+  .cover { height: 140px; }
+  .cover-avatar { left: 50%; transform: translateX(-50%); width: 80px; height: 80px; }
+  .body { margin-top: 48px; gap: 14px; }
+  .side { padding: 14px; }
+  .card { padding: 14px; }
+  .name { font-size: 17px; }
+  .card-hd { flex-wrap: wrap; gap: 6px; }
+  .card-title { font-size: 15px; }
+  .card-link { margin-left: 0; width: 100%; text-align: left; }
+  .footer { flex-wrap: wrap; gap: 8px; }
+  .footer .spacer { flex-basis: 100%; }
+  .gender-tip { display: block; margin-left: 0; margin-top: 4px; }
+  .av-grid { grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 6px; }
+  .doc-title, .cert-title { font-size: 14px; }
+  /* 积分明细行：时间换行到第二行，避免几列互相挤压 */
+  .plog li { flex-wrap: wrap; row-gap: 2px; }
+  .pl-time { flex-basis: 100%; }
 }
 </style>

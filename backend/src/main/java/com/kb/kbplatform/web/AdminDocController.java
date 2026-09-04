@@ -88,7 +88,29 @@ public class AdminDocController {
         requirePerm(c, "DOC_REVIEW");
         String title = docSvc.get(id).getTitle();
         docSvc.delete(id);
-        audit.log(c.userId(), c.username(), "DELETE_DOC", "DOCUMENT", id, title, "删除文档《" + clip(title) + "》");
+        audit.log(c.userId(), c.username(), "DELETE_DOC", "DOCUMENT", id, title, "将文档《" + clip(title) + "》移入回收站");
+        return Map.of("ok", true);
+    }
+
+    /** 管理员：回收站（全部软删除文档） */
+    @GetMapping("/recycle")
+    public List<Document> recycle(@RequestAttribute("kbUser") TokenClaims c) {
+        requirePerm(c, "DOC_REVIEW");
+        return docSvc.listRecycleBin(null, true);
+    }
+
+    /** 管理员：从回收站恢复 */
+    @PostMapping("/{id}/restore")
+    public Document restore(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requirePerm(c, "DOC_REVIEW");
+        return docSvc.restore(id, c.userId(), true);
+    }
+
+    /** 管理员：彻底删除（物理删除） */
+    @DeleteMapping("/{id}/purge")
+    public Map<String, Object> purge(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requirePerm(c, "DOC_REVIEW");
+        docSvc.purge(id, c.userId(), true);
         return Map.of("ok", true);
     }
 

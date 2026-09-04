@@ -5,6 +5,7 @@ import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AdminService;
 import com.kb.kbplatform.service.AuthService;
 import com.kb.kbplatform.service.AuditService;
+import com.kb.kbplatform.service.DocShareService;
 import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,11 +22,13 @@ public class AdminUserController {
     private final AdminService svc;
     private final AuthService authService;
     private final AuditService audit;
+    private final DocShareService docShareSvc;
 
-    public AdminUserController(AdminService svc, AuthService authService, AuditService audit) {
+    public AdminUserController(AdminService svc, AuthService authService, AuditService audit, DocShareService docShareSvc) {
         this.svc = svc;
         this.authService = authService;
         this.audit = audit;
+        this.docShareSvc = docShareSvc;
     }
 
     private void requirePerm(TokenClaims c, String code) {
@@ -67,8 +70,23 @@ public class AdminUserController {
             throw new ResponseStatusException(FORBIDDEN, "无权限分配管理员角色");
         }
         requirePerm(c, "USER_MANAGE");
+        // 防自助提权：非 ADMIN 角色不得给自己改角色 / 细粒度权限 / 启用状态。
+        // 否则持有 USER_MANAGE 的子管理员可直接给自己写满权限码（含 CORE_MAINTAIN、DOC_REVIEW）完成越权升级。
+        if (id.equals(c.userId()) && !"ADMIN".equals(c.role())) {
+            if (r.role != null || r.permissions != null || r.enabled != null) {
+                throw new ResponseStatusException(FORBIDDEN, "不能修改自身的角色、权限或启用状态");
+            }
+        }
+        User before = svc.requireUser(id);
+        Long oldQuota = before.getStorageQuota();
         User u = svc.updateUser(id, r);
-        audit.log(c.userId(), c.username(), "UPDATE_USER", "USER", id, u.getUsername(), "更新用户 " + u.getUsername());
+        Long newQuota = u.getStorageQuota();
+        if (r.storageQuota != null) {
+            audit.log(c.userId(), c.username(), "UPDATE_USER_QUOTA", "USER", id, u.getUsername(),
+                    "调整用户「" + u.getUsername() + "」存储配额：" + formatQuota(oldQuota) + " → " + formatQuota(newQuota));
+        } else {
+            audit.log(c.userId(), c.username(), "UPDATE_USER", "USER", id, u.getUsername(), "更新用户 " + u.getUsername());
+        }
         return u;
     }
 
@@ -76,6 +94,14 @@ public class AdminUserController {
     public Map<String, Object> delete(@RequestAttribute("kbUser") TokenClaims c,
                                        @PathVariable Long id) {
         requirePerm(c, "USER_MANAGE");
+        if (id.equals(c.userId())) {
+            throw new ResponseStatusException(FORBIDDEN, "不能删除自身账号");
+        }
+        // 防权限提升：非 ADMIN 角色不得删除管理员用户（避免普通管理员删光管理员接管）
+        User target = svc.requireUser(id);
+        if (!"ADMIN".equals(c.role()) && "ADMIN".equals(target.getRole())) {
+            throw new ResponseStatusException(FORBIDDEN, "无权限删除管理员账号");
+        }
         String tname = svc.usernameOf(id);
         svc.deleteUser(id);
         audit.log(c.userId(), c.username(), "DELETE_USER", "USER", id, tname, "删除用户 " + (tname != null ? tname : "id=" + id));
@@ -87,6 +113,13 @@ public class AdminUserController {
                        @PathVariable Long id,
                        @RequestBody ToggleReq r) {
         requirePerm(c, "USER_MANAGE");
+        if (id.equals(c.userId())) {
+            throw new ResponseStatusException(FORBIDDEN, "不能禁用/启用自身账号");
+        }
+        User target = svc.requireUser(id);
+        if (!"ADMIN".equals(c.role()) && "ADMIN".equals(target.getRole())) {
+            throw new ResponseStatusException(FORBIDDEN, "无权限操作管理员账号");
+        }
         User u = svc.toggleUser(id, r.enabled != null && r.enabled);
         audit.log(c.userId(), c.username(), "TOGGLE_USER", "USER", id, u.getUsername(),
                 (r.enabled != null && r.enabled ? "启用" : "禁用") + "用户 " + u.getUsername());
@@ -95,6 +128,19 @@ public class AdminUserController {
 
     public static class ToggleReq {
         public Boolean enabled;
+    }
+
+    /** 管理员查看任意用户的存储用量（已用 / 有效配额），用于用户管理页容量列 */
+    @GetMapping("/{id}/storage")
+    public Map<String, Object> userStorage(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requirePerm(c, "USER_MANAGE");
+        long used = docShareSvc.storageUsage(id);
+        long quota = docShareSvc.effectiveUserQuota(id);
+        java.util.Map<String, Object> m = new java.util.HashMap<>();
+        m.put("used", used);
+        m.put("quota", quota);
+        m.put("username", svc.usernameOf(id));
+        return m;
     }
 
     /** 管理员调整用户积分：delta 可正可负，reason 写入积分明细（类型 ADJUST） */
@@ -121,9 +167,25 @@ public class AdminUserController {
     public Map<String, Object> resetPassword(@RequestAttribute("kbUser") TokenClaims c,
                                               @PathVariable Long id) {
         requirePerm(c, "USER_MANAGE");
+        if (id.equals(c.userId())) {
+            throw new ResponseStatusException(FORBIDDEN, "不能重置自身密码");
+        }
+        // 防权限提升：非 ADMIN 角色不得重置管理员密码（拿到明文即接管）
+        User target = svc.requireUser(id);
+        if (!"ADMIN".equals(c.role()) && "ADMIN".equals(target.getRole())) {
+            throw new ResponseStatusException(FORBIDDEN, "无权限重置管理员密码");
+        }
         String tname = svc.usernameOf(id);
         String raw = svc.resetPassword(id);
         audit.log(c.userId(), c.username(), "RESET_PWD", "USER", id, tname, "重置用户 " + (tname != null ? tname : "id=" + id) + " 的密码");
         return Map.of("ok", true, "newPassword", raw);
+    }
+
+    private static String formatQuota(Long bytes) {
+        if (bytes == null) return "系统默认";
+        if (bytes >= 1024L * 1024 * 1024) return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+        if (bytes >= 1024L * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        if (bytes >= 1024L) return String.format("%.2f KB", bytes / 1024.0);
+        return bytes + " B";
     }
 }

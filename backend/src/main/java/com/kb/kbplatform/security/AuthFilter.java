@@ -74,10 +74,30 @@ public class AuthFilter implements Filter {
                 send401(res);
                 return;
             }
-            // 管理员接口：ADMIN 角色放行；否则按接口路径映射所需细粒度权限校验
+            // 管理员接口：基线门禁 = ADMIN 角色「或」拥有该接口所需细粒度权限码。
+            // 二者满足其一即放行（细粒度授权用于对普通用户开放指定后台能力），避免只能 ADMIN 使用。
+            // adminPermRequired 返回 null 的接口（如黑名单）仍仅 ADMIN 可访问（普通用户无对应权限码）。
             if (path.startsWith("/api/admin")) {
-                String need = adminPermRequired(path);
-                if (need != null && !claims.hasPerm(need)) {
+                // 功能开关「状态读取」接口（/map）供所有登录用户拉取（路由守卫/侧边栏依赖），
+                // 仅需登录，不要求 ADMIN 或 CORE_MAINTAIN；修改类接口仍受细粒度权限保护。
+                if ("/api/admin/features/map".equals(path) && "GET".equals(method)) {
+                    req.setAttribute("kbUser", claims);
+                    chain.doFilter(request, response);
+                    return;
+                }
+                // 水印配置「读取」对所有登录用户开放（全局防泄密水印需套在每个人屏幕上）；
+                // 写入（PUT）仍走 adminPermRequired 的 CORE_MAINTAIN 细粒度校验。
+                // 这里按 key 精确放行而非开放整个 /settings 前缀：避免将来往 kb_sys_setting
+                // 存敏感配置时被任意登录用户读走。
+                if ("GET".equals(method) && "/api/admin/settings/watermark".equals(path)) {
+                    req.setAttribute("kbUser", claims);
+                    chain.doFilter(request, response);
+                    return;
+                }
+                String need = adminPermRequired(path, method);
+                boolean roleOk = "ADMIN".equals(claims.role());
+                boolean permOk = need != null && claims.hasPerm(need);
+                if (!roleOk && !permOk) {
                     send403(res);
                     return;
                 }
@@ -92,6 +112,7 @@ public class AuthFilter implements Filter {
     /** 公开（免登录）的接口 */
     private boolean isPublic(String path, String method) {
         if (path.startsWith("/uploads")) return true;   // 已上传的图片可公开访问
+        if (path.startsWith("/api/thumb")) return true;  // 文章正文缩略图：被动图片资源，公开可读（路径穿越防护在 ThumbController 内）
         if ("/api/auth/login".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/register".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/captcha".equals(path) && "GET".equals(method)) return true;
@@ -100,27 +121,49 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/search") && "GET".equals(method)) return true;
         // 文档只读接口公开；/api/docs/mine 含个人数据，需登录
         if ("GET".equals(method) && isPublicDocRead(path)) return true;
+        // 培训/考试浏览公开（列表、详情、试卷），个人进度/作答等写接口仍走登录校验
+        if ("GET".equals(method) && (path.startsWith("/api/courses") || path.startsWith("/api/exams"))) return true;
         if ("/error".equals(path)) return true;
         return false;
     }
 
-    /** 允许公开访问的文档读取路径（列表 / 分类 / 数字 id 详情 / 数字 id 评论） */
+    /** 允许公开访问的文档读取路径（列表 / 分类 / 数字 id 详情 / 数字 id 评论 / 相关推荐 / 订阅状态只读） */
     private boolean isPublicDocRead(String path) {
         if ("/api/docs".equals(path)) return true;
         if ("/api/docs/categories".equals(path)) return true;
         if (path.matches("/api/docs/\\d+/comments$")) return true;  // 评论列表
         if (path.matches("/api/docs/\\d+$")) return true;            // 文档详情
+        if (path.matches("/api/docs/\\d+/related$")) return true;    // 相关文档推荐（仅回标题等公开字段）
+        if (path.matches("/api/docs/\\d+/subscribed$")) return true; // 订阅状态只读：未登录时返回 subscribed=false
         return false;
     }
 
-    /** 返回该 /api/admin 接口所需的最小细粒度权限码；null 表示仍需 ADMIN 角色（未开放细粒度授权） */
-    private String adminPermRequired(String path) {
+    /** 返回该 /api/admin 接口所需的最小细粒度权限码；null 表示仍需 ADMIN 角色（未开放细粒度授权）
+     *  共享文档管理拆分：查看 SHARE_VIEW / 删除 SHARE_DELETE / 容量 SHARE_CAPACITY */
+    private String adminPermRequired(String path, String method) {
         if (path.startsWith("/api/admin/users")) return "USER_MANAGE";
         if (path.startsWith("/api/admin/docs")) return "DOC_REVIEW";
         if (path.startsWith("/api/admin/stats")) return "STATS_VIEW";
         if (path.startsWith("/api/admin/categories")) return "TAXONOMY_MANAGE";
         if (path.startsWith("/api/admin/tags")) return "TAXONOMY_MANAGE";
         if (path.startsWith("/api/admin/announcements")) return "ANNOUNCEMENT_MANAGE";
+        if (path.startsWith("/api/admin/courses")) return "COURSE_MANAGE";
+        if (path.startsWith("/api/admin/exams")) return "EXAM_MANAGE";
+        if (path.startsWith("/api/admin/doc-shares/capacity-requests"))
+            return null;   // 扩容申请审批/驳回/列表：仅完全管理员（ADMIN 角色）
+        if (path.startsWith("/api/admin/doc-shares")) {
+            if ("DELETE".equals(method)) return "SHARE_DELETE";
+            if ("PUT".equals(method)) return null;   // 直接设容量：仅完全管理员
+            // 建空间申请 / 扩容申请的「审批、驳回」是写操作，不能按只读的 SHARE_VIEW 放行，
+            // 与扩容审批一致收归 ADMIN 角色。
+            if ("POST".equals(method) && (path.contains("/create-requests/") || path.contains("/capacity-requests/"))) {
+                return null;
+            }
+            return "SHARE_VIEW";
+        }
+        if (path.startsWith("/api/admin/features")) return "CORE_MAINTAIN";
+        if (path.startsWith("/api/admin/settings")) return "CORE_MAINTAIN";
+        if (path.startsWith("/api/admin/banned-words")) return "BANNED_WORDS_MANAGE";
         return null;   // 其他管理接口（如黑名单）仍仅 ADMIN 可访问
     }
 

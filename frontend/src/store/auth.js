@@ -10,6 +10,16 @@ export const PERM_LABELS = {
   BLACKLIST_MANAGE: '黑名单管理',
   TAXONOMY_MANAGE: '分类标签管理',
   ANNOUNCEMENT_MANAGE: '公告管理',
+  COURSE_MANAGE: '培训管理',
+  EXAM_MANAGE: '考试管理',
+  SHARE_CREATE: '创建团队空间',
+  SHARE_VIEW: '共享文档管理（查看）',
+  SHARE_DELETE: '共享文档管理（删除空间）',
+  SHARE_CAPACITY: '共享文档管理（容量分配）',
+  CORE_MAINTAIN: '核心维护（功能开关）',
+  DOC_EXPORT: '文档导出',
+  BANNED_WORDS_MANAGE: '违禁词管理',
+  DOC_SHARE: '共享文档管理（旧权限，已拆分）',
 }
 
 /** 将权限码转为中文名；未知码原样返回 */
@@ -31,9 +41,13 @@ export const useAuthStore = defineStore('auth', () => {
     return p.split(',').map(s => s.trim()).filter(Boolean)
   })
 
-  /** 是否拥有某权限码（ADMIN 或包含该码或通配 * 即视为拥有） */
+  /** 是否拥有某权限码（ADMIN 或包含该码或通配 * 即视为拥有；兼容旧 DOC_SHARE 码 = 拥有全部 SHARE_* 细分权限） */
   function hasPerm(code) {
-    return isAdmin.value || permissions.value.includes(code) || permissions.value.includes('*')
+    if (isAdmin.value) return true
+    const perms = permissions.value
+    if (perms.includes(code) || perms.includes('*')) return true
+    if (code && code.startsWith('SHARE_') && perms.includes('DOC_SHARE')) return true
+    return false
   }
 
   function applyToken(t) {
@@ -57,6 +71,11 @@ export const useAuthStore = defineStore('auth', () => {
       hideGender: !!data.hideGender,
       createdAt: data.createdAt || '',
       points: data.points || 0,
+      aiPersona: data.aiPersona || '',
+      displayBadge: data.displayBadge || '',
+      // 佩戴的勋章 id 列表（最多 3 枚）；优先取后端 wornBadges 数组，旧字段 displayBadge 单值/逗号串兜底
+      wornBadges: Array.isArray(data.wornBadges) ? data.wornBadges
+        : (data.displayBadge ? String(data.displayBadge).split(',').map(s => s.trim()).filter(Boolean) : []),
     }
   }
 

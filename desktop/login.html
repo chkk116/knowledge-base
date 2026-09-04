@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>知识库 · 登录</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    background: #f3f4f8;
+    color: #1f2230;
+    overflow: hidden;
+    user-select: none;
+  }
+  /* 自绘标题栏：可拖拽，按钮 no-drag */
+  .titlebar {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    padding: 0 6px 0 14px;
+    background: linear-gradient(90deg, #312e81, #4338ca);
+    color: #fff;
+    -webkit-app-region: drag;
+    -webkit-user-select: none;
+  }
+  .titlebar .logo {
+    width: 16px; height: 16px; border-radius: 4px;
+    background: linear-gradient(135deg, #818cf8, #c7d2fe);
+    margin-right: 9px; flex: none;
+  }
+  .titlebar .title { font-size: 12px; font-weight: 600; letter-spacing: .5px; }
+  .titlebar .spacer { flex: 1; }
+  .titlebar .tb-btn {
+    -webkit-app-region: no-drag;
+    width: 34px; height: 24px; border: none; background: transparent;
+    color: #fff; cursor: pointer; font-size: 13px; border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .titlebar .tb-btn:hover { background: rgba(255,255,255,.18); }
+  .titlebar .tb-btn.close:hover { background: #ef4444; }
+
+  .body {
+    padding: 10px 34px 10px;
+    height: calc(100% - 32px);
+    display: flex; flex-direction: column; align-items: center;
+    overflow-y: auto;
+  }
+  .brand {
+    width: 40px; height: 40px; border-radius: 11px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 7px 18px rgba(79,70,229,.35);
+    margin-bottom: 5px;
+  }
+  .brand svg { width: 22px; height: 22px; }
+  .app-name { font-size: 16px; font-weight: 700; color: #1e1b4b; }
+  .app-sub { font-size: 12px; color: #8b90a3; margin-top: 2px; margin-bottom: 8px; }
+
+  .field { width: 100%; margin-bottom: 8px; }
+  .field input {
+    /* 输入框高度对齐 PC QQ 登录框（约 36px），整体才够扁 */
+    width: 100%; height: 36px; border: 1px solid #e2e5ee; border-radius: 6px;
+    padding: 0 12px; font-size: 13px; background: #fff; color: #1f2230;
+    outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  .field input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
+  .field.pwd { position: relative; }
+  .field .eye {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    cursor: pointer; font-size: 12px; color: #9aa0b4; user-select: none;
+  }
+
+  /* 安全验证弹窗（QQ 风格半透明遮罩 + 居中卡片），点登录后才弹出，跟 Web 端体验一致 */
+  .cap-mask {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(15, 17, 36, .45);
+    display: flex; align-items: center; justify-content: center;
+    animation: cap-fade-in .15s ease-out;
+  }
+  .cap-mask[hidden] { display: none; }
+  @keyframes cap-fade-in { from { opacity: 0 } to { opacity: 1 } }
+  .cap-pop {
+    width: 320px; max-width: calc(100% - 28px);
+    background: #fff; border-radius: 10px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.25);
+    padding: 14px 14px 12px;
+    animation: cap-pop-in .2s ease-out;
+  }
+  @keyframes cap-pop-in { from { transform: translateY(8px) scale(.98); opacity: 0 } to { transform: none; opacity: 1 } }
+  .cap-pop-title {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 14px; font-weight: 600; color: #1f2230;
+  }
+  .cap-pop-close {
+    width: 24px; height: 24px; border: none; background: transparent;
+    color: #9aa0b4; cursor: pointer; font-size: 14px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cap-pop-close:hover { background: #f1f3f9; color: #1f2230; }
+  .cap-pop-sub { font-size: 12px; color: #8b90a3; margin: 3px 0 8px; }
+
+  .cap-stage {
+    position: relative; width: 100%; aspect-ratio: 2 / 1; border-radius: 6px;
+    overflow: hidden; background: #e2e8f0; user-select: none;
+  }
+  .cap-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
+  .cap-piece { position: absolute; cursor: grab; filter: drop-shadow(0 1px 3px rgba(0,0,0,.4)); display: none; }
+  .cap-piece:active { cursor: grabbing; }
+  .cap-bar { position: relative; width: 100%; height: 32px; margin-top: 8px; display: flex; align-items: center; }
+  .cap-track { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: 10px; border-radius: 5px; background: #eef0f6; }
+  .cap-handle {
+    position: absolute; top: 0; left: 0; height: 32px; width: 44px; border-radius: 16px;
+    background: #3b82f6; color: #fff; display: flex; align-items: center; justify-content: center;
+    cursor: grab; box-shadow: 0 2px 8px rgba(59,130,246,.35); font-size: 12px; letter-spacing: 2px;
+    touch-action: none;            /* 移动端防误触 */
+  }
+  .cap-handle:active { cursor: grabbing; }
+  .cap-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+  .cap-hint { font-size: 12px; color: #8b90a3; }
+  .cap-hint.ok { color: #22c55e; font-weight: 600; }
+  .cap-hint.err { color: #ef4444; font-weight: 600; }
+  .cap-refresh { width: 26px; height: 26px; border: none; background: #f1f3f9; color: #6b7088; border-radius: 50%; cursor: pointer; font-size: 13px; }
+  .cap-refresh:hover { background: #e6e9f2; }
+
+  .btn-login {
+    width: 100%; height: 36px; border: none; border-radius: 6px;
+    background: linear-gradient(90deg, #4f46e5, #6366f1); color: #fff;
+    font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 2px;
+    transition: opacity .15s, transform .05s;
+  }
+  .btn-login:hover { opacity: .94; }
+  .btn-login:active { transform: translateY(1px); }
+  .btn-login:disabled { opacity: .6; cursor: default; }
+
+  .err-line { min-height: 14px; font-size: 12px; color: #ef4444; margin-top: 5px; text-align: center; }
+  .foot { margin-top: auto; font-size: 11px; color: #aab; padding-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="titlebar">
+    <span class="logo"></span>
+    <span class="title">知识库</span>
+    <span class="spacer"></span>
+    <button class="tb-btn min" id="tbMin" title="最小化">—</button>
+    <button class="tb-btn close" id="tbClose" title="关闭">✕</button>
+  </div>
+
+  <div class="body">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 5.5C4 4.67 4.67 4 5.5 4h13c.83 0 1.5.67 1.5 1.5v10c0 .83-.67 1.5-1.5 1.5H10l-4 4v-4H5.5C4.67 17 4 16.33 4 15.5v-10z" fill="#fff" opacity=".95"/>
+        <path d="M8 8h8M8 11h6" stroke="#4f46e5" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="app-name">知识库</div>
+    <div class="app-sub">内部知识库平台</div>
+
+    <div class="field">
+      <input id="username" type="text" placeholder="用户名 / 账号" autocomplete="username" />
+    </div>
+    <div class="field pwd">
+      <input id="password" type="password" placeholder="密码" autocomplete="current-password" />
+      <span class="eye" id="eye">显示</span>
+    </div>
+
+    <button class="btn-login" id="btnLogin">登 录</button>
+    <div class="err-line" id="errLine"></div>
+    <div class="foot">桌面客户端 · 数据仅存于本机登录态</div>
+  </div>
+
+  <!-- 安全验证弹窗：点登录后才弹出（跟 Web 端 Login.vue 的 captchaOpen 行为一致） -->
+  <div class="cap-mask" id="capMask" hidden>
+    <div class="cap-pop" id="capPop">
+      <div class="cap-pop-title">
+        <span>安全验证</span>
+        <button class="cap-pop-close" id="capPopClose" title="关闭">✕</button>
+      </div>
+      <div class="cap-pop-sub">拖动下方滑块，将拼块对齐缺口</div>
+      <div class="cap-stage" id="capStage">
+        <img class="cap-bg" id="capBg" alt="" />
+        <img class="cap-piece" id="capPiece" alt="" />
+      </div>
+      <div class="cap-bar" id="capBar">
+        <div class="cap-track"></div>
+        <div class="cap-handle" id="capHandle">|||</div>
+      </div>
+      <div class="cap-foot">
+        <span class="cap-hint" id="capHint">拖动滑块完成拼图</span>
+        <button class="cap-refresh" id="capRefresh" title="刷新">↻</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  // ---------- 窗口控制 ----------
+  var api = window.electronAPI || {};
+  document.getElementById('tbMin').onclick = function () { if (api.minimizeCurrent) api.minimizeCurrent(); };
+  document.getElementById('tbClose').onclick = function () { if (api.closeCurrent) api.closeCurrent(); };
+
+  // ---------- 元素 ----------
+  var $ = function (id) { return document.getElementById(id); };
+  var usernameEl = $('username'), passwordEl = $('password'), eyeEl = $('eye');
+  var capMask = $('capMask'), capPopClose = $('capPopClose');
+  var capBg = $('capBg'), capPiece = $('capPiece'), capHandle = $('capHandle');
+  var capHint = $('capHint'), btnLogin = $('btnLogin'), errLine = $('errLine');
+  // 等待验证码通过后真正登录的账号密码（点登录按钮时存入，验证通过后用）
+  var pending = null;
+
+  // ---------- 密码显隐 ----------
+  eyeEl.onclick = function () {
+    var pwd = passwordEl.type === 'password';
+    passwordEl.type = pwd ? 'text' : 'password';
+    eyeEl.textContent = pwd ? '隐藏' : '显示';
+  };
+
+  // ---------- 滑动验证码（复用后端协议） ----------
+  // BASE_* 是服务端画布基准（320x160）；stageW/stageH/barW 必须以 DOM 真实尺寸为准，
+  // 绝不能硬编码——窗口 380 宽经内边距后舞台实际只有 292x146，写死 300x150 会让拼块
+  // 按 300 缩放、背景按 292 渲染，拼块恒比凹槽大一圈且位置偏移（视觉「不重合」+ 校验必失败）。
+  var CAP = { BASE_W: 320, BASE_H: 160, PIECE_W: 45, PIECE_H: 45, HANDLE_W: 44 };
+  var capStage = $('capStage'), capBar = $('capBar');
+  var stageW = CAP.BASE_W, stageH = CAP.BASE_H, barW = CAP.BASE_W;
+  var capToken = '', pieceY = 0, handleLeft = 0, dragging = false, startX = 0, startLeft = 0, traj = [];
+
+  // 每次拖拽/重绘前重新量一次真实尺寸（窗口大小、DPR、字体变化都能自动适应）
+  function measureCap() {
+    var rs = capStage.getBoundingClientRect();
+    var rb = capBar.getBoundingClientRect();
+    if (rs.width > 0) { stageW = rs.width; stageH = rs.height; }
+    if (rb.width > 0) barW = rb.width;
+  }
+  function pieceDW() { return CAP.PIECE_W * stageW / CAP.BASE_W; }
+  function pieceDH() { return CAP.PIECE_H * stageH / CAP.BASE_H; }
+  function pieceTopPx() { return pieceY * stageH / CAP.BASE_H; }
+  function maxHandle() { return Math.max(0, barW - CAP.HANDLE_W); }
+  function pieceLeftPx() {
+    var ratio = maxHandle() > 0 ? handleLeft / maxHandle() : 0;
+    return ratio * (stageW - pieceDW());
+  }
+  function setHandle(px) {
+    measureCap();
+    handleLeft = Math.max(0, Math.min(maxHandle(), px));
+    capHandle.style.left = handleLeft.toFixed(2) + 'px';
+    capPiece.style.width = pieceDW().toFixed(2) + 'px';
+    capPiece.style.height = pieceDH().toFixed(2) + 'px';
+    capPiece.style.left = pieceLeftPx().toFixed(2) + 'px';
+    capPiece.style.top = pieceTopPx().toFixed(2) + 'px';
+  }
+
+  async function loadCaptcha() {
+    try {
+      var r = await fetch('/api/auth/captcha');
+      var d = await r.json();
+      capToken = d.token || '';
+      pieceY = d.pieceY || 0;
+      capBg.src = d.bg;
+      capPiece.src = d.piece;
+      handleLeft = 0; traj = [];
+      measureCap();       // 先量真实舞台尺寸，再按它换算拼块大小/位置，保证与背景凹槽严格重合
+      setHandle(0);
+      capPiece.style.display = 'block';
+      capHint.textContent = '拖动滑块完成拼图';
+      capHint.className = 'cap-hint';
+    } catch (e) {
+      capHint.textContent = '验证码加载失败，点击刷新重试';
+      capHint.className = 'cap-hint err';
+    }
+  }
+
+  function onDown(e) {
+    if (!capToken) return;
+    dragging = true; traj = []; startX = e.clientX; startLeft = handleLeft;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    setHandle(startLeft + (e.clientX - startX));
+    traj.push({ x: pieceLeftPx(), t: Date.now() });
+  }
+  async function onUp() {
+    if (!dragging) return;
+    dragging = false;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    var x = Math.round(pieceLeftPx() * CAP.BASE_W / stageW);
+    var d;
+    try {
+      var r = await fetch('/api/auth/captcha/slide', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: capToken, x: x, trajectory: traj })
+      });
+      d = await r.json();
+    } catch (e) {
+      capHint.textContent = '验证请求失败，请重试';
+      capHint.className = 'cap-hint err';
+      await loadCaptcha();
+      return;
+    }
+    if (!d || !d.ok) {
+      capHint.textContent = (d && d.error) || '验证失败，请重新拖动';
+      capHint.className = 'cap-hint err';
+      await loadCaptcha();
+      return;
+    }
+    // 滑动验证通过 → 立即调登录接口（账号密码已在 doLogin 校验并存入 pending）
+    capHint.textContent = '验证通过，正在登录…';
+    capHint.className = 'cap-hint ok';
+    if (!pending) { closeCaptcha(); return; }
+    try {
+      var lr = await fetch('/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: pending.u, password: pending.p, captchaToken: capToken })
+      });
+      var ld = await lr.json().catch(function () { return {}; });
+      if (lr.ok && ld.token) {
+        // 写入与前端 store/auth.js 一致的 localStorage key，主进程会话监视会切换主窗
+        localStorage.setItem('kb_token', ld.token);
+        capHint.textContent = '登录成功，正在打开…';
+        pending = null;
+        return;
+      }
+      capHint.textContent = (ld && ld.error) || '登录失败，请检查账号或密码';
+      capHint.className = 'cap-hint err';
+      // 登录失败保留弹窗让用户重试（重拉验证码）
+      await loadCaptcha();
+    } catch (e) {
+      capHint.textContent = '网络错误，无法连接服务';
+      capHint.className = 'cap-hint err';
+    }
+  }
+
+  capHandle.addEventListener('pointerdown', onDown);
+  $('capRefresh').onclick = loadCaptcha;
+  // 窗口尺寸/缩放变化后舞台尺寸会变，必须重量并重置拼块，否则又会出现错位
+  window.addEventListener('resize', function () { if (!dragging) setHandle(handleLeft); });
+
+  // ---------- 登录 ----------
+  function showErr(msg) { errLine.textContent = msg || ''; }
+  function setBusy(b) {
+    btnLogin.disabled = b;
+    btnLogin.textContent = b ? '登录中…' : '登 录';
+  }
+
+  // 登录入口：只校验账号密码 → 保存到 pending → 弹出验证码（跟 Web 端 Login.vue#submit 一致）
+  function doLogin() {
+    var u = usernameEl.value.trim(), p = passwordEl.value;
+    if (!u || !p) { showErr('请输入用户名和密码'); return; }
+    if (pending) return;        // 已弹出验证码，重复点忽略
+    showErr('');
+    pending = { u: u, p: p };
+    openCaptcha();
+  }
+  function openCaptcha() {
+    capMask.hidden = false;
+    btnLogin.disabled = true;
+    btnLogin.textContent = '请完成安全验证…';
+    loadCaptcha();
+  }
+  function closeCaptcha() {
+    capMask.hidden = true;
+    pending = null;
+    btnLogin.disabled = false;
+    btnLogin.textContent = '登 录';
+  }
+  capPopClose.onclick = closeCaptcha;
+  // 点遮罩空白处也关闭（但点 pop 卡片内部不关）
+  capMask.addEventListener('click', function (e) { if (e.target === capMask) closeCaptcha(); });
+  // 按 Esc 关闭
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !capMask.hidden) closeCaptcha(); });
+
+  btnLogin.onclick = doLogin;
+  passwordEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+  usernameEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') passwordEl.focus(); });
+  // 验证码只在点登录后才拉（跟 Web 端一致），不自动调用 loadCaptcha
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,8 @@
 package com.kb.kbplatform.service;
 
+import com.kb.kbplatform.domain.Comment;
+import com.kb.kbplatform.domain.Document;
+import com.kb.kbplatform.security.HtmlSanitizer;
 import com.kb.kbplatform.repository.CommentRepository;
 import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.repository.FavoriteRepository;
@@ -10,11 +13,15 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * 后台数据看板：聚合各项计数（文档/用户/评论/点赞/收藏/通知 + 浏览量 + 今日新增）。
+ * 后台数据看板：聚合各项计数（文档/用户/评论/点赞/收藏/通知 + 浏览量 + 今日新增），
+ * 并扩展出：近 7 天增长趋势、昨日环比、热门文章、活跃用户、实时动态（最新发布/评论）。
  * 全部走 JPA 聚合查询（COUNT/SUM），单条 SQL、不加载全量行到内存。
  */
 @Service
@@ -40,6 +47,7 @@ public class StatsService {
 
     public Map<String, Object> getStats() {
         LocalDateTime today = LocalDate.now().atStartOfDay();
+        LocalDateTime yesterday = today.minusDays(1);
         Map<String, Object> m = new LinkedHashMap<>();
         // 文档
         m.put("docTotal", docRepo.count());
@@ -48,17 +56,108 @@ public class StatsService {
         m.put("docDraft", docRepo.countByStatus("DRAFT"));
         m.put("docBlocked", docRepo.countByStatus("BLOCKED"));
         m.put("docToday", docRepo.countByCreatedAtAfter(today));
+        m.put("docYesterday", docRepo.countByCreatedAtBetween(yesterday, today));
         m.put("viewsTotal", docRepo.sumViews());
         // 用户
         m.put("userTotal", userRepo.count());
         m.put("userAdmin", userRepo.countByRole("ADMIN"));
         m.put("userBlocked", userRepo.countByEnabledFalse());
         m.put("userToday", userRepo.countByCreatedAtAfter(today));
+        m.put("userYesterday", userRepo.countByCreatedAtBetween(yesterday, today));
         // 互动
         m.put("commentTotal", commentRepo.count());
         m.put("likeTotal", likeRepo.count());
         m.put("favTotal", favRepo.count());
         m.put("notiTotal", notiRepo.count());
+        m.put("commentToday", commentRepo.countByCreatedAtAfter(today));
+        m.put("commentYesterday", commentRepo.countByCreatedAtBetween(yesterday, today));
+        // 近 7 天趋势（含今日，共 7 个点；不含昨日环比基准之外的更多历史）
+        m.put("docTrend7", trend7(docRepo::countByCreatedAtBetween));
+        m.put("userTrend7", trend7(userRepo::countByCreatedAtBetween));
+        m.put("commentTrend7", trend7(commentRepo::countByCreatedAtBetween));
+        m.put("trendLabels", trendLabels());
+        // 排行榜
+        m.put("topDocs", topDocs());
+        m.put("topUsers", topUsers());
+        // 实时动态：最新发布 + 最新评论 合并按时间倒序
+        m.put("activities", activities());
         return m;
+    }
+
+    /** 近 7 天逐日计数（含今日） */
+    private List<Long> trend7(DayCount q) {
+        LocalDate now = LocalDate.now();
+        List<Long> out = new ArrayList<>(7);
+        for (int i = 6; i >= 0; i--) {
+            LocalDateTime from = now.minusDays(i).atStartOfDay();
+            LocalDateTime to = from.plusDays(1);
+            out.add(q.count(from, to));
+        }
+        return out;
+    }
+
+    /** 近 7 天日期标签（MM-dd） */
+    private List<String> trendLabels() {
+        LocalDate now = LocalDate.now();
+        DateTimeFormatter f = DateTimeFormatter.ofPattern("MM-dd");
+        List<String> out = new ArrayList<>(7);
+        for (int i = 6; i >= 0; i--) out.add(now.minusDays(i).format(f));
+        return out;
+    }
+
+    @FunctionalInterface
+    private interface DayCount {
+        long count(LocalDateTime from, LocalDateTime to);
+    }
+
+    /** 热门文章 Top5：标题 + 浏览量 + 分类 */
+    private List<Map<String, Object>> topDocs() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Document d : docRepo.findTop5ByStatusOrderByViewsDesc("PUBLISHED")) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("title", d.getTitle());
+            e.put("views", d.getViews());
+            e.put("category", d.getCategory());
+            out.add(e);
+        }
+        return out;
+    }
+
+    /** 活跃用户 Top5：按评论数（username + count） */
+    private List<Map<String, Object>> topUsers() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        List<Object[]> rows = commentRepo.countGroupByUsername();
+        for (int i = 0; i < rows.size() && i < 5; i++) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("username", rows.get(i)[0]);
+            e.put("count", rows.get(i)[1]);
+            out.add(e);
+        }
+        return out;
+    }
+
+    /** 实时动态：最新发布 6 篇 + 最新评论 6 条，合并按时间倒序取前 8 */
+    private List<Map<String, Object>> activities() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        DateTimeFormatter f = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+        for (Document d : docRepo.findTop6ByStatusOrderByCreatedAtDesc("PUBLISHED")) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("type", "doc");
+            e.put("text", d.getTitle());
+            e.put("author", d.getOwnerName() != null ? d.getOwnerName() : "");
+            e.put("time", d.getCreatedAt() != null ? d.getCreatedAt().format(f) : "");
+            out.add(e);
+        }
+        for (Comment c : commentRepo.findTop6ByOrderByCreatedAtDesc()) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("type", "comment");
+            String content = c.getContent() == null ? "" : c.getContent().trim();
+            e.put("text", HtmlSanitizer.preview(content, 40));
+            e.put("author", c.getUsername() != null ? c.getUsername() : "");
+            e.put("time", c.getCreatedAt() != null ? c.getCreatedAt().format(f) : "");
+            out.add(e);
+        }
+        out.sort((a, b) -> String.valueOf(b.get("time")).compareTo(String.valueOf(a.get("time"))));
+        return out.size() > 8 ? out.subList(0, 8) : out;
     }
 }

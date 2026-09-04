@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ChatLineRound, ChatSquare, Promotion, Pointer, Stamp, DocumentChecked, Bell
+  ChatLineRound, ChatSquare, Promotion, Pointer, Stamp, DocumentChecked, Bell, Medal
 } from '@element-plus/icons-vue'
 import {
   notificationList, notificationRead, notificationReadAll,
@@ -11,6 +11,7 @@ import {
 } from '../api/kb'
 import { useNotificationStore } from '../store/notification'
 import { fromNow, fmtDateTime } from '../utils/time'
+import PageBar from '../components/PageBar.vue'
 
 const router = useRouter()
 const notification = useNotificationStore()
@@ -18,6 +19,10 @@ const list = ref([])
 const loading = ref(false)
 const selected = ref([])          // 勾选的通知 id（跨 Tab 保留）
 const tab = ref('all')            // 全部 / 互动 / 点赞 / 审核
+
+// 前端分页：通知累积后会越来越多，按「当前 Tab 过滤后的结果」分页
+const currentPage = ref(1)
+const pageSize = ref(15)
 
 // 各通知类型的语义图标与配色（大厂范式：类型可视化、层次分明）
 const META = {
@@ -27,15 +32,26 @@ const META = {
   LIKE:            { icon: Pointer, color: '#D4537E' },
   REVIEW:          { icon: Stamp, color: '#BA7517' },
   REVIEW_SUBMIT:   { icon: DocumentChecked, color: '#854F0B' },
+  SHARE_CAPACITY_APPROVED: { icon: DocumentChecked, color: '#0F6E56' },
+  SHARE_CAPACITY_REJECTED: { icon: Stamp, color: '#BA7517' },
+  SHARE_CREATE_APPROVED:   { icon: DocumentChecked, color: '#0F6E56' },
+  SHARE_CREATE_REJECTED:   { icon: Stamp, color: '#BA7517' },
+  SHARE_CREATE_PENDING:    { icon: DocumentChecked, color: '#854F0B' },
+  SHARE_CAPACITY_PENDING:  { icon: DocumentChecked, color: '#854F0B' },
+  CERTIFICATE:             { icon: Medal, color: '#B45309' },
 }
 const meta = (n) => META[n.type] || { icon: Bell, color: '#5F5E5A' }
 const isReviewType = (t) => t === 'REVIEW' || t === 'REVIEW_SUBMIT'
+// 共享空间审批类（结果 + 待审批）归入「审核」Tab
+const isShareReviewType = (t) => t != null && t.startsWith('SHARE_')
 
 const TAB_TYPES = {
   all: null,
   interact: ['COMMENT_MENTION', 'COMMENT', 'COMMENT_REPLY'],
   like: ['LIKE'],
-  review: ['REVIEW', 'REVIEW_SUBMIT'],
+  review: ['REVIEW', 'REVIEW_SUBMIT',
+    'SHARE_CREATE_APPROVED', 'SHARE_CREATE_REJECTED', 'SHARE_CREATE_PENDING',
+    'SHARE_CAPACITY_APPROVED', 'SHARE_CAPACITY_REJECTED', 'SHARE_CAPACITY_PENDING'],
 }
 
 const load = async () => {
@@ -47,6 +63,9 @@ const load = async () => {
 
 watch(() => notification.version, () => load())
 
+// Tab 切换时回到第一页
+watch(() => tab.value, () => { currentPage.value = 1 })
+
 const unreadCount = computed(() => list.value.filter(n => !n.read).length)
 
 // 按 Tab 过滤 + 时间倒序
@@ -54,6 +73,19 @@ const filtered = computed(() => {
   const types = TAB_TYPES[tab.value]
   const arr = types ? list.value.filter(n => types.includes(n.type)) : list.value
   return [...arr].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+})
+
+// 删除导致条目减少后，若当前页已越界则回退，避免停在空页。
+// 注意：必须放在 filtered 定义之后 —— watch 立即求值源 getter，写在 filtered 之前会触发 TDZ。
+watch(() => filtered.value.length, (len) => {
+  const maxPage = Math.max(1, Math.ceil(len / pageSize.value))
+  if (currentPage.value > maxPage) currentPage.value = maxPage
+})
+
+// 当前页数据（过滤后切片）
+const pagedFiltered = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filtered.value.slice(start, start + pageSize.value)
 })
 
 // 时间分组：今天 / 昨天 / 本周更早 / 更早（知乎范式：按天分段小标题）
@@ -70,7 +102,7 @@ function bucketOf(iso) {
 }
 const grouped = computed(() => {
   const map = new Map()
-  for (const n of filtered.value) {
+  for (const n of pagedFiltered.value) {
     const b = bucketOf(n.createdAt)
     if (!map.has(b)) map.set(b, [])
     map.get(b).push(n)
@@ -78,22 +110,28 @@ const grouped = computed(() => {
   return ORDER.filter(t => map.has(t)).map(t => ({ title: t, items: map.get(t) }))
 })
 
-// 勾选
+// 勾选（作用范围为「当前页」）
 const allSel = computed(() =>
-  filtered.value.length > 0 && filtered.value.every(n => selected.value.includes(n.id)))
+  pagedFiltered.value.length > 0 && pagedFiltered.value.every(n => selected.value.includes(n.id)))
 const toggleSel = (id) => {
   selected.value = selected.value.includes(id)
     ? selected.value.filter(x => x !== id)
     : [...selected.value, id]
 }
 const toggleAll = () => {
-  if (allSel.value) selected.value = selected.value.filter(id => !filtered.value.some(n => n.id === id))
-  else selected.value = [...new Set([...selected.value, ...filtered.value.map(n => n.id)])]
+  if (allSel.value) selected.value = selected.value.filter(id => !pagedFiltered.value.some(n => n.id === id))
+  else selected.value = [...new Set([...selected.value, ...pagedFiltered.value.map(n => n.id)])]
 }
 
 const open = async (n) => {
   if (!n.read) { try { await notificationRead(n.id) } catch (e) {} }
-  if (n.docId) router.push('/post/' + n.docId)
+  if (n.docId) { router.push('/post/' + n.docId); return }
+  // 共享空间待审批（管理员收到）→ 管理端审批页；审批结果 → 我的共享文档
+  if (n.type === 'SHARE_CREATE_PENDING' || n.type === 'SHARE_CAPACITY_PENDING') {
+    router.push('/admin/doc-shares'); return
+  }
+  if (n.type && n.type.startsWith('SHARE_')) { router.push('/doc-shares'); return }
+  if (n.type === 'CERTIFICATE') { router.push('/profile'); return }
 }
 // 内联「标记已读」（= 忽略，不跳转）
 const ignore = async (n) => {
@@ -184,7 +222,7 @@ onMounted(load)
 
     <label class="selall">
       <el-checkbox :model-value="allSel" @change="toggleAll" />
-      <span>全选当前（{{ filtered.length }}）</span>
+      <span>全选当前（{{ pagedFiltered.length }}）</span>
     </label>
 
     <div v-loading="loading">
@@ -215,7 +253,7 @@ onMounted(load)
               <template v-else>
                 <div class="line"><span class="txt">{{ n.summary }}</span></div>
               </template>
-              <p class="summary" v-if="n.summary && !isReviewType(n.type)">{{ n.summary }}</p>
+              <p class="summary" v-if="n.summary && !isReviewType(n.type)" v-html="n.summary"></p>
               <span class="time" v-if="n.createdAt">{{ fromNow(n.createdAt) }}（{{ fmtDateTime(n.createdAt) }}）</span>
             </div>
             <div class="ops" @click.stop>
@@ -226,6 +264,8 @@ onMounted(load)
         </ul>
       </template>
       <el-empty v-if="!loading && !filtered.length" :description="tab === 'all' ? '暂无通知' : '该分类下暂无通知'" />
+
+      <PageBar v-if="filtered.length > 0" v-model="currentPage" :total="filtered.length" :page-size="pageSize" />
     </div>
   </div>
 </template>
@@ -254,6 +294,39 @@ onMounted(load)
 .line { font-size: 14px; }
 .txt { color: #64748b; }
 .summary { margin: 4px 0; color: #475569; font-size: 14px; line-height: 1.5; }
+.summary :deep(img.kb-emoji) { height: 18px; vertical-align: middle; margin: 0 1px; }
 .time { color: #94a3b8; font-size: 12px; }
 .ops { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* 分页样式由 PageBar 组件提供 */
+
+/* 暗色模式适配（自定义列表项 / 边框 / 文字色；el-checkbox、el-button、el-empty 由 Element 暗色变量自动处理） */
+html.dark .page { color: var(--el-text-color-primary); }
+html.dark .tabs button { border-color: var(--el-border-color); color: var(--el-text-color-regular); }
+html.dark .tabs button.active { background: #2563eb; border-color: #2563eb; }
+html.dark .selall { color: var(--el-text-color-secondary); }
+html.dark .group-title { color: var(--el-text-color-secondary); }
+html.dark .item { border-color: var(--el-border-color-light); }
+html.dark .item:hover { border-color: #818cf8; }
+html.dark .item.unread { background: rgba(99,102,241,.14); border-color: rgba(129,140,248,.35); }
+html.dark .txt { color: var(--el-text-color-secondary); }
+html.dark .summary { color: var(--el-text-color-regular); }
+html.dark .time { color: var(--el-text-color-secondary); }
+/* 类型图标颜色由 script 以内联样式注入（蓝/绿/棕等偏深色），暗色下统一提亮保证可辨识 */
+html.dark .ic { filter: brightness(1.45); }
+
+/* ---------- 响应式布局（断点统一 1024 / 640）---------- */
+@media (max-width: 1024px) {
+  .item { padding: 12px; }
+  .summary { overflow-wrap: anywhere; }
+}
+@media (max-width: 640px) {
+  .head { flex-wrap: wrap; gap: 8px; }
+  .head h2 { font-size: 18px; }
+  .actions { flex-wrap: wrap; gap: 8px; }
+  .tabs { flex-wrap: wrap; }
+  .item { gap: 8px; padding: 10px; }
+  .line { font-size: 13px; overflow-wrap: anywhere; }
+  .summary { font-size: 13px; }
+}
 </style>

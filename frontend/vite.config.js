@@ -33,8 +33,8 @@ function precompressPlugin() {
       const o = config.build.outDir
       outDirAbs = isAbsolute(o) ? o : resolve(config.root, o)
     },
-    closeBundle() {
-      let total = 0
+      closeBundle() {
+        let total = 0
       let saved = 0
       for (const file of walk(outDirAbs)) {
         if (!COMPRESSIBLE.has(extname(file))) continue
@@ -70,23 +70,27 @@ export default defineConfig({
   },
   build: {
     target: 'es2020',
+    outDir: 'dist-v102',
     // 分包：把体积大且变动少的第三方库拆成独立长缓存 chunk，主包因此显著变小
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-          if (id.includes('@wangeditor')) return 'wangeditor'
-          if (id.includes('element-plus') || id.includes('@element-plus')) return 'element-plus'
-          if (
-            id.includes('/vue/') || id.includes('vue-router') ||
-            id.includes('pinia') || id.includes('@vue/')
-          ) return 'vue-vendor'
-          if (
-            id.includes('marked') || id.includes('markdown') ||
-            id.includes('dompurify') || id.includes('highlight')
-          ) return 'markdown'
-          return 'vendor'
+        // Vite 8 底层是 Rolldown（产物里有 rolldown-runtime）。
+        // manualChunks 只是兼容层，Rolldown 会按自己的共享模块算法重新归并，
+        // 曾把 Vue 运行时合并进 collab chunk 导致协同编辑器全家桶被首屏静态加载。
+        // 必须用 Rolldown 原生 advancedChunks：组内模块强制留在本组，按声明顺序匹配。
+        // 注意 test 必须限定包根（node_modules/包名/），裸写 'yjs' 会误匹配 dayjs
+        // （"dayjs" 含 "yjs" 子串）；裸写 '/vue/' 会误匹配 element-plus/es/utils/vue/*。
+        advancedChunks: {
+          groups: [
+            { name: 'wangeditor', test: /node_modules[\\/]@?wangeditor[\\/]/ },
+            { name: 'element-plus', test: /node_modules[\\/](@element-plus|element-plus)[\\/]/ },
+            { name: 'collab', test: /node_modules[\\/](@tiptap|prosemirror|y-prosemirror|y-protocols|yjs|lib0|@hocuspocus)[\\/]/ },
+            { name: 'vue-vendor', test: /node_modules[\\/](@vue|vue|vue-router|vue-demi|pinia)[\\/]/ },
+            { name: 'ep-deps', test: /node_modules[\\/](dayjs|lodash-es|async-validator|@vueuse)[\\/]/ },
+            { name: 'markdown', test: /node_modules[\\/](marked|markdown-it|dompurify|prismjs|highlight\.js)[\\/]/ },
+            { name: 'vendor', test: /node_modules[\\/]/ }
+          ]
         }
       }
     }

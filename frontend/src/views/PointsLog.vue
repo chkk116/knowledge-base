@@ -392,8 +392,15 @@ function goBack() { router.push('/profile') }
 }
 .pl-pager :deep(.el-pagination.is-background .el-pager li:hover) { color: var(--pl-primary); }
 
-/* ---------- 窄屏 ---------- */
-@media (max-width: 860px) {
+/* 暗色模式适配：本页 --pl-* 变量与结构色已由全局 theme.css 的 pl- 暗色块覆盖，此处只修分页高亮白字对比度 */
+html.dark .pl-pager :deep(.el-pagination.is-background .el-pager li.is-active) { color: #14141f; }
+
+/* ============================================================
+   响应式：≤1024 概览改上下两段、明细行改卡片式两列布局
+          ≤ 640 手机：内边距与字号再收一档
+   ============================================================ */
+@media (max-width: 1024px) {
+  .pl-page { max-width: 100%; }
   .pl-ov-primary { border-right: none; border-bottom: 1px solid var(--pl-line); }
   .pl-ov-kpis { flex: 1 1 100%; }
   .pl-kpi { padding: 16px; }
@@ -414,5 +421,23 @@ function goBack() { router.push('/profile') }
   .c-delta { grid-area: delta; }
   .c-bal { grid-area: bal; align-self: end; }
   .pl-pager { justify-content: center; }
+}
+
+@media (max-width: 640px) {
+  .pl-page { padding-bottom: 20px; }
+  .pl-h1 { font-size: 18px; }
+  .pl-desc { font-size: 12px; }
+  .pl-ov-primary { padding: 14px 16px; }
+  .pl-ov-value { font-size: 28px; }
+  .pl-kpi { padding: 12px 14px; }
+  .pl-kpi dd { font-size: 17px; }
+  .pl-toolbar { margin: 14px 0 10px; }
+  .pl-seg-item { padding: 6px 10px; font-size: 12px; }
+  .pl-thead { padding: 0 14px; }
+  .pl-group { padding: 8px 14px; }
+  .pl-row { padding: 12px 14px; font-size: 13px; }
+  .c-delta { font-size: 14px; }
+  .pl-state { padding: 40px 14px; }
+  .pl-pager { margin-top: 14px; }
 }
 </style>

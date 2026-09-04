@@ -194,4 +194,24 @@ html.dark .nm { color: #e7e7ee; }
 html.dark .pt { color: #e7e7ee; }
 .empty { color: #94a3b8; padding: 20px; text-align: center; }
 .total { text-align: center; font-size: 12px; color: #94a3b8; margin-top: 14px; }
+
+/* ---------- 响应式布局（断点统一 1024 / 640）---------- */
+@media (max-width: 1024px) {
+  .rank-page { max-width: 100%; }
+  .me-card { padding: 14px 16px; gap: 12px; }
+  .list li { gap: 10px; padding: 12px 14px; }
+}
+@media (max-width: 640px) {
+  .head { margin-bottom: 10px; }
+  .page-title { font-size: 18px; }
+  .me-card { padding: 12px 14px; gap: 10px; margin-bottom: 12px; }
+  .me-avatar { width: 44px; height: 44px; }
+  .me-avatar img, .me-avatar span { font-size: 18px; }
+  .me-name { font-size: 15px; }
+  .me-rank b { font-size: 17px; }
+  .list li { gap: 8px; padding: 10px 12px; }
+  .who { min-width: 0; }
+  .nm { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt { font-size: 13px; flex: none; }
+}
 </style>

@@ -2,8 +2,25 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="icon" type="image/gif" href="/logo.gif" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1e1b4b" media="(prefers-color-scheme: dark)" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="format-detection" content="telephone=no" />
+
+  <!-- PWA manifest + 图标 -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <!-- 浏览器 tab 用：32x32 静态 PNG 体积小、渲染稳定（替代原 logo.gif，避免 Chrome 标签页动图耗电与截帧异常） -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+  <!-- iOS 兜底：apple-touch-icon 不支持 SVG/GIF，PNG 才能正确写入主屏 -->
+  <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="知识库" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
   <title>知识库 · KB</title>
 </head>
 <body>

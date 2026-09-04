@@ -6,6 +6,7 @@ import com.kb.kbplatform.domain.User;
 import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.repository.LikeRepository;
 import com.kb.kbplatform.repository.UserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -34,22 +35,28 @@ public class LikeService {
         this.notificationService = notificationService;
     }
 
-    /** 切换点赞：已赞则取消（返回 false），未赞则点赞（返回 true），并同步维护 Document.likes 计数 */
-    @Transactional
+    /** 切换点赞：已赞则取消（返回 false），未赞则点赞（返回 true）。
+     *  计数用原子 UPDATE 维护（并发点赞不丢更新）；并发双击的重复插入由 (userId,docId)
+     *  唯一约束拦下，noRollbackFor 保证事务仍可提交，按"已点赞"返回。 */
+    @Transactional(noRollbackFor = DataIntegrityViolationException.class)
     public boolean toggle(Long userId, Long docId) {
         Document d = docRepo.findById(docId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "文档不存在"));
         boolean liked;
         if (likeRepo.existsByUserIdAndDocId(userId, docId)) {
             likeRepo.deleteByUserIdAndDocId(userId, docId);
-            d.setLikes(Math.max(0, d.getLikes() - 1));
+            docRepo.decrementLikes(docId);
             liked = false;
         } else {
-            likeRepo.save(new PostLike(userId, docId));
-            d.setLikes(d.getLikes() + 1);
+            try {
+                likeRepo.saveAndFlush(new PostLike(userId, docId));
+            } catch (DataIntegrityViolationException e) {
+                // 并发双击：另一请求已插入点赞行，本次不重复计数
+                return true;
+            }
+            docRepo.incrementLikes(docId);
             liked = true;
         }
-        docRepo.save(d);
         // 刚点赞成功时，通知文章作者（给自己点赞不通知）
         if (liked) {
             String username = userRepo.findById(userId).map(User::getUsername).orElse("用户");
@@ -58,9 +65,10 @@ public class LikeService {
         return liked;
     }
 
-    /** 当前点赞数（供切换后前端即时刷新显示） */
+    /** 当前点赞数（标量查询绕过一级缓存，保证 toggle 后读到原子更新后的最新值） */
     public int likeCount(Long docId) {
-        return docRepo.findById(docId).map(Document::getLikes).orElse(0);
+        Integer n = docRepo.findLikesById(docId);
+        return n == null ? 0 : n;
     }
 
     /** 我点过赞的文档 id 集合（用于前端标记 👍 填充态） */

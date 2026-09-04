@@ -31,4 +31,12 @@ const feature = computed(() => route.query.feature || route.params.feature || '�
 .cs h2 { margin: 0; font-size: 22px; color: #0f172a; }
 html.dark .cs h2 { color: #e7e7ee; }
 .cs-sub { margin: 0; color: #94a3b8; font-size: 15px; }
+
+/* ===================== 响应式布局（追加在末尾） ===================== */
+@media (max-width: 640px) {
+  .cs { min-height: 50vh; padding: 24px 16px; gap: 10px; }
+  .cs-emoji { font-size: 48px; }
+  .cs h2 { font-size: 19px; line-height: 1.4; overflow-wrap: anywhere; }
+  .cs-sub { font-size: 14px; }
+}
 </style>
