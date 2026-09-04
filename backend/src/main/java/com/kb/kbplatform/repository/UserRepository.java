@@ -25,7 +25,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** 管理员用户检索：用户名或昵称模糊匹配（keyword 为空时返回全部），可按角色 / 启用态过滤；
      *  role 为 null 不过滤角色，enabled 为 null 不过滤启用态；排序/分页由 Pageable 控制 */
-    @Query("SELECT u FROM User u WHERE (:kw IS NULL OR :kw = '' OR u.username LIKE %:kw% OR u.displayName LIKE %:kw%) AND (:role IS NULL OR u.role = :role) AND (:enabled IS NULL OR u.enabled = :enabled)")
+    @Query("SELECT u FROM User u WHERE (:kw IS NULL OR :kw = '' OR LOWER(u.username) LIKE LOWER(CONCAT('%', :kw, '%')) OR LOWER(u.displayName) LIKE LOWER(CONCAT('%', :kw, '%'))) AND (:role IS NULL OR u.role = :role) AND (:enabled IS NULL OR u.enabled = :enabled)")
     Page<User> search(@Param("kw") String kw, @Param("role") String role, @Param("enabled") Boolean enabled, Pageable pageable);
 
     /** 看板统计：按角色 / 禁用态计数 */

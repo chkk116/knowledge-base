@@ -2,6 +2,9 @@ package com.kb.kbplatform.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.LocalDateTime;
 
 @Entity
@@ -22,13 +25,14 @@ public class SharedDocument {
     @Column(nullable = false, length = 200)
     private String title;
 
-    @Column(columnDefinition = "longtext")
+    @Column(columnDefinition = "text")
     private String content;
 
-    /** 实时协同的 Yjs 文档二进制快照（由 collab-relay 读写，HTML 内容仅作兼容快照）。内部字段，不进 JSON。 */
-    @Lob
+    /** 实时协同的 Yjs 文档二进制快照（由 collab-relay 读写，HTML 内容仅作兼容快照）。内部字段，不进 JSON。
+     *  LONGVARBINARY：PG 映射 bytea（LENGTH 可用）；MySQL 映射 longblob，双库兼容。 */
+    @JdbcTypeCode(SqlTypes.LONGVARBINARY)
     @JsonIgnore
-    @Column(name = "yjs_state", columnDefinition = "longblob")
+    @Column(name = "yjs_state", columnDefinition = "bytea")
     private byte[] yjsState;
 
     @Column(nullable = false)

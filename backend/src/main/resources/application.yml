@@ -12,11 +12,12 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
-    # 本地 MySQL：请确认本机已安装 MySQL 8 并创建了 kb 库（见 db/init.sql）
-    url: jdbc:mysql://localhost:3306/kb?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    # PostgreSQL 18（默认；MIT 协议可随商业产品分发）。业务表由 JPA 自动建（ddl-auto）。
+    # 如需切回 MySQL：注释下面四行，启用文件末尾的 MySQL 数据源配置即可（驱动双保留）。
+    url: jdbc:postgresql://localhost:5432/kb
     username: kb
     password: kb
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update

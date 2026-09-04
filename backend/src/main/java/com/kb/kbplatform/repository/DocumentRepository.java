@@ -19,7 +19,8 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
      * 必须限定 PUBLISHED：搜索接口是免登录公开的，若不过滤状态会泄露草稿/待审核/驳回文档的正文摘要。
      */
     @Query("SELECT d FROM Document d WHERE d.status = 'PUBLISHED' "
-            + "AND (d.title LIKE %?1% OR d.content LIKE %?1% OR d.tags LIKE %?1% OR d.category LIKE %?1%)")
+            + "AND (LOWER(d.title) LIKE LOWER(CONCAT('%', ?1, '%')) OR LOWER(d.content) LIKE LOWER(CONCAT('%', ?1, '%')) "
+            + "OR LOWER(d.tags) LIKE LOWER(CONCAT('%', ?1, '%')) OR LOWER(d.category) LIKE LOWER(CONCAT('%', ?1, '%')))")
     List<Document> search(String q);
 
     /** 我的帖子：按作者倒序 */
@@ -114,8 +115,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     /** 管理员检索：覆盖待审核/已发布/封禁，排除草稿（草稿属用户端未提交稿，不进管理后台）；
      *  标题/正文/分类/标签模糊匹配，keyword 为空返回全部 */
-    @Query("SELECT d FROM Document d WHERE d.status <> 'DRAFT' AND (:kw IS NULL OR :kw = '' " +
-           "OR d.title LIKE %:kw% OR d.content LIKE %:kw% OR d.category LIKE %:kw% OR d.tags LIKE %:kw%)")
+    @Query("SELECT d FROM Document d WHERE d.status <> 'DRAFT' AND (:kw IS NULL OR :kw = '' "
+            + "OR LOWER(d.title) LIKE LOWER(CONCAT('%', :kw, '%')) OR LOWER(d.content) LIKE LOWER(CONCAT('%', :kw, '%')) "
+            + "OR LOWER(d.category) LIKE LOWER(CONCAT('%', :kw, '%')) OR LOWER(d.tags) LIKE LOWER(CONCAT('%', :kw, '%')))")
     Page<Document> adminSearch(@Param("kw") String kw, Pageable pageable);
 
     /** 按标签筛选（tags 为逗号分隔字段，做边界匹配避免子串误命中）：仅已发布，按发布时间倒序 */

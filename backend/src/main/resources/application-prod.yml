@@ -15,7 +15,9 @@ server:
 spring:
   datasource:
     # 生产库 kb（与测试库 kb_test 隔离）。DB 跑在本机，故 host 恒为 localhost，无公网 IP。
-    url: jdbc:mysql://${KB_DB_HOST:localhost}:${KB_DB_PORT:3306}/${KB_DB_NAME:kb}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    # 如需切回 MySQL：jdbc:mysql://${KB_DB_HOST:localhost}:${KB_DB_PORT:3306}/kb?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:postgresql://${KB_DB_HOST:localhost}:${KB_DB_PORT:5432}/${KB_DB_NAME:kb}
+    driver-class-name: org.postgresql.Driver
     username: ${KB_DB_USER:kb}
     password: ${KB_DB_PASSWORD:kb}
   jpa:

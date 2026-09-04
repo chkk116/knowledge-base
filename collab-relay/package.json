@@ -10,6 +10,7 @@
   "dependencies": {
     "@hocuspocus/server": "2.15.3",
     "mysql2": "^3.14.0",
+    "pg": "^8.23.0",
     "yjs": "^13.6.20"
   }
 }

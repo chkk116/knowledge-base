@@ -14,7 +14,9 @@ server:
 spring:
   datasource:
     # 测试库 kb_test（独立，随便造数据）
-    url: jdbc:mysql://${KB_DB_HOST:localhost}:${KB_DB_PORT:3306}/${KB_DB_NAME:kb_test}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    # 如需切回 MySQL：jdbc:mysql://${KB_DB_HOST:localhost}:${KB_DB_PORT:3306}/kb_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:postgresql://${KB_DB_HOST:localhost}:${KB_DB_PORT:5432}/${KB_DB_NAME:kb_test}
+    driver-class-name: org.postgresql.Driver
     username: ${KB_DB_USER:kb}
     password: ${KB_DB_PASSWORD:kb}
   jpa:

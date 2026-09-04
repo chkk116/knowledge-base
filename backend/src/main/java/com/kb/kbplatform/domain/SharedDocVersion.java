@@ -1,6 +1,9 @@
 package com.kb.kbplatform.domain;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.LocalDateTime;
 
 /** 共享文档版本快照：每次「保存版本」或编辑前自动留档，支持历史回溯。
@@ -17,10 +20,10 @@ public class SharedDocVersion {
 
     private Long sharedDocId;     // 所属共享文档
     private String title;
-    @Column(columnDefinition = "longtext")
+    @Column(columnDefinition = "text")
     private String content;       // HTML 快照
-    @Lob
-    @Column(name = "yjs_state", columnDefinition = "longblob")
+    @JdbcTypeCode(SqlTypes.LONGVARBINARY)   // PG 映射 bytea（LENGTH 可用），MySQL 映射 longblob
+    @Column(name = "yjs_state", columnDefinition = "bytea")
     private byte[] yjsState;      // 协同 Yjs 状态快照（精确还原用）
     private Long editorId;        // 保存者
     private LocalDateTime createdAt = LocalDateTime.now();

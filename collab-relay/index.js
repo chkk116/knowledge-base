@@ -1,5 +1,5 @@
 // 共享文档实时协同中继
-// 技术：Hocuspocus（Yjs 官方推荐的服务端）+ mysql2 直连
+// 技术：Hocuspocus（Yjs 官方推荐的服务端）+ pg 直连（PostgreSQL）
 // 职责：
 //   1) 连接鉴权：复刻后端 TokenUtil 的 HMAC-SHA256 校验，解析 userId，再查 kb_user 校验
 //      账号状态（enabled）与令牌版本（token_version，改密/重置后旧 token 立即失效，
@@ -12,7 +12,7 @@
 
 import { Server } from '@hocuspocus/server'
 import * as Y from 'yjs'
-import mysql from 'mysql2/promise'
+import pg from 'pg'
 import crypto from 'node:crypto'
 
 const PORT = Number(process.env.COLLAB_PORT || 1234)
@@ -22,21 +22,22 @@ const SAVE_INTERVAL_MS = Number(process.env.COLLAB_SAVE_INTERVAL || 5000)
 // A: 操作日志开关；默认开启
 const OP_LOG_ENABLED = process.env.COLLAB_OP_LOG_ENABLED !== 'false'
 
-const db = mysql.createPool({
+const db = new pg.Pool({
   host: process.env.COLLAB_DB_HOST || 'localhost',
-  port: Number(process.env.COLLAB_DB_PORT || 3306),
+  port: Number(process.env.COLLAB_DB_PORT || 5432),
   user: process.env.COLLAB_DB_USER || 'kb',
   password: process.env.COLLAB_DB_PASS || 'kb',
   database: process.env.COLLAB_DB_NAME || 'kb',
-  waitForConnections: true,
-  connectionLimit: 5,
-  connectTimeout: 8000,
+  max: 5,
+  connectionTimeoutMillis: 8000,
 })
 
 // 包装一次查询并打日志，便于定位"卡连接中"到底是 DB 问题还是鉴权问题
 async function q(sql, params) {
+  // pg 风格：$1/$2 占位符；返回 rows 数组（不再像 mysql2 返回 [rows, fields]）
   try {
-    return await db.query(sql, params)
+    const r = await db.query(sql, params)
+    return r.rows
   } catch (e) {
     console.error('[relay][DB错误]', e.message)
     throw e
@@ -76,11 +77,11 @@ function parseName(name) {
 // 复刻 DocShareService.myPermission：OWNER / ADMIN / WRITE / READ / null
 async function myPermission(shareId, userId, role) {
   if (role === 'ADMIN') return 'OWNER'
-  const [rows] = await q(
+  const rows = await q(
     `SELECT s.owner_id AS ownerId, p.permission AS perm
        FROM kb_doc_share s
-       LEFT JOIN kb_doc_share_permission p ON p.share_id = s.id AND p.user_id = ?
-      WHERE s.id = ?`,
+       LEFT JOIN kb_doc_share_permission p ON p.share_id = s.id AND p.user_id = $1
+      WHERE s.id = $2`,
     [userId, shareId]
   )
   if (!rows.length) return null
@@ -103,7 +104,7 @@ async function persist(docName, doc) {
   const { docId } = parseName(docName)
   if (!docId) return
   const state = Y.encodeStateAsUpdate(doc)
-  await db.query('UPDATE kb_shared_document SET yjs_state = ? WHERE id = ?', [state, docId])
+  await db.query('UPDATE kb_shared_document SET yjs_state = $1 WHERE id = $2', [state, docId])
 }
 
 // A: 追加写入操作日志（update + 状态向量），用于可靠恢复、审计、回放
@@ -118,7 +119,7 @@ async function persistOpLog(docName, doc, update, context) {
     await db.query(
       `INSERT INTO kb_doc_op_log
          (doc_id, user_id, op_type, update_blob, state_vector, client_id, content_length)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [docId, userId, 'UPDATE', Buffer.from(update), Buffer.from(stateVector), clientId, update.length]
     )
   } catch (e) {
@@ -144,14 +145,13 @@ const server = Server.configure({
       if (!shareId || !docId) throw new Error('invalid document')
       // 账号状态与令牌版本校验（与 HTTP 侧 AuthFilter 同标准）：
       // 用户被禁用、或改密/重置密码导致 token_version 自增后，旧 token 在协同侧同样立即失效
-      const [urows] = await q(
-        'SELECT avatar, display_name, enabled, token_version FROM kb_user WHERE id = ?',
+      const urows = await q(
+        'SELECT avatar, display_name, enabled, token_version FROM kb_user WHERE id = $1',
         [claims.userId]
       )
       if (!urows.length) throw new Error('user not found')
       const u = urows[0]
-      // BIT(1) 列 mysql2 返回 Buffer，需转为数值再判（Buffer 对象恒为 truthy，直接 !u.enabled 会失效）
-      const enabled = Buffer.isBuffer(u.enabled) ? u.enabled[0] === 1 : Boolean(u.enabled)
+      const enabled = Boolean(u.enabled)
       if (!enabled) throw new Error('account disabled')
       if (Number(u.token_version || 0) !== (claims.tokenVersion || 0)) {
         throw new Error('token revoked (password changed)')
@@ -186,7 +186,7 @@ const server = Server.configure({
   async onLoadDocument({ documentName, document }) {
     const { docId } = parseName(documentName)
     console.log(`[relay][加载文档] doc=${documentName}`)
-    const [rows] = await q('SELECT yjs_state FROM kb_shared_document WHERE id = ?', [docId])
+    const rows = await q('SELECT yjs_state FROM kb_shared_document WHERE id = $1', [docId])
     const state = rows[0] && rows[0].yjs_state
     if (state && state.length) Y.applyUpdate(document, state)
     loadedDocs.set(documentName, document)
@@ -256,7 +256,7 @@ server.listen({ port: PORT, host: '0.0.0.0' })
   .then(() => {
     console.log(`[relay] 共享文档协同中继已启动：ws://0.0.0.0:${PORT}`)
     console.log(`[relay] 令牌密钥 = ${SECRET === 'kb-dev-secret-please-change-this-long-string-2026' ? '默认值(与后端默认一致)' : '已通过环境变量注入'}`)
-    console.log(`[relay] 数据库 = ${process.env.COLLAB_DB_HOST || 'localhost'}:${process.env.COLLAB_DB_PORT || 3306}/${process.env.COLLAB_DB_NAME || 'kb'}`)
+    console.log(`[relay] 数据库 = ${process.env.COLLAB_DB_HOST || 'localhost'}:${process.env.COLLAB_DB_PORT || 5432}/${process.env.COLLAB_DB_NAME || 'kb'}`)
   })
   .catch((e) => {
     console.error('[relay][启动失败]', e.message)

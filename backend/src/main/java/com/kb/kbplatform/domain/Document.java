@@ -64,7 +64,7 @@ public class Document {
     private LocalDateTime updatedAt = LocalDateTime.now();
 
     /** 软删除标记：true = 已移入回收站（对外不可见，可恢复或彻底删除） */
-    @Column(nullable = false, columnDefinition = "tinyint(1) default 0")
+    @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean deleted = false;
 
     /** 移入回收站的时间（用于回收站排序与「保留期」展示） */

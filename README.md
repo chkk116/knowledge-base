@@ -19,7 +19,7 @@
 | 层 | 技术 |
 |---|---|
 | 前端 | Vue 3（`<script setup>`）+ Vite 8 + Pinia + Vue Router + Element Plus（按需引入）+ wangEditor / Tiptap |
-| 后端 | Spring Boot（Java 21）多包模块化单体 + Spring Data JPA + MySQL 8 |
+| 后端 | Spring Boot（Java 21）多包模块化单体 + Spring Data JPA + PostgreSQL 18（兼容 MySQL 8） |
 | 实时协同 | Tiptap + Yjs + Hocuspocus，中继服务 `collab-relay/`（Node + mysql2，与后端共用 MySQL） |
 | AI | 智谱 GLM（`glm-4-flash`，OpenAI 兼容端点，国内直连），RAG 检索增强问答 |
 | 桌面端 | Electron 33，纯 Node 内置模块本地托管 + 反代后端，零框架改动套壳 |
@@ -66,9 +66,10 @@ knowledge-base/
 
 ## 快速开始（本地开发）
 
-### 1. 数据库（本地 MySQL 8，唯一前置依赖）
-执行 `db/init.sql` 建库 `kb`（utf8mb4），连接串 `jdbc:mysql://localhost:3306/kb`（账号密码见 `backend/src/main/resources/application.yml`）。
-业务表由 JPA（`ddl-auto: update`）自动创建；`db/v113~v118_*.sql` 为功能增量，按需执行。
+### 1. 数据库（PostgreSQL 18，唯一前置依赖；兼容 MySQL 8）
+默认连接 `jdbc:postgresql://localhost:5432/kb`（账号 kb/kb，见 `application.yml`）。PG 为 MIT 协议，可随商业产品自由分发。
+业务表由 JPA（`ddl-auto: update`）自动创建；`db/*.sql` 增量脚本为 MySQL 方言（如需在 PG 使用请对照转换）。
+切回 MySQL：`application.yml` 数据源换回 `jdbc:mysql://localhost:3306/kb` 即可（两个驱动均已引入）。
 
 ### 2. 启动后端
 IDEA 打开根目录（自动识别 Maven 聚合工程），运行预置配置 `Backend (Maven spring-boot:run)`（:8080），或：

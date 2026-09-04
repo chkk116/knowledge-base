@@ -46,7 +46,14 @@
             <artifactId>spring-boot-starter-cache</artifactId>
         </dependency>
 
-        <!-- 本地 MySQL 8 数据库驱动（库连接串见 application.yml；业务表由 JPA 自动建）-->
+        <!-- PostgreSQL 驱动（当前默认库；MIT 协议，商业分发无授权顾虑）-->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- MySQL 8 驱动（可选：连接串切回 jdbc:mysql 即用，双库兼容）-->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
