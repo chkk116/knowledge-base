@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ChatLineRound, ChatSquare, Promotion, Pointer, Stamp, DocumentChecked, Bell, Medal
+  ChatLineRound, ChatSquare, Promotion, Pointer, Stamp, DocumentChecked, Bell, Medal, UserFilled
 } from '@element-plus/icons-vue'
 import {
   notificationList, notificationRead, notificationReadAll,
@@ -39,6 +39,11 @@ const META = {
   SHARE_CREATE_PENDING:    { icon: DocumentChecked, color: '#854F0B' },
   SHARE_CAPACITY_PENDING:  { icon: DocumentChecked, color: '#854F0B' },
   CERTIFICATE:             { icon: Medal, color: '#B45309' },
+  // 头像审核流（提交 / 通过 / 驳回）
+  AVATAR_PENDING:   { icon: UserFilled, color: '#854F0B' },
+  AVATAR_APPROVED:  { icon: UserFilled, color: '#0F6E56' },
+  AVATAR_REJECTED:  { icon: UserFilled, color: '#BA7517' },
+  AVATAR_REVIEW_SUBMIT: { icon: UserFilled, color: '#854F0B' },
 }
 const meta = (n) => META[n.type] || { icon: Bell, color: '#5F5E5A' }
 const isReviewType = (t) => t === 'REVIEW' || t === 'REVIEW_SUBMIT'
@@ -51,7 +56,8 @@ const TAB_TYPES = {
   like: ['LIKE'],
   review: ['REVIEW', 'REVIEW_SUBMIT',
     'SHARE_CREATE_APPROVED', 'SHARE_CREATE_REJECTED', 'SHARE_CREATE_PENDING',
-    'SHARE_CAPACITY_APPROVED', 'SHARE_CAPACITY_REJECTED', 'SHARE_CAPACITY_PENDING'],
+    'SHARE_CAPACITY_APPROVED', 'SHARE_CAPACITY_REJECTED', 'SHARE_CAPACITY_PENDING',
+    'AVATAR_PENDING', 'AVATAR_APPROVED', 'AVATAR_REJECTED', 'AVATAR_REVIEW_SUBMIT'],
 }
 
 const load = async () => {
@@ -132,12 +138,23 @@ const open = async (n) => {
   }
   if (n.type && n.type.startsWith('SHARE_')) { router.push('/doc-shares'); return }
   if (n.type === 'CERTIFICATE') { router.push('/profile'); return }
+  // 头像审核流 → 个人资料页（那里有审核中横幅与头像角标）
+  if (n.type === 'AVATAR_PENDING' || n.type === 'AVATAR_APPROVED' || n.type === 'AVATAR_REJECTED') {
+    router.push('/profile'); return
+  }
+  // 头像提审（管理员收到）→ 头像审核队列
+  if (n.type === 'AVATAR_REVIEW_SUBMIT') { router.push('/admin/review'); return }
 }
 // 内联「标记已读」（= 忽略，不跳转）
 const ignore = async (n) => {
-  try { await notificationRead(n.id) } catch (e) {}
-  n.read = true
-  notification.setUnread(list.value.filter(x => !x.read).length)
+  try {
+    await notificationRead(n.id)
+    n.read = true
+    notification.setUnread(list.value.filter(x => !x.read).length)
+    ElMessage.success('已标记为已读')
+  } catch (e) {
+    ElMessage.error('操作失败')
+  }
 }
 
 const readAll = async () => {
@@ -250,6 +267,9 @@ onMounted(load)
               <template v-else-if="n.type === 'REVIEW_SUBMIT'">
                 <div class="line"><b>{{ n.actor }}</b><span class="txt">提交了文章，待你审核</span></div>
               </template>
+              <template v-else-if="n.type === 'AVATAR_REVIEW_SUBMIT'">
+                <div class="line"><b>{{ n.actor }}</b><span class="txt">提交了新头像，待你审核</span></div>
+              </template>
               <template v-else>
                 <div class="line"><span class="txt">{{ n.summary }}</span></div>
               </template>
@@ -257,7 +277,9 @@ onMounted(load)
               <span class="time" v-if="n.createdAt">{{ fromNow(n.createdAt) }}（{{ fmtDateTime(n.createdAt) }}）</span>
             </div>
             <div class="ops" @click.stop>
-              <el-button v-if="!n.read" size="small" text @click="ignore(n)">标记已读</el-button>
+              <el-tag v-if="!n.read" class="tag-unread" type="primary" size="small" effect="light" round>未读</el-tag>
+              <el-button v-if="!n.read" size="small" type="primary" plain @click="ignore(n)">标记已读</el-button>
+              <el-button v-else size="small" text disabled>已读</el-button>
               <el-button size="small" type="danger" plain @click="removeOne(n)">删除</el-button>
             </div>
           </li>
@@ -287,7 +309,19 @@ onMounted(load)
 .list { list-style: none; padding: 0; margin: 0; }
 .item { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 0.5px solid #e2e8f0; border-radius: 12px; margin-bottom: 8px; cursor: pointer; transition: .15s; }
 .item:hover { border-color: #4f46e5; }
-.item.unread { background: #eef2ff; border-color: #c7d2fe; }
+/* 未读：左侧强调条 + 浅底色 + 正文加粗；已读：白底 + 正文/摘要降饱和，一眼可分 */
+.item.unread {
+  background: #eef2ff; border-color: #c7d2fe;
+  box-shadow: inset 3px 0 0 0 #4f46e5;   /* inset 阴影代替 border-left，避免挤压内容 */
+}
+.item.unread .line { font-weight: 600; color: #0f172a; }
+.item.unread .time { color: #64748b; }
+.item:not(.unread) { background: #fff; }
+.item:not(.unread) .line,
+.item:not(.unread) .txt { color: #94a3b8; }
+.item:not(.unread) .summary { color: #a8b0bd; }
+.item:not(.unread) .ic { opacity: .55; }
+.tag-unread { flex: none; }
 .cb { margin-top: 2px; }
 .ic { margin-top: 1px; flex: none; }
 .body { flex: 1; min-width: 0; }
@@ -308,7 +342,11 @@ html.dark .selall { color: var(--el-text-color-secondary); }
 html.dark .group-title { color: var(--el-text-color-secondary); }
 html.dark .item { border-color: var(--el-border-color-light); }
 html.dark .item:hover { border-color: #818cf8; }
-html.dark .item.unread { background: rgba(99,102,241,.14); border-color: rgba(129,140,248,.35); }
+html.dark .item.unread { background: rgba(99,102,241,.14); border-color: rgba(129,140,248,.35); box-shadow: inset 3px 0 0 0 #818cf8; }
+html.dark .item.unread .line { color: var(--el-text-color-primary); }
+html.dark .item:not(.unread) .line,
+html.dark .item:not(.unread) .txt { color: var(--el-text-color-disabled); }
+html.dark .item:not(.unread) .summary { color: var(--el-text-color-disabled); }
 html.dark .txt { color: var(--el-text-color-secondary); }
 html.dark .summary { color: var(--el-text-color-regular); }
 html.dark .time { color: var(--el-text-color-secondary); }

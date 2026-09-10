@@ -49,6 +49,13 @@ public class AdminUserController {
         return svc.searchUsers(keyword, role, enabled, sort, page, size);
     }
 
+    /** 用户详情（安全视图，不含密码），含已分配角色 id 列表，供编辑表单预填 */
+    @GetMapping("/{id}")
+    public Map<String, Object> detail(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requirePerm(c, "USER_MANAGE");
+        return svc.getUserDetail(id);
+    }
+
     @PostMapping
     public User create(@RequestAttribute("kbUser") TokenClaims c,
                        @RequestBody AdminService.CreateReq r) {
@@ -73,8 +80,9 @@ public class AdminUserController {
         // 防自助提权：非 ADMIN 角色不得给自己改角色 / 细粒度权限 / 启用状态。
         // 否则持有 USER_MANAGE 的子管理员可直接给自己写满权限码（含 CORE_MAINTAIN、DOC_REVIEW）完成越权升级。
         if (id.equals(c.userId()) && !"ADMIN".equals(c.role())) {
-            if (r.role != null || r.permissions != null || r.enabled != null) {
-                throw new ResponseStatusException(FORBIDDEN, "不能修改自身的角色、权限或启用状态");
+            if (r.role != null || r.permissions != null || r.enabled != null
+                    || r.roleIds != null || r.departmentId != null) {
+                throw new ResponseStatusException(FORBIDDEN, "不能修改自身的角色、权限、部门或启用状态");
             }
         }
         User before = svc.requireUser(id);
@@ -151,7 +159,7 @@ public class AdminUserController {
         requirePerm(c, "USER_MANAGE");
         if (r.delta == null) throw new ResponseStatusException(FORBIDDEN, "delta 不能为空");
         authService.adjustPoints(id, r.delta, r.reason == null ? "管理员调整" : r.reason);
-        User u = svc.listUsers().stream().filter(x -> x.getId().equals(id)).findFirst().orElseThrow();
+        User u = svc.getUser(id);   // 旧实现：listUsers() 全表加载后 stream 过滤取一条
         audit.log(c.userId(), c.username(), "ADJUST_POINTS", "USER", id, u.getUsername(),
                 "调整积分 " + r.delta + "（" + (r.reason == null ? "管理员调整" : r.reason) + "）");
         return u;

@@ -43,6 +43,7 @@ public class AdminFileController {
                                        @RequestParam(required = false) String q) {
         requireAdmin(c);
         Set<String> avatars = new HashSet<>(userRepo.findAllUploadAvatars());
+        avatars.addAll(userRepo.findAllPendingUploadAvatars());   // 待审头像同样占用上传目录，避免被当孤儿清掉
         List<Map<String, Object>> all = fileSvc.findOrphans(docRepo.findAllContents(), avatars);
 
         // 类型统计（过滤前）

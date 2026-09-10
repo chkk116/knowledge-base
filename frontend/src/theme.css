@@ -511,3 +511,64 @@ html.dark .pl-seg-item.on { background: #23252d; color: #a5b4fc; box-shadow: 0 1
 html.dark .pl-group { background: #1b1c22; }
 html.dark .pl-row:hover { background: #1e1f26; }
 
+
+/* ============================================================
+   全局翻页（el-pagination）样式现代化
+   默认的方正灰块太老气：改为圆角卡片页码 + 品牌靛紫高亮，
+   全站（首页/帖子管理/审计日志/资产等 8 处）统一生效。
+   ============================================================ */
+.el-pagination {
+  --el-pagination-font-size: 13.5px;
+  --el-pagination-button-height: 32px;
+  --el-pagination-button-width: 32px;
+  gap: 6px;
+}
+.el-pagination .btn-prev,
+.el-pagination .btn-next,
+.el-pagination .el-pager li {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #475569;
+  font-weight: 500;
+  min-width: 32px;
+  height: 32px;
+  transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
+}
+.el-pagination .btn-prev:disabled,
+.el-pagination .btn-next:disabled { opacity: .45; cursor: default; }
+.el-pagination .btn-prev:hover:not(:disabled),
+.el-pagination .btn-next:hover:not(:disabled),
+.el-pagination .el-pager li:hover {
+  color: #6366f1;
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+.el-pagination .el-pager li.is-active {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 4px 10px -4px rgb(99 102 241 / .5);
+}
+.el-pagination .el-pagination__total { color: #64748b; font-size: 13px; }
+.el-pagination .el-pagination__sizes .el-select .el-select__wrapper {
+  border-radius: 8px;
+  min-height: 32px;
+}
+/* 暗色主题适配 */
+html.dark .el-pagination .btn-prev,
+html.dark .el-pagination .btn-next,
+html.dark .el-pagination .el-pager li {
+  background: #1e1f26;
+  border-color: #2a2a35;
+  color: #b4b8c2;
+}
+html.dark .el-pagination .btn-prev:hover:not(:disabled),
+html.dark .el-pagination .btn-next:hover:not(:disabled),
+html.dark .el-pagination .el-pager li:hover {
+  background: #23252d;
+  border-color: #4338ca;
+  color: #a5b4fc;
+}
+html.dark .el-pagination .el-pagination__total { color: #7b8190; }

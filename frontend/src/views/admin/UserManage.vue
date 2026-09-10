@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Medal, User, UserFilled, Search } from '@element-plus/icons-vue'
-import { listUsers, createUser, updateUser, deleteUser, toggleUser, adjustPoints, resetPassword, adminUserStorage } from '../../api/admin'
+import { listUsers, createUser, updateUser, deleteUser, toggleUser, adjustPoints, resetPassword, adminUserStorage, getUserDetail, listRoles, listDepartments } from '../../api/admin'
 import PageBar from '../../components/PageBar.vue'
 
 // 角色/状态筛选 Tab（胶囊按钮）
@@ -18,41 +18,38 @@ const users = ref([])
 const dialog = ref(false)
 const editing = ref(null)
 const saving = ref(false)
-const form = ref({ username: '', displayName: '', role: 'USER', password: '', enabled: true, permissions: [], storageQuotaGb: null })
+const form = ref({ username: '', displayName: '', role: 'USER', password: '', enabled: true, storageQuotaGb: null, roleIds: [], departmentId: null })
 const storageInfo = ref(null)   // 编辑时拉取的当前用量 { used, quota }
+
+// 角色 / 部门（编辑表单下拉用；部门树由 parentId 自组装）
+const roles = ref([])
+const departments = ref([])
+const roleMap = computed(() => { const m = {}; roles.value.forEach(r => m[r.id] = r); return m })
+const deptMap = computed(() => { const m = {}; departments.value.forEach(d => m[d.id] = d); return m })
+const deptName = (id) => (id && deptMap.value[id]) ? deptMap.value[id].name : '—'
+const roleNames = (ids) => (ids || []).map(id => roleMap.value[id]?.name).filter(Boolean).join('、') || '—'
+
+// 部门下拉：展平为带缩进的列表（按 parentId 组装层级，便于一眼看清所属上级部门）
+const departmentTree = computed(() => {
+  const list = departments.value || []
+  const byParent = {}
+  list.forEach(d => { (byParent[d.parentId || 0] ||= []).push(d) })
+  const out = []
+  const walk = (parentId, depth) => {
+    (byParent[parentId] || []).forEach(d => {
+      out.push({ ...d, name: (depth ? '　'.repeat(depth) + '└ ' : '') + d.name })
+      walk(d.id, depth + 1)
+    })
+  }
+  walk(0, 0)
+  return out
+})
 const GB = 1024 * 1024 * 1024
 const formatGb = (b) => ((b || 0) / GB).toFixed(2) + ' GB'
 const roleTab = ref('all')   // all | ADMIN | USER | disabled
 
-// 可选细粒度权限（对应后端 TokenClaims.hasPerm 校验；黑名单管理暂未开放细粒度授权，仅 ADMIN 可访问，故不在选项内）
-// 注意：需与后端 AdminService.PERM_WHITELIST 保持一致，新增权限码要同步加进这里，否则 UI 上无法勾选。
-const PERM_OPTIONS = [
-  { value: 'USER_MANAGE', label: '用户管理' },
-  { value: 'DOC_REVIEW', label: '文章审核' },
-  { value: 'STATS_VIEW', label: '数据看板' },
-  { value: 'TAXONOMY_MANAGE', label: '分类标签管理' },
-  { value: 'ANNOUNCEMENT_MANAGE', label: '公告管理' },
-  { value: 'COURSE_MANAGE', label: '培训管理' },
-  { value: 'EXAM_MANAGE', label: '考试管理' },
-  { value: 'SHARE_CREATE', label: '创建团队空间' },
-  { value: 'SHARE_VIEW', label: '共享文档管理（查看）' },
-  { value: 'SHARE_DELETE', label: '共享文档管理（删除空间）' },
-  { value: 'SHARE_CAPACITY', label: '共享文档管理（容量分配）' },
-  { value: 'CORE_MAINTAIN', label: '核心维护（功能开关）' },
-  { value: 'DOC_EXPORT', label: '文档导出' },
-  { value: 'BANNED_WORDS_MANAGE', label: '违禁词管理' },
-  { value: 'DOC_SHARE', label: '共享文档管理（旧权限，已拆分）' },
-]
-const permLabel = (v) => (PERM_OPTIONS.find(o => o.value === v)?.label || v)
-
-// 弹窗内按业务域分组展示（仅影响渲染顺序/分组，不改动权限码本身；与 PERM_OPTIONS 一一对应）
-const PERM_GROUPS = [
-  { title: '用户与权限', options: ['USER_MANAGE'] },
-  { title: '内容管理', options: ['DOC_REVIEW', 'TAXONOMY_MANAGE', 'ANNOUNCEMENT_MANAGE', 'DOC_EXPORT', 'BANNED_WORDS_MANAGE'] },
-  { title: '共享文档', options: ['SHARE_CREATE', 'SHARE_VIEW', 'SHARE_DELETE', 'SHARE_CAPACITY', 'DOC_SHARE'] },
-  { title: '培训与考试', options: ['COURSE_MANAGE', 'EXAM_MANAGE'] },
-  { title: '系统与数据', options: ['STATS_VIEW', 'CORE_MAINTAIN'] },
-]
+// 权限统一由「角色管理」定义：用户最终权限 = 所分配角色的权限并集（ADMIN 隐式全权）。
+// 用户管理只负责挂角色 / 部门，不再直接勾选细粒度权限，避免两处管理同一权限的冲突。
 
 // 检索 / 排序 / 分页（角色 / 状态 Tab 走后端过滤，对全量生效，不再前端按当前页过滤）
 const keyword = ref('')
@@ -90,7 +87,7 @@ const onTab = () => { page.value = 1; load() }
 
 const openAdd = () => {
   editing.value = null
-  form.value = { username: '', displayName: '', role: 'USER', password: '', enabled: true, permissions: [], storageQuotaGb: null }
+  form.value = { username: '', displayName: '', role: 'USER', password: '', enabled: true, storageQuotaGb: null, roleIds: [], departmentId: null }
   storageInfo.value = null
   dialog.value = true
 }
@@ -103,30 +100,36 @@ const openEdit = (u) => {
     role: u.role,
     password: '',
     enabled: u.enabled,
-    permissions: (u.permissions && typeof u.permissions === 'string' && u.permissions.trim())
-      ? u.permissions.split(',').map(s => s.trim()).filter(Boolean) : [],
     storageQuotaGb: u.storageQuota ? Number((u.storageQuota / GB).toFixed(2)) : null,
+    roleIds: [],
+    departmentId: u.departmentId || null,
   }
   storageInfo.value = null
   // 拉取该用户当前存储用量，便于在弹窗内对照
   adminUserStorage(u.id).then(({ data }) => { storageInfo.value = data }).catch(() => {})
+  // 拉取已分配角色（安全视图，不含密码）
+  getUserDetail(u.id).then(({ data }) => {
+    form.value.roleIds = Array.isArray(data.roleIds) ? data.roleIds : []
+    form.value.departmentId = data.departmentId || null
+  }).catch(() => {})
   dialog.value = true
 }
 
 const save = async () => {
   saving.value = true
   try {
-    // ADMIN 角色隐式拥有全部权限，无需存储细粒度权限；普通用户才保存勾选的权限
-    const perms = form.value.role === 'ADMIN' ? '' : form.value.permissions.join(',')
+    // 权限统一走角色：不提交 permissions（编辑时后端保留原直接权限，不再从 UI 修改）
+    const roleIds = (form.value.roleIds || []).map(Number).filter(Boolean)
+    const departmentId = form.value.departmentId ? Number(form.value.departmentId) : null
     if (editing.value) {
-      const r = { displayName: form.value.displayName, role: form.value.role, enabled: form.value.enabled, permissions: perms }
+      const r = { displayName: form.value.displayName, role: form.value.role, enabled: form.value.enabled, roleIds, departmentId }
       if (form.value.password) r.password = form.value.password
       // 存储配额：填了 GB 转字节；0/空表示恢复系统默认 200MB
       r.storageQuota = form.value.storageQuotaGb ? Math.round(form.value.storageQuotaGb * GB) : 0
       await updateUser(editing.value, r)
       ElMessage.success('已更新')
     } else {
-      await createUser({ username: form.value.username, displayName: form.value.displayName, role: form.value.role, password: form.value.password, enabled: form.value.enabled, permissions: perms })
+      await createUser({ username: form.value.username, displayName: form.value.displayName, role: form.value.role, password: form.value.password, enabled: form.value.enabled, roleIds, departmentId })
       ElMessage.success('已创建')
     }
     dialog.value = false
@@ -211,7 +214,13 @@ const onCmd = (cmd, u) => {
   else if (cmd === 'delete') remove(u)
 }
 
-onMounted(load)
+onMounted(() => { load(); loadOrg() })
+
+// 加载角色 / 部门列表（编辑表单下拉 + 表格展示用）
+const loadOrg = async () => {
+  try { const { data: r } = await listRoles(); roles.value = r || [] } catch {}
+  try { const { data: d } = await listDepartments(); departments.value = d || [] } catch {}
+}
 </script>
 
 <template>
@@ -221,7 +230,7 @@ onMounted(load)
       <div class="head-icon"><el-icon :size="22"><UserFilled /></el-icon></div>
       <div class="head-text">
         <h2>用户管理</h2>
-        <p>账号、角色与细粒度权限、积分与存储配额的统一管理</p>
+        <p>账号、部门与角色分配、积分与存储配额的统一管理（权限在「角色管理」中定义）</p>
       </div>
       <div class="head-stats">
         <div class="stat">
@@ -272,15 +281,13 @@ onMounted(load)
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="角色 / 权限" min-width="220">
+        <el-table-column label="身份 / 部门" min-width="200">
           <template #default="{ row }">
             <span class="role" :class="row.role === 'ADMIN' ? 'admin' : 'user'">
               <el-icon><component :is="row.role === 'ADMIN' ? Medal : User" /></el-icon>
               {{ row.role === 'ADMIN' ? '管理员' : '普通用户' }}
             </span>
-            <template v-if="row.role !== 'ADMIN' && row.permissions">
-              <el-tag v-for="p in row.permissions.split(',').filter(Boolean)" :key="p" class="perm-tag" type="success" size="small" effect="light" round>{{ permLabel(p) }}</el-tag>
-            </template>
+            <div class="u-dept u-dept-inline">{{ deptName(row.departmentId) }}</div>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="90">
@@ -344,16 +351,17 @@ onMounted(load)
             <el-option label="普通用户 USER" value="USER" />
           </el-select>
         </el-form-item>
-        <el-form-item label="细粒度权限" v-if="form.role !== 'ADMIN'" label-width="120px" class="perm-item">
-          <el-checkbox-group v-model="form.permissions" class="perm-groups">
-            <div v-for="g in PERM_GROUPS" :key="g.title" class="perm-group">
-              <div class="perm-group-title">{{ g.title }}</div>
-              <div class="perm-grid">
-                <el-checkbox v-for="code in g.options" :key="code" :value="code" border>{{ permLabel(code) }}</el-checkbox>
-              </div>
-            </div>
-          </el-checkbox-group>
-          <div class="hint perm-hint">勾选后该用户可进行对应管理操作（无需成为管理员）；管理员角色无需勾选</div>
+        <el-form-item label="所属部门">
+          <el-select v-model="form.departmentId" clearable placeholder="未分配部门" style="width: 100%">
+            <el-option v-for="d in departmentTree" :key="d.id" :value="d.id" :label="d.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分配角色">
+          <el-select v-model="form.roleIds" multiple collapse-tags collapse-tags-tooltip
+                     placeholder="选择角色（权限来自角色管理中配置的权限）" style="width: 100%">
+            <el-option v-for="r in roles" :key="r.id" :value="r.id" :label="r.name" />
+          </el-select>
+          <div class="hint perm-hint">权限统一在「角色管理」中定义；用户最终权限 = 所分配角色的权限并集（管理员隐式全权）</div>
         </el-form-item>
         <el-form-item :label="editing ? '重置密码' : '密码'">
           <el-input v-model="form.password" type="password" show-password
@@ -396,6 +404,13 @@ onMounted(load)
 </template>
 
 <style scoped>
+/* ===== 部门 / 角色展示 ===== */
+.u-dept { font-size: 13px; color: #334155; font-weight: 500; }
+.u-dept-inline { margin-top: 4px; font-weight: 400; font-size: 12px; color: #94a3b8; }
+.u-roles { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.role-tag { font-weight: 500; }
+.muted { font-size: 12px; color: #94a3b8; }
+
 /* ===== 页头 ===== */
 .page-head {
   display: flex;

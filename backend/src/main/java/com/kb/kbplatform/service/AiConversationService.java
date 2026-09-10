@@ -78,13 +78,34 @@ public class AiConversationService {
         convRepo.delete(c);
     }
 
-    public List<AiMessage> messages(Long userId, Long id) {
+    public List<Map<String, Object>> messages(Long userId, Long id) {
         AiConversation c = convRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在"));
         if (!c.getUserId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权查看该会话");
         }
-        return msgRepo.findByConversationIdOrderByCreatedAtAsc(id);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (AiMessage m : msgRepo.findByConversationIdOrderByCreatedAtAsc(id)) {
+            Map<String, Object> mm = new LinkedHashMap<>();
+            mm.put("id", m.getId());
+            mm.put("role", m.getRole());
+            mm.put("content", m.getContent());
+            Object src = parseSources(m.getSources());
+            if (src != null) mm.put("sources", src);
+            mm.put("createdAt", m.getCreatedAt());
+            out.add(mm);
+        }
+        return out;
+    }
+
+    /** 引用来源 JSON → List；脏数据/空值返回 null（前端按无引用处理） */
+    private Object parseSources(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return tools.jackson.databind.json.JsonMapper.builder().build().readValue(json, List.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // 注意：此处不加 @Transactional —— ragService.ask() 是同步 HTTP 调用 LLM，
@@ -131,11 +152,16 @@ public class AiConversationService {
         String answer = rag.get("answer") == null ? "" : rag.get("answer").toString();
         Object sources = rag.get("sources");
 
-        // 保存 AI 消息
+        // 保存 AI 消息（引用来源一并落库为 JSON 快照，重开页面后仍能显示）
         AiMessage aiMsg = new AiMessage();
         aiMsg.setConversationId(c.getId());
         aiMsg.setRole("ai");
         aiMsg.setContent(answer);
+        if (sources instanceof List && !((List<?>) sources).isEmpty()) {
+            try {
+                aiMsg.setSources(tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(sources));
+            } catch (Exception ignore) { /* 序列化失败不影响回答 */ }
+        }
         msgRepo.save(aiMsg);
 
         // 更新会话时间

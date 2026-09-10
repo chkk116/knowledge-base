@@ -19,9 +19,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
      * 必须限定 PUBLISHED：搜索接口是免登录公开的，若不过滤状态会泄露草稿/待审核/驳回文档的正文摘要。
      */
     @Query("SELECT d FROM Document d WHERE d.status = 'PUBLISHED' "
-            + "AND (LOWER(d.title) LIKE LOWER(CONCAT('%', ?1, '%')) OR LOWER(d.content) LIKE LOWER(CONCAT('%', ?1, '%')) "
-            + "OR LOWER(d.tags) LIKE LOWER(CONCAT('%', ?1, '%')) OR LOWER(d.category) LIKE LOWER(CONCAT('%', ?1, '%')))")
-    List<Document> search(String q);
+            + "AND (:q IS NULL OR :q = '' OR LOWER(d.title) LIKE LOWER(CONCAT('%', :q, '%')) OR LOWER(d.content) LIKE LOWER(CONCAT('%', :q, '%')) "
+            + "OR LOWER(d.tags) LIKE LOWER(CONCAT('%', :q, '%')) OR LOWER(d.category) LIKE LOWER(CONCAT('%', :q, '%')))")
+    List<Document> search(@Param("q") String q);
 
     /** 我的帖子：按作者倒序 */
     List<Document> findByOwnerIdOrderByUpdatedAtDesc(Long ownerId);
@@ -54,6 +54,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     /** 全站累计浏览量（看板） */
     @Query("SELECT COALESCE(SUM(d.views), 0) FROM Document d")
     long sumViews();
+
+    /** 指定状态且指定时间之后新增的文档数（首页概览：本周新增已发布） */
+    long countByStatusAndCreatedAtAfter(String status, java.time.LocalDateTime t);
 
     /** 指定时间之后新增的文档数（看板：今日新增） */
     long countByCreatedAtAfter(java.time.LocalDateTime t);

@@ -238,6 +238,10 @@ export const deleteTag = (id) =>
 export const listAnnouncements = () =>
   api.get('/announcements')
 
+// 首页轻量数据概览：{ totalDocs, weekNew, members, pendingReview?(管理员/STATS_VIEW) }
+export const homeOverview = () =>
+  api.get('/docs/overview')
+
 export const listAnnouncementsAdmin = () =>
   api.get('/admin/announcements')
 

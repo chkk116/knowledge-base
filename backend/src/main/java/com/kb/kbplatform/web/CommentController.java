@@ -3,6 +3,8 @@ package com.kb.kbplatform.web;
 import com.kb.kbplatform.domain.Comment;
 import com.kb.kbplatform.domain.Document;
 import com.kb.kbplatform.security.TokenClaims;
+import com.kb.kbplatform.security.RateLimitService;
+import com.kb.kbplatform.service.BizException;
 import com.kb.kbplatform.service.CommentService;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,8 +20,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class CommentController {
 
     private final CommentService svc;
+    private final RateLimitService rateLimit;
 
-    public CommentController(CommentService svc) { this.svc = svc; }
+    public CommentController(CommentService svc, RateLimitService rateLimit) {
+        this.svc = svc;
+        this.rateLimit = rateLimit;
+    }
 
     /** 公开：某文档的评论列表 */
     @GetMapping("/docs/{id}/comments")
@@ -40,6 +46,10 @@ public class CommentController {
                        @PathVariable Long id,
                        @RequestBody Map<String, Object> body) {
         if (c == null) throw new ResponseStatusException(UNAUTHORIZED, "请先登录");
+        // 抗刷屏：单用户 10 条/分钟（写接口此前无限流，实测连发 30 条全部成功）
+        if (!rateLimit.allow("comment:user:" + c.userId(), 10, 60L * 1000)) {
+            throw new BizException("评论过于频繁，请稍后再试");
+        }
         Object pid = body.get("parentId");
         Long parentId = (pid == null || pid.toString().isBlank()) ? null : Long.valueOf(pid.toString());
         return svc.add(id, c, (String) body.get("content"), parentId);
@@ -58,6 +68,9 @@ public class CommentController {
         if (c == null) throw new ResponseStatusException(UNAUTHORIZED, "请先登录");
         String targetType = body.get("targetType") == null ? "DOC" : body.get("targetType").toString();
         Object tid = body.get("targetId");
+        if (!rateLimit.allow("comment:user:" + c.userId(), 10, 60L * 1000)) {
+            throw new BizException("评论过于频繁，请稍后再试");
+        }
         if (tid == null || tid.toString().isBlank()) throw new IllegalArgumentException("缺少 targetId");
         Long targetId = Long.valueOf(tid.toString());
         Object pid = body.get("parentId");

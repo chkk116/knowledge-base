@@ -43,7 +43,7 @@ public class AdminDocController {
                                @RequestParam(required = false, defaultValue = "desc") String dir,
                                @RequestParam(required = false, defaultValue = "0") int page,
                                @RequestParam(required = false, defaultValue = "15") int size) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         return docSvc.adminList(keyword, sort, dir, page, size);
     }
 
@@ -52,7 +52,7 @@ public class AdminDocController {
     public Page<Document> blocked(@RequestAttribute("kbUser") TokenClaims c,
                                   @RequestParam(required = false, defaultValue = "0") int page,
                                   @RequestParam(required = false, defaultValue = "15") int size) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         if (page < 0) page = 0;
         if (size <= 0 || size > 100) size = 15;
         return docSvc.listBlocked(page, size);
@@ -61,7 +61,7 @@ public class AdminDocController {
     @PostMapping
     public Document create(@RequestAttribute("kbUser") TokenClaims c,
                            @RequestBody Document d) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         d.setContent(HtmlSanitizer.sanitize(d.getContent()));
         if (d.getStatus() == null || d.getStatus().isBlank()) d.setStatus("PUBLISHED");
         // 记录发布人
@@ -77,7 +77,7 @@ public class AdminDocController {
     public Document update(@RequestAttribute("kbUser") TokenClaims c,
                            @PathVariable Long id,
                            @RequestBody Document d) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         d.setContent(HtmlSanitizer.sanitize(d.getContent()));
         return docSvc.update(id, d, c.userId());
     }
@@ -85,7 +85,7 @@ public class AdminDocController {
     @DeleteMapping("/{id}")
     public Map<String, Object> delete(@RequestAttribute("kbUser") TokenClaims c,
                                       @PathVariable Long id) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         String title = docSvc.get(id).getTitle();
         docSvc.delete(id);
         audit.log(c.userId(), c.username(), "DELETE_DOC", "DOCUMENT", id, title, "将文档《" + clip(title) + "》移入回收站");
@@ -95,21 +95,21 @@ public class AdminDocController {
     /** 管理员：回收站（全部软删除文档） */
     @GetMapping("/recycle")
     public List<Document> recycle(@RequestAttribute("kbUser") TokenClaims c) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         return docSvc.listRecycleBin(null, true);
     }
 
     /** 管理员：从回收站恢复 */
     @PostMapping("/{id}/restore")
     public Document restore(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         return docSvc.restore(id, c.userId(), true);
     }
 
     /** 管理员：彻底删除（物理删除） */
     @DeleteMapping("/{id}/purge")
     public Map<String, Object> purge(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         docSvc.purge(id, c.userId(), true);
         return Map.of("ok", true);
     }
@@ -117,7 +117,7 @@ public class AdminDocController {
     @PostMapping("/{id}/block")
     public Map<String, Object> block(@RequestAttribute("kbUser") TokenClaims c,
                                      @PathVariable Long id) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         String title = docSvc.get(id).getTitle();
         docSvc.block(id);
         audit.log(c.userId(), c.username(), "BLOCK_DOC", "DOCUMENT", id, title, "封禁文档《" + clip(title) + "》");
@@ -127,7 +127,7 @@ public class AdminDocController {
     @PostMapping("/{id}/unblock")
     public Map<String, Object> unblock(@RequestAttribute("kbUser") TokenClaims c,
                                        @PathVariable Long id) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         String title = docSvc.get(id).getTitle();
         docSvc.unblock(id);
         audit.log(c.userId(), c.username(), "UNBLOCK_DOC", "DOCUMENT", id, title, "解封文档《" + clip(title) + "》");
@@ -144,14 +144,14 @@ public class AdminDocController {
     /** 管理员：置顶（列表优先展示） */
     @PostMapping("/{id}/pin")
     public Document pin(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         return docSvc.pin(id);
     }
 
     /** 管理员：取消置顶 */
     @PostMapping("/{id}/unpin")
     public Document unpin(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
-        requirePerm(c, "DOC_REVIEW");
+        requirePerm(c, "POST_MANAGE");
         return docSvc.unpin(id);
     }
 

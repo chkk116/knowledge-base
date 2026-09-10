@@ -6,6 +6,7 @@ import com.kb.kbplatform.security.CaptchaService;
 import com.kb.kbplatform.security.RateLimitService;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AuthService;
+import com.kb.kbplatform.service.BizException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -21,13 +22,16 @@ public class AuthController {
     private final UserRepository userRepo;
     private final CaptchaService captchaService;
     private final RateLimitService rateLimit;
+    private final com.kb.kbplatform.service.LoginLogService loginLogService;
 
     public AuthController(AuthService authService, UserRepository userRepo,
-                          CaptchaService captchaService, RateLimitService rateLimit) {
+                          CaptchaService captchaService, RateLimitService rateLimit,
+                          com.kb.kbplatform.service.LoginLogService loginLogService) {
         this.authService = authService;
         this.userRepo = userRepo;
         this.captchaService = captchaService;
         this.rateLimit = rateLimit;
+        this.loginLogService = loginLogService;
     }
 
     public static class LoginRequest {
@@ -51,17 +55,30 @@ public class AuthController {
         // 服务端限流才是真闸门）。IP 10 次/10 分钟；单用户名 5 次/10 分钟。
         String ip = request.getRemoteAddr();
         if (!rateLimit.allow("login:ip:" + ip, 10, 10L * 60 * 1000)) {
-            throw new RuntimeException("登录尝试过于频繁，请 10 分钟后再试");
+            throw new BizException("登录尝试过于频繁，请 10 分钟后再试");
         }
         String uname = r.username == null ? "" : r.username.trim().toLowerCase();
         if (!uname.isEmpty() && !rateLimit.allow("login:user:" + uname, 5, 10L * 60 * 1000)) {
-            throw new RuntimeException("该账号登录尝试过于频繁，请 10 分钟后再试");
+            throw new BizException("该账号登录尝试过于频繁，请 10 分钟后再试");
         }
         // 再校验滑动验证码票据（一次性 + 必须已完成滑动），失败直接拒绝，避免对密码做无谓校验
         if (!captchaService.consume(r.captchaToken)) {
-            throw new RuntimeException("请先完成滑动验证或刷新后重试");
+            throw new BizException("请先完成滑动验证或刷新后重试");
         }
-        return authService.login(r.username, r.password);
+        // 登录日志：成功/失败都记（失败含原因）。用户名原样记录，便于排查爆破来源。
+        String logName = r.username == null ? "" : r.username.trim();
+        try {
+            Map<String, Object> result = authService.login(r.username, r.password);
+            Object uid = result.get("id");
+            loginLogService.record(uid instanceof Number ? ((Number) uid).longValue() : null,
+                    logName, true, null, request);
+            return result;
+        } catch (RuntimeException e) {
+            // 找得到账号则带上 userId；用户名不存在则记 null
+            Long uid = userRepo.findByUsername(logName.toLowerCase()).map(User::getId).orElse(null);
+            loginLogService.record(uid, logName, false, e.getMessage(), request);
+            throw e;
+        }
     }
 
     /** 获取登录滑动拼图：返回 { token, bg, piece, w, h, pieceW, pieceH, pieceY }（正确缺口坐标仅存服务端） */
@@ -69,7 +86,7 @@ public class AuthController {
     public Map<String, Object> captcha(jakarta.servlet.http.HttpServletRequest request) {
         String ip = request.getRemoteAddr();
         if (!rateLimit.allow("captcha:ip:" + ip, 60, 60L * 1000)) {
-            throw new RuntimeException("验证码请求过于频繁，请稍后再试");
+            throw new BizException("验证码请求过于频繁，请稍后再试");
         }
         return captchaService.generate();
     }
@@ -137,10 +154,11 @@ public class AuthController {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("username", claims.username());
         m.put("role", claims.role());
-        m.put("permissions", u.isPresent() && u.get().getPermissions() != null ? u.get().getPermissions() : "");
+        m.put("permissions", u.isPresent() ? authService.effectivePermissions(u.get()) : "");
         m.put("id", u.isPresent() ? u.get().getId() : claims.userId());
         m.put("displayName", displayName);
         m.put("avatar", avatar);
+        m.put("avatarPending", u.map(x -> x.getAvatarPending()).orElse(null));   // 头像审核中标记（null=无待审）
         m.put("email", email);
         m.put("bio", bio);
         m.put("gender", gender);
@@ -151,6 +169,8 @@ public class AuthController {
         m.put("aiPersona", aiPersona);
         m.put("displayBadge", displayBadge);
         m.put("wornBadges", wornBadges);
+        m.put("departmentId", u.isPresent() ? u.get().getDepartmentId() : null);
+        m.put("departmentName", u.isPresent() ? authService.departmentNameOf(u.get().getDepartmentId()) : "");
         return m;
     }
 
@@ -176,10 +196,12 @@ public class AuthController {
         m.put("role", u.getRole());
         // 必须与 /auth/me 返回同样的身份字段：前端 setProfile() 会用这份响应整体覆盖
         // auth.user，缺 id/permissions 会导致「保存资料后后台权限全部丢失」（hasPerm 恒 false）。
-        m.put("permissions", u.getPermissions() == null ? "" : u.getPermissions());
+        m.put("permissions", authService.effectivePermissions(u));
         m.put("id", u.getId());
         m.put("displayName", displayName);
         m.put("avatar", u.getAvatar() == null ? "" : u.getAvatar());
+        m.put("avatarPending", u.getAvatarPending());   // 头像审核中标记
+        m.put("avatarStatus", u.getAvatarStatus() == null ? "APPROVED" : u.getAvatarStatus());
         m.put("email", u.getEmail() == null ? "" : u.getEmail());
         m.put("bio", u.getBio() == null ? "" : u.getBio());
         m.put("gender", u.getGender() == null ? "" : u.getGender());
@@ -189,6 +211,8 @@ public class AuthController {
         m.put("aiPersona", u.getAiPersona() == null ? "" : u.getAiPersona());
         m.put("displayBadge", u.getDisplayBadge() == null ? "" : u.getDisplayBadge());
         m.put("wornBadges", u.getWornList());
+        m.put("departmentId", u.getDepartmentId());
+        m.put("departmentName", authService.departmentNameOf(u.getDepartmentId()));
         return m;
     }
 
@@ -198,7 +222,7 @@ public class AuthController {
         // 抗刷：同一 IP 每小时最多注册 10 次，缓解批量注册与用户名枚举
         String ip = request.getRemoteAddr();
         if (!rateLimit.allow("register:" + ip, 10, 60L * 60 * 1000)) {
-            throw new RuntimeException("注册过于频繁，请稍后再试");
+            throw new BizException("注册过于频繁，请稍后再试");
         }
         authService.register(r.username, r.password, r.role, r.displayName);
         return Map.of("ok", true);

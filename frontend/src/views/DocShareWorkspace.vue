@@ -91,7 +91,13 @@ const load = async () => {
   loading.value = true
   await loadShare()
   await Promise.all([loadDocs(), loadMembers(), loadStorage()])
-  if (docs.value.length && !activeDoc.value) selectDoc(docs.value[0])
+  if (!activeDoc.value) {
+    // 支持 ?doc=<文档id> 深链：从导入页「打开文档」跳进来时，直接定位到那篇文档；
+    // 无深链或文档不存在（已删除/无权限）则回退打开列表第一篇
+    const want = Number(route.query.doc)
+    const target = (want && docs.value.find(d => d.id === want)) || docs.value[0]
+    if (target) selectDoc(target)
+  }
   loading.value = false
 }
 
@@ -121,9 +127,18 @@ const selectDoc = async (doc) => {
     const { data } = await getShareDoc(shareId.value, doc.id)
     activeDoc.value = data
     editorTitle.value = data.title
+    syncDocToUrl(doc.id)
   } catch (e) {
     ElMessage.error('读取文档失败')
   }
+}
+
+/** 把当前打开的文档 id 写进地址栏（?doc=<id>）。
+ *  旧行为：URL 永远停在空间首页，切换文档不反映到地址，
+ *  导致「想把这篇文档发给同事」只能发空间首页，对方还得自己找。 */
+const syncDocToUrl = (docId) => {
+  if (String(route.query.doc ?? '') === String(docId)) return
+  router.replace({ path: `/doc-shares/${shareId.value}`, query: { ...route.query, doc: docId } })
 }
 
 const createDoc = async () => {
@@ -433,6 +448,16 @@ watch(() => route.params.id, () => {
   activeDoc.value = null
   editorTitle.value = ''
   load()
+})
+
+// 地址栏 ?doc= 变化（浏览器前进/后退、外部深链、路径式别名跳转）时切到对应文档，不整页重载。
+// selectDoc 内部会 syncDocToUrl，但值相同时是 no-op，不会形成循环。
+watch(() => route.query.doc, async (want) => {
+  if (!want || !docs.value.length) return
+  const id = Number(want)
+  if (activeDoc.value?.id === id) return
+  const target = docs.value.find(d => d.id === id)
+  if (target) await selectDoc(target)
 })
 </script>
 

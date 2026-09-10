@@ -8,6 +8,7 @@ import com.kb.kbplatform.service.DocShareCapacityRequestService;
 import com.kb.kbplatform.service.DocShareCreateRequestService;
 import com.kb.kbplatform.service.DocShareService;
 import com.kb.kbplatform.service.DocumentImportService;
+import com.kb.kbplatform.service.OcrService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,15 +29,18 @@ public class DocShareController {
     private final DocumentImportService importSvc;
     private final DocShareCapacityRequestService capacityReqSvc;
     private final DocShareCreateRequestService createReqSvc;
+    private final OcrService ocrSvc;
 
     public DocShareController(DocShareService svc, UserRepository userRepo, AuditService audit, DocumentImportService importSvc,
-                              DocShareCapacityRequestService capacityReqSvc, DocShareCreateRequestService createReqSvc) {
+                              DocShareCapacityRequestService capacityReqSvc, DocShareCreateRequestService createReqSvc,
+                              OcrService ocrSvc) {
         this.svc = svc;
         this.userRepo = userRepo;
         this.audit = audit;
         this.importSvc = importSvc;
         this.capacityReqSvc = capacityReqSvc;
         this.createReqSvc = createReqSvc;
+        this.ocrSvc = ocrSvc;
     }
 
     @GetMapping("/my")
@@ -189,6 +193,28 @@ public class DocShareController {
         SharedDocument d = svc.createDoc(id, draft.get("title"), draft.get("content"), uid, isSysAdmin(c));
         audit.log(c.userId(), c.username(), "CREATE_SHARE_DOC", "SHARE_DOC", d.getId(), d.getTitle(),
                 "从外部文件导入共享文档「" + d.getTitle() + "」（" + file.getOriginalFilename() + "）");
+        return d;
+    }
+
+    /**
+     * 图片 OCR 导入：图片经智谱 GLM-4V-Flash 识别出文字，转成段落 HTML 后
+     * 作为一篇新的共享文档落库。权限同创建文档（需写入权限）。
+     * 文件类型/大小校验与识别失败均抛 IllegalStateException → 400（带中文 error）。
+     */
+    @PostMapping(value = "/{id}/docs/ocr", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public SharedDocument ocrDoc(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                 @RequestParam("file") MultipartFile file) throws java.io.IOException {
+        ocrSvc.validate(file.getContentType(), file.getSize());
+        String text = ocrSvc.recognize(file.getBytes(), file.getContentType());
+        if (text.isBlank()) {
+            throw new IllegalStateException("未能从图片中识别出文字，请确认图片内容清晰");
+        }
+        String name = file.getOriginalFilename() == null ? "图片" : file.getOriginalFilename();
+        int dot = name.lastIndexOf('.');
+        String title = (dot > 0 ? name.substring(0, dot) : name) + "（OCR）";
+        SharedDocument d = svc.createDoc(id, title, ocrSvc.toParagraphHtml(text), resolveUserId(c), isSysAdmin(c));
+        audit.log(c.userId(), c.username(), "CREATE_SHARE_DOC", "SHARE_DOC", d.getId(), d.getTitle(),
+                "图片 OCR 导入共享文档「" + d.getTitle() + "」（" + name + "）");
         return d;
     }
 

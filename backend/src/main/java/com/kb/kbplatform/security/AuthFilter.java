@@ -113,6 +113,7 @@ public class AuthFilter implements Filter {
     private boolean isPublic(String path, String method) {
         if (path.startsWith("/uploads")) return true;   // 已上传的图片可公开访问
         if (path.startsWith("/api/thumb")) return true;  // 文章正文缩略图：被动图片资源，公开可读（路径穿越防护在 ThumbController 内）
+        if (path.startsWith("/api/public/") && "GET".equals(method)) return true;  // 公开站点配置（登录页二维码等未认证页面读取）
         if ("/api/auth/login".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/register".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/captcha".equals(path) && "GET".equals(method)) return true;
@@ -142,7 +143,14 @@ public class AuthFilter implements Filter {
      *  共享文档管理拆分：查看 SHARE_VIEW / 删除 SHARE_DELETE / 容量 SHARE_CAPACITY */
     private String adminPermRequired(String path, String method) {
         if (path.startsWith("/api/admin/users")) return "USER_MANAGE";
-        if (path.startsWith("/api/admin/docs")) return "DOC_REVIEW";
+        if (path.startsWith("/api/admin/assets")) return "ASSET_MANAGE";
+        if (path.startsWith("/api/admin/docs")) {
+            // 拆分：文章审核（待审核队列 + 通过/驳回）= DOC_REVIEW；其余帖子管理操作 = POST_MANAGE
+            if (path.equals("/api/admin/docs/pending")) return "DOC_REVIEW";
+            if (path.matches("/api/admin/docs/\\d+/(approve|reject)")) return "DOC_REVIEW";
+            return "POST_MANAGE";
+        }
+        if (path.startsWith("/api/admin/avatars")) return "AVATAR_REVIEW";
         if (path.startsWith("/api/admin/stats")) return "STATS_VIEW";
         if (path.startsWith("/api/admin/categories")) return "TAXONOMY_MANAGE";
         if (path.startsWith("/api/admin/tags")) return "TAXONOMY_MANAGE";

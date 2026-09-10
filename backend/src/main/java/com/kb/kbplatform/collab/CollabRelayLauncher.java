@@ -53,8 +53,8 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
     @Value("${kb.collab.save-interval:5000}")
     private int saveInterval;
 
-    @Value("${kb.security.token-secret:kb-dev-secret-please-change-this-long-string-2026}")
-    private String tokenSecret;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.kb.kbplatform.security.TokenSecretProvider tokenSecretProvider;
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
@@ -110,7 +110,7 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
             // 注入与后端一致的密钥与数据源，环境变量的键与 collab-relay/index.js 对齐
             pb.environment().put("COLLAB_PORT", String.valueOf(port));
             pb.environment().put("COLLAB_SAVE_INTERVAL", String.valueOf(saveInterval));
-            pb.environment().put("KB_TOKEN_SECRET", tokenSecret);
+            pb.environment().put("KB_TOKEN_SECRET", tokenSecretProvider.get());
             DbConn db = parseDbUrl();
             pb.environment().put("COLLAB_DB_HOST", db.host);
             pb.environment().put("COLLAB_DB_PORT", String.valueOf(db.port));
@@ -179,11 +179,11 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
         return f;
     }
 
-    /** 解析 jdbc:mysql://host:port/db?... */
+    /** 解析 jdbc:mysql://host:port/db?... 或 jdbc:postgresql://host:port/db?... */
     private DbConn parseDbUrl() {
-        DbConn c = new DbConn("localhost", 3306, "kb");
+        DbConn c = new DbConn("localhost", 5432, "kb");
         if (dbUrl != null) {
-            Matcher m = Pattern.compile("jdbc:mysql://([^:/?]+)(?::(\\d+))?/([^?]+)").matcher(dbUrl);
+            Matcher m = Pattern.compile("jdbc:(?:mysql|postgresql|pgsql)://([^:/?]+)(?::(\\d+))?/([^?]+)").matcher(dbUrl);
             if (m.find()) {
                 c.host = m.group(1);
                 if (m.group(2) != null) c.port = Integer.parseInt(m.group(2));

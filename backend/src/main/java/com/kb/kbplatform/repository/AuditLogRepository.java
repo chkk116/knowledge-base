@@ -14,12 +14,12 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     // 任一参数为 null 即在 WHERE 中跳过该条件，单条查询覆盖全部组合，无需堆叠派生方法。
     @Query("SELECT a FROM AuditLog a WHERE " +
            "(:action IS NULL OR a.action = :action) AND " +
-           "(:actor IS NULL OR LOWER(a.actorName) LIKE LOWER(CONCAT('%', :actor, '%'))) AND " +
-           "(:start IS NULL OR a.createdAt >= :start) AND " +
-           "(:end IS NULL OR a.createdAt <= :end) " +
+           "(:actorPattern IS NULL OR :actorPattern = '' OR LOWER(a.actorName) LIKE LOWER(:actorPattern)) AND " +
+           "a.createdAt >= COALESCE(:start, a.createdAt) AND " +
+           "a.createdAt <= COALESCE(:end, a.createdAt) " +
            "ORDER BY a.createdAt DESC")
     Page<AuditLog> search(@Param("action") String action,
-                          @Param("actor") String actor,
+                          @Param("actorPattern") String actorPattern,
                           @Param("start") LocalDateTime start,
                           @Param("end") LocalDateTime end,
                           Pageable pageable);

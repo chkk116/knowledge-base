@@ -20,4 +20,8 @@ public interface BannedWordRepository extends JpaRepository<BannedWord, Long> {
 
     // 仅加载启用中词库的词（供实时过滤缓存）
     List<BannedWord> findByLibraryIdIn(List<Long> libraryIds);
+
+    /** 批量判重：只回传这批词里已存在的，替代 findAll() 把整张词表拉进内存 */
+    @org.springframework.data.jpa.repository.Query("select w.word from BannedWord w where w.word in :words")
+    java.util.Set<String> findExistingWords(@org.springframework.data.repository.query.Param("words") java.util.Collection<String> words);
 }

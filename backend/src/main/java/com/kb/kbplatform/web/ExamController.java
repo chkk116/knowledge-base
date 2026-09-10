@@ -33,8 +33,8 @@ public class ExamController {
 
     /** 公开：试卷详情（学员视角，不含答案） */
     @GetMapping("/{id}")
-    public Map<String, Object> paper(@PathVariable Long id) {
-        return svc.getPaperForStudent(id);
+    public Map<String, Object> paper(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        return svc.getPaperForStudent(c.userId(), id);
     }
 
     /** 登录：开始考试 */

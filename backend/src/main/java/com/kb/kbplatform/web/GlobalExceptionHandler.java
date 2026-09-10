@@ -36,6 +36,27 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(e.getStatusCode()).body(body);
     }
 
+    /** 业务性失败（评论内容为空/敏感词等用户输入不合规）：不算 HTTP 错误，
+     *  统一 200 + { ok:false, error }，前端按业务提示处理，避免在控制台留下 4xx 红字。 */
+    @ExceptionHandler(com.kb.kbplatform.service.BizException.class)
+    public ResponseEntity<Map<String, Object>> handleBiz(com.kb.kbplatform.service.BizException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("ok", false);
+        body.put("error", e.getMessage() == null ? "操作失败" : e.getMessage());
+        return ResponseEntity.ok(body);
+    }
+
+    /** 参数类型不匹配（如 /api/docs/abc 里的 id）：Spring 默认会把内部转换异常全文回显，
+     *  泄露参数名与类型。统一收敛为泛化文案，详情只在服务端日志。 */
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException e) {
+        log.warn("参数格式错误：{} = {}", e.getName(), e.getValue());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", "请求参数格式错误");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException e) {
         Map<String, Object> body = new LinkedHashMap<>();

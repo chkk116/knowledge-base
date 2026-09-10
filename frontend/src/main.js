@@ -14,7 +14,7 @@ import {
   ElPopover, ElProgress, ElRadio, ElRadioButton, ElRadioGroup, ElRow, ElSelect,
   ElSkeleton, ElSlider, ElSubMenu, ElSwitch, ElTabPane, ElTable, ElTableColumn,
   ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip, ElTree, ElTreeSelect,
-  ElUpload, ElWatermark, ElConfigProvider, ElLoadingDirective
+  ElDescriptions, ElDescriptionsItem, ElUpload, ElWatermark, ElConfigProvider, ElLoadingDirective
 } from 'element-plus'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 // —— 按需样式：56 个组件 + message/message-box/loading（命令式 API/指令）——
@@ -72,6 +72,8 @@ import 'element-plus/es/components/timeline-item/style/css'
 import 'element-plus/es/components/tooltip/style/css'
 import 'element-plus/es/components/tree/style/css'
 import 'element-plus/es/components/tree-select/style/css'
+import 'element-plus/es/components/descriptions/style/css'
+import 'element-plus/es/components/descriptions-item/style/css'
 import 'element-plus/es/components/upload/style/css'
 import 'element-plus/es/components/watermark/style/css'
 import 'element-plus/es/components/message/style/css'
@@ -82,7 +84,7 @@ import {
   HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
-  Setting, Tools, Edit, Warning, Switch, Delete
+  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase
 } from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
@@ -108,7 +110,7 @@ const EP_COMPONENTS = {
   ElMenu, ElMenuItem, ElOption, ElPageHeader, ElPagination, ElPopconfirm,
   ElPopover, ElProgress, ElRadio, ElRadioButton, ElRadioGroup, ElRow, ElSelect,
   ElSkeleton, ElSlider, ElSubMenu, ElSwitch, ElTabPane, ElTable, ElTableColumn,
-  ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip, ElTree, ElTreeSelect,
+  ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip,   ElTree, ElTreeSelect, ElDescriptions, ElDescriptionsItem,
   ElUpload, ElWatermark, ElConfigProvider
 }
 for (const [key, component] of Object.entries(EP_COMPONENTS)) {
@@ -122,7 +124,7 @@ const icons = {
   HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
-  Setting, Tools, Edit, Warning, Switch, Delete
+  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)
@@ -151,8 +153,11 @@ app.config.errorHandler = (err, _vm, info) => reportError((err && err.stack) || 
 // 其 PerformanceObserver 偶发读到 undefined entry 抛错，与本应用功能无关，同样过滤，避免红条刷屏。
 window.addEventListener('error', (e) => {
   const m = e.message || (e.error && e.error.message) || ''
-  if (m.includes('ResizeObserver loop completed with undelivered notifications')) return
-  if (m.includes('reportAllChanges') || m.includes("reading 'startTime'") || m.includes('reading "startTime"')) return
+  // ResizeObserver loop 是浏览器在布局重排时的无害警告（Element Plus 常见）；
+  // reportAllChanges/startTime 是外部注入的 web-vitals 探针（扩展/监控脚本）偶发抛错。
+  // 两者均为已知无害项：preventDefault 连控制台打印一并静默，其余错误照常上报红条。
+  if (m.includes('ResizeObserver loop completed with undelivered notifications')) { e.preventDefault(); return }
+  if (m.includes('reportAllChanges') || m.includes("reading 'startTime'") || m.includes('reading "startTime"')) { e.preventDefault(); return }
   reportError((e.error && e.error.stack) || e.message)
 })
 window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + ((e.reason && e.reason.stack) || e.reason)))

@@ -12,6 +12,9 @@ public interface DocSharePermissionRepository extends JpaRepository<DocSharePerm
 
     Optional<DocSharePermission> findByShareIdAndUserId(Long shareId, Long userId);
 
+    /** 批量取多个空间的权限行（列表页去 N+1 用） */
+    java.util.List<DocSharePermission> findByShareIdIn(java.util.Collection<Long> shareIds);
+
     void deleteByShareIdAndUserId(Long shareId, Long userId);
 
     long countByShareIdAndPermission(Long shareId, String permission);

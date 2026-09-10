@@ -20,6 +20,10 @@ export const adminUserStorage = (id) => api.get('/admin/users/' + id + '/storage
 // ---- 操作审计日志（仅管理员）----
 export const listAudit = (params = {}) => api.get('/admin/audit', { params })
 
+// ---- 登录日志（仅管理员）----
+// listLoginLogs({ username, success, start, end, page, size })
+export const listLoginLogs = (params = {}) => api.get('/admin/login-logs', { params })
+
 // ---- 附件（孤儿文件）管理（仅管理员）----
 // 服务端分页 + 过滤：listOrphanFiles({ page, size, kind, q })
 export const listOrphanFiles = (params = {}) => api.get('/admin/files/orphans', { params })
@@ -38,7 +42,36 @@ export const unblockDoc = (id) => api.post('/admin/docs/' + id + '/unblock')
 export const pinDoc = (id) => api.post('/admin/docs/' + id + '/pin')
 export const unpinDoc = (id) => api.post('/admin/docs/' + id + '/unpin')
 
+// ---- 部门成员 ----
+// 批量把用户加入部门（原属其他部门的用户会被移动过来）
+export const assignDepartmentMembers = (id, userIds) => api.post('/admin/departments/' + id + '/members', { userIds })
+// 把单个用户移出部门
+export const removeDepartmentMember = (id, userId) => api.delete('/admin/departments/' + id + '/members/' + userId)
+
 // ---- 审核队列（仅管理员）----
 export const listPending = () => api.get('/admin/docs/pending')
 export const approveDoc = (id) => api.post('/admin/docs/' + id + '/approve')
 export const rejectDoc = (id, reason) => api.post('/admin/docs/' + id + '/reject', { reason })
+
+// 头像审核（方案 A：通过转正 / 驳回沿用旧头像）
+export const listPendingAvatars = () => api.get('/admin/avatars/pending')
+export const approveAvatar = (id) => api.post('/admin/avatars/' + id + '/approve')
+export const rejectAvatar = (id) => api.post('/admin/avatars/' + id + '/reject')
+
+// ---- 角色管理（仅管理员，需 USER_MANAGE）----
+export const listRoles = () => api.get('/admin/roles')
+export const createRole = (d) => api.post('/admin/roles', d)
+export const updateRole = (id, d) => api.put('/admin/roles/' + id, d)
+export const deleteRole = (id) => api.delete('/admin/roles/' + id)
+
+// ---- 部门管理（仅管理员，需 USER_MANAGE）----
+// listDepartments() 返回扁平列表，前端按 parentId 自组装成树
+export const listDepartments = () => api.get('/admin/departments')
+export const createDepartment = (d) => api.post('/admin/departments', d)
+export const updateDepartment = (id, d) => api.put('/admin/departments/' + id, d)
+export const deleteDepartment = (id) => api.delete('/admin/departments/' + id)
+
+// ---- 用户角色 / 部门分配 ----
+// 角色 / 部门在用户新建、编辑接口（createUser / updateUser）中通过 roleIds / departmentId 字段一并提交。
+// 编辑表单预填时，先拉取该用户的角色 id 列表与部门 id（安全视图，不含密码）。
+export const getUserDetail = (id) => api.get('/admin/users/' + id)

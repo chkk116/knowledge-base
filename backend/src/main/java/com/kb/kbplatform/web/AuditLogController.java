@@ -38,9 +38,10 @@ public class AuditLogController {
         }
         if (page < 0) page = 0;
         if (size <= 0 || size > 100) size = 20;
+        String actorPattern = (actor != null && !actor.isBlank()) ? "%" + actor.trim() + "%" : null;
         return repo.search(
                 action != null && !action.isBlank() ? action : null,
-                actor != null && !actor.isBlank() ? actor.trim() : null,
+                actorPattern,
                 start, end,
                 PageRequest.of(page, size));
     }

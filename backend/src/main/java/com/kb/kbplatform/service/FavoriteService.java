@@ -29,6 +29,11 @@ public class FavoriteService {
     /** 切换收藏：已收藏则取消（返回 false），未收藏则收藏（返回 true） */
     @Transactional
     public boolean toggle(Long userId, Long docId) {
+        // 安全/数据完整性：不存在或已删除的文档不允许被收藏（否则可灌入 doc_id 为负数/已删文档的幽灵收藏）
+        Document target = docRepo.findById(docId).orElse(null);
+        if (target == null || target.isDeleted()) {
+            throw new BizException("文档不存在或已删除");
+        }
         if (favoriteRepo.existsByUserIdAndDocId(userId, docId)) {
             favoriteRepo.deleteByUserIdAndDocId(userId, docId);
             return false;

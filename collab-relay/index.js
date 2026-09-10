@@ -86,7 +86,7 @@ async function myPermission(shareId, userId, role) {
   )
   if (!rows.length) return null
   const r = rows[0]
-  if (r.ownerId === userId) return 'OWNER'
+  if (Number(r.ownerId) === userId) return 'OWNER'
   return r.perm || null
 }
 

@@ -17,6 +17,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /** 按角色查询用户（用于「通知全体管理员」等场景） */
     List<User> findByRole(String role);
 
+    /** 按部门查询成员（清理部门前解绑用） */
+    List<User> findByDepartmentId(Long departmentId);
+
     /** 选人搜索空关键词场景：仅取前 N 个启用用户（DB LIMIT 分页），避免全表加载 */
     Page<User> findByEnabledTrue(Pageable pageable);
 
@@ -48,7 +51,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u.points FROM User u WHERE u.id = :id")
     Integer findPointsById(@Param("id") Long id);
 
+    /** 头像审核：待审用户列表 */
+    List<User> findByAvatarPendingIsNotNull();
+
     /** 附件管理：仅取引用了上传目录的头像 URL（标量投影，避免为扫头像而全量加载 User 实体） */
     @Query("SELECT u.avatar FROM User u WHERE u.avatar IS NOT NULL AND u.avatar LIKE '/uploads/%'")
     List<String> findAllUploadAvatars();
+
+    /** 附件管理：待审头像同样占用上传目录，孤儿清理时须一并计入 */
+    @Query("SELECT u.avatarPending FROM User u WHERE u.avatarPending IS NOT NULL AND u.avatarPending LIKE '/uploads/%'")
+    List<String> findAllPendingUploadAvatars();
 }

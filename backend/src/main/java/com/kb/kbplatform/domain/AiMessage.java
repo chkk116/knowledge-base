@@ -24,6 +24,10 @@ public class AiMessage {
     @Column(columnDefinition = "text", nullable = false)
     private String content;
 
+    /** 引用来源快照（JSON 数组：[{id,title,snippet}]），仅 AI 消息有；历史消息重开页面后仍可显示 */
+    @Column(columnDefinition = "text")
+    private String sources;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     public Long getId() { return id; }
@@ -37,6 +41,9 @@ public class AiMessage {
 
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+
+    public String getSources() { return sources; }
+    public void setSources(String sources) { this.sources = sources; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

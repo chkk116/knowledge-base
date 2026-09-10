@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound, Plus, Delete, EditPen, ChatLineRound, Document,
   Paperclip, Link, ArrowDown, CopyDocument, Refresh, Reading, Promotion,
-  Fold, Expand
+  Fold, Expand, VideoPause
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
 import {
@@ -31,6 +31,8 @@ const convMessages = ref({})
 const input = ref('')
 const loadingSet = ref(new Set())
 const loading = computed(() => (currentId.value ? loadingSet.value.has(currentId.value) : false))
+const abortCtrl = ref(null)   // 当前请求的中断控制器（停止生成按钮用）
+function stopAi() { abortCtrl.value?.abort() }
 const bodyRef = ref(null)
 const messages = computed(() => (currentId.value ? (convMessages.value[currentId.value] || []) : []))
 const started = computed(() => messages.value.length > 0)
@@ -138,7 +140,7 @@ async function loadMessages(id, { silent = false } = {}) {
   loadingMessages.value = true
   try {
     const { data } = await listMessages(id)
-    convMessages.value[id] = (data || []).map((m) => ({ role: m.role, content: m.content }))
+    convMessages.value[id] = (data || []).map((m) => ({ role: m.role, content: m.content, sources: m.sources || [], mode: m.mode || 'kb' }))
   } catch {
     ElMessage.error('加载历史消息失败')
     convMessages.value[id] = []
@@ -214,7 +216,8 @@ async function send(text) {
   scrollToBottom()
 
   try {
-    const { data } = await aiAsk(q, convId, mode.value)
+    abortCtrl.value = new AbortController()
+    const { data } = await aiAsk(q, convId, mode.value, { signal: abortCtrl.value.signal })
     const curAi = convMessages.value[convId] || []
     convMessages.value[convId] = [...curAi, {
       role: 'ai', content: data.answer || '（暂无返回内容）',
@@ -226,10 +229,12 @@ async function send(text) {
       const idx = conversations.value.findIndex((c) => c.id === convId)
       if (idx > 0) { const [item] = conversations.value.splice(idx, 1); conversations.value.unshift(item) }
     }
-  } catch {
+  } catch (e) {
     const curErr = convMessages.value[convId] || []
-    convMessages.value[convId] = [...curErr, { role: 'ai', content: '请求失败，请稍后重试。', sources: [], mode: mode.value }]
+    const stopped = e && (e.name === 'CanceledError' || e.code === 'ERR_CANCELED')
+    convMessages.value[convId] = [...curErr, { role: 'ai', content: stopped ? '（已停止生成）' : '请求失败，请稍后重试。', sources: [], mode: mode.value }]
   } finally {
+    abortCtrl.value = null
     loadingSet.value.delete(convId)
     if (currentId.value === convId) scrollToBottom()
   }
@@ -247,15 +252,18 @@ async function regenerate() {
   loadingSet.value.add(convId)
   await nextTick()
   try {
-    const { data } = await aiAsk(lastQ, convId, mode.value)
+    abortCtrl.value = new AbortController()
+    const { data } = await aiAsk(lastQ, convId, mode.value, { signal: abortCtrl.value.signal })
     const newArr = [...arr]
     const aiMsg = { role: 'ai', content: data.answer || '（暂无返回内容）', sources: data.sources || [], mode: mode.value }
     if (newArr[ui + 1] && newArr[ui + 1].role === 'ai') newArr[ui + 1] = aiMsg
     else newArr.splice(ui + 1, 0, aiMsg)
     convMessages.value[convId] = newArr
-  } catch {
-    ElMessage.error('重新生成失败，请稍后重试')
+  } catch (e) {
+    const stopped = e && (e.name === 'CanceledError' || e.code === 'ERR_CANCELED')
+    if (!stopped) ElMessage.error('重新生成失败，请稍后重试')
   } finally {
+    abortCtrl.value = null
     loadingSet.value.delete(convId)
     if (currentId.value === convId) scrollToBottom()
   }
@@ -570,10 +578,13 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
               <el-tooltip content="上传文件" placement="top" :show-after="300">
                 <button type="button" class="ai-round-btn ghost" @click="onUpload"><el-icon><Paperclip /></el-icon></button>
               </el-tooltip>
-              <button type="button" class="ai-send" :disabled="loading" @click="send()">
-                <el-icon v-if="!loading"><Promotion /></el-icon>
-                <span class="ai-send-spinner" v-else></span>
+              <button v-if="!loading" type="button" class="ai-send" @click="send()">
+                <el-icon><Promotion /></el-icon>
                 <span>发送</span>
+              </button>
+              <button v-else type="button" class="ai-send stop" title="停止生成" @click="stopAi">
+                <el-icon><VideoPause /></el-icon>
+                <span>停止</span>
               </button>
             </div>
           </div>
@@ -920,6 +931,7 @@ html.dark .ai-round-btn.ghost:hover { background: #26264f; border-color: #4f46e5
 .ai-send:hover:not(:disabled) { filter: brightness(1.08); }
 .ai-send:active:not(:disabled) { transform: translateY(1px); }
 .ai-send:disabled { opacity: .65; cursor: default; }
+.ai-send.stop { background: linear-gradient(135deg,#f87171,#dc2626); }
 .ai-send-spinner {
   width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4);
   border-top-color: #fff; animation: ai-spin .8s linear infinite;

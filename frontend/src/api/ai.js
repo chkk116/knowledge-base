@@ -2,8 +2,10 @@ import api from './request'
 
 // AI 智能问答：body { question, conversationId?, mode? }，返回 { answer, conversationId, title, sources? }
 // mode: 'kb'(基于知识库检索, 默认) | 'general'(纯通用问答)
-export const aiAsk = (question, conversationId, mode) =>
-  api.post('/ai/ask', { question, conversationId, mode })
+// timeout 单独放宽：全局 15s，但 RAG 检索 + 大模型生成实测常超 15s，会被 axios 掐断
+// config 可传 { signal }（AbortController）用于前端「停止生成」按钮中断请求
+export const aiAsk = (question, conversationId, mode, config = {}) =>
+  api.post('/ai/ask', { question, conversationId, mode }, { timeout: 120000, ...config })
 
 // 会话列表
 export const listConversations = () =>

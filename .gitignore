@@ -20,6 +20,9 @@ src-backup-*.tar.gz
 # 运行时上传文件（头像/附件等，非源码，按环境生成）
 backend/uploads/
 
+# 运行时生成的缩略图缓存（按环境生成，可随时重建）
+backend/thumbs/
+
 # WorkBuddy 项目内部数据
 .workbuddy/
 

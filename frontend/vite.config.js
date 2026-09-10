@@ -56,6 +56,9 @@ function precompressPlugin() {
 }
 
 export default defineConfig({
+  // 缓存目录挪到系统临时目录：node_modules/.vite 里的 deps_temp_* 批量清理
+  // 会触发 safe-delete 钩子（>50 文件要求确认，fail-closed 直接崩进程）
+  cacheDir: 'C:/Users/Administrator/AppData/Local/Temp/kb-vite-cache',
   plugins: [vue(), precompressPlugin()],
   server: {
     port: 5173,

@@ -39,7 +39,10 @@ const routes = [
   { path: '/exams/mine', component: () => import('../views/ExamMine.vue'), meta: { title: '我的成绩', maintenance: 'exams' } },
   // 共享文档：协作空间
   { path: '/doc-shares', component: () => import('../views/DocShareList.vue'), meta: { title: '共享文档', maintenance: 'doc_shares' } },
+  { path: '/doc-shares/import', component: () => import('../views/DocShareImport.vue'), meta: { title: '导入文档', maintenance: 'doc_shares' } },
   { path: '/doc-shares/:id', component: () => import('../views/DocShareWorkspace.vue'), meta: { title: '协作空间', maintenance: 'doc_shares' } },
+  // 文档级深链：/doc-shares/12/docs/34 统一收敛到 ?doc= 形式（工作区唯一canonical地址，便于复制分享单篇文档）
+  { path: '/doc-shares/:id/docs/:docId', redirect: to => `/doc-shares/${to.params.id}?doc=${to.params.docId}` },
   // 积分明细：个人资料「查看完整明细」跳转，带分页 + 类型筛选的独立页
   { path: '/points/log', component: () => import('../views/PointsLog.vue'), meta: { title: '积分明细', maintenance: 'points' } },
   { path: '/notifications', component: () => import('../views/Notifications.vue'), meta: { title: '通知' } },
@@ -49,18 +52,24 @@ const routes = [
   { path: '/user/:id', component: () => import('../views/UserProfile.vue'), meta: { title: '用户主页' } },
   // 管理后台：RBAC 细粒度权限（ADMIN 隐式拥有全部，普通用户需对应权限码）
   { path: '/admin/users', component: () => import('../views/admin/UserManage.vue'), meta: { admin: true, perm: 'USER_MANAGE', title: '用户管理' } },
-  { path: '/admin/docs', component: () => import('../views/admin/DocManage.vue'), meta: { admin: true, perm: 'DOC_REVIEW', title: '帖子管理' } },
+  { path: '/admin/roles', component: () => import('../views/admin/RoleManage.vue'), meta: { admin: true, perm: 'USER_MANAGE', title: '角色管理' } },
+  { path: '/admin/departments', component: () => import('../views/admin/DepartmentManage.vue'), meta: { admin: true, perm: 'USER_MANAGE', title: '部门管理' } },
+  { path: '/admin/docs', component: () => import('../views/admin/DocManage.vue'), meta: { admin: true, perm: 'POST_MANAGE', title: '帖子管理' } },
+  { path: '/admin/review', component: () => import('../views/admin/ReviewQueue.vue'), meta: { admin: true, perm: 'DOC_REVIEW', title: '文章审核' } },
   { path: '/admin/stats', component: () => import('../views/admin/Dashboard.vue'), meta: { admin: true, perm: 'STATS_VIEW', title: '数据看板' } },
   { path: '/admin/taxonomy', component: () => import('../views/admin/TaxonomyManage.vue'), meta: { admin: true, perm: 'TAXONOMY_MANAGE', title: '分类标签' } },
   { path: '/admin/announcements', component: () => import('../views/admin/AnnouncementManage.vue'), meta: { admin: true, perm: 'ANNOUNCEMENT_MANAGE', title: '公告管理' } },
   { path: '/admin/blacklist', component: () => import('../views/admin/Blacklist.vue'), meta: { admin: true, perm: 'BLACKLIST_MANAGE', title: '黑名单' } },
   { path: '/admin/audit', component: () => import('../views/admin/AuditLog.vue'), meta: { adminOnly: true, title: '操作审计' } },
+  { path: '/admin/login-logs', component: () => import('../views/admin/LoginLog.vue'), meta: { adminOnly: true, title: '登录日志' } },
   { path: '/admin/files', component: () => import('../views/admin/AttachmentManage.vue'), meta: { adminOnly: true, title: '附件管理' } },
   { path: '/admin/courses', component: () => import('../views/admin/CourseManage.vue'), meta: { admin: true, perm: 'COURSE_MANAGE', title: '培训管理' } },
   { path: '/admin/exams', component: () => import('../views/admin/ExamManage.vue'), meta: { admin: true, perm: 'EXAM_MANAGE', title: '考试管理' } },
   { path: '/admin/doc-shares', component: () => import('../views/admin/DocShareManage.vue'), meta: { admin: true, perm: 'SHARE_VIEW', title: '共享文档管理' } },
+  { path: '/admin/assets', component: () => import('../views/admin/AssetManage.vue'), meta: { admin: true, perm: 'ASSET_MANAGE', title: '资产管理' } },
   { path: '/admin/maintain', component: () => import('../views/admin/CoreMaintain.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '核心维护' } },
   { path: '/admin/watermark', component: () => import('../views/admin/WatermarkSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '水印设置' } },
+  { path: '/admin/login-qr', component: () => import('../views/admin/LoginQrSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '登录页二维码' } },
   { path: '/admin/banned-words', component: () => import('../views/admin/BannedWordsManage.vue'), meta: { admin: true, perm: 'BANNED_WORDS_MANAGE', title: '违禁词管理' } },
   // 未开放 / 建设中功能统一提示页：?feature=功能名
   { path: '/coming-soon', component: () => import('../views/ComingSoon.vue'), meta: { title: '敬请期待' } },

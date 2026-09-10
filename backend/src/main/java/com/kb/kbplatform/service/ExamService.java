@@ -58,10 +58,15 @@ public class ExamService {
         return list;
     }
 
-    /** 公开（登录）：学员考试视角——题目与选项，但不返回正确答案 */
-    public Map<String, Object> getPaperForStudent(Long paperId) {
+    /** 学员考试视角——题目与选项，但不返回正确答案。
+     *  防泄题闸门：必须先 POST /{id}/start 成功（存在该用户该试卷的进行中记录）才发题，
+     *  否则前置校验（结业考试章节门禁等）被 400 拦截后，直接刷 GET 仍能拿到全部考题。 */
+    public Map<String, Object> getPaperForStudent(Long userId, Long paperId) {
         ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
         if (!"PUBLISHED".equals(paper.getStatus())) throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
+        boolean started = recordRepo.findByUserIdOrderByStartedAtDesc(userId).stream()
+                .anyMatch(r -> r.getPaperId().equals(paperId) && r.getSubmittedAt() == null);
+        if (!started) throw new ResponseStatusException(FORBIDDEN, "请先开始考试");
         List<ExamPaperQuestion> pqs = pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(paperId);
         Map<Long, ExamPaperQuestion> pqMap = new LinkedHashMap<>();
         for (ExamPaperQuestion pq : pqs) pqMap.put(pq.getQuestionId(), pq);
@@ -102,18 +107,18 @@ public class ExamService {
             return inProgress.get(0);
         }
         // #2 结业考试前置校验：若该试卷是某课程的结业考试，须学完所有章节才能考
+        // 结业考试可能被多门课程绑定：必须学完【每一门】绑定课程的全部章节（此前只校验第一门，
+        // 会出现在 A 课已学完却被无关的 B 课卡住的情况）
         List<Course> bound = courseRepo.findByExamPaperId(paperId);
-        if (!bound.isEmpty()) {
-            Course course = bound.get(0);
+        for (Course course : bound) {
             List<CourseChapter> chapters = chapterRepo.findByCourseIdOrderBySortOrderAscIdAsc(course.getId());
-            if (!chapters.isEmpty()) {
-                List<Long> chapterIds = chapters.stream().map(CourseChapter::getId).toList();
-                List<LearningProgress> progs = progressRepo.findByUserIdAndCourseId(userId, course.getId());
-                boolean allDone = chapterIds.stream().allMatch(cid ->
-                        progs.stream().anyMatch(p -> p.getChapterId().equals(cid) && p.isFinished()));
-                if (!allDone) {
-                    throw new ResponseStatusException(BAD_REQUEST, "请先完成《" + course.getTitle() + "》的全部章节后再参加结业考试");
-                }
+            if (chapters.isEmpty()) continue;   // 无章节的课程不设卡
+            List<Long> chapterIds = chapters.stream().map(CourseChapter::getId).toList();
+            List<LearningProgress> progs = progressRepo.findByUserIdAndCourseId(userId, course.getId());
+            boolean allDone = chapterIds.stream().allMatch(cid ->
+                    progs.stream().anyMatch(p -> p.getChapterId().equals(cid) && p.isFinished()));
+            if (!allDone) {
+                throw new ResponseStatusException(BAD_REQUEST, "请先完成《" + course.getTitle() + "》的全部章节后再参加结业考试");
             }
         }
         ExamRecord rec = new ExamRecord();

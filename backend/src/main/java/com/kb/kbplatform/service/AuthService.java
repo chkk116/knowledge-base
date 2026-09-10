@@ -7,6 +7,7 @@ import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
 import com.kb.kbplatform.security.PasswordUtil;
 import com.kb.kbplatform.security.TokenUtil;
+import com.kb.kbplatform.service.OrgService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,16 +29,22 @@ public class AuthService {
 
     private final UserRepository userRepo;
     private final PointsLogRepository pointsLogRepo;
+    private final OrgService orgService;
 
-    @Value("${kb.security.token-secret}")
-    private String secret;
+    private final com.kb.kbplatform.security.TokenSecretProvider secretProvider;
+    private final NotificationService notificationService;
 
     @Value("${kb.security.token-ttl:86400000}")
     private long ttl;
 
-    public AuthService(UserRepository userRepo, PointsLogRepository pointsLogRepo) {
+    public AuthService(UserRepository userRepo, PointsLogRepository pointsLogRepo, OrgService orgService,
+                        com.kb.kbplatform.security.TokenSecretProvider secretProvider,
+                        NotificationService notificationService) {
         this.userRepo = userRepo;
         this.pointsLogRepo = pointsLogRepo;
+        this.orgService = orgService;
+        this.secretProvider = secretProvider;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -91,12 +98,16 @@ public class AuthService {
     @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> login(String username, String password) {
         User u = userRepo.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
+                .orElseThrow(() -> new BizException("用户名或密码错误"));
         if (!u.isEnabled()) {
-            throw new RuntimeException("账号已被禁用，请联系管理员");
+            throw new BizException("账号已被禁用，请联系管理员");
         }
         if (!PasswordUtil.matches(password, u.getPassword())) {
-            throw new RuntimeException("用户名或密码错误");
+            throw new BizException("用户名或密码错误");
+        }
+        // 透明升级：存量用户仍为旧 salt:sha256 格式时，登录成功即重哈希为 PBKDF2（有工作因子，抗离线爆破）
+        if (!PasswordUtil.isUpgraded(u.getPassword())) {
+            u.setPassword(PasswordUtil.encode(password));
         }
         // 每日登录发分（当天已登录过则不再重复发，避免刷分）
         LocalDate today = LocalDate.now();
@@ -105,7 +116,10 @@ public class AuthService {
             u.setLastLoginDate(today);
         }
         userRepo.save(u);
-        String token = TokenUtil.generate(secret, u.getId(), u.getUsername(), u.getRole(), u.getPermissions(), ttl, u.getTokenVersion());
+        // 最终有效权限 = 直接权限 ∪ 所有角色权限；ADMIN 角色在 TokenClaims 中隐式全权，无需展开。
+        // 展开进 token 的 permissions 快照，使 AuthFilter 无需回查数据库即可按角色鉴权。
+        String effectivePerms = orgService.effectivePermissionsString(u);
+        String token = TokenUtil.generate(secretProvider.get(), u.getId(), u.getUsername(), u.getRole(), effectivePerms, ttl, u.getTokenVersion());
         String displayName = u.getDisplayName() == null || u.getDisplayName().isBlank()
                 ? u.getUsername() : u.getDisplayName();
         // 注意：Map.of 最多支持 10 个键值对，此处字段超过 10 个（含 id），改用 LinkedHashMap 保持顺序且可扩展
@@ -113,7 +127,7 @@ public class AuthService {
         m.put("token", token);
         m.put("username", u.getUsername());
         m.put("role", u.getRole());
-        m.put("permissions", u.getPermissions() == null ? "" : u.getPermissions());
+        m.put("permissions", effectivePerms);
         m.put("id", u.getId());
         m.put("displayName", displayName);
         m.put("avatar", u.getAvatar() == null ? "" : u.getAvatar());
@@ -122,7 +136,19 @@ public class AuthService {
         m.put("points", u.getPoints());
         m.put("createdAt", u.getCreatedAt() == null ? "" : u.getCreatedAt().toString());
         m.put("aiPersona", u.getAiPersona() == null ? "" : u.getAiPersona());
+        m.put("departmentId", u.getDepartmentId());
+        m.put("departmentName", orgService.departmentNameOf(u.getDepartmentId()));
         return m;
+    }
+
+    /** 取用户最终有效权限串（供 /auth/me、/auth/profile 回写前端权限快照，与登录令牌保持一致） */
+    public String effectivePermissions(User u) {
+        return orgService.effectivePermissionsString(u);
+    }
+
+    /** 部门名称（供 /auth/me、/auth/profile 回显）；无部门返回空串 */
+    public String departmentNameOf(Long deptId) {
+        return orgService.departmentNameOf(deptId);
     }
 
     public void register(String username, String password, String role, String displayName) {
@@ -155,7 +181,24 @@ public class AuthService {
             if (avatar.isBlank() || avatar.startsWith("http://")
                     || avatar.startsWith("https://") || avatar.startsWith("data:image/")
                     || avatar.startsWith("/uploads/")) {
-                u.setAvatar(avatar);   // 允许为空串，用于重置为默认头像
+                if (avatar.isBlank()) {
+                    // 重置为默认头像无需审核：直接生效并清掉待审
+                    u.setAvatar("");
+                    u.setAvatarPending(null);
+                    u.setAvatarStatus("APPROVED");
+                } else {
+                    // 头像审核流（方案 A）：新头像进待审区，通过前展示区继续用旧头像
+                    boolean isNewPending = !avatar.equals(u.getAvatarPending());
+                    u.setAvatarPending(avatar);
+                    u.setAvatarStatus("PENDING");
+                    // 仅在「新的待审头像」时通知一次，同一张图反复点保存不刷屏
+                    if (isNewPending) {
+                        notificationService.notifyAvatar(u.getId(), "AVATAR_PENDING",
+                                "您的新头像已提交审核，通过前对外仍展示原头像，请勿重复提交");
+                        // 提审同步通知全体管理员（与文章提审同一范式），管理员本人提交则跳过自己
+                        notificationService.notifyAvatarReviewSubmit(u.getId(), u.getUsername());
+                    }
+                }
             } else {
                 u.setAvatar("");
             }
@@ -181,12 +224,12 @@ public class AuthService {
     public void changePassword(String username, String oldPassword, String newPassword) {
         if (oldPassword == null || oldPassword.isBlank()
                 || newPassword == null || newPassword.length() < 6) {
-            throw new RuntimeException("原密码/新密码不合法（新密码至少 6 位）");
+            throw new BizException("原密码/新密码不合法（新密码至少 6 位）");
         }
         User u = userRepo.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("账号不存在"));
+                .orElseThrow(() -> new BizException("账号不存在"));
         if (!PasswordUtil.matches(oldPassword, u.getPassword())) {
-            throw new RuntimeException("原密码错误");
+            throw new BizException("原密码错误");
         }
         u.setPassword(PasswordUtil.encode(newPassword));
         u.setTokenVersion(u.getTokenVersion() + 1);   // 用户改密后，旧 token 立即失效

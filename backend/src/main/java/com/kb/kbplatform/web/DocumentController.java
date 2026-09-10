@@ -3,6 +3,7 @@ package com.kb.kbplatform.web;
 import com.kb.kbplatform.domain.Document;
 import com.kb.kbplatform.domain.DocumentVersion;
 import com.kb.kbplatform.domain.User;
+import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
 import com.kb.kbplatform.security.SensitiveWordFilter;
@@ -36,17 +37,33 @@ public class DocumentController {
 
     private final DocumentService svc;
     private final UserRepository userRepo;
+    private final DocumentRepository docRepo;
     private final DocumentImportService importSvc;
     private final DocSubscriptionService subSvc;
     private final SensitiveWordFilter sensitiveWordFilter;
 
-    public DocumentController(DocumentService svc, UserRepository userRepo, DocumentImportService importSvc,
-                              DocSubscriptionService subSvc, SensitiveWordFilter sensitiveWordFilter) {
+    public DocumentController(DocumentService svc, UserRepository userRepo, DocumentRepository docRepo,
+                              DocumentImportService importSvc, DocSubscriptionService subSvc,
+                              SensitiveWordFilter sensitiveWordFilter) {
         this.svc = svc;
         this.userRepo = userRepo;
+        this.docRepo = docRepo;
         this.importSvc = importSvc;
         this.subSvc = subSvc;
         this.sensitiveWordFilter = sensitiveWordFilter;
+    }
+
+    /** 登录用户：首页轻量数据概览 —— 已发布文档总数 / 本周新增 / 启用成员数；管理员或 STATS_VIEW 附待审核数 */
+    @GetMapping("/overview")
+    public Map<String, Object> overview(@RequestAttribute("kbUser") TokenClaims c) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("totalDocs", docRepo.countByStatus("PUBLISHED"));
+        m.put("weekNew", docRepo.countByStatusAndCreatedAtAfter("PUBLISHED", java.time.LocalDateTime.now().minusDays(7)));
+        m.put("members", userRepo.count() - userRepo.countByEnabledFalse());
+        if ("ADMIN".equals(c.role()) || c.hasPerm("STATS_VIEW")) {
+            m.put("pendingReview", docRepo.countByStatus("PENDING_REVIEW"));
+        }
+        return m;
     }
 
     /** 公开：文档列表（分页，仅已发布文档）。page 从 0 开始，size 默认 15，上限 100；sort=hot 按浏览量（热帖）排序 */

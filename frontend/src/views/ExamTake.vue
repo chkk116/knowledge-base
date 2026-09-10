@@ -119,9 +119,16 @@ const load = () => {
     }
   }).catch(e => { ElMessage.error(e.response?.data?.error || '试卷加载失败'); router.push('/quiz') })
 }
+// 防泄题：必须先 start 成功（拿到 recordId）才拉题目；start 被前置校验拦截时绝不加载试卷
 const begin = () => startExam(route.params.id)
-  .then(r => { recordId.value = (r.data || r).id })
-  .catch(e => ElMessage.error(e.response?.data?.error || '开始考试失败'))
+  .then(r => {
+    recordId.value = (r.data || r).id
+    load()
+  })
+  .catch(e => {
+    ElMessage.error(e.response?.data?.error || '开始考试失败')
+    router.push('/quiz')
+  })
 
 const buildItems = () => paper.value.questions.map(q => {
   let answer
@@ -139,7 +146,7 @@ const submit = () => {
     .catch(e => { submitting.value = false; ElMessage.error(e.response?.data?.error || '交卷失败') })
 }
 
-onMounted(() => { load(); begin() })
+onMounted(() => { begin() })
 onUnmounted(() => clearInterval(timer))
 </script>
 

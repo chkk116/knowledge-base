@@ -73,6 +73,7 @@ const commentedDocs = ref([])
 const favoriteDocs = ref([])
 const loadingMine = ref(false)
 const showAvatarPicker = ref(false)
+const avatarPending = ref(null)   // 待审新头像 URL（null=无待审）——用于「审核中」持久提示与角标
 
 onMounted(() => {
   displayName.value = auth.user?.displayName || auth.user?.username || ''
@@ -80,6 +81,7 @@ onMounted(() => {
   bio.value = auth.user?.bio || ''
   gender.value = auth.user?.gender || ''
   avatar.value = auth.user?.avatar || ''
+  avatarPending.value = auth.user?.avatarPending || null
   loadDocs()
   loadLog()
   loadMine()
@@ -191,7 +193,13 @@ async function save() {
       gender: gender.value,
     })
     auth.setProfile(data)
-    ElMessage.success('资料已更新')
+    avatarPending.value = data.avatarPending || null
+    if (data.avatarPending) {
+      // 弹提示 + 页面持久「审核中」横幅/角标双保险，避免用户误以为没保存而反复提交
+      ElMessage({ type: 'warning', message: '新头像已提交审核，通过前对外仍展示原头像，请勿重复提交', duration: 6000 })
+    } else {
+      ElMessage.success('资料已更新')
+    }
   } catch (e) {
     ElMessage.error(e.response?.data?.error || e.response?.data?.message || '更新失败')
   } finally {
@@ -299,6 +307,9 @@ async function changePwd() {
           <el-tag :type="auth.isAdmin ? 'danger' : 'info'" size="small">
             {{ auth.isAdmin ? '管理员' : '普通用户' }}
           </el-tag>
+          <el-tag v-if="auth.user?.departmentName" size="small" effect="plain" type="primary">
+            {{ auth.user.departmentName }}
+          </el-tag>
         </div>
 
         <!-- 积分 / 等级 -->
@@ -322,6 +333,7 @@ async function changePwd() {
         <p class="bio muted" v-else>这个人很懒，还没有填写简介～</p>
 
         <ul class="meta">
+          <li v-if="auth.user?.departmentName"><span>部门</span><b>{{ auth.user.departmentName }}</b></li>
           <li v-if="gender"><span>性别</span><b>{{ gender }}</b></li>
           <li><span>注册于</span><b>{{ fmtDate(auth.user?.createdAt) }}</b></li>
           <li v-if="memberDays"><span>已加入</span><b>{{ memberDays }} 天</b></li>
@@ -445,10 +457,18 @@ async function changePwd() {
               </el-select>
               <span class="gender-tip">选「保密」即不对外公开性别</span>
             </el-form-item>
+            <!-- 头像待审持久提示（比一次性 Message 更可靠，刷新页面仍在） -->
+            <el-alert v-if="avatarPending" type="warning" :closable="false" show-icon
+                      title="您的新头像正在审核中"
+                      description="审核通过前，对外仍显示当前头像；无需重复上传，审核结果会通过站内通知告知您。"
+                      class="avatar-pending-alert" />
             <el-form-item label="头像">
               <div class="avatar-edit">
-                <img v-if="preview" :src="preview" class="av-prev" alt="" />
-                <span v-else class="av-prev av-initial">{{ initial }}</span>
+                <div class="av-prev-wrap">
+                  <img v-if="preview" :src="preview" class="av-prev" alt="" />
+                  <span v-else class="av-prev av-initial">{{ initial }}</span>
+                  <span v-if="avatarPending" class="av-pending-tag">审核中</span>
+                </div>
                 <div class="av-actions">
                   <label class="av-up">
                     上传图片
@@ -672,6 +692,14 @@ async function changePwd() {
 /* 默认头像选择器 */
 .avatar-edit { display: flex; align-items: center; gap: 12px; }
 .av-prev { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 1px solid #eef2f7; }
+.av-prev-wrap { position: relative; flex: none; width: 48px; }
+.av-pending-tag {
+  position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-size: 10px; line-height: 1; padding: 3px 6px;
+  border-radius: 999px; color: #854F0B; background: #fef3c7; border: 1px solid #fcd34d;
+}
+.avatar-pending-alert { margin-bottom: 14px; }
+html.dark .avatar-pending-alert { --el-alert-bg-color: #2a2312; }
 .av-prev.av-initial { display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: #6366f1; background: #eef2ff; }
 .av-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .av-up { font-size: 13px; color: #6366f1; cursor: pointer; background: #eef2ff; padding: 6px 12px; border-radius: 8px; }

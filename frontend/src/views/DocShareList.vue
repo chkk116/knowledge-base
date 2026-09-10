@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Upload } from '@element-plus/icons-vue'
 import { listMyShares, createShare, deleteShare, getStorage, searchShareUsers,
   getMyShareQuota, submitCreateRequest, listMyCreateRequests } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
@@ -213,6 +214,9 @@ onMounted(load)
         <el-progress :percentage="storagePercent" :stroke-width="8" :show-text="false" :color="storagePercent > 90 ? '#ef4444' : '#6366f1'" style="width: 120px" />
         <span class="storage-text">{{ storageText }}</span>
       </div>
+      <el-button @click="router.push('/doc-shares/import')">
+        <el-icon style="margin-right:4px"><Upload /></el-icon> 导入文档
+      </el-button>
       <el-button type="primary" :disabled="!auth.hasPerm('SHARE_CREATE')" @click="openCreate"
                  :title="auth.hasPerm('SHARE_CREATE') ? (myQuota.canCreate ? '' : '已达创建上限，点击提交创建申请') : '需要「创建团队空间」权限，请联系系统管理员开通'">
         {{ !auth.hasPerm('SHARE_CREATE') ? '暂无创建权限' : (myQuota.canCreate ? '新建共享空间' : '申请创建空间') }}

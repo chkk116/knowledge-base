@@ -35,18 +35,27 @@ public class RagService {
     private final DocumentRepository repository;
     private final RestClient client;
     private final boolean enabled;
-    private final String model;
+    private final List<String> modelChain;   // 文本模型降级链：免费 flash 模型常被挤爆(1305/429)，自动换下一个
 
     public RagService(MeiliSearchClient meili,
                       DocumentRepository repository,
                       @Value("${kb.ai.enabled:false}") boolean enabled,
                       @Value("${kb.ai.zhipu.base-url:https://open.bigmodel.cn/api/paas/v4}") String baseUrl,
                       @Value("${kb.ai.zhipu.api-key:}") String apiKey,
-                      @Value("${kb.ai.zhipu.model:glm-4-flash}") String model) {
+                      @Value("${kb.ai.zhipu.model:glm-4.7-flash}") String model,
+                      @Value("${kb.ai.zhipu.models:}") String modelsCsv) {
         this.meili = meili;
         this.repository = repository;
         this.enabled = enabled && apiKey != null && !apiKey.isBlank();
-        this.model = model;
+        List<String> chain = new ArrayList<>();
+        if (modelsCsv != null) {
+            for (String m : modelsCsv.split(",")) {
+                String t = m == null ? "" : m.trim();
+                if (!t.isEmpty()) chain.add(t);
+            }
+        }
+        if (chain.isEmpty()) chain.add(model);
+        this.modelChain = chain;
         if (this.enabled) {
             // 静态工厂构建 RestClient，不依赖 Spring 自动配置的 RestClient.Builder bean（SB 4.1.0 下该 bean 未注入）
             RestClient.Builder b = RestClient.builder().baseUrl(baseUrl.trim());
@@ -88,15 +97,24 @@ public class RagService {
         List<Map<String, Object>> sources = general ? List.of() : retrieve(question.trim());
         boolean hasContext = !sources.isEmpty();
 
-        // 2. 组装 system prompt：默认身份 + 对话条例 + 用户习惯
+        // 2. 组装 system prompt：身份 + 知识库概况 + 行为准则 + 对话条例 + 用户习惯
         StringBuilder system = new StringBuilder();
-        system.append("你是知识库的智能助手。");
-        if (hasContext) {
-            system.append("优先依据提供的【资料】回答；若资料中没有相关信息，明确说明“知识库中未找到相关内容”，不要编造。");
-        } else {
-            system.append("如果没有相关资料，也可以进行通用问答和日常闲聊。");
+        system.append("你是企业知识库平台的内置 AI 助手「知识库 AI」，底层由智谱 GLM 驱动，服务于企业内部员工。");
+        // 注入知识库概况，让「知识库里有多少篇文章 / 你能做什么」这类元问题可直接回答
+        try {
+            long published = repository.countByStatus("PUBLISHED");
+            system.append("本知识库当前共有 ").append(published).append(" 篇已发布文章，内容涵盖运维手册、IT 操作文档、演练记录等企业资料。");
+        } catch (Exception ignore) { /* 统计失败不影响问答 */ }
+        system.append("\n【行为准则】\n")
+                .append("1. 提供了【资料】时：优先且仅依据资料回答，操作步骤、命令、参数须如实引用，命令和代码一律放进 Markdown 代码块；资料与你的通用知识冲突时，以资料为准。\n")
+                .append("2. 资料只覆盖部分问题：先依据资料作答，再补充通用知识，补充部分须标注「以下为通用做法」。\n")
+                .append("3. 资料完全未覆盖：明确说「知识库中未找到相关内容」，可再给通用建议（同样标注为通用知识）；严禁编造不存在的文章、章节、数据或链接。\n")
+                .append("4. 关于知识库本身的问题（有多少文章、你能做什么、你是谁）：直接依据上述概况和身份回答，不要说「无法访问后台」。\n")
+                .append("5. 回答用简体中文，先结论后细节、要点分条、简洁专业；避免客套话和重复用户问题。\n")
+                .append("6. 不讨论政治敏感内容，不提供违法或破坏系统的指导。");
+        if (general) {
+            system.append("\n7. 当前为「通用问答」模式：直接正常回答即可，不要提及知识库检索或资料。");
         }
-        system.append("请用中文、简洁友好地回答。");
 
         if (instructions != null && !instructions.isBlank()) {
             system.append("\n\n【本次对话条例】\n").append(instructions.trim());
@@ -162,26 +180,36 @@ public class RagService {
         }
     }
 
-    /** 调用智谱 chat/completions，传入完整 messages */
+    /** 调用智谱 chat/completions，传入完整 messages；429/5xx 自动降级到链内下一个模型（免费 flash 模型常被挤爆 1305） */
     private String callModel(List<Map<String, String>> messages) {
-        try {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("model", model);
-            body.put("temperature", 0.3);
-            body.put("max_tokens", 800);
-            body.put("messages", messages);
+        for (String m : modelChain) {
+            try {
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("model", m);
+                body.put("temperature", 0.3);
+                // GLM-4.7-Flash 支持动态思考（默认开）：思考内容也计入 max_tokens，
+                // 实测简单问题思考就要消耗数百 token，上限给 4096 防止答案被思考挤掉截断
+                body.put("max_tokens", 4096);
+                body.put("messages", messages);
 
-            Map<String, Object> resp = client.post()
-                    .uri("/chat/completions")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .body(Map.class);
-            return extractContent(resp);
-        } catch (Exception e) {
-            log.warn("智谱 AI 调用失败: {}", e.getMessage());
-            return "AI 服务暂时不可用，请稍后重试，或先用搜索框检索知识库。";
+                Map<String, Object> resp = client.post()
+                        .uri("/chat/completions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body)
+                        .retrieve()
+                        .body(Map.class);
+                return extractContent(resp);
+            } catch (org.springframework.web.client.RestClientResponseException re) {
+                int sc = re.getStatusCode().value();
+                log.warn("智谱 AI 调用失败(model={}, http={}): {}", m, sc, re.getMessage());
+                if (sc == 429 || sc >= 500) continue;   // 模型过载/服务端错误：降级试链内下一个
+                break;                                   // 其余 4xx（如 Key 失效）换模型也没用
+            } catch (Exception e) {
+                log.warn("智谱 AI 调用失败(model={}): {}", m, e.getMessage());
+                continue;   // 网络抖动等：试下一个模型
+            }
         }
+        return "AI 服务暂时不可用，请稍后重试，或先用搜索框检索知识库。";
     }
 
     /** 检索 top-K 片段：优先 Meili，失败/未启用回退 MySQL；返回引用来源（id/title/snippet） */
@@ -206,21 +234,82 @@ public class RagService {
                 log.warn("Meili 检索失败，回退 MySQL: {}", e.getMessage());
             }
         }
-        // MySQL 兜底
+        // MySQL 兜底：整句 LIKE 几乎必然 0 命中（标题不会包含「找一下…」这类口语），
+        // 先拆关键词（按空格/标点/常见疑问词），逐词检索后按命中词数排序合并
+        List<String> keywords = splitKeywords(q);
+        if (keywords.isEmpty()) keywords = List.of(q);
+        Map<Long, Map<String, Object>> merged = new java.util.LinkedHashMap<>();
+        Map<Long, Integer> score = new java.util.HashMap<>();
         try {
-            for (Document d : repository.search(q)) {
-                if (!"PUBLISHED".equals(d.getStatus())) continue;
-                String text = HtmlSanitizer.toText(d.getContent());
-                if (text.length() > FRAG_LEN) text = text.substring(0, FRAG_LEN);
-                Map<String, Object> s = new LinkedHashMap<>();
-                s.put("id", d.getId());
-                s.put("title", d.getTitle());
-                s.put("snippet", text);
-                out.add(s);
-                if (out.size() >= TOP_K) break;
+            for (String kw : keywords) {
+                for (Document d : repository.search(kw)) {
+                    if (!"PUBLISHED".equals(d.getStatus())) continue;
+                    merged.putIfAbsent(d.getId(), toSource(d, keywords));
+                    score.merge(d.getId(), 1, Integer::sum);
+                }
             }
+            merged.keySet().stream()
+                    .sorted(java.util.Comparator.comparing((Long id) -> score.get(id)).reversed())
+                    .limit(TOP_K)
+                    .forEach(id -> out.add(merged.get(id)));
         } catch (Exception e) {
             log.warn("MySQL 检索失败: {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /** 把 Document 转成引用来源：摘要取「覆盖关键词最多」的窗口（首次命中常落在文档开头的标题/目录，不含目标内容） */
+    private Map<String, Object> toSource(Document d, List<String> keywords) {
+        String text = HtmlSanitizer.toText(d.getContent());
+        String snippet;
+        List<String> kws = (keywords == null) ? List.of()
+                : keywords.stream().filter(k -> k != null && k.length() >= 2).toList();
+        int bestStart = -1, bestHits = 0;
+        if (!kws.isEmpty() && text.length() > FRAG_LEN) {
+            String lower = text.toLowerCase();
+            // 候选窗口起点 = 每个关键词的每次出现位置（每词最多探测 8 处），选窗口内命中的不同关键词数最多者
+            for (String kw : kws) {
+                int from = 0, found = 0;
+                while (found < 8) {
+                    int i = lower.indexOf(kw.toLowerCase(), from);
+                    if (i < 0) break;
+                    from = i + 1; found++;
+                    int start = Math.max(0, i - 80);
+                    int end = Math.min(text.length(), start + FRAG_LEN);
+                    String win = lower.substring(start, end);
+                    int hits = 0;
+                    for (String k2 : kws) if (win.contains(k2.toLowerCase())) hits++;
+                    if (hits > bestHits) { bestHits = hits; bestStart = start; }
+                }
+            }
+        }
+        if (bestStart >= 0) {
+            int end = Math.min(text.length(), bestStart + FRAG_LEN);
+            snippet = (bestStart > 0 ? "…" : "") + text.substring(bestStart, end);
+        } else {
+            snippet = text.length() > FRAG_LEN ? text.substring(0, FRAG_LEN) : text;
+        }
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("id", d.getId());
+        s.put("title", d.getTitle());
+        s.put("snippet", snippet);
+        return s;
+    }
+
+    /**
+     * 拆检索关键词：按空白/标点切分，去掉疑问词与单字符噪声，保留 ≥2 字符的词。
+     * 例：「找一下银河麒麟 V10 离线安装」→ [银河麒麟, V10, 离线安装]
+     */
+    private List<String> splitKeywords(String q) {
+        if (q == null || q.isBlank()) return List.of();
+        // 常见口语/疑问词：命中即整体剔除，避免它们污染 LIKE
+        String cleaned = q.replaceAll("找一下|查找一下|搜索一下|帮我|请问|如何|怎么|怎样|什么|哪些|多少|为什么|一下|关于|知识库|文章|教程|的", " ");
+        // 中文与英文/数字的边界补空格：「验证deb包安装状态」→「验证 deb 包安装状态」，否则整串成一个词无法 LIKE
+        cleaned = cleaned.replaceAll("([\\u4e00-\\u9fa5])([a-zA-Z0-9])", "$1 $2")
+                         .replaceAll("([a-zA-Z0-9])([\\u4e00-\\u9fa5])", "$1 $2");
+        List<String> out = new ArrayList<>();
+        for (String t : cleaned.split("[\\s\\p{Punct}，。！？、；：（）【】《》「」]+")) {
+            if (t.length() >= 2 && !out.contains(t)) out.add(t);
         }
         return out;
     }

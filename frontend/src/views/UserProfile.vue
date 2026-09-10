@@ -95,15 +95,34 @@ const toggleFollow = async () => {
 const goUser = (id) => router.push('/user/' + id)
 const goPost = (id) => router.push('/post/' + id)
 
+/** 返回上一页；直接输地址进入时没有历史，退到首页，避免点了没反应 */
+const goBack = () => {
+  if (window.history.state && window.history.state.back) router.back()
+  else router.push('/')
+}
+
 onMounted(reload)
 // 同路由不同用户（点关注列表里的某人）切换时重载
 watch(() => route.params.id, reload)
 </script>
 
 <template>
-  <div v-if="notFound" class="loading">用户不存在或已被删除</div>
-  <div v-else-if="errMsg" class="loading">{{ errMsg }}</div>
+  <div v-if="notFound" class="loading">
+    <p>用户不存在或已被删除</p>
+    <button class="back-btn plain" type="button" @click="goBack">
+      <el-icon :size="15"><ArrowLeft /></el-icon><span>返回</span>
+    </button>
+  </div>
+  <div v-else-if="errMsg" class="loading">
+    <p>{{ errMsg }}</p>
+    <button class="back-btn plain" type="button" @click="goBack">
+      <el-icon :size="15"><ArrowLeft /></el-icon><span>返回</span>
+    </button>
+  </div>
   <div class="up-page" v-else-if="card">
+    <button class="back-btn" type="button" @click="goBack">
+      <el-icon :size="14"><ArrowLeft /></el-icon><span>返回</span>
+    </button>
     <div class="cover">
       <div class="cover-avatar">
         <img v-if="card.avatar" :src="card.avatar" alt="" />
@@ -212,6 +231,18 @@ watch(() => route.params.id, reload)
 
 <style scoped>
 .up-page { max-width: 920px; margin: 0 auto; }
+/* 返回：页面左上角文字型幽灵按钮，不压封面、不抢视觉重心 */
+.back-btn {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin: 0 0 8px -6px; padding: 5px 12px 5px 8px;
+  font-size: 13px; line-height: 1; color: #64748b; background: transparent;
+  border: 0.5px solid transparent; border-radius: 8px; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.back-btn:hover { background: var(--el-fill-color-light, #f1f5f9); border-color: #e2e8f0; color: #4f46e5; }
+.back-btn:active { transform: translateY(1px); }
+/* 异常态（用户不存在 / 加载失败）：居中显示 */
+.back-btn.plain { display: flex; margin: 12px auto 0; border-color: var(--el-border-color, #dcdfe6); color: var(--el-text-color-regular, #606266); }
 .cover {
   height: 170px; border-radius: 16px 16px 0 0;
   background: url('../assets/profile-cover.jpg') no-repeat top center / cover;
@@ -324,6 +355,9 @@ html.dark .uinfo .nm { color: var(--el-text-color-primary); }
 html.dark .uinfo .ub { color: var(--el-text-color-secondary); }
 html.dark .empty { color: var(--el-text-color-secondary); }
 html.dark .loading { color: var(--el-text-color-secondary); }
+html.dark .back-btn { color: var(--el-text-color-secondary); }
+html.dark .back-btn:hover { background: rgba(99,102,241,.16); border-color: rgba(129,140,248,.35); color: #a5b4fc; }
+html.dark .back-btn.plain { border-color: var(--el-border-color); color: var(--el-text-color-regular); }
 
 /* ============================================================
    响应式：≤1024 单列（文章 / 关注 / 粉丝在上，资料侧栏移到下方）

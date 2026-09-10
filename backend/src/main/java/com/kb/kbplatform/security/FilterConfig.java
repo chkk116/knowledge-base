@@ -9,17 +9,23 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class FilterConfig {
 
-    @Value("${kb.security.token-secret}")
-    private String tokenSecret;
-
     @Value("${kb.security.token-ttl:86400000}")
     private long tokenTtl;
 
     @Bean
-    public FilterRegistrationBean<AuthFilter> authFilter(UserRepository userRepo) {
+    public FilterRegistrationBean<AuthFilter> authFilter(UserRepository userRepo, TokenSecretProvider tokenSecretProvider) {
         FilterRegistrationBean<AuthFilter> bean =
-                new FilterRegistrationBean<>(new AuthFilter(tokenSecret, tokenTtl, userRepo));
+                new FilterRegistrationBean<>(new AuthFilter(tokenSecretProvider.get(), tokenTtl, userRepo));
         bean.setOrder(-100);   // 尽量靠前执行
+        return bean;
+    }
+
+    /** 分页参数全局收敛（size 上限 100、page 非负）：置于鉴权之前，覆盖全部接口 */
+    @Bean
+    public FilterRegistrationBean<PageParamFilter> pageParamFilter() {
+        FilterRegistrationBean<PageParamFilter> bean = new FilterRegistrationBean<>(new PageParamFilter());
+        bean.setOrder(-120);
+        bean.addUrlPatterns("/api/*");
         return bean;
     }
 

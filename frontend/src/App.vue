@@ -78,6 +78,8 @@ function onUnauthorized() {
   if (auth.loggedIn) {
     auth.logout()
     ElMessage.warning('登录已过期，请重新登录')
+    // 只清登录态不跳转的话，页面会停在原地直到用户点别的菜单
+    router.push('/login')
   }
 }
 window.addEventListener('kb-unauthorized', onUnauthorized)
@@ -162,16 +164,20 @@ const menus = computed(() => {
   // 二级分组：用户与权限（用户管理 / 黑名单 / 操作审计）——账号、权限、黑名单与「谁操作了什么」归人域
   const userMgmt = []
   if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/users', title: '用户管理', icon: 'User' })
+  if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/roles', title: '角色管理', icon: 'Suitcase' })
+  if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/departments', title: '部门管理', icon: 'OfficeBuilding' })
   if (auth.isAdmin) {
     userMgmt.push({ index: '/admin/blacklist', title: '黑名单', icon: 'CircleClose' })
     userMgmt.push({ index: '/admin/audit', title: '操作审计', icon: 'Clock' })
+    userMgmt.push({ index: '/admin/login-logs', title: '登录日志', icon: 'Key' })
   }
   if (userMgmt.length) base.push({ index: 'g-user', title: '用户与权限', icon: 'User', children: userMgmt })
 
   // 二级分组：内容管理（帖子 / 分类标签 / 公告 / 附件 / 数据看板）
   // 原「数据中心」单独成组已并入此处，避免「仅一项」的空壳分组；内容资源 + 内容数据聚同一域
   const contentMgmt = []
-  if (auth.hasPerm('DOC_REVIEW')) contentMgmt.push({ index: '/admin/docs', title: '帖子管理', icon: 'Document' })
+  if (auth.hasPerm('DOC_REVIEW')) contentMgmt.push({ index: '/admin/review', title: '文章审核', icon: 'Finished' })
+  if (auth.hasPerm('POST_MANAGE')) contentMgmt.push({ index: '/admin/docs', title: '帖子管理', icon: 'Document' })
   if (auth.hasPerm('TAXONOMY_MANAGE')) contentMgmt.push({ index: '/admin/taxonomy', title: '分类标签', icon: 'Collection' })
   if (auth.hasPerm('ANNOUNCEMENT_MANAGE')) contentMgmt.push({ index: '/admin/announcements', title: '公告管理', icon: 'Notification' })
   if (auth.hasPerm('BANNED_WORDS_MANAGE')) contentMgmt.push({ index: '/admin/banned-words', title: '违禁词管理', icon: 'Warning' })
@@ -180,8 +186,10 @@ const menus = computed(() => {
   if (auth.hasPerm('COURSE_MANAGE')) contentMgmt.push({ index: '/admin/courses', title: '培训管理', icon: 'Notebook' })
   if (auth.hasPerm('EXAM_MANAGE')) contentMgmt.push({ index: '/admin/exams', title: '题库与试卷', icon: 'Trophy' })
   if (auth.hasPerm('SHARE_VIEW')) contentMgmt.push({ index: '/admin/doc-shares', title: '共享文档管理', icon: 'DocumentCopy' })
+  if (auth.hasPerm('ASSET_MANAGE')) contentMgmt.push({ index: '/admin/assets', title: '资产管理', icon: 'Files' })
   if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/maintain', title: '核心维护', icon: 'Setting' })
   if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/watermark', title: '水印设置', icon: 'Tools' })
+  if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
   if (contentMgmt.length) base.push({ index: 'g-content', title: '内容管理', icon: 'Document', children: contentMgmt })
 
   if (auth.loggedIn) {
@@ -194,7 +202,8 @@ const menus = computed(() => {
 function onLogout() {
   auth.logout()
   ElMessage.success('已退出登录')
-  router.push('/')
+  // 直接去登录页：push('/') 在首页退出时是重复导航会被忽略，且还要经守卫转一道
+  router.push('/login')
 }
 
 function goHome() { router.push('/') }

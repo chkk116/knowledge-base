@@ -575,7 +575,12 @@ const submitComment = async () => {
   if (!el.textContent.trim() && !el.querySelector('img')) return
   posting.value = true
   try {
-    await addComment(route.params.id, html, replyTo.value ? replyTo.value.id : null)
+    const r = await addComment(route.params.id, html, replyTo.value ? replyTo.value.id : null)
+    // 业务性失败（内容为空/敏感词）：后端返回 200 + { ok:false, error }
+    if (r?.data && r.data.ok === false) {
+      ElMessage.error(r.data.error || '评论失败')
+      return
+    }
     clearCommentBox()
     replyTo.value = null
     comments.value = (await getComments(route.params.id)).data || []

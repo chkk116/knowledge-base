@@ -118,14 +118,14 @@ public class CommentService {
     public Comment add(String targetType, Long targetId, TokenClaims claims, String rawContent, Long parentId) {
         String content = HtmlSanitizer.sanitize(rawContent);
         if (content == null || content.isBlank()) {
-            throw new IllegalArgumentException("评论内容不能为空或仅含不支持的内容");
+            throw new BizException("评论内容不能为空或仅含不支持的内容");
         }
         // 敏感词检查必须针对「去掉标签后的可见纯文本」：
         // 若直接拿原始 HTML 匹配，粘贴图片的 base64 data URI 是一串随机大小写字母数字，
         // 极易撞上词库里的短 ASCII 词（sb / cnm / tmd / nmd 等），导致带图的正常评论被拒（400）。
         String plainText = HtmlSanitizer.toText(content);
         if (sensitiveWordFilter.contains(plainText)) {
-            throw new IllegalArgumentException("评论内容包含敏感词：" + String.join("、", sensitiveWordFilter.find(plainText)));
+            throw new BizException("评论内容包含敏感词：" + String.join("、", sensitiveWordFilter.find(plainText)));
         }
         Comment c = new Comment();
         c.setTargetType(targetType);

@@ -221,6 +221,32 @@ public class NotificationService {
         saveAndPush(n);
     }
 
+    /** 头像审核流通知（无 docId，纯文本）：提交审核 / 审核通过 / 审核驳回。
+     *  type 取值：AVATAR_PENDING / AVATAR_APPROVED / AVATAR_REJECTED，前端通知页进「审核」Tab、点击跳个人资料页。 */
+    public void notifyAvatar(Long userId, String type, String summary) {
+        if (userId == null || type == null || summary == null || summary.isBlank()) return;
+        Notification n = new Notification();
+        n.setUserId(userId);
+        n.setType(type);
+        n.setActor("系统");
+        n.setSummary(summary);
+        saveAndPush(n);
+    }
+
+    /** 头像提审：通知全体管理员（提交者本人若是管理员则不通知自己），与文章提审同一范式 */
+    public void notifyAvatarReviewSubmit(Long submitterId, String submitterUsername) {
+        String actor = actorName(submitterUsername);
+        for (User admin : userRepo.findByRole("ADMIN")) {
+            if (submitterId != null && Objects.equals(admin.getId(), submitterId)) continue;
+            Notification n = new Notification();
+            n.setUserId(admin.getId());
+            n.setType("AVATAR_REVIEW_SUBMIT");
+            n.setActor(actor);
+            n.setSummary("提交了新头像，待你审核");
+            saveAndPush(n);
+        }
+    }
+
     public List<Notification> list(Long userId) {
         return repo.findByUserIdOrderByCreatedAtDesc(userId);
     }

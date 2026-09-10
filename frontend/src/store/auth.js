@@ -6,6 +6,7 @@ import { login as apiLogin, me as apiMe } from '../api/auth'
 export const PERM_LABELS = {
   USER_MANAGE: '用户管理',
   DOC_REVIEW: '文章审核',
+  POST_MANAGE: '帖子管理',
   STATS_VIEW: '数据看板',
   BLACKLIST_MANAGE: '黑名单管理',
   TAXONOMY_MANAGE: '分类标签管理',
@@ -20,6 +21,8 @@ export const PERM_LABELS = {
   DOC_EXPORT: '文档导出',
   BANNED_WORDS_MANAGE: '违禁词管理',
   DOC_SHARE: '共享文档管理（旧权限，已拆分）',
+  ASSET_MANAGE: '资产管理',
+  AVATAR_REVIEW: '头像审核',
 }
 
 /** 将权限码转为中文名；未知码原样返回 */
@@ -65,12 +68,17 @@ export const useAuthStore = defineStore('auth', () => {
       permissions: data.permissions || '',
       displayName: data.displayName,
       avatar: data.avatar || '',
+      // 头像审核状态：avatarPending=待审新头像 URL（null=无待审），avatarStatus=PENDING/APPROVED/REJECTED
+      avatarPending: data.avatarPending || null,
+      avatarStatus: data.avatarStatus || 'APPROVED',
       email: data.email || '',
       bio: data.bio || '',
       gender: data.gender || '',
       hideGender: !!data.hideGender,
       createdAt: data.createdAt || '',
       points: data.points || 0,
+      departmentId: data.departmentId || null,
+      departmentName: data.departmentName || '',
       aiPersona: data.aiPersona || '',
       displayBadge: data.displayBadge || '',
       // 佩戴的勋章 id 列表（最多 3 枚）；优先取后端 wornBadges 数组，旧字段 displayBadge 单值/逗号串兜底
@@ -82,6 +90,12 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(username, password, captchaToken, captchaCode) {
     // 注意：后端 LoginRequest 字段名为 captcha（非前端变量名 captchaCode）
     const { data } = await apiLogin({ username, password, captchaToken, captcha: captchaCode })
+    // 业务失败（密码错/限流/验证码过期等）后端返回 200 + { ok:false, error }，不抛 HTTP 错误
+    if (data && data.ok === false) {
+      const err = new Error(data.error || '登录失败')
+      err.biz = true
+      throw err
+    }
     applyToken(data.token)
     user.value = toUser(data)
     // 标记「刚登录」，供首页置顶公告仅在此刻弹出（刷新/直达不弹）

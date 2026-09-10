@@ -25,6 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class DocShareService {
@@ -361,14 +362,74 @@ public class DocShareService {
             ensurePersonalSpace(userId);   // 普通用户保证有专属个人空间
             list = shareRepo.findByOwnerIdOrMemberUserIdOrderByUpdatedAtDesc(userId);
         }
-        for (DocShare s : list) {
-            fillOwnerName(s);
-            s.setMyPermission(myPermission(s.getId(), userId, sysAdmin));
-            fillMemberSnapshot(s);
-            // 注入空间已用字节数，供列表卡片容量进度展示（避免前端逐个请求）
-            s.setUsed(docRepo.sumSizeByShareId(s.getId()));
-        }
+        fillListInBatch(list, userId, sysAdmin);
         return list;
+    }
+
+    /** 批量注入列表字段（所有者名 / 我的权限 / 成员快照 / 已用容量）。
+     *  旧实现在循环里逐空间查库：判权限 1 次 findById + 容量 1 次 sumSize + 成员最多 12 次 findById
+     *  ≈ N×14 次查询，空间一多就拖垮列表页。现改为 4 条集合查询降到常数级。 */
+    private void fillListInBatch(List<DocShare> list, Long userId, boolean sysAdmin) {
+        if (list == null || list.isEmpty()) return;
+        List<Long> shareIds = list.stream().map(DocShare::getId).collect(Collectors.toList());
+
+        // 1) 所有空间的权限行（一次取回，按空间分组并保持原有创建时间升序）
+        Map<Long, List<DocSharePermission>> permsByShare = permRepo.findByShareIdIn(shareIds).stream()
+                .collect(Collectors.groupingBy(DocSharePermission::getShareId));
+        permsByShare.values().forEach(ps -> ps.sort(
+                java.util.Comparator.comparing(DocSharePermission::getCreatedAt,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))));
+
+        // 2) 相关用户：所有者 + 成员（一次取回）
+        Set<Long> userIds = new HashSet<>();
+        for (DocShare s : list) if (s.getOwnerId() != null) userIds.add(s.getOwnerId());
+        for (List<DocSharePermission> ps : permsByShare.values())
+            for (DocSharePermission p : ps) if (p.getUserId() != null) userIds.add(p.getUserId());
+        Map<Long, User> users = userIds.isEmpty() ? new HashMap<>()
+                : userRepo.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        // 3) 已用容量（一次聚合）
+        Map<Long, Long> usedByShare = new HashMap<>();
+        for (Object[] row : docRepo.sumSizeByShareIdIn(shareIds)) {
+            if (row[0] == null) continue;
+            usedByShare.put(((Number) row[0]).longValue(), row[1] == null ? 0L : ((Number) row[1]).longValue());
+        }
+
+        for (DocShare s : list) {
+            User owner = users.get(s.getOwnerId());
+            if (owner != null)
+                s.setOwnerName(owner.getDisplayName() != null ? owner.getDisplayName() : owner.getUsername());
+            List<DocSharePermission> ps = permsByShare.getOrDefault(s.getId(), List.of());
+            s.setMyPermission(sysAdmin ? "OWNER" : resolvePermCached(s, ps, userId));
+            fillMemberSnapshotCached(s, ps, users);
+            s.setUsed(usedByShare.getOrDefault(s.getId(), 0L));
+        }
+    }
+
+    /** 由已加载的权限行判定当前用户权限（OWNER/ADMIN/WRITE/READ/null），不再回查数据库 */
+    private String resolvePermCached(DocShare s, List<DocSharePermission> ps, Long userId) {
+        if (userId != null && s.getOwnerId() != null && s.getOwnerId().equals(userId)) return "OWNER";
+        for (DocSharePermission p : ps) {
+            if (p.getUserId() != null && p.getUserId().equals(userId)) return p.getPermission();
+        }
+        return null;
+    }
+
+    /** 成员快照：从已加载的用户缓存填充（前 12 个头像 + 总数），不再逐个 findById */
+    private void fillMemberSnapshotCached(DocShare s, List<DocSharePermission> ps, Map<Long, User> users) {
+        List<Map<String, Object>> snap = new ArrayList<>();
+        for (DocSharePermission p : ps) {
+            if (snap.size() >= 12) break;
+            User u = p.getUserId() == null ? null : users.get(p.getUserId());
+            if (u == null) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("userId", u.getId());
+            m.put("displayName", u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+            m.put("avatar", u.getAvatar());
+            snap.add(m);
+        }
+        s.setMembers(snap);
+        s.setMemberCount((long) ps.size());
     }
 
     /** 每个普通用户保证存在唯一个人空间（type=PERSONAL）；已存在则跳过。
@@ -685,10 +746,22 @@ public class DocShareService {
     public List<DocShare> listAll(Long userId, boolean sysAdmin) {
         if (!sysAdmin) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要管理员权限");
         List<DocShare> list = shareRepo.findAll();
-        for (DocShare s : list) {
-            fillOwnerName(s);
-            s.setMyPermission("OWNER");
-        }
+        fillOwnerNamesInBatch(list);   // 旧实现是逐条 findById 查所有者名，N+1
+        for (DocShare s : list) s.setMyPermission("OWNER");
         return list;
+    }
+
+    /** 批量注入所有者名：一次 findAllById 替代逐条 findById */
+    private void fillOwnerNamesInBatch(List<DocShare> list) {
+        if (list == null || list.isEmpty()) return;
+        Set<Long> ids = list.stream().map(DocShare::getOwnerId).filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) return;
+        Map<Long, User> users = userRepo.findAllById(ids).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+        for (DocShare s : list) {
+            User u = users.get(s.getOwnerId());
+            if (u != null) s.setOwnerName(u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+        }
     }
 }

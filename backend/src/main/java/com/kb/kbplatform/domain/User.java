@@ -1,6 +1,7 @@
 package com.kb.kbplatform.domain;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -21,6 +22,7 @@ public class User {
     private String username;
 
     @Column(nullable = false)
+    @JsonIgnore   // 安全：任何接口不得把口令哈希（salt:sha256）序列化到响应体
     private String password;   // 存储格式：salt:sha256hex（前端加盐 + SHA-256）
 
     private String role = "USER";   // ADMIN / USER
@@ -28,7 +30,15 @@ public class User {
     private String displayName;
 
     @Column(length = 2000)
-    private String avatar;   // 头像：URL 或 data URI（前端上传后转 base64 存储）
+    private String avatar;   // 头像：URL 或 data URI（前端上传后转 base64 存储），仅存「已审核通过」的头像
+
+    /** 待审核的新头像 URL：审核通过才写入 avatar；驳回则清空。展示侧只读 avatar，天然不泄露未过审图 */
+    @Column(length = 2000)
+    private String avatarPending;
+
+    /** 头像审核状态：APPROVED / PENDING / REJECTED（null 视同 APPROVED，兼容存量用户） */
+    @Column(length = 20)
+    private String avatarStatus;
 
     @Column(length = 120)
     private String email;    // 邮箱
@@ -54,6 +64,9 @@ public class User {
     @Column(nullable = true)
     private Long storageQuota;   // 管理员分配的个人存储总容量（字节）；null = 使用系统默认 5GB
 
+    @Column(name = "department_id")
+    private Long departmentId;   // 所属部门（kb_department.id），可空表示未分配部门
+
     @Column(columnDefinition = "text")
     private String aiPersona;   // 用户 AI 偏好/习惯（JSON：语气、关注领域、自定义指令、回复长度等）
 
@@ -68,6 +81,7 @@ public class User {
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
 
+    @JsonIgnore
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
 
@@ -82,6 +96,12 @@ public class User {
 
     public String getAvatar() { return avatar; }
     public void setAvatar(String avatar) { this.avatar = avatar; }
+
+    public String getAvatarPending() { return avatarPending; }
+    public void setAvatarPending(String avatarPending) { this.avatarPending = avatarPending; }
+
+    public String getAvatarStatus() { return avatarStatus; }
+    public void setAvatarStatus(String avatarStatus) { this.avatarStatus = avatarStatus; }
 
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
@@ -112,6 +132,9 @@ public class User {
 
     public Long getStorageQuota() { return storageQuota; }
     public void setStorageQuota(Long storageQuota) { this.storageQuota = storageQuota; }
+
+    public Long getDepartmentId() { return departmentId; }
+    public void setDepartmentId(Long departmentId) { this.departmentId = departmentId; }
 
     public String getAiPersona() { return aiPersona; }
     public void setAiPersona(String aiPersona) { this.aiPersona = aiPersona; }

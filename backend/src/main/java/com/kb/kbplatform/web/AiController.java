@@ -77,7 +77,7 @@ public class AiController {
     }
 
     @GetMapping("/conversations/{id}/messages")
-    public List<AiMessage> messages(@RequestAttribute("kbUser") TokenClaims claims,
+    public List<Map<String, Object>> messages(@RequestAttribute("kbUser") TokenClaims claims,
                                     @PathVariable Long id) {
         return convService.messages(claims.userId(), id);
     }

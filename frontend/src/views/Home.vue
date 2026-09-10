@@ -2,7 +2,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { listDocs, getCategoryTree, allTags, toggleFavorite, myFavoriteIds, toggleLike, myLikeIds, getUserCard, listAnnouncements } from '../api/kb'
+import { Monitor, DataLine, Collection, Document } from '@element-plus/icons-vue'
+import { listDocs, getCategoryTree, allTags, toggleFavorite, myFavoriteIds, toggleLike, myLikeIds, getUserCard, listAnnouncements, homeOverview } from '../api/kb'
 import AnnouncementBar from '../components/AnnouncementBar.vue'
 import { useAuthStore } from '../store/auth'
 import { useUiStore } from '../store/ui'
@@ -25,7 +26,7 @@ const error = ref('')        // 列表/搜索加载失败提示
 const mode = ref('list')     // 'list' = 全部帖子（服务端分页） | 'search' = 搜索结果
 
 const currentPage = ref(1)
-const pageSize = ref(15)
+const pageSize = ref(16)
 const total = ref(0)
 const sort = ref('latest')       // 'latest' 最新 | 'hot' 最热（浏览量）
 const favIds = ref(new Set())    // 我已收藏的文档 id 集合（用于卡片星标填充态）
@@ -63,6 +64,39 @@ const loadCategories = async () => {
 
 const loadTags = async () => {
   try { tagOptions.value = (await allTags()).data || [] } catch (e) {}
+}
+
+// ---- 首页轻量数据概览（文档总数 / 本周新增 / 成员数；管理员附待审核）----
+const ov = ref(null)
+const loadOverview = async () => {
+  try { ov.value = (await homeOverview()).data || null } catch (e) { /* 静默：概览条不阻塞首页 */ }
+}
+
+// ---- 标签云折叠：默认只展示前 10 个热门标签，其余收进「更多」----
+const showAllTags = ref(false)
+const sortedTags = computed(() => [...tagOptions.value].sort((a, b) => (b.count || 0) - (a.count || 0)))
+const visibleTags = computed(() => {
+  const sorted = sortedTags.value
+  if (showAllTags.value || sorted.length <= 10) return sorted
+  const top = sorted.slice(0, 10)
+  // 当前选中的标签即使在长尾里也保持可见，避免点选后「消失」
+  if (tag.value && !top.some(t => t.tag === tag.value)) {
+    const sel = sorted.find(t => t.tag === tag.value)
+    if (sel) top.push(sel)
+  }
+  return top
+})
+const hiddenTagCount = computed(() => Math.max(0, tagOptions.value.length - 10))
+
+// ---- 卡片分类徽章：按分类关键词映射图标与配色（视觉锚点）----
+const CAT_RULES = [
+  [/linux|运维|服务器|网络|系统|部署|clamav|windows|麒麟|ubuntu|终端|安全|防火墙/i, { icon: Monitor, cls: 'ops' }],
+  [/mysql|java|vue|前端|api|rest|代码|python|sql|搜索|设计|脚本|程序|js|html/i, { icon: DataLine, cls: 'dev' }],
+  [/制度|规范|方案|报告|演练|复盘|总结|公告|管理|流程|制度/i, { icon: Collection, cls: 'biz' }],
+]
+const catBadge = (cat) => {
+  for (const [re, v] of CAT_RULES) { if (cat && re.test(cat)) return v }
+  return { icon: Document, cls: 'def' }
 }
 
 // 拆分逗号分隔的标签串为数组（用于卡片/详情展示与点击）
@@ -214,7 +248,7 @@ const loadAnnouncements = async () => {
 }
 
 onMounted(async () => {
-  loadCategories(); loadTags(); loadAnnouncements()
+  loadCategories(); loadTags(); loadAnnouncements(); loadOverview()
   if (route.query.tag) tag.value = String(route.query.tag)
   if (route.query.author) {
     authorId.value = Number(route.query.author)
@@ -246,11 +280,26 @@ onMounted(async () => {
           style="width: 200px" />
         <span class="hint">{{ totalText }}</span>
       </div>
+      <div class="ov-bar" v-if="ov">
+        <span class="ov-item"><b>{{ ov.totalDocs }}</b> 篇文档</span>
+        <span class="ov-dot"></span>
+        <span class="ov-item">本周新增 <b>{{ ov.weekNew }}</b></span>
+        <span class="ov-dot"></span>
+        <span class="ov-item"><b>{{ ov.members }}</b> 位成员</span>
+        <template v-if="ov.pendingReview != null">
+          <span class="ov-dot"></span>
+          <span class="ov-item warn">待审核 <b>{{ ov.pendingReview }}</b></span>
+        </template>
+      </div>
       <div class="tagcloud" v-if="tagOptions.length">
         <span class="lbl">标签</span>
-        <button type="button" v-for="t in tagOptions" :key="t.tag"
+        <button type="button" v-for="t in visibleTags" :key="t.tag"
                 class="chip" :class="{ on: tag === t.tag }"
                 @click="onTagClick(t.tag)">{{ t.tag }}<i v-if="t.count">·{{ t.count }}</i></button>
+        <button v-if="hiddenTagCount > 0 || showAllTags" type="button"
+                class="chip more" @click="showAllTags = !showAllTags">
+          {{ showAllTags ? '收起' : '更多 ' + hiddenTagCount }}
+        </button>
       </div>
       <div class="author-banner" v-if="authorId">
         <span>作者：<b>{{ authorName || ('#' + authorId) }}</b> 的全部文章</span>
@@ -268,6 +317,9 @@ onMounted(async () => {
       <ul class="grid" v-else-if="paged.length">
         <li v-for="d in paged" :key="d.id" class="card" @click="openPost(d.id)">
           <div class="row">
+            <span class="cat-badge" :class="'b-' + catBadge(d.category).cls" :title="d.category">
+              <el-icon><component :is="catBadge(d.category).icon" /></el-icon>
+            </span>
             <span class="title">{{ d.title }}</span>
               <span class="side">
                 <span class="top" v-if="d.pinned" title="置顶">置顶</span>
@@ -298,7 +350,7 @@ onMounted(async () => {
       <el-pagination v-if="!loading && total > 0"
         class="pager" background
         layout="prev, pager, next, sizes, total"
-        :total="total" :page-size="pageSize" :page-sizes="[5, 15, 30,60]"
+        :total="total" :page-size="pageSize" :page-sizes="[6, 16, 30, 60]"
         :current-page="currentPage"
         @current-change="onPageChange" @size-change="onSizeChange" />
     </section>
@@ -334,6 +386,18 @@ onMounted(async () => {
 .filters { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
 .tagcloud { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 2px; }
 .tagcloud .lbl { color: #94a3b8; font-size: 13px; }
+.tagcloud .chip.more { border: 1px dashed #cbd5e1; background: transparent; color: #94a3b8; }
+.tagcloud .chip.more:hover { color: #6366f1; border-color: #c7d2fe; }
+/* 轻量数据概览条 */
+.ov-bar { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; font-size: 13px; color: #64748b; }
+.ov-bar b { color: #334155; font-weight: 600; }
+.ov-item.warn b { color: #dc2626; }
+.ov-dot { width: 3px; height: 3px; border-radius: 50%; background: #cbd5e1; }
+html.dark .ov-bar { color: #7b8190; }
+html.dark .ov-bar b { color: #e7e7ee; }
+html.dark .ov-item.warn b { color: #f87171; }
+html.dark .ov-dot { background: #3a3b45; }
+html.dark .tagcloud .chip.more { border-color: #3a3b45; color: #7b8190; }
 .chip { border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; border-radius: 999px; padding: 4px 12px; font-size: 13px; cursor: pointer; transition: .15s; }
 .chip:hover { border-color: #4f46e5; color: #4f46e5; }
 .chip.on { background: #4f46e5; border-color: #4f46e5; color: #fff; }
@@ -354,7 +418,16 @@ onMounted(async () => {
   /* 屏外卡片跳过布局/绘制：长列表滚动不卡、保留的显示列表内存骤降（旧机友好，零行为风险） */
   content-visibility: auto; contain-intrinsic-size: auto 150px; }
 .card:hover { border-color: #4f46e5; box-shadow: 0 4px 14px rgba(79, 70, 229,.12); }
-.row { display: flex; justify-content: space-between; align-items: center; }
+.row { display: flex; align-items: center; gap: 9px; }
+.row .title { flex: 1; min-width: 0; }
+/* 分类徽章：卡片的视觉锚点，配色按分类语义区分 */
+.cat-badge { width: 34px; height: 34px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; }
+.cat-badge .el-icon { font-size: 18px; }
+.b-ops { background: linear-gradient(135deg, #38bdf8, #2563eb); box-shadow: 0 3px 8px -3px rgb(37 99 235 / .5); }
+.b-dev { background: linear-gradient(135deg, #818cf8, #4f46e5); box-shadow: 0 3px 8px -3px rgb(79 70 229 / .5); }
+.b-biz { background: linear-gradient(135deg, #fbbf24, #f59e0b); box-shadow: 0 3px 8px -3px rgb(245 158 11 / .5); }
+.b-def { background: linear-gradient(135deg, #94a3b8, #64748b); box-shadow: 0 3px 8px -3px rgb(100 116 139 / .5); }
+html.dark .cat-badge { opacity: .92; }
 .title { font-weight: 600; font-size: 16px; }
 .score { color: #4f46e5; font-size: 12px; }
 .side { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }

@@ -146,15 +146,21 @@ public class BannedWordAdminController {
         if (!libRepo.existsById(libraryId)) throw new org.springframework.web.server.ResponseStatusException(NOT_FOUND, "词库不存在");
         String raw = (String) body.get("words");
         if (raw == null || raw.isBlank()) throw new org.springframework.web.server.ResponseStatusException(BAD_REQUEST, "词不能为空");
-        Set<String> existing = repo.findAll().stream().map(BannedWord::getWord).collect(Collectors.toSet());
-        List<BannedWord> toSave = new ArrayList<>();
-        List<String> added = new ArrayList<>();
+        // 先收集本批候选词，再一次性批量判重（旧实现是 findAll() 把整张词表拉进内存）
+        List<String> candidates = new ArrayList<>();
         List<String> duplicated = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (String line : raw.split("[\\r\\n]+")) {
             String w = line.trim();
             if (w.isEmpty()) continue;
-            if (existing.contains(w) || added.contains(w)) { duplicated.add(w); continue; }
-            existing.add(w);
+            if (!seen.add(w)) { duplicated.add(w); continue; }   // 本批内重复
+            candidates.add(w);
+        }
+        Set<String> existing = candidates.isEmpty() ? Collections.emptySet() : repo.findExistingWords(candidates);
+        List<BannedWord> toSave = new ArrayList<>();
+        List<String> added = new ArrayList<>();
+        for (String w : candidates) {
+            if (existing.contains(w)) { duplicated.add(w); continue; }
             toSave.add(new BannedWord(w, libraryId));
             added.add(w);
         }
@@ -187,21 +193,30 @@ public class BannedWordAdminController {
             }
         }
         if (text == null || text.isBlank()) throw new org.springframework.web.server.ResponseStatusException(BAD_REQUEST, "请提供词库文本或上传文件");
-        // 兼容逗号分隔：先按行、行内再按逗号拆分
-        Set<String> existing = repo.findAll().stream().map(BannedWord::getWord).collect(Collectors.toSet());
-        List<BannedWord> toSave = new ArrayList<>();
+        // 兼容逗号分隔：先按行、行内再按逗号拆分；
+        // 先收集候选词再一次性批量判重（旧实现是 findAll() 把整张词表拉进内存）
+        List<String> candidates = new ArrayList<>();
         List<String> duplicated = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (String line : text.split("\\R")) {
             for (String part : line.split("[,，]")) {
                 String w = part.trim();
                 if (w.isEmpty()) continue;
-                if (existing.contains(w)) {
-                    if (!duplicated.contains(w)) duplicated.add(w);
+                if (!seen.add(w)) {
+                    if (!duplicated.contains(w)) duplicated.add(w);   // 本批内重复
                     continue;
                 }
-                existing.add(w);
-                toSave.add(new BannedWord(w, libraryId));
+                candidates.add(w);
             }
+        }
+        Set<String> existing = candidates.isEmpty() ? Collections.emptySet() : repo.findExistingWords(candidates);
+        List<BannedWord> toSave = new ArrayList<>();
+        for (String w : candidates) {
+            if (existing.contains(w)) {
+                if (!duplicated.contains(w)) duplicated.add(w);
+                continue;
+            }
+            toSave.add(new BannedWord(w, libraryId));
         }
         if (!toSave.isEmpty()) repo.saveAll(toSave);
         filter.refresh();
