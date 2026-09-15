@@ -2,7 +2,10 @@
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading, RefreshLeft, DataLine, Document, User, Star, TrendCharts, View, ChatLineRound, Collection } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import { stats } from '../../api/admin'
+
+const router = useRouter()
 
 const data = ref(null)
 const loading = ref(false)
@@ -204,6 +207,15 @@ const topDocs = computed(() => (data.value && data.value.topDocs) || [])
 const activities = computed(() => (data.value && data.value.activities) || [])
 
 const typeText = (t) => ({ doc: '发布', comment: '评论' }[t] || t)
+
+/** 点击直达：发布 → 文档详情；评论 → 文档详情并定位到该条评论（?c=评论id） */
+function openActivity(a) {
+  if (!a || !a.docId) return
+  if (a.type === 'comment') router.push({ path: '/post/' + a.docId, query: { c: a.commentId } })
+  else router.push('/post/' + a.docId)
+}
+/** 可跳转的条目才显示手型与提示 */
+const canOpen = (a) => !!(a && a.docId)
 </script>
 
 <template>
@@ -324,7 +336,10 @@ const typeText = (t) => ({ doc: '发布', comment: '评论' }[t] || t)
           <div class="ds-list">
             <p class="cap">实时动态 <small class="cap-sub">最新发布与评论</small></p>
             <div v-if="!activities.length" class="rank-empty">暂无动态</div>
-            <div v-for="(a, i) in activities" :key="i" class="act-item">
+            <div v-for="(a, i) in activities" :key="i" class="act-item"
+                 :class="{ clickable: canOpen(a) }"
+                 :title="canOpen(a) ? (a.type === 'comment' ? '点击查看该文档并定位到这条评论' : '点击打开该文档') : ''"
+                 @click="openActivity(a)">
               <span class="act-dot" :class="a.type"></span>
               <div class="act-main">
                 <span class="act-tag" :class="a.type">{{ typeText(a.type) }}</span>
@@ -513,6 +528,13 @@ html.dark .rank-title { color: #d5d7e0; }
 .act-text :deep(img.kb-emoji) { height: 18px; vertical-align: middle; margin: 0 1px; }
 html.dark .act-text { color: #d5d7e0; }
 .act-time { font-size: 11px; color: #98a2b3; white-space: nowrap; }
+/* 可点击的动态条目：整行手型 + 悬停高亮，让「能点」一眼可见 */
+.act-item { border-radius: 6px; transition: background .15s; }
+.act-item.clickable { cursor: pointer; }
+.act-item.clickable:hover { background: rgba(99, 102, 241, .08); }
+.act-item.clickable:hover .act-text { color: #4f46e5; }
+html.dark .act-item.clickable:hover { background: rgba(129, 140, 248, .14); }
+html.dark .act-item.clickable:hover .act-text { color: #a5b4fc; }
 
 @media (max-width: 1200px) {
   .ds-main { grid-template-columns: 1fr; }

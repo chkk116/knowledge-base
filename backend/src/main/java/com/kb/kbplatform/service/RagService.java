@@ -219,10 +219,23 @@ public class RagService {
         if (meili != null && meili.isEnabled()) {
             try {
                 List<Map<String, Object>> hits = meili.search(q, null);
+                // 可见性兜底（F10）：索引删除失败时，下架/封禁文档仍可能留在 Meili 里。
+                // 送入模型前用数据库当前状态核对，避免 AI 引用已下架内容。
+                Set<Long> hitIds = new HashSet<>();
+                for (Map<String, Object> h : hits) {
+                    if (h.get("id") == null) continue;
+                    try { hitIds.add(Long.valueOf(String.valueOf(h.get("id")))); } catch (Exception e) { /* ignore */ }
+                }
+                Set<Long> visible = hitIds.isEmpty() ? Set.of()
+                        : repository.findByStatusAndIdIn("PUBLISHED", new ArrayList<>(hitIds)).stream()
+                            .map(Document::getId).collect(java.util.stream.Collectors.toSet());
                 for (Map<String, Object> h : hits.stream().limit(TOP_K).toList()) {
                     String title = str(h.get("title"));
                     String snippet = str(h.get("snippet"));
                     if (title.isEmpty()) continue;
+                    Long hid = null;
+                    try { hid = h.get("id") == null ? null : Long.valueOf(String.valueOf(h.get("id"))); } catch (Exception e) { /* ignore */ }
+                    if (hid != null && !visible.contains(hid)) continue;   // 索引过期条目：跳过
                     Map<String, Object> s = new LinkedHashMap<>();
                     s.put("id", h.get("id"));
                     s.put("title", title);

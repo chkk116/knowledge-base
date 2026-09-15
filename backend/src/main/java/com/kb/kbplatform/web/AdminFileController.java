@@ -94,7 +94,7 @@ public class AdminFileController {
     }
 
     private void requireAdmin(TokenClaims c) {
-        if (c == null || !"ADMIN".equals(c.role())) {
+        if (c == null || !c.isAdmin()) {
             throw new ResponseStatusException(FORBIDDEN, "需要管理员权限");
         }
     }

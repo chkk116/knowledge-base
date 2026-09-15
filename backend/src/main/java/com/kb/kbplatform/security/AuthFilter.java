@@ -39,74 +39,59 @@ public class AuthFilter implements Filter {
         String path = req.getRequestURI();
         String method = req.getMethod();
 
-        if (isPublic(path, method)) {
-            // 公开接口仍尝试解析登录态：让管理员/作者能预览非发布文档（如待审核、草稿），
-            // 匿名请求不受影响仍可访问；仅当携带合法 Bearer 令牌时才注入 kbUser。
-            String anonAuth = req.getHeader("Authorization");
-            if (anonAuth != null && anonAuth.startsWith("Bearer ")) {
-                try {
-                    TokenClaims claims = TokenUtil.parse(secret, anonAuth.substring(7).trim());
-                    req.setAttribute("kbUser", claims);
-                } catch (Exception ignored) { /* 无效令牌：按匿名处理，不阻断公开访问 */ }
-            }
-            chain.doFilter(request, response);
-            return;
-        }
-
+        boolean publicRequest = isPublic(path, method);
         String auth = req.getHeader("Authorization");
-        if (auth == null || !auth.startsWith("Bearer ")) {
+        if (!publicRequest && (auth == null || !auth.startsWith("Bearer "))) {
             // EventSource 无法自定义请求头：SSE 通知流允许通过 ?token= 查询参数传递令牌
             if (path.equals("/api/notifications/stream")) {
                 String q = req.getParameter("token");
                 if (q != null && !q.isBlank()) auth = "Bearer " + q;
             }
         }
-        if (auth == null || !auth.startsWith("Bearer ")) {
+        TokenClaims claims = null;
+        if (auth != null && auth.startsWith("Bearer ")) {
+            try {
+                claims = TokenUtil.parse(secret, auth.substring(7).trim());
+            } catch (IllegalArgumentException e) {
+                // 仅令牌格式、签名或过期错误按认证失败处理；公开接口降级为匿名。
+                if (!publicRequest) {
+                    send401(res);
+                    return;
+                }
+            }
+        } else if (!publicRequest) {
             send401(res);
             return;
         }
-        try {
-            TokenClaims claims = TokenUtil.parse(secret, auth.substring(7).trim());
-            // 实时吊销校验：账号已被删除 / 禁用，或令牌版本不匹配（改密 / 重置密码后），
-            // 旧 token 立即失效，无需等待 24h 有效期过期
+
+        if (claims != null) {
+            // 公开与受保护接口使用相同的实时吊销校验；数据库故障必须原样传播。
             User u = userRepo.findById(claims.userId()).orElse(null);
             if (u == null || !u.isEnabled() || u.getTokenVersion() != claims.tokenVersion()) {
-                send401(res);
-                return;
+                if (!publicRequest) {
+                    send401(res);
+                    return;
+                }
+                claims = null;
             }
-            // 管理员接口：基线门禁 = ADMIN 角色「或」拥有该接口所需细粒度权限码。
-            // 二者满足其一即放行（细粒度授权用于对普通用户开放指定后台能力），避免只能 ADMIN 使用。
-            // adminPermRequired 返回 null 的接口（如黑名单）仍仅 ADMIN 可访问（普通用户无对应权限码）。
-            if (path.startsWith("/api/admin")) {
-                // 功能开关「状态读取」接口（/map）供所有登录用户拉取（路由守卫/侧边栏依赖），
-                // 仅需登录，不要求 ADMIN 或 CORE_MAINTAIN；修改类接口仍受细粒度权限保护。
-                if ("/api/admin/features/map".equals(path) && "GET".equals(method)) {
-                    req.setAttribute("kbUser", claims);
-                    chain.doFilter(request, response);
-                    return;
-                }
-                // 水印配置「读取」对所有登录用户开放（全局防泄密水印需套在每个人屏幕上）；
-                // 写入（PUT）仍走 adminPermRequired 的 CORE_MAINTAIN 细粒度校验。
-                // 这里按 key 精确放行而非开放整个 /settings 前缀：避免将来往 kb_sys_setting
-                // 存敏感配置时被任意登录用户读走。
-                if ("GET".equals(method) && "/api/admin/settings/watermark".equals(path)) {
-                    req.setAttribute("kbUser", claims);
-                    chain.doFilter(request, response);
-                    return;
-                }
+        }
+        if (!publicRequest && path.startsWith("/api/admin")) {
+            // 功能开关状态与水印配置只读接口对所有登录用户开放；写入仍需细粒度权限。
+            boolean loginOnlyRead = "GET".equals(method)
+                    && ("/api/admin/features/map".equals(path) || "/api/admin/settings/watermark".equals(path));
+            if (!loginOnlyRead) {
                 String need = adminPermRequired(path, method);
-                boolean roleOk = "ADMIN".equals(claims.role());
+                // 全权限覆盖视同 ADMIN，包括没有细粒度权限码的仅管理员接口。
+                boolean roleOk = claims.isAdmin();
                 boolean permOk = need != null && claims.hasPerm(need);
                 if (!roleOk && !permOk) {
                     send403(res);
                     return;
                 }
             }
-            req.setAttribute("kbUser", claims);   // 供控制器读取当前用户
-            chain.doFilter(request, response);
-        } catch (Exception e) {
-            send401(res);
         }
+        if (claims != null) req.setAttribute("kbUser", claims);   // 供控制器读取当前用户
+        chain.doFilter(request, response);
     }
 
     /** 公开（免登录）的接口 */

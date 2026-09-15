@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/auth'
 import { getCourse, courseProgress, finishChapter } from '../api/training'
 import { getChapterNote, saveChapterNote } from '../api/kb'
 import CommentSection from '../components/CommentSection.vue'
+import { errMsg } from '../utils/errMsg'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,7 +71,7 @@ const finish = (ch) => {
   finishChapter(route.params.courseId, ch.id).then(() => {
     ElMessage.success('已标记完成 +10 积分')
     load()
-  }).catch(e => ElMessage.error(e.response?.data?.error || '操作失败'))
+  }).catch(e => ElMessage.error(errMsg(e, '操作失败')))
 }
 
 const goChapter = (ch) => { if (ch) router.push(`/study/courses/${route.params.courseId}/chapters/${ch.id}`) }

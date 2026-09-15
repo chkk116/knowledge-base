@@ -4,6 +4,8 @@ import api from './request'
 export const assetStats = () => api.get('/admin/assets/stats')
 export const nextAssetCode = () => api.get('/admin/assets/next-code')
 export const listAssets = (params = {}) => api.get('/admin/assets', { params })
+// 单条详情：详情抽屉用它拿最新数据（列表行可能是保存前的旧对象）
+export const getAsset = (id) => api.get('/admin/assets/' + id)
 export const createAsset = (d) => api.post('/admin/assets', d)
 export const updateAsset = (id, d) => api.put('/admin/assets/' + id, d)
 export const deleteAsset = (id) => api.delete('/admin/assets/' + id)

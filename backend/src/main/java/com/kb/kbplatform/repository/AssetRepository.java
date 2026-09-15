@@ -17,6 +17,15 @@ public interface AssetRepository extends JpaRepository<Asset, Long>, JpaSpecific
     @Query("select coalesce(max(a.id), 0) from Asset a")
     Long maxId();
 
+    /**
+     * 加行锁读取资产（F09）：借出/归还等改变「资产当前占用状态」的流程必须在事务内先锁住资产行，
+     * 否则两个并发借出请求会同时通过「无活跃借用」判断，各插一条 BORROWED 记录。
+     * 配合数据库「每资产最多一条活跃借用」的部分唯一索引形成最终约束。
+     */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Asset a where a.id = :id")
+    Optional<Asset> findByIdForUpdate(@org.springframework.data.repository.query.Param("id") Long id);
+
     /** 按状态分组计数（统计看板用，SQL 聚合，避免全表拉进内存） */
     @Query("select a.status, count(a) from Asset a group by a.status")
     List<Object[]> countGroupByStatus();

@@ -14,6 +14,7 @@ import {
 } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import DocShareEditor from './DocShareEditor.vue'
+import { errMsg } from '../utils/errMsg'
 
 const route = useRoute()
 const router = useRouter()
@@ -72,7 +73,7 @@ const loadShare = async () => {
     share.value = data
     shareType.value = data.type || 'TEAM'
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载空间失败')
+    ElMessage.error(errMsg(e, '加载空间失败'))
     router.push('/doc-shares')
   }
 }
@@ -148,7 +149,7 @@ const createDoc = async () => {
     await loadDocs()
     await selectDoc(data)
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '创建失败')
+    ElMessage.error(errMsg(e, '创建失败'))
   }
 }
 
@@ -183,7 +184,7 @@ const saveTitle = async () => {
     await updateShareDoc(shareId.value, activeDoc.value.id, { title: editorTitle.value })
     await loadDocs()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '标题保存失败')
+    ElMessage.error(errMsg(e, '标题保存失败'))
   } finally {
     saving.value = false
   }
@@ -203,7 +204,7 @@ const removeDoc = async (doc) => {
     }
     await loadDocs()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -225,7 +226,7 @@ const doRename = async () => {
       editorTitle.value = renameForm.value.title.trim()
     }
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '重命名失败')
+    ElMessage.error(errMsg(e, '重命名失败'))
   } finally {
     saving.value = false
   }
@@ -256,7 +257,7 @@ const doMove = async () => {
     moveDialog.value = false
     await loadDocs()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '移动失败')
+    ElMessage.error(errMsg(e, '移动失败'))
   } finally {
     saving.value = false
   }
@@ -292,7 +293,7 @@ const invite = async () => {
     memberForm.value = { userId: '', permission: 'READ' }
     await loadMembers()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '添加失败')
+    ElMessage.error(errMsg(e, '添加失败'))
   }
 }
 
@@ -361,7 +362,7 @@ const submitCapReq = async () => {
     capReqDialog.value = false
     await openCapReq()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '提交失败')
+    ElMessage.error(errMsg(e, '提交失败'))
   } finally {
     capReqSaving.value = false
   }
@@ -402,7 +403,7 @@ const setDocPerm = async (row, perm) => {
   } catch (e) {
     // 失败回滚 select 显示
     row.permission = row.override ? row.permission : (row.spacePermission || 'READ')
-    ElMessage.error(e.response?.data?.error || '更新失败')
+    ElMessage.error(errMsg(e, '更新失败'))
   }
 }
 // 清除某成员在该文档的单独权限（回退继承）

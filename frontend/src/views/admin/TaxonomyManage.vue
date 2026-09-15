@@ -6,6 +6,7 @@ import {
   listTags, createTag, deleteTag, categories as docCategories, allTags as docTags
 } from '../../api/kb'
 import { useAuthStore } from '../../store/auth'
+import { errMsg } from '../../utils/errMsg'
 
 const auth = useAuthStore()
 const tree = ref([])
@@ -15,7 +16,7 @@ const selectedCat = ref(null)
 const newCatName = ref('')
 const newTag = ref('')
 
-const err = (e) => ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+const err = (e) => ElMessage.error(errMsg(e, '操作失败'))
 
 async function load() {
   try { tree.value = (await getCategoryTree()).data || [] } catch (e) {}

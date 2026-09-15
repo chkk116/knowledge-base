@@ -9,7 +9,7 @@ import {
   ElAlert, ElAside, ElAvatar, ElAvatarGroup, ElBadge, ElButton, ElCard,
   ElCheckbox, ElCheckboxGroup, ElCol, ElColorPicker, ElContainer, ElDatePicker,
   ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem, ElDropdownMenu,
-  ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElInput, ElInputNumber, ElMain,
+  ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput, ElInputNumber, ElMain,
   ElMenu, ElMenuItem, ElOption, ElPageHeader, ElPagination, ElPopconfirm,
   ElPopover, ElProgress, ElRadio, ElRadioButton, ElRadioGroup, ElRow, ElSelect,
   ElSkeleton, ElSlider, ElSubMenu, ElSwitch, ElTabPane, ElTable, ElTableColumn,
@@ -42,6 +42,8 @@ import 'element-plus/es/components/form/style/css'
 import 'element-plus/es/components/form-item/style/css'
 import 'element-plus/es/components/header/style/css'
 import 'element-plus/es/components/icon/style/css'
+import 'element-plus/es/components/image/style/css'
+import 'element-plus/es/components/image-viewer/style/css'
 import 'element-plus/es/components/input/style/css'
 import 'element-plus/es/components/input-number/style/css'
 import 'element-plus/es/components/main/style/css'
@@ -84,7 +86,7 @@ import {
   HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
-  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase
+  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box
 } from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
@@ -106,7 +108,7 @@ const EP_COMPONENTS = {
   ElAlert, ElAside, ElAvatar, ElAvatarGroup, ElBadge, ElButton, ElCard,
   ElCheckbox, ElCheckboxGroup, ElCol, ElColorPicker, ElContainer, ElDatePicker,
   ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem, ElDropdownMenu,
-  ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElInput, ElInputNumber, ElMain,
+  ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput, ElInputNumber, ElMain,
   ElMenu, ElMenuItem, ElOption, ElPageHeader, ElPagination, ElPopconfirm,
   ElPopover, ElProgress, ElRadio, ElRadioButton, ElRadioGroup, ElRow, ElSelect,
   ElSkeleton, ElSlider, ElSubMenu, ElSwitch, ElTabPane, ElTable, ElTableColumn,
@@ -124,7 +126,7 @@ const icons = {
   HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
-  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase
+  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)

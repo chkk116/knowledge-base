@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ChatLineRound, ChatSquare, Promotion, Pointer, Stamp, DocumentChecked, Bell, Medal, UserFilled
+  ChatLineRound, ChatSquare, Promotion, Pointer, Stamp, DocumentChecked, Bell, Medal, UserFilled, Warning
 } from '@element-plus/icons-vue'
 import {
   notificationList, notificationRead, notificationReadAll,
@@ -12,6 +12,7 @@ import {
 import { useNotificationStore } from '../store/notification'
 import { fromNow, fmtDateTime } from '../utils/time'
 import PageBar from '../components/PageBar.vue'
+import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
 const notification = useNotificationStore()
@@ -26,6 +27,7 @@ const pageSize = ref(15)
 
 // 各通知类型的语义图标与配色（大厂范式：类型可视化、层次分明）
 const META = {
+  SECURITY_ALERT:  { icon: Warning, color: '#C0392B' },
   COMMENT_MENTION: { icon: Promotion, color: '#185FA5' },
   COMMENT:         { icon: ChatLineRound, color: '#0F6E56' },
   COMMENT_REPLY:   { icon: ChatSquare, color: '#0F6E56' },
@@ -63,7 +65,7 @@ const TAB_TYPES = {
 const load = async () => {
   loading.value = true
   try { list.value = (await notificationList()).data || [] } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '加载失败')
+    ElMessage.error(errMsg(e, '加载失败'))
   } finally { loading.value = false }
 }
 
@@ -144,6 +146,8 @@ const open = async (n) => {
   }
   // 头像提审（管理员收到）→ 头像审核队列
   if (n.type === 'AVATAR_REVIEW_SUBMIT') { router.push('/admin/review'); return }
+  // 安全告警（管理员收到）→ 登录日志页核对来源
+  if (n.type === 'SECURITY_ALERT') { router.push('/admin/loginlog'); return }
 }
 // 内联「标记已读」（= 忽略，不跳转）
 const ignore = async (n) => {
@@ -165,7 +169,7 @@ const readAll = async () => {
     notification.setUnread(0)
     load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -180,7 +184,7 @@ const removeOne = async (n) => {
     notification.setUnread(list.value.filter(x => !x.read).length)
     ElMessage.success('已删除')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -194,7 +198,7 @@ const removeSelected = async () => {
     ElMessage.success('已删除选中通知')
     load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -210,7 +214,7 @@ const clearAll = async () => {
     notification.setUnread(0)
     ElMessage.success('已清空全部通知')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 

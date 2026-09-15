@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { search, categories } from '../api/kb'
 import { fromNow, fmtDateTime } from '../utils/time'
+import { escapeHtml } from '../utils/text'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,9 +24,6 @@ const loadCategories = async () => {
 loadCategories()
 
 // 关键词高亮：先转义 HTML，再对命中词包裹 <mark>（标题 / 摘要均为纯文本，安全）
-const escapeHtml = (s) => (s || '').replace(/[&<>"']/g, c => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-))
 const highlight = (text) => {
   const t = escapeHtml(text || '')
   const kw = (q.value || '').trim()

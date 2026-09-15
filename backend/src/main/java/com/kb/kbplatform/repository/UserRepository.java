@@ -51,6 +51,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u.points FROM User u WHERE u.id = :id")
     Integer findPointsById(@Param("id") Long id);
 
+    /** 批量递增令牌版本：角色权限/角色分配变更后调用，使这些用户的旧令牌立即失效（F03-B）。
+     *  token_version 为 NULL 的存量行按 0 处理，统一置为 1。 */
+    @Modifying
+    @Query("UPDATE User u SET u.tokenVersion = COALESCE(u.tokenVersion, 0) + 1 WHERE u.id IN :ids")
+    void bumpTokenVersionByIds(@Param("ids") java.util.Collection<Long> ids);
+
     /** 头像审核：待审用户列表 */
     List<User> findByAvatarPendingIsNotNull();
 

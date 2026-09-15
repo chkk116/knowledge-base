@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
 @Service
@@ -58,15 +59,26 @@ public class ExamService {
         return list;
     }
 
+    /** 限时宽限：网络抖动/提交在途的补偿时间，超过 deadline 后仍允许在这一小段时间内交卷 */
+    private static final Duration SUBMIT_GRACE = Duration.ofSeconds(60);
+
+    /** 服务端限时判定（F07）：不限时返回 false；已超时（含宽限）返回 true */
+    private boolean expired(ExamRecord rec) {
+        if (rec.getDeadlineAt() == null) return false;
+        return LocalDateTime.now().isAfter(rec.getDeadlineAt().plus(SUBMIT_GRACE));
+    }
+
     /** 学员考试视角——题目与选项，但不返回正确答案。
-     *  防泄题闸门：必须先 POST /{id}/start 成功（存在该用户该试卷的进行中记录）才发题，
-     *  否则前置校验（结业考试章节门禁等）被 400 拦截后，直接刷 GET 仍能拿到全部考题。 */
+     *  防泄题闸门：必须先 POST /{id}/start 成功（存在该用户该试卷的进行中记录）才发题。 */
     public Map<String, Object> getPaperForStudent(Long userId, Long paperId) {
         ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
         if (!"PUBLISHED".equals(paper.getStatus())) throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
-        boolean started = recordRepo.findByUserIdOrderByStartedAtDesc(userId).stream()
-                .anyMatch(r -> r.getPaperId().equals(paperId) && r.getSubmittedAt() == null);
-        if (!started) throw new ResponseStatusException(FORBIDDEN, "请先开始考试");
+        ExamRecord running = recordRepo.findByUserIdOrderByStartedAtDesc(userId).stream()
+                .filter(r -> r.getPaperId().equals(paperId) && r.getSubmittedAt() == null)
+                .findFirst().orElse(null);
+        if (running == null) throw new ResponseStatusException(FORBIDDEN, "请先开始考试");
+        // 已超时不再发题（否则可以「开考后关页面，几小时后再取题慢慢做」绕过限时）
+        if (expired(running)) throw new ResponseStatusException(FORBIDDEN, "考试已超时结束，请重新开始");
         List<ExamPaperQuestion> pqs = pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(paperId);
         Map<Long, ExamPaperQuestion> pqMap = new LinkedHashMap<>();
         for (ExamPaperQuestion pq : pqs) pqMap.put(pq.getQuestionId(), pq);
@@ -99,12 +111,15 @@ public class ExamService {
     public ExamRecord start(Long userId, Long paperId) {
         ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
         if (!"PUBLISHED".equals(paper.getStatus())) throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
-        // #4 复用进行中记录：避免刷新/重连产生孤儿记录
+        // #4 复用进行中记录：避免刷新/重连产生孤儿记录。
+        // 但已超时的进行中记录不能再复用（否则等于把限时考试变成不限时）：
+        // 就地按「超时未交」结算关闭，再新建一条记录（F07）。
         List<ExamRecord> inProgress = recordRepo.findByUserIdOrderByStartedAtDesc(userId).stream()
                 .filter(r -> r.getPaperId().equals(paperId) && r.getSubmittedAt() == null)
                 .toList();
-        if (!inProgress.isEmpty()) {
-            return inProgress.get(0);
+        for (ExamRecord old : inProgress) {
+            if (!expired(old)) return old;
+            settleExpired(old);
         }
         // #2 结业考试前置校验：若该试卷是某课程的结业考试，须学完所有章节才能考
         // 结业考试可能被多门课程绑定：必须学完【每一门】绑定课程的全部章节（此前只校验第一门，
@@ -127,15 +142,49 @@ public class ExamService {
         rec.setPaperTitle(paper.getTitle());
         rec.setQuestionCount(pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(paperId).size());
         rec.setStartedAt(LocalDateTime.now());
-        return recordRepo.save(rec);
+        // 服务端固化截止时间（不限时的试卷保持 null）
+        Integer dur = paper.getDurationMin();
+        if (dur != null && dur > 0) rec.setDeadlineAt(rec.getStartedAt().plusMinutes(dur));
+        try {
+            return recordRepo.save(rec);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // 并发同时开考：数据库唯一约束（每个用户每份试卷最多一条进行中记录）拦下第二条，
+            // 这里回查已存在的进行中记录返回，保证「开考」幂等（F08）
+            return recordRepo.findByUserIdOrderByStartedAtDesc(userId).stream()
+                    .filter(r -> r.getPaperId().equals(paperId) && r.getSubmittedAt() == null)
+                    .findFirst()
+                    .orElseThrow(() -> e);
+        }
     }
 
-    /** 提交试卷并自动阅卷（客观题判分，主观题记 0 待人工）；首次提交且及格时奖励考试积分 */
+    /** 超时未交的记录按 0 分关闭（不判分、不发分），避免永久占位导致无法重新考试 */
+    @Transactional
+    protected void settleExpired(ExamRecord rec) {
+        rec.setScore(0);
+        rec.setPassed(false);
+        rec.setSubmittedAt(LocalDateTime.now());
+        if (rec.getStartedAt() != null) {
+            rec.setDurationSec((int) Math.max(0, Duration.between(rec.getStartedAt(), rec.getSubmittedAt()).getSeconds()));
+        }
+        recordRepo.save(rec);
+    }
+
+    /** 提交试卷并自动阅卷（客观题判分，主观题记 0 待人工）；首次提交且及格时奖励考试积分。
+     *  幂等 + 限时（F07/F08）：已提交直接返回首次结果；超时（含宽限）拒绝；并发提交只有一条能判分发分。 */
     @Transactional
     public ExamRecord submit(Long userId, Long recordId, List<AnswerItem> items) {
         ExamRecord rec = recordRepo.findById(recordId).orElseThrow(() -> new IllegalArgumentException("考试记录不存在"));
         if (!rec.getUserId().equals(userId)) throw new ResponseStatusException(FORBIDDEN, "无权提交该考试");
-        if (rec.getSubmittedAt() != null) throw new ResponseStatusException(BAD_REQUEST, "该考试已提交");
+        // 已经是已提交状态：重复提交（用户狂点/网络重试）直接回放首次结果，不重复判分、不重复发分
+        if (rec.getSubmittedAt() != null) return rec;
+        // 服务端限时：超过 deadline + 宽限一律拒绝；未交的记录会在下次 start 时按超时结算关闭
+        if (expired(rec)) {
+            throw new ResponseStatusException(CONFLICT, "考试已超时，本次提交未生效；可重新开始考试");
+        }
+        // 原子抢占提交权：两个并发请求只有一个能把 submitted_at 从 NULL 改掉，另一个回放首次结果
+        if (recordRepo.claimSubmit(recordId, LocalDateTime.now()) == 0) {
+            return recordRepo.findById(recordId).orElse(rec);
+        }
 
         List<ExamPaperQuestion> pqs = pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(rec.getPaperId());
         Map<Long, ExamPaperQuestion> pqMap = new LinkedHashMap<>();

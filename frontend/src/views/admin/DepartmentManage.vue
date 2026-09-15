@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, OfficeBuilding, User, Remove } from '@element-plus/icons-vue'
 import { listDepartments, createDepartment, updateDepartment, deleteDepartment, listUsers, assignDepartmentMembers, removeDepartmentMember } from '../../api/admin'
+import { errMsg } from '../../utils/errMsg'
 
 const departments = ref([])
 const users = ref([])          // 全量用户（用于成员数 / 成员列表 / 选人）；用户量大时以 1000 为上限
@@ -107,7 +108,7 @@ const save = async () => {
     dialog.value = false
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   } finally {
     saving.value = false
   }
@@ -122,7 +123,7 @@ const remove = async (d) => {
     if (selectedId.value === d.id) selectedId.value = null
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -145,7 +146,7 @@ const confirmAddMembers = async () => {
     addDialog.value = false
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加入失败')
+    ElMessage.error(errMsg(e, '加入失败'))
   } finally {
     adding.value = false
   }
@@ -159,7 +160,7 @@ const removeOne = async (u) => {
     ElMessage.success('已移出')
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '移出失败')
+    ElMessage.error(errMsg(e, '移出失败'))
   }
 }
 

@@ -43,7 +43,7 @@ public class SearchService {
         if (kw.isEmpty()) return Collections.emptyList();
         if (meili.isEnabled() && System.currentTimeMillis() > meiliCooldownUntil) {
             try {
-                return meili.search(kw, category);
+                return verifyVisible(meili.search(kw, category));
             } catch (MeiliUnavailableException e) {
                 meiliCooldownUntil = System.currentTimeMillis() + MEILI_COOLDOWN_MS;
                 log.warn("Meilisearch 暂不可用，回退 MySQL LIKE（{}s 内不再重试）: {}",
@@ -54,6 +54,35 @@ public class SearchService {
             }
         }
         return searchByMysql(kw, category, null);
+    }
+
+    /**
+     * 搜索结果的可见性兜底（F10）：Meili 索引删除失败时，撤回/封禁/删除的文档仍会留在索引里。
+     * 返回给用户前，用数据库当前状态核对一遍——只保留「已发布且未进回收站」的条目，
+     * 索引与数据库不一致时以数据库为准。
+     */
+    private List<Map<String, Object>> verifyVisible(List<Map<String, Object>> hits) {
+        if (hits == null || hits.isEmpty()) return hits;
+        Set<Long> ids = hits.stream()
+                .map(h -> h.get("id"))
+                .filter(Objects::nonNull)
+                .map(o -> {
+                    try { return Long.valueOf(String.valueOf(o)); } catch (Exception e) { return null; }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) return hits;
+        Set<Long> visible = repo.findByStatusAndIdIn("PUBLISHED", new ArrayList<>(ids)).stream()
+                .map(Document::getId).collect(Collectors.toSet());
+        List<Map<String, Object>> out = hits.stream()
+                .filter(h -> h.get("id") != null
+                        && visible.contains(Long.valueOf(String.valueOf(h.get("id")))))
+                .collect(Collectors.toList());
+        if (out.size() != hits.size()) {
+            log.warn("搜索索引与数据库不一致：{} 条命中中有 {} 条已不可见，已过滤（建议重建索引）",
+                    hits.size(), hits.size() - out.size());
+        }
+        return out;
     }
 
     private List<Map<String, Object>> searchByMysql(String q, String category, String author) {

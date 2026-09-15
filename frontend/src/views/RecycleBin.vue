@@ -9,6 +9,7 @@ import {
 import { useAuthStore } from '../store/auth'
 import { fromNow, fmtDateTime } from '../utils/time'
 import PageBar from '../components/PageBar.vue'
+import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -33,7 +34,7 @@ const load = async () => {
     const maxPage = Math.max(1, Math.ceil(docs.value.length / pageSize.value))
     if (currentPage.value > maxPage) currentPage.value = maxPage
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '加载失败')
+    ElMessage.error(errMsg(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -49,7 +50,7 @@ const restore = async (d) => {
     ElMessage.success('已恢复')
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '恢复失败')
+    ElMessage.error(errMsg(e, '恢复失败'))
   }
 }
 
@@ -64,7 +65,7 @@ const purge = async (d) => {
     ElMessage.success('已彻底删除')
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 

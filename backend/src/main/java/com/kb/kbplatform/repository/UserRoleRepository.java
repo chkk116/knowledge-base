@@ -23,6 +23,10 @@ public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
     /** 角色被多少用户使用（删除角色前校验是否仍被引用） */
     long countByRoleId(Long roleId);
 
+    /** 某角色下的全部用户 id（角色权限变更后需批量失效这些用户的旧令牌） */
+    @Query("SELECT ur.userId FROM UserRole ur WHERE ur.roleId = :roleId")
+    List<Long> findUserIdsByRoleId(@Param("roleId") Long roleId);
+
     /** 整体替换某用户的角色分配前，先清空旧关联 */
     @Modifying
     @Query("DELETE FROM UserRole ur WHERE ur.userId = :userId")

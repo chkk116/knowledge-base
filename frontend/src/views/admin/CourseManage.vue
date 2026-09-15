@@ -315,6 +315,8 @@ import { uploadFile } from '../../api/file'
 import { search as searchDocs, getDoc } from '../../api/kb'
 import { courseCategories } from '../../api/training'
 import { adminCourses, adminCreateCourse, adminUpdateCourse, adminDeleteCourse, adminChapters, adminCreateChapter, adminUpdateChapter, adminDeleteChapter, listPapers } from '../../api/training'
+import { splitTags } from '../../utils/text'
+import { errMsg } from '../../utils/errMsg'
 
 const tab = ref('courses')
 const courses = ref([])
@@ -364,7 +366,7 @@ const learningModeLabel = (m) => m === 'GUIDED' ? '引导学习' : '自由学习
 // 标签 chip
 const tagInput = ref('')
 const formTags = ref([])
-function splitTags(s) { return s ? s.split(/[,，;；\s]+/).filter(Boolean) : [] }
+
 function syncTagsToForm() { courseForm.value.tags = formTags.value.join(',') }
 function syncFormToTags() { formTags.value = splitTags(courseForm.value.tags) }
 function addTag() {
@@ -517,7 +519,7 @@ function saveCourseAndNext() {
     step.value = 2
     selCourse.value = c
     loadChapters()
-  }).catch(e => ElMessage.error(e.response?.data?.error || '保存失败'))
+  }).catch(e => ElMessage.error(errMsg(e, '保存失败')))
     .finally(() => saving.value = false)
 }
 
@@ -540,7 +542,7 @@ const saveChapter = () => {
   const p = { title: f.title, content: f.content, articleId: f.articleId || null, sortOrder: f.sortOrder, durationMin: f.durationMin, courseId: (selCourse.value?.id || savedCourseId.value) }
   const req = editingChapter.value ? adminUpdateChapter(editingChapter.value.id, p) : adminCreateChapter(p)
   req.then(() => { ElMessage.success('已保存'); chapterDlg.value = false; loadChapters() })
-    .catch(e => ElMessage.error(e.response?.data?.error || '保存失败'))
+    .catch(e => ElMessage.error(errMsg(e, '保存失败')))
     .finally(() => saving.value = false)
 }
 const delChapter = (row) => ElMessageBox.confirm('确定删除该章节？', '提示', { type: 'warning' })

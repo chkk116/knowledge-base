@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import QRCode from 'qrcode'
 import api from '../../api/request'
 import { uploadFile } from '../../api/file'
+import { errMsg } from '../../utils/errMsg'
 
 const KEY = 'login_qrcodes'
 const wxUrl = ref('')
@@ -108,7 +109,7 @@ async function save() {
     })
     ElMessage.success('已保存，登录页二维码即时生效')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '保存失败')
+    ElMessage.error(errMsg(e, '保存失败'))
   } finally {
     saving.value = false
   }

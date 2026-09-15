@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { listBadges, wearBadge } from '../api/kb'
 import { useAuthStore } from '../store/auth'
 import { BADGE_ICONS, DEFAULT_BADGE_ICON, LOCK_ICON, tierGradient, withAlpha } from '../utils/badgeIcons'
+import { errMsg } from '../utils/errMsg'
 
 const auth = useAuthStore()
 const loading = ref(false)
@@ -30,7 +31,7 @@ async function toggleWear(b) {
     if (auth.user) auth.user.wornBadges = [...list]     // 顶栏 / 资料页即时更新
     ElMessage.success(isWorn(b) ? `已卸下「${b.name}」` : `已佩戴「${b.name}」`)
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   } finally {
     wearing.value = false
   }

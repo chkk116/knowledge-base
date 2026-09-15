@@ -43,25 +43,56 @@ public class AssetService {
 
     // ---------- 编号生成 ----------
     public String nextCode() {
+        return nextAvailableCode();
+    }
+
+    /**
+     * 生成一个未被占用的资产编号（F15）。
+     * 原实现直接用 max(id)+1：编号允许自定义，例如已存在 AS000002 但最大 id 仍是 1 时，
+     * 自动编号会反复生成 AS000002 并撞唯一约束，后续空编号行持续失败。
+     * 这里从 max(id)+1 起顺序探测可用值，跳过已被自定义编号占用的号段。
+     */
+    public String nextAvailableCode() {
         long n = (assetRepo.maxId() == null ? 0 : assetRepo.maxId()) + 1;
-        return "AS" + String.format("%06d", n);
+        for (int i = 0; i < 2000; i++) {
+            String candidate = "AS" + String.format("%06d", n + i);
+            if (assetRepo.findByCode(candidate).isEmpty()) return candidate;
+        }
+        // 极端兜底：号段被大量自定义编号占满时，退化为时间戳后缀，保证返回可用值
+        return "AS" + (System.currentTimeMillis() % 1_000_000L);
     }
 
     // ---------- CRUD ----------
+    @org.springframework.transaction.annotation.Transactional
     public Asset createAsset(Map<String, Object> body, Long operatorId, String operatorName) {
         Asset a = new Asset();
         String code = str(body.get("code"));
-        a.setCode(code != null && !code.isBlank() ? code.trim() : nextCode());
+        a.setCode(code != null && !code.isBlank() ? code.trim() : nextAvailableCode());
         a.setName(requireStr(body.get("name"), "资产名称"));
         applyFields(a, body);
-        Asset saved = assetRepo.save(a);
+        // 自动编号仍可能并发撞号：唯一约束失败时重算一次再试（有界重试，不做无限循环）
+        Asset saved;
+        int attempt = 0;
+        while (true) {
+            try {
+                saved = assetRepo.save(a);
+                break;
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                if (code != null && !code.isBlank()) throw e;      // 用户自填编号冲突：如实报错
+                if (++attempt > 3) throw e;
+                a.setCode(nextAvailableCode());
+            }
+        }
         writeLog(saved.getId(), AssetLog.ACTION_CREATE, operatorId, operatorName,
                 "建档资产「" + saved.getName() + "」（" + saved.getCode() + "）");
         return enrich(saved);
     }
 
+    /** 更新资产：与借还共用资产行锁（F09），避免「改为报废/维修」与「正在借出」并发产生矛盾状态 */
+    @org.springframework.transaction.annotation.Transactional
     public Asset updateAsset(Long id, Map<String, Object> body, Long operatorId, String operatorName) {
-        Asset a = requireAsset(id);
+        Asset a = assetRepo.findByIdForUpdate(id).orElseThrow(
+                () -> new ResponseStatusException(NOT_FOUND, "资产不存在"));
         String before = summarize(a);
         applyFields(a, body);
         a.setUpdatedAt(LocalDateTime.now());
@@ -210,8 +241,11 @@ public class AssetService {
     }
 
     // ---------- 借还 ----------
+    /** 借出：事务内先对资产行加锁（F09），把「查活跃借用 → 插入」变成串行，避免并发借给两人 */
+    @org.springframework.transaction.annotation.Transactional
     public AssetBorrow borrow(Long assetId, Map<String, Object> body, Long operatorId, String operatorName, Long borrowerId) {
-        Asset a = requireAsset(assetId);
+        Asset a = assetRepo.findByIdForUpdate(assetId).orElseThrow(
+                () -> new ResponseStatusException(NOT_FOUND, "资产不存在"));
         // 报废 / 维修中的资产不可借出（借出状态需与资产生命周期状态联动）
         if (Asset.STATUS_SCRAPPED.equals(a.getStatus()) || Asset.STATUS_REPAIR.equals(a.getStatus())) {
             throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
@@ -233,17 +267,20 @@ public class AssetService {
         return enrichBorrow(saved);
     }
 
+    /** 归还：与借出使用同一把资产行锁（F09），避免「归还」与「再次借出」交错产生双重占用 */
+    @org.springframework.transaction.annotation.Transactional
     public AssetBorrow returnBorrow(Long borrowId, Map<String, Object> body, Long operatorId, String operatorName) {
         AssetBorrow b = borrowRepo.findById(borrowId).orElseThrow(
                 () -> new ResponseStatusException(NOT_FOUND, "借用记录不存在"));
         if (AssetBorrow.STATUS_RETURNED.equals(b.getStatus())) {
             throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "该借用记录已归还");
         }
+        Asset a = assetRepo.findByIdForUpdate(b.getAssetId()).orElseThrow(
+                () -> new ResponseStatusException(NOT_FOUND, "资产不存在"));
         b.setReturnAt(LocalDateTime.now());
         b.setStatus(AssetBorrow.STATUS_RETURNED);
         b.setReturnRemark(str(body.get("returnRemark")));
         AssetBorrow saved = borrowRepo.save(b);
-        Asset a = requireAsset(b.getAssetId());
         writeLog(b.getAssetId(), AssetLog.ACTION_RETURN, operatorId, operatorName,
                 "归还资产「" + a.getName() + "」（借用人 " + saved.getBorrower() + "）");
         return enrichBorrow(saved);

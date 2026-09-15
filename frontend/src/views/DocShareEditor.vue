@@ -18,15 +18,18 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { updateShareDoc, saveShareDocVersion, listShareDocVersions, restoreShareDocVersion } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import { fromNow, fmtDateTime } from '../utils/time'
+import { errMsg } from '../utils/errMsg'
 
 const props = defineProps({
   shareId: { type: Number, required: true },
   docId: { type: Number, required: true },
+  revision: { type: Number, default: 0 },
   canWrite: { type: Boolean, default: false },
   // 旧版 HTML 内容，仅用于首次协同时把历史内容种入 Yjs 文档（一次性迁移）
   legacyContent: { type: String, default: '' },
 })
 
+const emit = defineEmits(['reload-document'])
 const auth = useAuthStore()
 const meName = computed(() => auth.user?.displayName || auth.user?.username || '我')
 
@@ -56,9 +59,19 @@ const wordCount = ref(0)
 //   1) 断开后延迟重连；
 //   2) 标签页重新可见时立即重连。
 let destroyed = false
+let reloadRequested = false
+let authRejected = false
+const relayCanWrite = ref(false)
 let reconnectTimer = null
+function requestDocumentReload() {
+  if (destroyed || reloadRequested) return
+  reloadRequested = true
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  try { provider.disconnect() } catch (e) { /* disconnecting */ }
+  emit('reload-document', props.docId)
+}
 function scheduleReconnect(delay = 1500) {
-  if (destroyed) return
+  if (destroyed || reloadRequested || authRejected) return
   if (reconnectTimer) clearTimeout(reconnectTimer)
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
@@ -188,7 +201,7 @@ async function saveSnapshot() {
     await updateShareDoc(props.shareId, props.docId, { content: editor.value.getHTML() })
     ElMessage.success('已保存快照')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '保存失败')
+    ElMessage.error(errMsg(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -549,7 +562,7 @@ async function loadVersions() {
   try {
     versions.value = (await listShareDocVersions(props.shareId, props.docId)).data || []
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载版本失败')
+    ElMessage.error(errMsg(e, '加载版本失败'))
   } finally {
     versionLoading.value = false
   }
@@ -562,7 +575,7 @@ async function saveCurrentVersion() {
     ElMessage.success('已保存当前版本')
     await loadVersions()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '保存版本失败')
+    ElMessage.error(errMsg(e, '保存版本失败'))
   } finally {
     savingVersion.value = false
   }
@@ -580,7 +593,7 @@ async function restoreVersion(v) {
     try { provider.disconnect() } catch (e) { /* ignore */ }
     setTimeout(() => { try { provider.connect() } catch (e) { /* ignore */ } }, 250)
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '恢复失败')
+    ElMessage.error(errMsg(e, '恢复失败'))
   }
 }
 const versionSnippet = (html) => {
@@ -804,7 +817,7 @@ watch(() => props.canWrite, (w) => {
   color: #fff; font-size: 12px; font-weight: 600;
   display: inline-flex; align-items: center; justify-content: center;
   background: #94a3b8;
-  box-shadow: 0 0 0 0 2px #fff;
+  box-shadow: 0 0 0 2px #fff;
   overflow: hidden; cursor: default;
 }
 .peer-img { width: 100%; height: 100%; object-fit: cover; display: block; }

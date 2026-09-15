@@ -73,6 +73,7 @@ import { ElMessage } from 'element-plus'
 import { getCourse, courseProgress, finishChapter, listPapers, myExams, courseCertificate } from '../api/training'
 import { useAuthStore } from '../store/auth'
 import CertDialog from '../components/CertDialog.vue'
+import { errMsg } from '../utils/errMsg'
 
 const route = useRoute()
 const router = useRouter()
@@ -135,7 +136,7 @@ const finish = (ch) => {
   finishChapter(route.params.id, ch.id).then(() => {
     ElMessage.success('已标记完成')
     load()
-  }).catch(e => ElMessage.error(e.response?.data?.error || '操作失败'))
+  }).catch(e => ElMessage.error(errMsg(e, '操作失败')))
 }
 const openArticle = (id) => router.push('/post/' + id)
 

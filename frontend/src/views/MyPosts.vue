@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listMyDocs, deleteMyDoc, submitReview, withdrawReview } from '../api/kb'
 import PageBar from '../components/PageBar.vue'
+import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
 const docs = ref([])
@@ -40,7 +41,7 @@ const submit = async (d) => {
     ElMessage.success('已提交审核，等待管理员通过')
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '提交失败')
+    ElMessage.error(errMsg(e, '提交失败'))
   }
 }
 
@@ -59,7 +60,7 @@ const withdraw = async (d) => {
     ElMessage.success(published ? '已下架，退回草稿' : '已撤回，退回草稿')
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '撤回失败')
+    ElMessage.error(errMsg(e, '撤回失败'))
   }
 }
 
@@ -74,7 +75,7 @@ const remove = async (d) => {
     ElMessage.success('已移入回收站')
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '移入回收站失败')
+    ElMessage.error(errMsg(e, '移入回收站失败'))
   }
 }
 

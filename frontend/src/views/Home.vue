@@ -8,6 +8,8 @@ import AnnouncementBar from '../components/AnnouncementBar.vue'
 import { useAuthStore } from '../store/auth'
 import { useUiStore } from '../store/ui'
 import { fromNow, fmtDateTime } from '../utils/time'
+import { splitTags } from '../utils/text'
+import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
 const route = useRoute()
@@ -100,7 +102,6 @@ const catBadge = (cat) => {
 }
 
 // 拆分逗号分隔的标签串为数组（用于卡片/详情展示与点击）
-const splitTags = (s) => (s ? s.split(',').map(x => x.trim()).filter(Boolean) : [])
 
 // 点击标签：切换筛选（再点取消），回到列表模式加载
 const onTagClick = (t) => {
@@ -216,7 +217,7 @@ const onToggleFav = async (d) => {
     favIds.value = next
     ElMessage.success(data.favorited ? '已收藏' : '已取消收藏')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -234,7 +235,7 @@ const onToggleLike = async (d) => {
     likeIds.value = next
     d.likes = data.likes
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 

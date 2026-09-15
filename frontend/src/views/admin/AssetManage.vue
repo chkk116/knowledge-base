@@ -88,7 +88,15 @@
               @selection-change="onSelectionChange">
       <el-table-column type="selection" width="46" />
       <el-table-column prop="code" label="编号" width="120" />
-      <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+      <el-table-column label="名称" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">
+          <div class="name-cell">
+            <el-image v-if="row.imageUrl" :src="row.imageUrl" fit="cover" class="cell-thumb" />
+            <span v-else class="cell-thumb placeholder">{{ (row.name || '?').slice(0, 1) }}</span>
+            <span>{{ row.name }}</span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column prop="categoryName" label="分类" width="110" show-overflow-tooltip />
       <el-table-column label="状态" width="90">
         <template #default="{row}">
@@ -166,6 +174,7 @@
               </el-upload>
             </div>
             <img v-if="form.imageUrl" :src="form.imageUrl" class="preview" />
+            <div class="field-tip">上传只是把图片放进服务器，还要点下方「保存 / 更新」才会写进这条资产（上传后不会自动保存）</div>
           </el-form-item></el-col>
           <el-col :span="24"><el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item></el-col>
         </el-row>
@@ -179,6 +188,13 @@
     <!-- 详情抽屉 -->
     <el-drawer v-model="detail" :title="current?.name || '资产详情'" size="560px">
       <template v-if="current">
+        <!-- 资产主图：此前详情抽屉没有渲染 imageUrl，导致上传成功也「看不到」 -->
+        <div class="asset-photo">
+          <el-image v-if="current.imageUrl" :src="current.imageUrl" fit="contain"
+                    :preview-src-list="[current.imageUrl]" :initial-index="0" preview-teleported
+                    class="photo-img" />
+          <div v-else class="photo-empty">未上传主图</div>
+        </div>
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="编号">{{ current.code }}</el-descriptions-item>
           <el-descriptions-item label="状态">
@@ -345,6 +361,7 @@
         </el-form-item>
         <el-form-item label="每页列数">
           <el-select v-model="labelCols" style="width:140px">
+            <el-option label="1 列（大标签）" :value="1" />
             <el-option label="2 列" :value="2" />
             <el-option label="3 列" :value="3" />
             <el-option label="4 列" :value="4" />
@@ -352,6 +369,7 @@
         </el-form-item>
         <el-form-item label="每页标签数">
           <el-select v-model="labelPerPage" style="width:140px">
+            <el-option label="8（1×8）" :value="8" />
             <el-option label="18（2×9）" :value="18" />
             <el-option label="24（3×8）" :value="24" />
             <el-option label="32（4×8）" :value="32" />
@@ -374,11 +392,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Files, CircleCheck, Clock, Coin } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
 import { uploadFile } from '../../api/file'
+import { escapeHtml } from '../../utils/text'
+import { errMsg } from '../../utils/errMsg'
 import {
   assetStats, nextAssetCode, listAssets, createAsset, updateAsset, deleteAsset,
   assetBorrows, borrowAsset, returnAsset, assetLogs, listAssetCategories,
   createAssetCategory, updateAssetCategory, deleteAssetCategory,
-  exportAssets, downloadAssetTemplate, importAssets, saveBlob, batchDeleteAssets
+  exportAssets, downloadAssetTemplate, importAssets, saveBlob, batchDeleteAssets, getAsset
 } from '../../api/asset'
 
 const STATUS_META = {
@@ -534,18 +554,24 @@ async function onSave() {
     }
     dialog.value = false
     load(); loadStats()
-  } catch (e) { ElMessage.error(e?.response?.data?.error || '保存失败') }
+  } catch (e) { ElMessage.error(errMsg(e, '保存失败')) }
   finally { saving.value = false }
 }
 async function onDelete(row) {
   try { await deleteAsset(row.id); ElMessage.success('已删除'); load(); loadStats() }
-  catch (e) { ElMessage.error(e?.response?.data?.error || '删除失败') }
+  catch (e) { ElMessage.error(errMsg(e, '删除失败')) }
 }
 
 async function openDetail(row) {
-  current.value = row
+  current.value = row          // 先用列表数据即时渲染，避免抽屉空白
   detail.value = true
   qrDataUrl.value = ''
+  // 再拉一次单条详情覆盖：列表行可能是本次保存前的旧对象，
+  // 否则「刚上传的主图/刚改的字段」在详情里看不到
+  try {
+    const { data } = await getAsset(row.id)
+    if (data && data.id) current.value = data
+  } catch (e) { /* 拉取失败就沿用列表行 */ }
   try { qrDataUrl.value = await QRCode.toDataURL(row.code, { width: 220, margin: 1 }) } catch (e) {}
   try { const { data } = await assetBorrows(row.id); borrows.value = data || [] } catch (e) { borrows.value = [] }
   try { const { data } = await assetLogs(row.id); logs.value = data || [] } catch (e) { logs.value = [] }
@@ -561,7 +587,7 @@ async function onBorrow() {
     borrowDialog.value = false
     openDetail(current.value)
     load(); loadStats()
-  } catch (e) { ElMessage.error(e?.response?.data?.error || '借出失败') }
+  } catch (e) { ElMessage.error(errMsg(e, '借出失败')) }
   finally { borrowSaving.value = false }
 }
 async function openReturn(b) {
@@ -571,12 +597,21 @@ async function openReturn(b) {
     ElMessage.success('已归还')
     openDetail(current.value)
     load(); loadStats()
-  } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.response?.data?.error || '归还失败') }
+  } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(errMsg(e, '归还失败')) }
 }
 
 function onImageSelected(file) {
-  const fd = new FormData(); fd.append('file', file)
-  uploadFile(file).then(r => { form.imageUrl = r.data.url; ElMessage.success('已上传') }).catch(() => ElMessage.error('上传失败'))
+  // 注意：axios 拦截器返回的是完整响应（res => res），上传接口返回 { errno, data: { url } }，
+  // 因此路径必须是 r.data.data.url；写成 r.data.url 会取到 undefined，
+  // 表现为「提示已上传、但输入框仍为空、保存后详情没有图」。
+  uploadFile(file)
+    .then((r) => {
+      const url = r?.data?.data?.url
+      if (!url) { ElMessage.error('上传失败：未返回图片地址'); return }
+      form.imageUrl = url
+      ElMessage.success('已上传，记得点「保存 / 更新」才会写进这条资产')
+    })
+    .catch(() => ElMessage.error('上传失败'))
   return false
 }
 
@@ -608,12 +643,12 @@ async function saveCatEdit() {
     ElMessage.success('已保存')
     catEditDialog.value = false
     await loadCategories()
-  } catch (e) { ElMessage.error(e?.response?.data?.error || '保存失败') }
+  } catch (e) { ElMessage.error(errMsg(e, '保存失败')) }
   finally { catSaving.value = false }
 }
 async function removeCategory(data) {
   try { await deleteAssetCategory(data.value); ElMessage.success('已删除'); await loadCategories() }
-  catch (e) { ElMessage.error(e?.response?.data?.error || '删除失败') }
+  catch (e) { ElMessage.error(errMsg(e, '删除失败')) }
 }
 
 // 批量导入 / 导出 / 模板
@@ -631,7 +666,7 @@ async function doImport() {
     if (fail) ElMessage.warning(`${fail} 条导入失败，见下方明细`)
     if (!ok && !fail) ElMessage.error('未读取到任何有效数据')
   } catch (e) {
-    ElMessage.error(e?.response?.data?.error || '导入失败')
+    ElMessage.error(errMsg(e, '导入失败'))
   } finally { importing.value = false }
 }
 async function onTemplate() {
@@ -651,7 +686,7 @@ async function onExport() {
     const stamp = new Date().toISOString().slice(0, 10)
     saveBlob(data, `资产台账_${stamp}.xlsx`)
     ElMessage.success('已开始下载')
-  } catch (e) { ElMessage.error(e?.response?.data?.error || '导出失败') }
+  } catch (e) { ElMessage.error(errMsg(e, '导出失败')) }
 }
 
 // 批量导出选中项（ids 以逗号串传给后端，Spring 自动按 List<Long> 解析）
@@ -663,7 +698,7 @@ async function batchExport() {
     const stamp = new Date().toISOString().slice(0, 10)
     saveBlob(data, `资产台账_选中${ids.length}项_${stamp}.xlsx`)
     ElMessage.success('已开始下载')
-  } catch (e) { ElMessage.error(e?.response?.data?.error || '批量导出失败') }
+  } catch (e) { ElMessage.error(errMsg(e, '批量导出失败')) }
 }
 
 // 批量打印选中项标签
@@ -688,7 +723,7 @@ async function batchDelete() {
     ElMessage.success(msg)
     clearSelection(); load(); loadStats()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.error || '批量删除失败')
+    ElMessage.error(errMsg(e, '批量删除失败'))
   } finally { batchDeleting.value = false }
 }
 
@@ -738,7 +773,8 @@ function buildLabelHtml(items, cols, perPage) {
       '<div class="code">' + escapeHtml(it.code || '') + '</div></div>' +
     '</div>'
   )).join('')
-  const body = pages.map(p => '<div class="page">' + labels(p) + '</div>').join('')
+  const pageCls = cols === 1 ? 'page c1' : 'page'
+  const body = pages.map(p => '<div class="' + pageCls + '">' + labels(p) + '</div>').join('')
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>资产标签</title>' +
     '<style>@page { size: A4; margin: 6mm; } * { box-sizing: border-box; }' +
     'body { margin:0; font-family: "Microsoft YaHei", sans-serif; color:#000; }' +
@@ -749,16 +785,35 @@ function buildLabelHtml(items, cols, perPage) {
     '.label .info { flex:1; min-width:0; }' +
     '.label .name { font-size:11px; font-weight:700; line-height:1.25; max-height:28px; overflow:hidden; word-break:break-all; }' +
     '.label .code { font-size:10px; color:#444; margin-top:2px; font-family: ui-monospace, monospace; word-break:break-all; }' +
+    /* 单列：标签变成横向长条，放大二维码与文字，避免大片留白 */
+    '.page.c1 .label { height:26mm; padding:4mm; gap:5mm; }' +
+    '.page.c1 .label img { width:24mm; height:24mm; }' +
+    '.page.c1 .label .name { font-size:16px; max-height:24px; }' +
+    '.page.c1 .label .code { font-size:13px; margin-top:4px; }' +
     '</style></head><body>' + body + '</body></html>'
-}
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
 onMounted(() => { load(); loadStats(); loadCategories() })
 </script>
 
 <style scoped>
+.field-tip { flex-basis: 100%; color: var(--el-text-color-secondary, #94a3b8); font-size: 12px; line-height: 1.6; margin-top: 6px; }
+/* 详情主图 */
+.asset-photo {
+  margin: 0 0 14px; min-height: 150px; border-radius: 12px;
+  background: var(--el-fill-color-light, #f1f5f9);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.photo-img { width: 100%; max-height: 320px; display: block; }
+.photo-empty { color: var(--el-text-color-secondary, #94a3b8); font-size: 13px; padding: 56px 0; }
+/* 列表名称单元格缩略图 */
+.name-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cell-thumb { width: 26px; height: 26px; border-radius: 6px; flex: none; }
+.cell-thumb.placeholder {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--el-fill-color-light, #eef2f7); color: var(--el-text-color-secondary, #94a3b8);
+  font-size: 12px; font-weight: 500;
+}
 /* ===== KPI 统计卡（同导入页风格，细节差异化） ===== */
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .kpi-card {

@@ -78,6 +78,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Clock } from '@element-plus/icons-vue'
 import { getPaper, startExam, submitExam } from '../api/training'
+import { errMsg } from '../utils/errMsg'
 
 const route = useRoute()
 const router = useRouter()
@@ -117,7 +118,7 @@ const load = () => {
         if (remain.value <= 0) { clearInterval(timer); submit() }
       }, 1000)
     }
-  }).catch(e => { ElMessage.error(e.response?.data?.error || '试卷加载失败'); router.push('/quiz') })
+  }).catch(e => { ElMessage.error(errMsg(e, '试卷加载失败')); router.push('/quiz') })
 }
 // 防泄题：必须先 start 成功（拿到 recordId）才拉题目；start 被前置校验拦截时绝不加载试卷
 const begin = () => startExam(route.params.id)
@@ -126,7 +127,7 @@ const begin = () => startExam(route.params.id)
     load()
   })
   .catch(e => {
-    ElMessage.error(e.response?.data?.error || '开始考试失败')
+    ElMessage.error(errMsg(e, '开始考试失败'))
     router.push('/quiz')
   })
 
@@ -143,7 +144,7 @@ const submit = () => {
   submitting.value = true
   submitExam(route.params.id, recordId.value, buildItems())
     .then(r => { clearInterval(timer); router.push('/exams/records/' + recordId.value) })
-    .catch(e => { submitting.value = false; ElMessage.error(e.response?.data?.error || '交卷失败') })
+    .catch(e => { submitting.value = false; ElMessage.error(errMsg(e, '交卷失败')) })
 }
 
 onMounted(() => { begin() })

@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { UploadFilled, FolderOpened, Plus, DataLine, Document, Files, Camera } from '@element-plus/icons-vue'
 import { listMyShares, importShareDoc, createShareDoc, getStorage, ocrImportShareDoc } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
+import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -41,7 +42,7 @@ const load = async () => {
     const first = writableShares.value.find(s => s.type === 'PERSONAL') || writableShares.value[0]
     if (first) shareId.value = first.id
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载空间列表失败')
+    ElMessage.error(errMsg(e, '加载空间列表失败'))
   } finally {
     loading.value = false
   }
@@ -98,7 +99,7 @@ const createBlank = async () => {
     ElMessage.success('已创建，正在打开空间…')
     router.push(`/doc-shares/${shareId.value}`)
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '创建失败')
+    ElMessage.error(errMsg(e, '创建失败'))
   } finally { uploading.value = false }
 }
 

@@ -125,6 +125,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { errMsg } from '../../utils/errMsg'
 import {
   adminQuestions, adminCreateQuestion, adminUpdateQuestion, adminDeleteQuestion,
   adminPapers, adminCreatePaper, adminUpdatePaper, adminDeletePaper, adminAssemble
@@ -159,7 +160,7 @@ const saveQuestion = () => {
   const opts = hasOptions.value ? f.options.map((o, i) => ({ label: String.fromCharCode(65 + i), content: o.content, isCorrect: !!o.isCorrect })) : []
   const req = editingQ.value ? adminUpdateQuestion(editingQ.value.id, q, opts) : adminCreateQuestion(q, opts)
   req.then(() => { ElMessage.success('已保存'); qDlg.value = false; loadQ() })
-    .catch(e => ElMessage.error(e.response?.data?.error || '保存失败'))
+    .catch(e => ElMessage.error(errMsg(e, '保存失败')))
     .finally(() => saving.value = false)
 }
 const delQuestion = (row) => ElMessageBox.confirm('确定删除该题目？关联试卷将丢失此题目。', '提示', { type: 'warning' })
@@ -177,7 +178,7 @@ const savePaper = () => {
   const p = { title: f.title, description: f.description, passScore: f.passScore, durationMin: f.durationMin, status: f.status }
   const req = editingP.value ? adminUpdatePaper(editingP.value.id, p) : adminCreatePaper(p)
   req.then(() => { ElMessage.success('已保存'); pDlg.value = false; loadP() })
-    .catch(e => ElMessage.error(e.response?.data?.error || '保存失败'))
+    .catch(e => ElMessage.error(errMsg(e, '保存失败')))
     .finally(() => saving.value = false)
 }
 const delPaper = (row) => ElMessageBox.confirm('删除试卷会同时删除相关考试记录，确定？', '提示', { type: 'warning' })
@@ -203,7 +204,7 @@ const doAssemble = () => {
   saving.value = true
   adminAssemble(selPaper.value.id, items)
     .then(() => { ElMessage.success('组卷成功'); aDlg.value = false; loadP() })
-    .catch(e => ElMessage.error(e.response?.data?.error || '组卷失败'))
+    .catch(e => ElMessage.error(errMsg(e, '组卷失败')))
     .finally(() => saving.value = false)
 }
 

@@ -83,9 +83,22 @@ public class OrgService {
             role.setName(r.name.trim());
         }
         if (r.description != null) role.setDescription(r.description.trim());
-        if (r.permissions != null) role.setPermissions(normalizePerms(r.permissions));
+        boolean permsChanged = false;
+        if (r.permissions != null) {
+            String next = normalizePerms(r.permissions);
+            permsChanged = !next.equals(role.getPermissions() == null ? "" : role.getPermissions());
+            role.setPermissions(next);
+        }
         if (r.sortOrder != null) role.setSortOrder(r.sortOrder);
-        return roleRepo.save(role);
+        Role saved = roleRepo.save(role);
+        // 角色权限清单变化 → 该角色下所有用户的旧令牌立即失效（F03-B）。
+        // 鉴权链完全信任令牌内的 permissions 快照，不 bump 的话撤权后旧令牌仍可执行已撤销操作。
+        // 注意：这里是「角色级」变更，与 AdminService 处理「用户级」分配互不重复。
+        if (permsChanged) {
+            List<Long> affected = userRoleRepo.findUserIdsByRoleId(id);
+            if (!affected.isEmpty()) userRepo.bumpTokenVersionByIds(affected);
+        }
+        return saved;
     }
 
     @Transactional

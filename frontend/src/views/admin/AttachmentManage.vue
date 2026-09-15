@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading, Picture, Headset } from '@element-plus/icons-vue'
 import PageBar from '../../components/PageBar.vue'
 import { listOrphanFiles, deleteOrphanFile } from '../../api/admin'
+import { errMsg } from '../../utils/errMsg'
 
 const files = ref([])          // 当前页内容（服务端分页）
 const total = ref(0)           // 过滤后的总条数（服务端算）
@@ -74,7 +75,7 @@ const load = async () => {
     audioCount.value = data?.audioCount || 0
     selected.value = []
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载失败')
+    ElMessage.error(errMsg(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -99,7 +100,7 @@ const remove = async (f) => {
     ElMessage.success('已删除')
     stepBackIfEmpty()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 

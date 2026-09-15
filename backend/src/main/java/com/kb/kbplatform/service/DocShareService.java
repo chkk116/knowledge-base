@@ -39,11 +39,13 @@ public class DocShareService {
     private final UserRepository userRepo;
     private final SharedDocVersionRepository sharedDocVerRepo;
     private final TransactionTemplate tx;
+    private final RelayNotifier relayNotifier;
 
     public DocShareService(DocShareRepository shareRepo, DocSharePermissionRepository permRepo,
                            SharedDocumentRepository docRepo, SharedDocPermissionRepository docPermRepo,
                            UserRepository userRepo, SharedDocVersionRepository sharedDocVerRepo,
-                           TransactionTemplate tx) {
+                           TransactionTemplate tx, RelayNotifier relayNotifier) {
+        this.relayNotifier = relayNotifier;
         this.shareRepo = shareRepo;
         this.permRepo = permRepo;
         this.docRepo = docRepo;
@@ -184,6 +186,7 @@ public class DocShareService {
         // 若等于空间权限则清除单独设置，回退继承（保持简洁）
         if (spacePerm != null && spacePerm.getPermission().equals(perm)) {
             if (existing != null) docPermRepo.delete(existing);
+            relayNotifier.documentPermissionChanged(shareId, docId, targetUserId);
             return null;
         }
         if (existing == null) {
@@ -194,6 +197,7 @@ public class DocShareService {
         }
         existing.setPermission(perm);
         SharedDocPermission saved = docPermRepo.save(existing);
+        relayNotifier.documentPermissionChanged(shareId, docId, targetUserId);
         // 注入展示字段
         userRepo.findById(targetUserId).ifPresent(u -> {
             saved.setUsername(u.getUsername());
@@ -209,6 +213,7 @@ public class DocShareService {
         if (!canAdminDoc(shareId, docId, userId, sysAdmin))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要文档管理员权限");
         docPermRepo.deleteByDocIdAndUserId(docId, targetUserId);
+        relayNotifier.documentPermissionChanged(shareId, docId, targetUserId);
     }
 
     private String normalizeDocPerm(String p) {
@@ -507,6 +512,7 @@ public class DocShareService {
         saved.setAvatar(target.getAvatar());
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);
+        relayNotifier.permissionChanged(shareId, targetUserId, saved.getPermission());   // F04 即时通知
         return saved;
     }
 
@@ -522,6 +528,7 @@ public class DocShareService {
         fillMemberNames(List.of(saved));
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);
+        relayNotifier.permissionChanged(shareId, targetUserId, saved.getPermission());   // F04 即时通知
         return saved;
     }
 
@@ -533,6 +540,7 @@ public class DocShareService {
         permRepo.deleteByShareIdAndUserId(shareId, targetUserId);
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);
+        relayNotifier.permissionChanged(shareId, targetUserId, null);   // F04：移除成员立即踢下线
     }
 
     private String normalizePerm(String p) {
@@ -711,6 +719,9 @@ public class DocShareService {
         d.setTitle(v.getTitle());
         d.setContent(v.getContent());
         d.setYjsState(v.getYjsState());   // 写回 Yjs 状态；协同端重连后 onLoadDocument 会加载此状态
+        // 代次自增（F05）：中继若仍持有旧内存快照，落库时会因代次失配而丢弃并强制重载，
+        // 不会在「已提示恢复成功」之后又把历史内容覆盖回旧版本。
+        d.setYjsRev(d.getYjsRev() + 1);
         d.setUpdatedAt(LocalDateTime.now());
         SharedDocument saved = docRepo.save(d);
         DocShare s = shareRepo.findById(shareId).orElse(null);

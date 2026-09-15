@@ -44,6 +44,27 @@ public class NotificationService {
         sse.pushUnread(n.getUserId(), unreadCount(n.getUserId()));
     }
 
+    /**
+     * 高危安全告警：管理员账号经非浏览器客户端（脚本/自动化工具，如 python-urllib、curl、java 等）
+     * 成功登录 → 通知全体管理员。判定放在 AuthController（UA 无 Mozilla 前缀 + ADMIN 角色），
+     * 这里只负责把告警推给每一位 ADMIN（含当事人自己，便于其确认是否为本人操作）。
+     */
+    public void notifySecurityAlert(String username, String ip, String userAgent) {
+        String ua = userAgent == null ? "" : userAgent;
+        if (ua.length() > 120) ua = ua.substring(0, 120);
+        String summary = "管理员账号「" + username + "」通过非浏览器客户端成功登录（疑似脚本/自动化工具）。"
+                + "IP: " + (ip == null || ip.isBlank() ? "未知" : ip) + "，UA: " + ua
+                + "。若非本人操作，请立即修改密码并检查登录日志。";
+        for (User admin : userRepo.findByRole("ADMIN")) {
+            Notification n = new Notification();
+            n.setUserId(admin.getId());
+            n.setType("SECURITY_ALERT");
+            n.setActor(username);
+            n.setSummary(summary);
+            saveAndPush(n);
+        }
+    }
+
     /** 触发者展示名：管理员显示「管理员+名称」，普通用户显示昵称/用户名 */
     private String actorName(String username) {
         if (username == null || username.isBlank()) return "某人";

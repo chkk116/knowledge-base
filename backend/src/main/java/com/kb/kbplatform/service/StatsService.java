@@ -146,6 +146,7 @@ public class StatsService {
             e.put("text", d.getTitle());
             e.put("author", d.getOwnerName() != null ? d.getOwnerName() : "");
             e.put("time", d.getCreatedAt() != null ? d.getCreatedAt().format(f) : "");
+            e.put("docId", d.getId());          // 供数据面板「点击直达」跳转用
             out.add(e);
         }
         for (Comment c : commentRepo.findTop6ByOrderByCreatedAtDesc()) {
@@ -155,6 +156,8 @@ public class StatsService {
             e.put("text", HtmlSanitizer.preview(content, 40));
             e.put("author", c.getUsername() != null ? c.getUsername() : "");
             e.put("time", c.getCreatedAt() != null ? c.getCreatedAt().format(f) : "");
+            e.put("docId", c.getDocId());        // 所属文档：评论区在文档详情页内
+            e.put("commentId", c.getId());       // 指定评论：前端据此滚动定位并高亮
             out.add(e);
         }
         out.sort((a, b) -> String.valueOf(b.get("time")).compareTo(String.valueOf(a.get("time"))));

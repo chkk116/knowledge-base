@@ -19,4 +19,9 @@ public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
     @Query(value = "SELECT COUNT(*) FROM kb_favorite f WHERE f.doc_id IN " +
                    "(SELECT id FROM kb_document WHERE owner_id = :owner AND status = 'PUBLISHED')", nativeQuery = true)
     long countFavByOwner(@Param("owner") Long owner);
+
+    /** 彻底删除文档时清理关联记录（F12/purge：不留孤儿数据） */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM Favorite x WHERE x.docId = :docId")
+    void deleteByDocId(@org.springframework.data.repository.query.Param("docId") Long docId);
 }

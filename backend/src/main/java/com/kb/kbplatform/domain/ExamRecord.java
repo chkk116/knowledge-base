@@ -29,6 +29,10 @@ public class ExamRecord {
 
     private LocalDateTime startedAt = LocalDateTime.now();
 
+    /** 服务端限时截止时间（start 时按试卷 durationMin 固化；null = 不限时）。
+     *  取题与交卷都以服务端时间判定，客户端改时钟无法延长考试（F07）。 */
+    private LocalDateTime deadlineAt;
+
     private LocalDateTime submittedAt;
 
     private int durationSec = 0;
@@ -49,6 +53,9 @@ public class ExamRecord {
     public void setPassed(boolean passed) { this.passed = passed; }
     public LocalDateTime getStartedAt() { return startedAt; }
     public void setStartedAt(LocalDateTime startedAt) { this.startedAt = startedAt; }
+
+    public LocalDateTime getDeadlineAt() { return deadlineAt; }
+    public void setDeadlineAt(LocalDateTime deadlineAt) { this.deadlineAt = deadlineAt; }
     public LocalDateTime getSubmittedAt() { return submittedAt; }
     public void setSubmittedAt(LocalDateTime submittedAt) { this.submittedAt = submittedAt; }
     public int getDurationSec() { return durationSec; }

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, nextTick, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import {
@@ -9,6 +9,7 @@ import {
 } from '../api/kb'
 import { fromNow, fmtDateTime } from '../utils/time'
 import EmojiPanel from './EmojiPanel.vue'
+import { errMsg } from '../utils/errMsg'
 
 const props = defineProps({
   targetType: { type: String, required: true },  // 'DOC' | 'CHAPTER'
@@ -16,6 +17,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
 const comments = ref([])
@@ -123,7 +125,7 @@ const onToggleCommentLike = async (c) => {
     if (data.liked) s.add(c.id); else s.delete(c.id)
     commentLikedIds.value = s
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -140,7 +142,7 @@ const submitComment = async () => {
     comments.value = (await getCommentsGeneric(props.targetType, props.targetId)).data || []
     ElMessage.success('评论成功')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '评论失败')
+    ElMessage.error(errMsg(e, '评论失败'))
   } finally {
     posting.value = false
   }
@@ -160,11 +162,46 @@ const onDeleteComment = async (c) => {
     comments.value = comments.value.filter(x => x.id !== c.id)
     ElMessage.success('评论已删除')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
-onMounted(loadComments)
+
+/**
+ * 直达单条评论：数据面板「实时动态」点击后跳到 /post/:id?c=评论id。
+ * 加载评论完成后定位：优先匹配主评论，其次匹配回复（回复默认只显示 3 条，会先展开）。
+ */
+const flashId = ref(null)
+async function focusCommentFromQuery() {
+  const cid = Number(route.query.c)
+  if (!cid) return
+  await nextTick()
+  let rest = 0
+  while (rest++ < 20) {                      // 评论是异步加载的，最多等 2s
+    const el = document.getElementById('c' + cid)
+    if (el) {
+      // 若是折叠在「展开更多回复」里的子评论，先展开再滚动
+      const parent = el.closest('li.citem')
+      const parentId = parent && parent.id ? Number(parent.id.slice(1)) : null
+      const hit = comments.value.find(x => (x.replies || []).some(r => r.id === cid))
+      if (hit && parentId && !expandedReplies[hit.id]) {
+        expandedReplies[hit.id] = true
+        await nextTick()
+      }
+      const target = document.getElementById('c' + cid) || el
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      flashId.value = cid
+      setTimeout(() => { if (flashId.value === cid) flashId.value = null }, 2200)
+      return
+    }
+    await new Promise(r => setTimeout(r, 100))
+  }
+}
+
+onMounted(async () => {
+  await loadComments()
+  focusCommentFromQuery()
+})
 </script>
 
 <template>
@@ -200,7 +237,7 @@ onMounted(loadComments)
     </div>
 
     <ul class="clist" v-if="sortedComments.length" v-loading="loading">
-      <li v-for="c in sortedComments" :key="c.id" class="citem">
+      <li v-for="c in sortedComments" :key="c.id" class="citem" :id="'c' + c.id" :class="{ 'cmt-flash': flashId === c.id }">
         <div class="chead">
           <b>{{ c.username }}</b>
           <span class="ctime" v-if="c.createdAt">{{ fromNow(c.createdAt) }}（{{ fmtDateTime(c.createdAt) }}）</span>
@@ -212,7 +249,7 @@ onMounted(loadComments)
         </div>
         <div class="cbody" v-html="c.content"></div>
         <ul class="replies" v-if="c.replies && c.replies.length">
-          <li v-for="r in (expandedReplies[c.id] ? c.replies : c.replies.slice(0, 3))" :key="r.id" class="ritem">
+          <li v-for="r in (expandedReplies[c.id] ? c.replies : c.replies.slice(0, 3))" :key="r.id" class="ritem" :id="'c' + r.id" :class="{ 'cmt-flash': flashId === r.id }">
             <div class="chead">
               <b>{{ r.username }}</b>
               <span class="r-to" v-if="r.parentName">回复 @{{ r.parentName }}</span>
@@ -238,6 +275,20 @@ onMounted(loadComments)
 </template>
 
 <style scoped>
+/* 从数据面板「点击直达」进来的评论：短暂高亮，帮助一眼定位 */
+.cmt-flash { animation: cmtFlash 2s ease-out; border-radius: 8px; }
+@keyframes cmtFlash {
+  0%   { background: rgba(99, 102, 241, .22); }
+  70%  { background: rgba(99, 102, 241, .12); }
+  100% { background: transparent; }
+}
+html.dark .cmt-flash { animation: cmtFlashDark 2s ease-out; }
+@keyframes cmtFlashDark {
+  0%   { background: rgba(129, 140, 248, .28); }
+  70%  { background: rgba(129, 140, 248, .14); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .cmt-flash { animation: none; } }
 .cs { margin-top: 18px; }
 .cform { margin-bottom: 16px; }
 .cform-bar { margin-bottom: 8px; }

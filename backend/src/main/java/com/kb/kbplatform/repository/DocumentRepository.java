@@ -142,9 +142,43 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
            "(:cat IS NULL OR :cat = '' OR d.category = :cat)")
     Page<Document> findByStatusAndCategory(@Param("status") String status, @Param("cat") String cat, Pageable pageable);
 
+    /**
+     * 公开列表统一筛选（F11）：分类 / 作者 / 标签可任意组合，排序交给 Pageable
+     * （仅 createdAt 与 views 是实体真实属性，可安全用于 Sort）。
+     * 标签用边界匹配避免子串误命中；`d.tags = :tag` 放在最前，给参数一个明确的类型线索，
+     * 防止 Hibernate 在 PG 方言下把只出现在 CONCAT 里的字符串参数当 bytea 绑定。
+     */
+    @Query("SELECT d FROM Document d WHERE d.status = :status AND (:cat IS NULL OR :cat = '' OR d.category = :cat) " +
+           "AND (:ownerId IS NULL OR d.ownerId = :ownerId) " +
+           "AND (:tag IS NULL OR d.tags = :tag OR d.tags LIKE CONCAT(:tag, ',%') " +
+           "OR d.tags LIKE CONCAT('%,', :tag) OR d.tags LIKE CONCAT('%,', :tag, ',%'))")
+    Page<Document> findPublicFiltered(@Param("status") String status, @Param("cat") String cat,
+                                      @Param("ownerId") Long ownerId, @Param("tag") String tag, Pageable pageable);
+
+    /** 同上，但按评论数倒序（comments/favorites 不是实体属性，只能走计数子查询） */
+    @Query("SELECT d FROM Document d WHERE d.status = :status AND (:cat IS NULL OR :cat = '' OR d.category = :cat) " +
+           "AND (:ownerId IS NULL OR d.ownerId = :ownerId) " +
+           "AND (:tag IS NULL OR d.tags = :tag OR d.tags LIKE CONCAT(:tag, ',%') " +
+           "OR d.tags LIKE CONCAT('%,', :tag) OR d.tags LIKE CONCAT('%,', :tag, ',%')) " +
+           "ORDER BY d.pinned DESC, (SELECT COUNT(c) FROM Comment c WHERE c.docId = d.id) DESC, d.updatedAt DESC")
+    Page<Document> findPublicFilteredByComments(@Param("status") String status, @Param("cat") String cat,
+                                                @Param("ownerId") Long ownerId, @Param("tag") String tag, Pageable pageable);
+
+    /** 同上，但按收藏数倒序 */
+    @Query("SELECT d FROM Document d WHERE d.status = :status AND (:cat IS NULL OR :cat = '' OR d.category = :cat) " +
+           "AND (:ownerId IS NULL OR d.ownerId = :ownerId) " +
+           "AND (:tag IS NULL OR d.tags = :tag OR d.tags LIKE CONCAT(:tag, ',%') " +
+           "OR d.tags LIKE CONCAT('%,', :tag) OR d.tags LIKE CONCAT('%,', :tag, ',%')) " +
+           "ORDER BY d.pinned DESC, (SELECT COUNT(f) FROM Favorite f WHERE f.docId = d.id) DESC, d.updatedAt DESC")
+    Page<Document> findPublicFilteredByFavorites(@Param("status") String status, @Param("cat") String cat,
+                                                 @Param("ownerId") Long ownerId, @Param("tag") String tag, Pageable pageable);
+
     /** 轻量聚合：仅取已发布文档的 category 列（不拉 content TEXT，避免全行回表） */
     @Query("SELECT DISTINCT d.category FROM Document d WHERE d.status = 'PUBLISHED' AND d.category IS NOT NULL")
     List<String> findDistinctCategories();
+
+    /** 某父节点的直接子文档（软删除由 @SQLRestriction 自动排除），用于父节点不可见时提升孤儿节点（F12） */
+    List<Document> findByParentId(Long parentId);
 
     /** 轻量聚合：仅取已发布文档的 tags 列（标签云计数用） */
     @Query("SELECT d.tags FROM Document d WHERE d.status = 'PUBLISHED' AND d.tags IS NOT NULL")

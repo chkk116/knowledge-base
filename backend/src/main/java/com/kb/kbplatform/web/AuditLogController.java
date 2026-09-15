@@ -33,7 +33,7 @@ public class AuditLogController {
                                @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
                                @RequestParam(required = false, defaultValue = "0") int page,
                                @RequestParam(required = false, defaultValue = "20") int size) {
-        if (!"ADMIN".equals(c.role())) {
+        if (!c.isAdmin()) {
             throw new org.springframework.web.server.ResponseStatusException(FORBIDDEN, "需要管理员权限");
         }
         if (page < 0) page = 0;

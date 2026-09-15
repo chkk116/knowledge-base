@@ -7,6 +7,7 @@ import {
   listBannedWords, addBannedWords, deleteBannedWord, importBannedWords
 } from '../../api/kb'
 import PageBar from '../../components/PageBar.vue'
+import { errMsg } from '../../utils/errMsg'
 
 const libraries = ref([])
 const selectedId = ref(null)
@@ -56,7 +57,7 @@ const loadLibs = async () => {
       selectedLib.value = libraries.value.find(l => l.id === selectedId.value) || selectedLib.value
     }
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载词库失败')
+    ElMessage.error(errMsg(e, '加载词库失败'))
   }
 }
 
@@ -76,7 +77,7 @@ const loadWords = async () => {
     words.value = data.content || []
     total.value = data.total || 0
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载词条失败')
+    ElMessage.error(errMsg(e, '加载词条失败'))
   } finally {
     loading.value = false
   }
@@ -99,7 +100,7 @@ const add = async () => {
     await loadLibs()
     await loadWords()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '添加失败')
+    ElMessage.error(errMsg(e, '添加失败'))
   } finally {
     adding.value = false
   }
@@ -114,7 +115,7 @@ const remove = async (w) => {
     await loadLibs()
     await loadWords()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -125,7 +126,7 @@ const toggleLib = async (row, val) => {
     selectedLib.value = row
     ElMessage.success(val ? '已启用该词库（已加载到实时过滤）' : '已停用该词库（已下线）')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -138,7 +139,7 @@ const createLib = async () => {
     dialogVisible.value = false
     await loadLibs()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '创建失败')
+    ElMessage.error(errMsg(e, '创建失败'))
   }
 }
 
@@ -179,7 +180,7 @@ const doImport = async () => {
       const { data } = await createBannedLibrary(importNewName.value.trim(), '导入的离线词库')
       libId = data.id
     } catch (e) {
-      ElMessage.error(e.response?.data?.error || '创建词库失败')
+      ElMessage.error(errMsg(e, '创建词库失败'))
       return
     }
   }
@@ -194,7 +195,7 @@ const doImport = async () => {
     const lib = libraries.value.find(l => l.id === libId)
     if (lib) selectLib(lib)
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '导入失败')
+    ElMessage.error(errMsg(e, '导入失败'))
   } finally { importing.value = false }
 }
 
@@ -208,7 +209,7 @@ const removeLib = async (row) => {
     if (selectedId.value === row.id) { selectedId.value = null; selectedLib.value = null; words.value = []; total.value = 0 }
     await loadLibs()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 

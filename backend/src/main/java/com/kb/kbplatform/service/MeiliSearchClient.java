@@ -85,13 +85,17 @@ public class MeiliSearchClient {
         }
     }
 
-    /** 全量重建索引（仅已发布文档），供启动时 / 管理后台「重建索引」调用 */
+    /** 全量重建索引（仅已发布文档），供启动时 / 管理后台「重建索引」调用。
+     *  F10：重建不再「只追加」——上传后拉取索引里现存全部 id，把不在本次已发布集合内的
+     *  孤儿条目（撤回/封禁/删除后删除索引失败的残留）批量清掉。 */
     public void reindexAll(List<Document> docs) {
         if (!enabled) return;
         List<Map<String, Object>> payload = new ArrayList<>();
+        Set<Long> kept = new HashSet<>();
         for (Document d : docs) {
             if (d != null && d.getId() != null && "PUBLISHED".equals(d.getStatus())) {
                 payload.add(toMap(d));
+                kept.add(d.getId());
             }
         }
         try {
@@ -102,6 +106,34 @@ public class MeiliSearchClient {
                     .retrieve().toBodilessEntity();
         } catch (Exception e) {
             log.warn("Meili 全量重建索引失败: {}", e.getMessage());
+            return;
+        }
+        // 清理孤儿条目
+        try {
+            List<?> existing = client.get()
+                    .uri(uri -> uri.path("/indexes/{uid}/documents")
+                            .queryParam("fields", "id")
+                            .queryParam("limit", 100000)
+                            .build(indexUid))
+                    .retrieve()
+                    .body(java.util.List.class);
+            if (existing == null) return;
+            List<Long> stale = new ArrayList<>();
+            for (Object o : existing) {
+                if (!(o instanceof Map<?, ?> m) || m.get("id") == null) continue;
+                long id;
+                try { id = Long.parseLong(String.valueOf(m.get("id"))); } catch (Exception e) { continue; }
+                if (!kept.contains(id)) stale.add(id);
+            }
+            if (stale.isEmpty()) return;
+            client.post()
+                    .uri("/indexes/{uid}/documents/delete-batch", indexUid)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(stale)
+                    .retrieve().toBodilessEntity();
+            log.warn("Meili 索引重建：清理孤儿条目 {} 条（索引与数据库不一致的残留）", stale.size());
+        } catch (Exception e) {
+            log.warn("Meili 孤儿条目清理失败（不影响本次重建）: {}", e.getMessage());
         }
     }
 

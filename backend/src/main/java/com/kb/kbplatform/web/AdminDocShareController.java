@@ -116,7 +116,7 @@ public class AdminDocShareController {
     }
 
     private void requireAdmin(TokenClaims c) {
-        if (c == null || !"ADMIN".equals(c.role())) {
+        if (c == null || !c.isAdmin()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要系统管理员（完全管理员）权限");
         }
     }

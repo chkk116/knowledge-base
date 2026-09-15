@@ -34,6 +34,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { listMySubscriptions, unsubscribeDoc } from '../api/kb'
 import { fmtDateTime } from '../utils/time'
 import PageBar from '../components/PageBar.vue'
+import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
 const list = ref([])
@@ -72,7 +73,7 @@ const remove = async (s) => {
     // 删完当前页变空且不是第一页时回退一页
     if (pagedList.value.length === 0 && currentPage.value > 1) currentPage.value--
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 

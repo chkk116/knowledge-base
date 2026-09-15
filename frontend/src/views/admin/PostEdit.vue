@@ -10,6 +10,8 @@ import { getDoc, createMyDoc, updateMyDoc, importDoc, getCategoryTree, listTags,
 import { updateDoc } from '../../api/admin'
 import { uploadFile } from '../../api/file'
 import { useAuthStore } from '../../store/auth'
+import { splitTags } from '../../utils/text'
+import { errMsg } from '../../utils/errMsg'
 
 const route = useRoute()
 const router = useRouter()
@@ -60,7 +62,6 @@ const parentTitle = ref('')
 const categoryTree = ref([])      // 分类树（发帖选择）
 const tagOptions = ref([])        // 规范标签（发帖多选）
 const selectedTags = ref([])      // 当前选中的标签名数组（写回 form.tags 逗号串）
-const splitTags = (s) => (s ? s.split(',').map(x => x.trim()).filter(Boolean) : [])
 const loading = ref(false)
 const importing = ref(false)
 const fileInput = ref(null)
@@ -71,6 +72,9 @@ const exitFullscreen = () => { fullscreen.value = false }
 
 // ---------- 草稿自动保存（localStorage，防误关丢稿） ----------
 const ready = ref(false) // onMounted 加载完成后再开始监听，避免把已加载内容误写成草稿
+// 编辑模式下的正文/表单在初始化响应回来之前不渲染，避免用户先输入再被迟到响应整体覆盖（F14）
+const loaded = ref(false)
+const loadFailed = ref(false) // 正文加载失败：锁定保存，避免用空表单覆盖原文
 const draftKey = computed(() => 'kb-draft-' + (id || 'new'))
 const pendingDraft = ref(null) // 进入页面时检测到的未提交草稿（用于"恢复/放弃"提示条）
 const lastSavedAt = ref(0) // 上次自动保存时间戳（用于提示"已自动保存"）
@@ -129,7 +133,7 @@ const onFilePicked = async (e) => {
     form.value.content = data.content || form.value.content
     ElMessage.success('已导入到编辑器，可修改后「存草稿」或「提交审核」')
   } catch (err) {
-    ElMessage.error(err.response?.data?.error || err.response?.data?.message || '导入失败')
+    ElMessage.error(errMsg(err, '导入失败'))
   } finally {
     importing.value = false
   }
@@ -149,9 +153,13 @@ onMounted(async () => {
       }
       selectedTags.value = splitTags(data.tags)
       currentStatus.value = data.status || ''
+      loaded.value = true          // 正文到位后才放开编辑（F14）
     } catch (e) {
-      ElMessage.error('加载文档失败')
+      loadFailed.value = true      // 加载失败：锁住保存，禁止用空初值覆盖已有文档
+      ElMessage.error('加载文档失败，为避免覆盖原文已锁定保存，请刷新重试')
     }
+  } else {
+    loaded.value = true
   }
   // 归属提示：把父文档标题查出来，避免只给用户看 id
   if (parentId.value) {
@@ -200,7 +208,7 @@ const save = async (status) => {
     clearDraft() // 保存成功后清掉本地草稿
     router.push(auth.isAdmin ? '/admin/docs' : '/my/posts')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '保存失败')
+    ElMessage.error(errMsg(e, '保存失败'))
   } finally {
     loading.value = false
   }
@@ -260,7 +268,7 @@ const restoreVersion = async (v) => {
     versionsDrawer.value = false
     clearDraft()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '恢复失败')
+    ElMessage.error(errMsg(e, '恢复失败'))
   }
 }
 </script>
@@ -284,7 +292,8 @@ const restoreVersion = async (v) => {
       title="提交后由管理员通过才会对外公开；审核通过前仅你和管理员可见"
       type="info" :closable="false" style="margin: 14px 0;"
     />
-    <el-form label-width="80px" style="margin-top: 18px;">
+    <div v-if="!loaded" class="postedit-loading" element-loading-text="正在加载正文…" v-loading="true"></div>
+    <el-form v-else label-width="80px" style="margin-top: 18px;">
       <el-alert v-if="parentId" type="info" :closable="false" show-icon class="parent-tip">
         <template #title>
           将创建为「{{ parentTitle || ('#' + parentId) }}」的子文档
@@ -318,15 +327,15 @@ const restoreVersion = async (v) => {
       </el-form-item>
       <el-form-item>
         <template v-if="isEdit && currentStatus === 'PUBLISHED'">
-          <el-button type="primary" :loading="loading" @click="save(null)">保存修改</el-button>
+          <el-button type="primary" :loading="loading" :disabled="loadFailed" @click="save(null)">保存修改</el-button>
         </template>
         <template v-else-if="auth.isAdmin">
           <el-button :loading="loading" @click="save('DRAFT')">存草稿</el-button>
-          <el-button type="primary" :loading="loading" @click="save(null)">发布</el-button>
+          <el-button type="primary" :loading="loading" :disabled="loadFailed" @click="save(null)">发布</el-button>
         </template>
         <template v-else>
           <el-button :loading="loading" @click="save('DRAFT')">存草稿</el-button>
-          <el-button type="primary" :loading="loading" @click="save('PENDING_REVIEW')">提交</el-button>
+          <el-button type="primary" :loading="loading" :disabled="loadFailed" @click="save('PENDING_REVIEW')">提交</el-button>
         </template>
         <el-button :loading="importing" @click="onPickFile">
           <span v-if="!importing">从文档导入</span>
@@ -376,6 +385,7 @@ const restoreVersion = async (v) => {
 </template>
 
 <style scoped>
+.postedit-loading { min-height: 320px; }
 .parent-tip { margin-bottom: 14px; }
 .edit { max-width: 960px; margin: 0 auto; color: #0f172a; }
 .editor-extra { margin-bottom: 6px; }

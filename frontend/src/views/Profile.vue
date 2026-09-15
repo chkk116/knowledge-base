@@ -15,6 +15,7 @@ import { getLevel } from '../utils/level'
 import { DEFAULT_AVATARS } from '../utils/defaultAvatars'
 import CertDialog from '../components/CertDialog.vue'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
+import { errMsg } from '../utils/errMsg'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -201,7 +202,7 @@ async function save() {
       ElMessage.success('资料已更新')
     }
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '更新失败')
+    ElMessage.error(errMsg(e, '更新失败'))
   } finally {
     saving.value = false
   }
@@ -274,7 +275,7 @@ async function changePwd() {
     pwdDialog.value = false
     oldPwd.value = ''; newPwd.value = ''; newPwd2.value = ''
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '修改失败')
+    ElMessage.error(errMsg(e, '修改失败'))
   } finally {
     changing.value = false
   }

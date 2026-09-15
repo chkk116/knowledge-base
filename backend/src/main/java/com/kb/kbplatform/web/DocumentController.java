@@ -76,8 +76,8 @@ public class DocumentController {
                                @RequestParam(required = false) Long ownerId) {
         if (page < 0) page = 0;
         if (size <= 0 || size > 100) size = 15;
-        if (tag != null && !tag.isBlank()) return svc.listByTag(PageRequest.of(page, size), sort, tag);
-        return svc.listPublic(PageRequest.of(page, size), sort, category, ownerId);
+        // 标签 / 分类 / 作者统一组合下推（F11）：此前 tag 分支提前 return，会静默忽略 category 与 ownerId
+        return svc.listPublicFiltered(PageRequest.of(page, size), sort, category, ownerId, tag);
     }
 
     /** 公开：分类列表 */
@@ -198,6 +198,11 @@ public class DocumentController {
     @PostMapping
     public Document create(@RequestAttribute("kbUser") TokenClaims c,
                            @RequestBody Document d) {
+        // 创建接口不接受任何主键：实体无版本字段，主键非空会让 JPA 走 merge 路径覆盖他人文档（F01）。
+        // 服务端另有统一白名单（applyCreateWhitelist）兜底清空统计/审核/删除等内部字段。
+        if (d.getId() != null) {
+            throw new ResponseStatusException(BAD_REQUEST, "创建文档不能携带 id");
+        }
         d.setContent(HtmlSanitizer.sanitize(d.getContent()));
         boolean admin = "ADMIN".equals(c.role());
         if (admin) {
@@ -205,7 +210,11 @@ public class DocumentController {
         } else if (d.getStatus() == null || d.getStatus().isBlank() || "PUBLISHED".equals(d.getStatus())) {
             d.setStatus("PENDING_REVIEW");
         }
-        return svc.createAs(d, resolveOwner(c));
+        Document saved = svc.createAs(d, resolveOwner(c));
+        // 普通用户发文被直接置为待审核（不能自发布）→ 同样通知管理员，
+        // 否则「写文章」绕过 /{id}/submit，管理员永远收不到待审通知。
+        svc.notifyReviewSubmitIfPending(saved, resolveOwner(c));
+        return saved;
     }
 
     /** 登录用户：编辑自己的帖子（管理员可改任意） */

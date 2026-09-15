@@ -35,6 +35,12 @@ public class SharedDocument {
     @Column(name = "yjs_state", columnDefinition = "bytea")
     private byte[] yjsState;
 
+    /** 协同状态代次：由服务端在「回滚 / 重置协同态」时自增。
+     *  中继（collab-relay）加载时记住该值，落库前比对；不一致说明内存快照已过期，
+     *  必须丢弃并强制客户端重载，否则旧房间会把历史版本又覆盖回去（F05）。 */
+    @Column(name = "yjs_rev", nullable = false, columnDefinition = "bigint default 0")
+    private long yjsRev = 0L;
+
     @Column(nullable = false)
     private Long ownerId;
 
@@ -70,6 +76,9 @@ public class SharedDocument {
 
     public byte[] getYjsState() { return yjsState; }
     public void setYjsState(byte[] yjsState) { this.yjsState = yjsState; }
+
+    public long getYjsRev() { return yjsRev; }
+    public void setYjsRev(long yjsRev) { this.yjsRev = yjsRev; }
 
     public Long getOwnerId() { return ownerId; }
     public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }

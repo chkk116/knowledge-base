@@ -12,6 +12,8 @@ import { getLevel } from '../utils/level'
 import EmojiPanel from '../components/EmojiPanel.vue'
 import TocNode from '../components/TocNode.vue'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
+import { splitTags } from '../utils/text'
+import { errMsg } from '../utils/errMsg'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,7 +45,7 @@ const checkBanned = async () => {
     await nextTick()
     highlightBanned()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '检查失败')
+    ElMessage.error(errMsg(e, '检查失败'))
   } finally {
     checking.value = false
   }
@@ -382,7 +384,7 @@ const toggleFollow = async () => {
       card.fans = card.fans + 1
     }
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 // 返回顶部：滚动超过一屏后显示
@@ -472,7 +474,7 @@ const onToggleSubscribe = async () => {
     subCount.value = data?.count || 0
     ElMessage.success(subscribed.value ? '已订阅，文档更新时会通知你' : '已取消订阅')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -495,6 +497,7 @@ const load = async () => {
     history.add({ id: data.id, title: data.title, category: data.category, author: data.authorName || data.ownerName || '', views: data.views })
     loadAuthorCard(data.ownerId)
     comments.value = (await getComments(route.params.id)).data || []
+    focusCommentFromQuery()   // 数据面板「点击直达」：?c=评论id → 滚动定位并高亮
     if (auth.loggedIn) {
       try {
         favorited.value = ((await myFavoriteIds()).data || []).includes(Number(route.params.id))
@@ -525,7 +528,7 @@ const onToggleFav = async () => {
     favorited.value = data.favorited
     ElMessage.success(data.favorited ? '已收藏' : '已取消收藏')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -540,7 +543,7 @@ const onToggleLike = async () => {
     liked.value = data.liked
     if (doc.value) doc.value.likes = data.likes
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -558,7 +561,7 @@ const onToggleCommentLike = async (c) => {
     if (data.liked) s.add(c.id); else s.delete(c.id)
     commentLikedIds.value = s
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -586,7 +589,7 @@ const submitComment = async () => {
     comments.value = (await getComments(route.params.id)).data || []
     ElMessage.success('评论成功')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '评论失败')
+    ElMessage.error(errMsg(e, '评论失败'))
   } finally {
     posting.value = false
   }
@@ -609,7 +612,7 @@ const onDeleteComment = async (c) => {
     comments.value = comments.value.filter(x => x.id !== c.id)
     ElMessage.success('评论已删除')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -627,7 +630,7 @@ const exportWord = async () => {
     URL.revokeObjectURL(url)
     ElMessage.success('已导出 Word（.doc）')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '导出失败')
+    ElMessage.error(errMsg(e, '导出失败'))
   }
 }
 
@@ -658,7 +661,6 @@ const canManageDoc = computed(() => auth.loggedIn && doc.value &&
   (auth.isAdmin || (auth.user && doc.value.ownerId === auth.user.id)))
 
 // 拆分标签
-const splitTags = (s) => (s ? s.split(',').map(x => x.trim()).filter(Boolean) : [])
 // 点击标签跳首页按该标签筛选
 const goTag = (t) => router.push({ path: '/', query: { tag: t } })
 // 点击「他的全部文章」跳首页按作者筛选
@@ -692,6 +694,38 @@ watch(() => route.params.id, (nid, old) => {
 
 // ESC 关闭图片灯箱
 const onKeydown = (e) => { if (e.key === 'Escape') lightboxSrc.value = '' }
+
+/**
+ * 直达单条评论：数据面板「实时动态」点击后跳到 /post/:id?c=评论id。
+ * 评论是异步加载的，等 DOM 出现后再滚动定位并短暂高亮；
+ * 若目标是折叠在「展开更多回复」里的子评论，先展开它的父楼。
+ */
+const flashCommentId = ref(null)
+let focusTimer = null
+async function focusCommentFromQuery() {
+  const cid = Number(route.query.c)
+  if (!cid) return
+  let waited = 0
+  while (waited < 3000) {
+    await nextTick()
+    const el = document.getElementById('pc' + cid)
+    if (el) {
+      const owner = comments.value.find((x) => (x.replies || []).some((r) => r.id === cid))
+      if (owner && !expandedReplies[owner.id]) {
+        expandedReplies[owner.id] = true
+        await nextTick()
+      }
+      const target = document.getElementById('pc' + cid) || el
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      flashCommentId.value = cid
+      clearTimeout(focusTimer)
+      focusTimer = setTimeout(() => { flashCommentId.value = null }, 2200)
+      return
+    }
+    await new Promise((r) => setTimeout(r, 120))
+    waited += 120
+  }
+}
 
 onMounted(() => {
   load()
@@ -831,7 +865,7 @@ onBeforeUnmount(() => {
       </div>
 
       <ul class="clist" v-if="sortedComments.length">
-        <li v-for="c in sortedComments" :key="c.id" class="citem">
+        <li v-for="c in sortedComments" :key="c.id" class="citem" :id="'pc' + c.id" :class="{ 'cmt-flash': flashCommentId === c.id }">
           <div class="chead">
             <b>{{ c.username }}</b>
             <span class="ctime" v-if="c.createdAt">{{ fromNow(c.createdAt) }}（{{ fmtDateTime(c.createdAt) }}）</span>
@@ -843,7 +877,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="cbody" v-html="c.content"></div>
           <ul class="replies" v-if="c.replies && c.replies.length">
-            <li v-for="r in (expandedReplies[c.id] ? c.replies : c.replies.slice(0, 3))" :key="r.id" class="ritem">
+            <li v-for="r in (expandedReplies[c.id] ? c.replies : c.replies.slice(0, 3))" :key="r.id" class="ritem" :id="'pc' + r.id" :class="{ 'cmt-flash': flashCommentId === r.id }">
               <div class="chead">
                 <b>{{ r.username }}</b>
                 <span class="r-to" v-if="r.parentName">回复 @{{ r.parentName }}</span>
@@ -934,6 +968,20 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 从数据面板「点击直达」进来的评论：短暂高亮便于定位 */
+.cmt-flash { animation: cmtFlash 2s ease-out; border-radius: 8px; }
+@keyframes cmtFlash {
+  0%   { background: rgba(99, 102, 241, .22); }
+  70%  { background: rgba(99, 102, 241, .12); }
+  100% { background: transparent; }
+}
+html.dark .cmt-flash { animation: cmtFlashDark 2s ease-out; }
+@keyframes cmtFlashDark {
+  0%   { background: rgba(129, 140, 248, .28); }
+  70%  { background: rgba(129, 140, 248, .14); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .cmt-flash { animation: none; } }
 .post { max-width: 1240px; margin: 0 auto; color: #0f172a; }
 .title { margin: 14px 0 8px; font-size: 24px; }
 /* 文档层级面包屑：上级 / … / 当前（文档树路径） */

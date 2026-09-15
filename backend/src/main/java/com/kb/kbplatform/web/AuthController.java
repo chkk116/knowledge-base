@@ -6,6 +6,7 @@ import com.kb.kbplatform.security.CaptchaService;
 import com.kb.kbplatform.security.RateLimitService;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AuthService;
+import com.kb.kbplatform.service.NotificationService;
 import com.kb.kbplatform.service.BizException;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,15 +24,18 @@ public class AuthController {
     private final CaptchaService captchaService;
     private final RateLimitService rateLimit;
     private final com.kb.kbplatform.service.LoginLogService loginLogService;
+    private final NotificationService notificationService;
 
     public AuthController(AuthService authService, UserRepository userRepo,
                           CaptchaService captchaService, RateLimitService rateLimit,
-                          com.kb.kbplatform.service.LoginLogService loginLogService) {
+                          com.kb.kbplatform.service.LoginLogService loginLogService,
+                          NotificationService notificationService) {
         this.authService = authService;
         this.userRepo = userRepo;
         this.captchaService = captchaService;
         this.rateLimit = rateLimit;
         this.loginLogService = loginLogService;
+        this.notificationService = notificationService;
     }
 
     public static class LoginRequest {
@@ -72,6 +76,23 @@ public class AuthController {
             Object uid = result.get("id");
             loginLogService.record(uid instanceof Number ? ((Number) uid).longValue() : null,
                     logName, true, null, request);
+            // 高危登录告警（2026-09-12 新增）：管理员账号经非浏览器客户端（python-urllib/curl/java 等
+            // 脚本 UA）成功登录 → 立即通知全体管理员。判定：UA 为空或不含 Mozilla（所有主流浏览器
+            // UA 都以 Mozilla/ 开头）。告警失败不影响登录本身。
+            try {
+                User lu = (uid instanceof Number)
+                        ? userRepo.findById(((Number) uid).longValue()).orElse(null) : null;
+                String ua = request.getHeader("User-Agent");
+                boolean suspiciousClient = ua == null || !ua.contains("Mozilla");
+                if (lu != null && "ADMIN".equals(lu.getRole()) && suspiciousClient) {
+                    String realIp = request.getHeader("X-Forwarded-For");
+                    if (realIp == null || realIp.isBlank()) realIp = request.getRemoteAddr();
+                    else realIp = realIp.split(",")[0].trim();
+                    notificationService.notifySecurityAlert(logName, realIp, ua);
+                }
+            } catch (Exception alertEx) {
+                // 告警只是旁路，登录主流程不受影响
+            }
             return result;
         } catch (RuntimeException e) {
             // 找得到账号则带上 userId；用户名不存在则记 null

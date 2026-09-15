@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { listLoginLogs } from '../../api/admin'
+import { errMsg } from '../../utils/errMsg'
 
 const logs = ref([])
 const loading = ref(false)
@@ -52,7 +53,7 @@ const load = async () => {
     logs.value = data.content || []
     total.value = data.totalElements || 0
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载登录日志失败')
+    ElMessage.error(errMsg(e, '加载登录日志失败'))
   } finally {
     loading.value = false
   }

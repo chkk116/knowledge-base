@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { myFavorites, toggleFavorite } from '../api/kb'
 import PageBar from '../components/PageBar.vue'
+import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
 const posts = ref([])
@@ -34,7 +35,7 @@ const load = async () => {
   try {
     posts.value = (await myFavorites()).data || []
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载失败')
+    ElMessage.error(errMsg(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -49,7 +50,7 @@ const onRemove = async (d) => {
     posts.value = posts.value.filter(p => p.id !== d.id)
     ElMessage.success('已取消收藏')
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listDocVersions, restoreDocVersion } from '../api/kb'
 import { fromNow, fmtDateTime } from '../utils/time'
+import { errMsg } from '../utils/errMsg'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,7 +28,7 @@ const load = async () => {
   try {
     versions.value = (await listDocVersions(docId)).data || []
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '加载版本失败')
+    ElMessage.error(errMsg(e, '加载版本失败'))
   } finally {
     loading.value = false
   }
@@ -49,7 +50,7 @@ const restore = async (v) => {
     // 跳回文档详情：路由切换到 /post/:id 会重新挂载并拉取最新内容
     router.replace('/post/' + docId + '?v=' + Date.now())
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '回滚失败')
+    ElMessage.error(errMsg(e, '回滚失败'))
   } finally {
     restoring.value = 0
   }

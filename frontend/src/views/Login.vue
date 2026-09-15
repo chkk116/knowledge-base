@@ -104,6 +104,7 @@ const supportQrSvg = ref('')
 const wxImage = ref('')
 const supportImage = ref('')
 onMounted(async () => {
+  startParticles()
   let wxUrl = 'https://www.example.com/wx-miniapp'
   let supportUrl = 'https://www.example.com/support'
   try {
@@ -124,10 +125,145 @@ onMounted(async () => {
 const langOpen = ref(false)
 function toggleLang() { langOpen.value = !langOpen.value }
 function pickLang(v) { langOpen.value = false; ElMessage.info('暂仅提供简体中文') }
+
+// 离开登录页时停掉动画并解绑监听，避免后台空转
+onUnmounted(() => { if (particleCleanup) particleCleanup() })
+
+// ---------- 粒子连线动画（登录页左栏装饰） ----------
+const particleCanvas = ref(null)
+let particleRaf = 0
+let particleCleanup = null
+
+function startParticles() {
+  const canvas = particleCanvas.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  // 尊重系统「减少动态效果」偏好：只画一帧静态图，不做动画
+  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  let w = 0, h = 0
+  const resize = () => {
+    const rect = canvas.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    w = Math.max(1, rect.width); h = Math.max(1, rect.height)
+    canvas.width = Math.round(w * dpr)
+    canvas.height = Math.round(h * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  }
+  resize()
+
+  // 数量按整页面积缩放，避免小屏过密
+  const count = Math.max(30, Math.min(120, Math.round(w * h / 15000)))
+  const rnd = (a, b) => a + Math.random() * (b - a)
+  const pts = Array.from({ length: count }, () => {
+    const bvx = rnd(-0.58, 0.58), bvy = rnd(-0.58, 0.58)   // 基础漂移速度（调大=更快）
+    return { x: rnd(0, w), y: rnd(0, h), vx: bvx, vy: bvy, bvx, bvy, r: rnd(1.1, 2.2) }
+  })
+
+  const LINK = 110        // 粒子间连线距离阈值
+  const ATTRACT_R = 190   // 鼠标吸引半径
+  const CURSOR_LINK = 150 // 光标与粒子的连线距离
+  const mouse = { x: 0, y: 0, on: false }
+  const onMouse = (e) => {
+    const rect = canvas.getBoundingClientRect()
+    const x = e.clientX - rect.left, y = e.clientY - rect.top
+    mouse.on = x >= 0 && y >= 0 && x <= rect.width && y <= rect.height
+    mouse.x = x; mouse.y = y
+  }
+  const onMouseLeave = () => { mouse.on = false }
+  window.addEventListener('mousemove', onMouse)
+  document.documentElement.addEventListener('mouseleave', onMouseLeave)
+
+  const isDark = () => document.documentElement.classList.contains('dark')
+
+  function drawFrame() {
+    const dark = isDark()
+    const dotBase = dark ? '147, 180, 255' : '59, 110, 230'
+    const lineBase = dark ? '129, 150, 255' : '79, 70, 229'
+    ctx.clearRect(0, 0, w, h)
+    for (const p of pts) {
+      if (!reduced) {
+        // 鼠标吸引：半径内柔和拉向光标，越近吸力越小（不会糊成一团）
+        if (mouse.on) {
+          const dx = mouse.x - p.x, dy = mouse.y - p.y
+          const d = Math.sqrt(dx * dx + dy * dy) || 1
+          if (d < ATTRACT_R && d > 26) {
+            const f = (1 - d / ATTRACT_R) * 0.045
+            p.vx += (dx / d) * f
+            p.vy += (dy / d) * f
+          }
+        }
+        // 限速 + 缓慢回归初始漂移，防止速度失控或粒子集体停摆
+        p.vx *= 0.985; p.vy *= 0.985
+        const sp = Math.hypot(p.vx, p.vy)
+        if (sp > 2.6) { p.vx = p.vx / sp * 2.6; p.vy = p.vy / sp * 2.6 }
+        if (sp < 0.12) { p.vx += (p.bvx - p.vx) * 0.03; p.vy += (p.bvy - p.vy) * 0.03 }
+        p.x += p.vx; p.y += p.vy
+        if (p.x < -10) p.x = w + 10; else if (p.x > w + 10) p.x = -10
+        if (p.y < -10) p.y = h + 10; else if (p.y > h + 10) p.y = -10
+      }
+      ctx.beginPath()
+      // 暗色模式下点缩小、透明度减半：避免在深色底上呈现刺眼的白点
+      ctx.arc(p.x, p.y, dark ? p.r * 0.7 : p.r, 0, Math.PI * 2)
+      ctx.fillStyle = `rgba(${dotBase}, ${dark ? 0.32 : 0.5})`
+      ctx.fill()
+    }
+    // 光标连线：吸引半径内的粒子向鼠标拉出更亮的线，突出「吸」的体感
+    if (mouse.on && !reduced) {
+      for (const p of pts) {
+        const dx = mouse.x - p.x, dy = mouse.y - p.y
+        const d2 = dx * dx + dy * dy
+        if (d2 > CURSOR_LINK * CURSOR_LINK) continue
+        const a = (1 - Math.sqrt(d2) / CURSOR_LINK) * (dark ? 0.3 : 0.45)
+        ctx.beginPath()
+        ctx.moveTo(mouse.x, mouse.y)
+        ctx.lineTo(p.x, p.y)
+        ctx.strokeStyle = `rgba(${lineBase}, ${a.toFixed(3)})`
+        ctx.lineWidth = 1
+        ctx.stroke()
+      }
+    }
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y
+        const d2 = dx * dx + dy * dy
+        if (d2 > LINK * LINK) continue
+        const a = (1 - Math.sqrt(d2) / LINK) * (dark ? 0.18 : 0.32)
+        ctx.beginPath()
+        ctx.moveTo(pts[i].x, pts[i].y)
+        ctx.lineTo(pts[j].x, pts[j].y)
+        ctx.strokeStyle = `rgba(${lineBase}, ${a.toFixed(3)})`
+        ctx.lineWidth = 1
+        ctx.stroke()
+      }
+    }
+  }
+
+  const onResize = () => { resize(); drawFrame() }
+  window.addEventListener('resize', onResize)
+
+  if (reduced) {
+    drawFrame()   // 静态一帧
+  } else {
+    const loop = () => { drawFrame(); particleRaf = requestAnimationFrame(loop) }
+    particleRaf = requestAnimationFrame(loop)
+  }
+
+  particleCleanup = () => {
+    window.removeEventListener('resize', onResize)
+    window.removeEventListener('mousemove', onMouse)
+    document.documentElement.removeEventListener('mouseleave', onMouseLeave)
+    if (particleRaf) cancelAnimationFrame(particleRaf)
+    particleRaf = 0
+  }
+}
 </script>
 
 <template>
   <div class="login-page">
+    <!-- 粒子连线动画：铺满整页，带鼠标吸引；纯 Canvas，无第三方依赖 -->
+    <canvas ref="particleCanvas" class="particles-canvas" aria-hidden="true"></canvas>
     <!-- 左侧：浅蓝渐变 + 3D 插画 + 底部二维码区 -->
     <aside class="login-hero">
       <div class="hero-bg"></div>
@@ -226,9 +362,9 @@ function pickLang(v) { langOpen.value = false; ElMessage.info('暂仅提供简�
             </g>
           </g>
 
-          <!-- 高光圆斑 -->
-          <circle cx="360" cy="120" r="40" fill="url(#glowG)" opacity=".6"/>
-          <circle cx="170" cy="190" r="60" fill="url(#glowG)" opacity=".4"/>
+          <!-- 高光圆斑（暗色模式见 .glow-orb / #glowG 覆盖，避免变成刺眼白斑） -->
+          <circle class="glow-orb" cx="360" cy="120" r="40" fill="url(#glowG)" opacity=".6"/>
+          <circle class="glow-orb" cx="170" cy="190" r="60" fill="url(#glowG)" opacity=".4"/>
         </svg>
       </div>
 
@@ -317,6 +453,7 @@ function pickLang(v) { langOpen.value = false; ElMessage.info('暂仅提供简�
 <style scoped>
 /* ============== 双栏布局 ============== */
 .login-page {
+  position: relative;            /* 粒子画布的定位基准 */
   height: 100vh; display: flex;
   background: #fff;
   overflow: hidden;
@@ -333,6 +470,11 @@ function pickLang(v) { langOpen.value = false; ElMessage.info('暂仅提供简�
   background:
     radial-gradient(60% 50% at 20% 30%, rgba(255,255,255,.85), rgba(255,255,255,0) 60%),
     radial-gradient(50% 40% at 85% 80%, rgba(191,210,255,.55), rgba(191,210,255,0) 70%);
+}
+/* 粒子连线画布：铺满整页（左右都有），置于内容层之下、背景之上 */
+.particles-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  z-index: 1; pointer-events: none;
 }
 .hero-scene {
   position: absolute; inset: 0;
@@ -378,9 +520,13 @@ function pickLang(v) { langOpen.value = false; ElMessage.info('暂仅提供简�
 
 /* ---- 右栏：登录卡 ---- */
 .login-main {
-  flex: 1; min-width: 0; position: relative;
+  flex: 1; min-width: 0; position: relative; z-index: 2;
   display: flex; align-items: center; justify-content: center;
-  background: #fff;
+  /* 右侧不再纯白：两团极淡的冷色光斑 + 微渐变，与左栏呼应（F：登录页右侧太白） */
+  background:
+    radial-gradient(46% 38% at 86% 12%, rgba(210,226,255,.5), rgba(210,226,255,0) 70%),
+    radial-gradient(42% 36% at 12% 92%, rgba(214,230,255,.45), rgba(214,230,255,0) 70%),
+    linear-gradient(180deg, #fdfeff 0%, #f6f9ff 100%);
   padding: 40px;
 }
 .lang-switch { position: absolute; top: 22px; right: 26px; }
@@ -486,10 +632,19 @@ html.dark .hero-bg {
     radial-gradient(50% 40% at 85% 80%, rgba(40,80,180,.25), rgba(40,80,180,0) 70%);
 }
 html.dark .hero-3d { filter: drop-shadow(0 30px 40px rgba(0,0,0,.55)) brightness(1.05); }
+/* 高光圆斑在暗色下会把白斑映得很突兀：换成淡蓝微光并大幅压暗 */
+html.dark .glow-orb { opacity: .16; }
+html.dark #glowG stop { stop-color: rgba(126,170,255,.6); }
+html.dark #glowG stop:last-child { stop-color: rgba(126,170,255,0); }
 html.dark .qr-box { background: #f4f6fb; }
 html.dark .qr-cap { color: #8ea0c5; }
 
-html.dark .login-main { background: #0c1428; }
+html.dark .login-main {
+  background:
+    radial-gradient(46% 38% at 86% 12%, rgba(44,68,120,.35), rgba(44,68,120,0) 70%),
+    radial-gradient(42% 36% at 12% 92%, rgba(36,54,96,.3), rgba(36,54,96,0) 70%),
+    #0c1428;
+}
 html.dark .lang-trigger { background: #15203a; border-color: #2a3858; color: #b9c4dc; }
 html.dark .lang-trigger:hover { background: #1c2a48; }
 html.dark .login-card-wrap {

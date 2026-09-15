@@ -22,6 +22,7 @@ import 'prismjs/components/prism-java'
 import 'prismjs/components/prism-sql'
 import 'prismjs/components/prism-yaml'
 import 'prismjs/components/prism-go'
+import { escapeHtml } from '../utils/text'
 
 const auth = useAuthStore()
 
@@ -338,7 +339,6 @@ md.renderer.rules.fence = (tokens, idx) => {
   return '<div class="md-code-block"><button type="button" class="md-copy-btn">复制</button>'
     + '<pre class="md-code' + cls + '"><code' + cls + '>' + code + '</code></pre></div>'
 }
-function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
 function renderMarkdown(src) {
   if (!src) return ''
   return md.render(src)

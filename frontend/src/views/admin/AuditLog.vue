@@ -7,6 +7,7 @@ import {
   DocumentCopy, User, FolderOpened, Reading,
 } from '@element-plus/icons-vue'
 import { listAudit } from '../../api/admin'
+import { errMsg } from '../../utils/errMsg'
 
 const logs = ref([])
 const loading = ref(false)
@@ -112,7 +113,7 @@ const load = async () => {
     logs.value = data.content || []
     total.value = data.totalElements || 0
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载审计日志失败')
+    ElMessage.error(errMsg(e, '加载审计日志失败'))
   } finally {
     loading.value = false
   }

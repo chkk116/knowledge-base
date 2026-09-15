@@ -6,6 +6,7 @@ import { Upload } from '@element-plus/icons-vue'
 import { listMyShares, createShare, deleteShare, getStorage, searchShareUsers,
   getMyShareQuota, submitCreateRequest, listMyCreateRequests } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
+import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -140,7 +141,7 @@ const submitApply = async () => {
     applyDialog.value = false
     await loadMyApply()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '提交失败')
+    ElMessage.error(errMsg(e, '提交失败'))
   } finally {
     applySaving.value = false
   }
@@ -181,7 +182,7 @@ const save = async () => {
     dialog.value = false
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '创建失败')
+    ElMessage.error(errMsg(e, '创建失败'))
   } finally {
     saving.value = false
   }
@@ -198,7 +199,7 @@ const remove = async (row) => {
     ElMessage.success('已删除')
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 

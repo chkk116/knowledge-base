@@ -1,9 +1,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Medal, User, UserFilled, Search } from '@element-plus/icons-vue'
+import { Medal, User, UserFilled, Search, Lock, Message } from '@element-plus/icons-vue'
 import { listUsers, createUser, updateUser, deleteUser, toggleUser, adjustPoints, resetPassword, adminUserStorage, getUserDetail, listRoles, listDepartments } from '../../api/admin'
 import PageBar from '../../components/PageBar.vue'
+import { errMsg } from '../../utils/errMsg'
 
 // 角色/状态筛选 Tab（胶囊按钮）
 const TABS = [
@@ -18,7 +19,7 @@ const users = ref([])
 const dialog = ref(false)
 const editing = ref(null)
 const saving = ref(false)
-const form = ref({ username: '', displayName: '', role: 'USER', password: '', enabled: true, storageQuotaGb: null, roleIds: [], departmentId: null })
+const form = ref({ username: '', displayName: '', email: '', gender: '', role: 'USER', password: '', enabled: true, storageQuotaGb: null, roleIds: [], departmentId: null })
 const storageInfo = ref(null)   // 编辑时拉取的当前用量 { used, quota }
 
 // 角色 / 部门（编辑表单下拉用；部门树由 parentId 自组装）
@@ -44,6 +45,19 @@ const departmentTree = computed(() => {
   walk(0, 0)
   return out
 })
+// 部门嵌套树：el-tree-select 需要 { value, label, children } 结构（原 departmentTree 是带缩进的扁平列表，供 el-select 用）
+const deptTreeData = computed(() => {
+  const list = departments.value || []
+  const byParent = {}
+  list.forEach(d => { (byParent[d.parentId || 0] ||= []).push(d) })
+  const build = (parentId) => (byParent[parentId] || []).map(d => {
+    const children = build(d.id)
+    return { value: d.id, label: d.name, ...(children.length ? { children } : {}) }
+  })
+  return build(0)
+})
+const filterDept = (value, node) => !value || String(node.label || '').includes(value)
+
 const GB = 1024 * 1024 * 1024
 const formatGb = (b) => ((b || 0) / GB).toFixed(2) + ' GB'
 const roleTab = ref('all')   // all | ADMIN | USER | disabled
@@ -97,6 +111,8 @@ const openEdit = (u) => {
   form.value = {
     username: u.username,
     displayName: u.displayName || '',
+    email: u.email || '',
+    gender: u.gender || '',
     role: u.role,
     password: '',
     enabled: u.enabled,
@@ -122,20 +138,23 @@ const save = async () => {
     const roleIds = (form.value.roleIds || []).map(Number).filter(Boolean)
     const departmentId = form.value.departmentId ? Number(form.value.departmentId) : null
     if (editing.value) {
-      const r = { displayName: form.value.displayName, role: form.value.role, enabled: form.value.enabled, roleIds, departmentId }
+      const r = { displayName: form.value.displayName, email: form.value.email || '', gender: form.value.gender || '', role: form.value.role, enabled: form.value.enabled, roleIds, departmentId }
       if (form.value.password) r.password = form.value.password
       // 存储配额：填了 GB 转字节；0/空表示恢复系统默认 200MB
       r.storageQuota = form.value.storageQuotaGb ? Math.round(form.value.storageQuotaGb * GB) : 0
       await updateUser(editing.value, r)
-      ElMessage.success('已更新')
+      // 完全管理员判定（语义=覆盖）：所选角色权限并集覆盖全量白名单 → 该用户视同 ADMIN
+      const full = isFullAdminPerms([...unionRolePerms(roleIds.map((id) => roleMap.value[id]))])
+      ElMessage.success(full ? '已更新（所选角色合计为完全管理员权限，该用户视同 ADMIN）' : '已更新')
     } else {
-      await createUser({ username: form.value.username, displayName: form.value.displayName, role: form.value.role, password: form.value.password, enabled: form.value.enabled, roleIds, departmentId })
-      ElMessage.success('已创建')
+      await createUser({ username: form.value.username, displayName: form.value.displayName, email: form.value.email || '', gender: form.value.gender || '', role: form.value.role, password: form.value.password, enabled: form.value.enabled, roleIds, departmentId })
+      const full2 = isFullAdminPerms([...unionRolePerms(roleIds.map((id) => roleMap.value[id]))])
+      ElMessage.success(full2 ? '已创建（所选角色合计为完全管理员权限，该用户视同 ADMIN）' : '已创建')
     }
     dialog.value = false
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   } finally {
     saving.value = false
   }
@@ -154,7 +173,7 @@ const remove = async (u) => {
     // 末页删完最后一条会停在空页码（筛选走后端，重载为空即说明这页没了）
     if (users.value.length === 0 && page.value > 1) { page.value--; await load() }
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -185,7 +204,7 @@ const onResetPwd = async (u) => {
     ElMessageBox.alert('已生成新密码：\n\n' + data.newPassword + '\n\n请通过安全渠道转交给该用户，并提醒其尽快登录修改。', '重置成功', { type: 'success' })
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '重置失败')
+    ElMessage.error(errMsg(e, '重置失败'))
   }
 }
 
@@ -201,7 +220,7 @@ const savePoints = async () => {
     pointsDialog.value = false
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '调整失败')
+    ElMessage.error(errMsg(e, '调整失败'))
   } finally {
     pointsSaving.value = false
   }
@@ -337,43 +356,77 @@ const loadOrg = async () => {
       </div>
     </el-card>
 
-    <el-dialog v-model="dialog" :title="editing ? '编辑用户' : '新增用户'" width="540px" class="user-dialog">
-      <el-form label-width="80px">
-        <el-form-item label="用户名">
-          <el-input v-model="form.username" :disabled="!!editing" />
-        </el-form-item>
-        <el-form-item label="昵称">
-          <el-input v-model="form.displayName" />
-        </el-form-item>
-        <el-form-item label="角色权限">
-          <el-select v-model="form.role" style="width: 100%">
-            <el-option label="管理员 ADMIN（拥有全部权限）" value="ADMIN" />
-            <el-option label="普通用户 USER" value="USER" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="所属部门">
-          <el-select v-model="form.departmentId" clearable placeholder="未分配部门" style="width: 100%">
-            <el-option v-for="d in departmentTree" :key="d.id" :value="d.id" :label="d.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="分配角色">
-          <el-select v-model="form.roleIds" multiple collapse-tags collapse-tags-tooltip
-                     placeholder="选择角色（权限来自角色管理中配置的权限）" style="width: 100%">
-            <el-option v-for="r in roles" :key="r.id" :value="r.id" :label="r.name" />
-          </el-select>
-          <div class="hint perm-hint">权限统一在「角色管理」中定义；用户最终权限 = 所分配角色的权限并集（管理员隐式全权）</div>
-        </el-form-item>
-        <el-form-item :label="editing ? '重置密码' : '密码'">
-          <el-input v-model="form.password" type="password" show-password
-                    :placeholder="editing ? '留空则不修改' : '至少 6 位'" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-switch v-model="form.enabled" active-text="启用" inactive-text="禁用" />
-        </el-form-item>
-        <el-form-item label="存储配额">
-          <el-input-number v-model="form.storageQuotaGb" :min="0" :max="1024" :step="1" :precision="1" style="width: 160px" />
-          <span class="hint">GB；0 或不填 = 系统默认 200MB。当前已用 {{ storageInfo ? formatGb(storageInfo.used) : '—' }}</span>
-        </el-form-item>
+    <el-dialog v-model="dialog" :title="editing ? '编辑用户信息' : '新增用户'"
+               width="780px" class="user-dialog" :close-on-click-modal="false">
+      <el-form label-position="top" class="uform">
+        <!-- 分区一：基本信息（对齐后台 OA 风格的「上标签 + 多列网格」布局） -->
+        <div class="sec">
+          <div class="sec-hd"><span class="sec-bar"></span>基本信息</div>
+          <div class="grid">
+            <el-form-item label="姓名 / 昵称">
+              <el-input v-model="form.displayName" placeholder="用于展示的名称" :prefix-icon="User" clearable />
+            </el-form-item>
+            <el-form-item label="用户名（登录名）">
+              <el-input v-model="form.username" :disabled="!!editing" :prefix-icon="UserFilled"
+                        :placeholder="editing ? '登录名不可修改' : '登录用，创建后不可改'" />
+            </el-form-item>
+            <el-form-item :label="editing ? '重置密码' : '密码'">
+              <el-input v-model="form.password" type="password" show-password :prefix-icon="Lock"
+                        :placeholder="editing ? '留空则不修改' : '至少 6 位'" />
+            </el-form-item>
+            <el-form-item label="性别">
+              <el-radio-group v-model="form.gender" class="sex-group">
+                <el-radio-button value="">保密</el-radio-button>
+                <el-radio-button value="男">男</el-radio-button>
+                <el-radio-button value="女">女</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="账号状态">
+              <div class="status-cell">
+                <el-switch v-model="form.enabled" :active-value="true" :inactive-value="false" />
+                <span class="status-text" :class="{ off: !form.enabled }">
+                  {{ form.enabled ? '当前为：启用' : '当前为：禁用' }}
+                </span>
+              </div>
+            </el-form-item>
+            <el-form-item label="邮箱">
+              <el-input v-model="form.email" placeholder="选填，用于通知与找回" :prefix-icon="Message" clearable />
+            </el-form-item>
+          </div>
+        </div>
+
+        <!-- 分区二：权限与组织 -->
+        <div class="sec">
+          <div class="sec-hd"><span class="sec-bar"></span>权限与组织</div>
+          <div class="grid">
+            <el-form-item label="系统角色">
+              <el-select v-model="form.role" style="width: 100%">
+                <el-option label="普通用户 USER" value="USER" />
+                <el-option label="管理员 ADMIN（拥有全部权限）" value="ADMIN" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="所属部门">
+              <el-tree-select v-model="form.departmentId" :data="deptTreeData" clearable check-strictly
+                              :render-after-expand="false" default-expand-all
+                              placeholder="未分配部门" filterable :filter-node-method="filterDept"
+                              style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="存储配额">
+              <div class="quota-cell">
+                <el-input-number v-model="form.storageQuotaGb" :min="0" :max="1024" :step="1" :precision="1"
+                                 controls-position="right" style="width: 150px" />
+                <span class="hint">GB · 0 或留空 = 默认 200MB；已用 {{ storageInfo ? formatGb(storageInfo.used) : '—' }}</span>
+              </div>
+            </el-form-item>
+            <el-form-item label="分配角色（权限来源）" class="span-3">
+              <el-select v-model="form.roleIds" multiple collapse-tags collapse-tags-tooltip
+                         placeholder="选择角色，权限取所选角色的并集" style="width: 100%">
+                <el-option v-for="r in roles" :key="r.id" :value="r.id" :label="r.name" />
+              </el-select>
+              <div class="hint block">权限统一在「角色管理」中定义；用户最终权限 = 所分配角色的权限并集（管理员隐式全权）</div>
+            </el-form-item>
+          </div>
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
@@ -569,5 +622,44 @@ html.dark .role.user { color: #a5b4fc; }
   .perm-tag { margin: 2px 6px 2px 0; }
   .hint { margin-left: 0; margin-top: 6px; }
   .foot { flex-wrap: wrap; }
+}
+
+/* ================= 编辑用户弹窗：OA 风格表单（上标签 + 三列网格 + 分区标题） ================= */
+.uform :deep(.el-form-item) { margin-bottom: 14px; }
+.uform :deep(.el-form-item__label) {
+  font-size: 12.5px; font-weight: 500; color: var(--el-text-color-secondary);
+  padding: 0 0 5px; line-height: 1.4;
+}
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 18px; }
+.grid > * { min-width: 0; }
+.grid .span-3 { grid-column: span 3; }
+.sec + .sec { margin-top: 4px; padding-top: 16px; border-top: 1px dashed var(--el-border-color-lighter); }
+.sec-hd {
+  display: flex; align-items: center; gap: 8px; margin: 2px 0 14px;
+  font-size: 13px; font-weight: 600; color: var(--el-text-color-primary);
+}
+.sec-bar { width: 3px; height: 14px; border-radius: 2px; background: var(--el-color-primary); }
+/* 输入类控件统一圆角，贴近参考图的柔和观感 */
+.uform :deep(.el-input__wrapper),
+.uform :deep(.el-select__wrapper),
+.uform :deep(.el-textarea__inner),
+.uform :deep(.el-input-number .el-input__wrapper) { border-radius: 8px; }
+.uform :deep(.el-radio-button__inner) { padding: 8px 15px; }
+.status-cell { display: flex; align-items: center; gap: 8px; height: 32px; }
+.status-text { font-size: 12.5px; color: #0f6e56; }
+.status-text.off { color: #c0392b; }
+html.dark .status-text { color: #34d399; }
+html.dark .status-text.off { color: #f87171; }
+.quota-cell { display: flex; align-items: center; gap: 8px; width: 100%; }
+.hint.block { display: block; margin: 6px 0 0; line-height: 1.6; }
+@media (max-width: 1024px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid .span-3 { grid-column: span 2; }
+  .user-dialog { width: 92% !important; }
+}
+@media (max-width: 640px) {
+  .grid { grid-template-columns: 1fr; }
+  .grid .span-3 { grid-column: span 1; }
+  .user-dialog { width: 96% !important; }
 }
 </style>

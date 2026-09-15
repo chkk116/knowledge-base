@@ -58,8 +58,13 @@ public class AssetExcelService {
     public byte[] export(List<Asset> assets) {
         try (Workbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sh = wb.createSheet("资产台账");
+            sh.createFreezePane(0, 1);            // 冻结表头：滚动时列名常驻，不会把数据看成无名列
+            sh.setDefaultRowHeightInPoints(20);   // 行高留白，中文不再贴着上下边线
             Row hr = sh.createRow(0);
+            hr.setHeightInPoints(26);
             CellStyle headStyle = headStyle(wb);
+            CellStyle bodyStyle = bodyStyle(wb);
+            CellStyle wrapStyle = wrapStyle(wb);
             for (int i = 0; i < COLS; i++) {
                 Cell c = hr.createCell(i);
                 c.setCellValue(HEADERS[i]);
@@ -71,9 +76,17 @@ public class AssetExcelService {
                 for (int i = 0; i < COLS; i++) {
                     Cell c = row.createCell(i);
                     setCell(c, valueOf(a, FIELDS[i]));
+                    // 备注（最后一列）单独自动换行，其余列保持单行以免行高被撑爆
+                    c.setCellStyle(i == COLS - 1 ? wrapStyle : bodyStyle);
                 }
             }
-            for (int i = 0; i < COLS; i++) sh.autoSizeColumn(i);
+            // 列宽：autoSize 对中文常常算窄，统一补白并限制上下限（单位 1/256 字符宽）
+            for (int i = 0; i < COLS; i++) {
+                if (i == COLS - 1) { sh.setColumnWidth(i, 9000); continue; }  // 备注固定宽 + 换行
+                sh.autoSizeColumn(i);
+                int w = sh.getColumnWidth(i);
+                sh.setColumnWidth(i, Math.min(Math.max(w + 1500, 3000), 11000));
+            }
             wb.write(out);
             return out.toByteArray();
         } catch (IOException e) {
@@ -215,7 +228,36 @@ public class AssetExcelService {
         s.setFont(f);
         s.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
         s.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        s.setAlignment(HorizontalAlignment.CENTER);
+        s.setVerticalAlignment(VerticalAlignment.CENTER);
+        bordered(s);
         return s;
+    }
+
+    /** 正文：细边框 + 垂直居中，导出表不再是一堆挤在一起的裸文字 */
+    private CellStyle bodyStyle(Workbook wb) {
+        CellStyle s = wb.createCellStyle();
+        s.setVerticalAlignment(VerticalAlignment.CENTER);
+        bordered(s);
+        return s;
+    }
+
+    /** 备注列：同样有边框，但开启自动换行 */
+    private CellStyle wrapStyle(Workbook wb) {
+        CellStyle s = bodyStyle(wb);
+        s.setWrapText(true);
+        return s;
+    }
+
+    private static void bordered(CellStyle s) {
+        s.setBorderTop(BorderStyle.THIN);
+        s.setBorderBottom(BorderStyle.THIN);
+        s.setBorderLeft(BorderStyle.THIN);
+        s.setBorderRight(BorderStyle.THIN);
+        s.setTopBorderColor(IndexedColors.GREY_40_PERCENT.getIndex());
+        s.setBottomBorderColor(IndexedColors.GREY_40_PERCENT.getIndex());
+        s.setLeftBorderColor(IndexedColors.GREY_40_PERCENT.getIndex());
+        s.setRightBorderColor(IndexedColors.GREY_40_PERCENT.getIndex());
     }
 
     private Object valueOf(Asset a, String field) {

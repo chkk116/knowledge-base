@@ -65,29 +65,78 @@ function verifyToken(token) {
   const userId = f.length > 3 && f[3] ? Number(f[3]) : 0
   // 第 6 段 tokenVersion：旧版 5 段 token（无版本）回退为 0，与后端 TokenUtil.parse 同兼容策略
   const tokenVersion = f.length > 5 && f[5] ? Number(f[5]) : 0
-  return { userId, role: f[1] || '', username: f[0] || '', tokenVersion }
+  if (!Number.isSafeInteger(userId) || userId <= 0 || !Number.isSafeInteger(tokenVersion)
+      || tokenVersion < 0 || !Number.isSafeInteger(exp)) throw new Error('bad claims')
+  return { userId, role: f[1] || '', username: f[0] || '', tokenVersion, exp }
 }
 
-// documentName 约定为 `${shareId}:${docId}`
+// 初始代次沿用 shareId:docId；回滚后必须使用 shareId:docId:revision。
+// 禁止别名（前导零、:0、额外片段），避免同一文档被建成两个互相覆盖的房间。
 function parseName(name) {
-  const [shareId, docId] = String(name || '').split(':')
-  return { shareId: Number(shareId), docId: Number(docId) }
+  const match = /^([1-9]\d*):([1-9]\d*)(?::([1-9]\d*))?$/.exec(String(name || ''))
+  if (!match) throw new Error('invalid document')
+  const [shareId, docId, revision] = [Number(match[1]), Number(match[2]), Number(match[3] || 0)]
+  if (![shareId, docId, revision].every(Number.isSafeInteger)) throw new Error('invalid document')
+  return { shareId, docId, revision }
 }
 
-// 复刻 DocShareService.myPermission：OWNER / ADMIN / WRITE / READ / null
-async function myPermission(shareId, userId, role) {
-  if (role === 'ADMIN') return 'OWNER'
+const WRITE_PERMISSIONS = new Set(['OWNER', 'ADMIN', 'WRITE'])
+const READ_PERMISSIONS = new Set([...WRITE_PERMISSIONS, 'READ'])
+
+// 与 REST 的 docPermission 保持一致：真实管理员/空间所有者/文档所有者优先，
+// 文档单独授权优先于空间授权。使用下划线别名，避免 PG 把 ownerId 折叠成 ownerid。
+async function authorizeDocument(documentName, claims) {
+  const { shareId, docId, revision } = parseName(documentName)
+  if (!claims || !Number.isSafeInteger(claims.userId) || !Number.isSafeInteger(claims.exp)
+      || claims.exp <= Date.now()) throw new Error('token expired')
   const rows = await q(
-    `SELECT s.owner_id AS ownerId, p.permission AS perm
-       FROM kb_doc_share s
-       LEFT JOIN kb_doc_share_permission p ON p.share_id = s.id AND p.user_id = $1
-      WHERE s.id = $2`,
-    [userId, shareId]
+    `SELECT u.enabled, u.token_version, u.role, u.avatar, u.display_name,
+            d.owner_id AS doc_owner_id, s.owner_id AS space_owner_id,
+            COALESCE(d.yjs_rev, 0) AS yjs_rev,
+            dp.permission AS doc_permission, sp.permission AS space_permission
+       FROM kb_shared_document d
+       JOIN kb_doc_share s ON s.id = d.share_id
+       JOIN kb_user u ON u.id = $1
+       LEFT JOIN kb_shared_doc_permission dp ON dp.doc_id = d.id AND dp.share_id = s.id AND dp.user_id = u.id
+       LEFT JOIN kb_doc_share_permission sp ON sp.share_id = s.id AND sp.user_id = u.id
+      WHERE d.id = $2 AND d.share_id = $3`,
+    [claims.userId, docId, shareId]
   )
-  if (!rows.length) return null
-  const r = rows[0]
-  if (Number(r.ownerId) === userId) return 'OWNER'
-  return r.perm || null
+  const row = rows[0]
+  if (!row || !(row.enabled === true || row.enabled === 1)) throw new Error('forbidden')
+  if (Number(row.token_version || 0) !== claims.tokenVersion) throw new Error('token revoked')
+  let permission
+  if (row.role === 'ADMIN' || Number(row.space_owner_id) === claims.userId
+      || Number(row.doc_owner_id) === claims.userId) permission = 'OWNER'
+  else permission = row.doc_permission ?? row.space_permission
+  if (!READ_PERMISSIONS.has(permission)) throw new Error('forbidden')
+  if (Number(row.yjs_rev) !== revision) throw new Error('document revision changed')
+  return { permission, avatar: row.avatar || '', name: row.display_name || claims.username, role: row.role }
+}
+
+function closeConnection(connection, reason = 'permission changed') {
+  connection.readOnly = true
+  connection.context ||= {}
+  connection.context.revoked = true
+  // Connection.close() 只移除房间关联；同时关闭底层 socket，阻止消息继续到达旧实例。
+  try { connection.close({ code: 4403, reason }) } catch (e) { /* already closed */ }
+  try { connection.webSocket?.close(4403, reason) } catch (e) { /* already closed */ }
+}
+
+async function refreshConnection(documentName, connection) {
+  const context = connection.context || {}
+  if (context.revoked) throw new Error('connection revoked')
+  const access = await authorizeDocument(documentName, context.claims)
+  if (context.revoked) throw new Error('connection revoked')
+  const readOnly = !WRITE_PERMISSIONS.has(access.permission)
+  const changed = connection.readOnly !== readOnly
+  connection.readOnly = readOnly
+  if (changed) {
+    try { connection.sendStateless?.(JSON.stringify({ type: 'permission-changed', canWrite: !readOnly })) } catch (e) { /* disconnecting */ }
+  }
+  if (context.user) context.user.permission = access.permission
+  context.permission = access.permission
+  return access
 }
 
 const CURSOR_COLORS = ['#f43f5e', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#ef4444']
@@ -100,11 +149,43 @@ function colorFor(seed) {
 // 已加载文档缓存（documentName -> Y.Doc），用于定时落库与崩溃保护
 const loadedDocs = new Map()
 
-async function persist(docName, doc) {
-  const { docId } = parseName(docName)
-  if (!docId) return
+// 代次绑定 Y.Doc 实例，而非连接。任意成员断开不得清空房间代次，
+// 未加载/已失效的实例绝不能用数据库当前代次作为兜底继续保存。
+const documentRevisions = new WeakMap()
+const invalidDocuments = new WeakSet()
+const saveQueues = new WeakMap()
+
+async function invalidateDocument(docName, doc) {
+  if (invalidDocuments.has(doc)) return
+  invalidDocuments.add(doc)
+  if (loadedDocs.get(docName) === doc) loadedDocs.delete(docName)
+  for (const connection of doc.getConnections?.() || []) {
+    try { connection.sendStateless(JSON.stringify({ type: 'document-reset' })) } catch (e) { /* closing */ }
+    closeConnection(connection, 'document revision changed')
+  }
+  // 当前版本的 API 接收 Document 对象，不是房间名字符串。
+  if (server.documents.get(docName) === doc) await server.unloadDocument(doc)
+}
+
+async function persistCurrent(docName, doc) {
+  if (invalidDocuments.has(doc) || !documentRevisions.has(doc) || loadedDocs.get(docName) !== doc) return
+  const { docId, shareId } = parseName(docName)
+  const revision = documentRevisions.get(doc)
   const state = Y.encodeStateAsUpdate(doc)
-  await db.query('UPDATE kb_shared_document SET yjs_state = $1 WHERE id = $2', [state, docId])
+  // 代次与归属必须在同一条 UPDATE 内判断；先 SELECT 再无条件 UPDATE 有竞态窗口。
+  const result = await db.query(
+    'UPDATE kb_shared_document SET yjs_state = $1 WHERE id = $2 AND share_id = $3 AND COALESCE(yjs_rev, 0) = $4',
+    [state, docId, shareId, revision]
+  )
+  if (result.rowCount === 0) await invalidateDocument(docName, doc)
+}
+
+function persist(docName, doc) {
+  // 定时、断线与框架保存可能重叠，按实例串行快照，防止旧请求晚完成覆盖新快照。
+  const previous = saveQueues.get(doc) || Promise.resolve()
+  const current = previous.catch(() => {}).then(() => persistCurrent(docName, doc))
+  saveQueues.set(doc, current)
+  return current
 }
 
 // A: 追加写入操作日志（update + 状态向量），用于可靠恢复、审计、回放
@@ -137,79 +218,95 @@ async function persistAll() {
 const server = Server.configure({
   port: PORT,
   name: 'collab',
+  extensions: [{
+    afterUnloadDocument({ documentName, instance }) {
+      if (!instance.documents.has(documentName)) loadedDocs.delete(documentName)
+    },
+  }],
 
-  async onAuthenticate({ token, documentName }) {
-    try {
-      const claims = verifyToken(token)
-      const { shareId, docId } = parseName(documentName)
-      if (!shareId || !docId) throw new Error('invalid document')
-      // 账号状态与令牌版本校验（与 HTTP 侧 AuthFilter 同标准）：
-      // 用户被禁用、或改密/重置密码导致 token_version 自增后，旧 token 在协同侧同样立即失效
-      const urows = await q(
-        'SELECT avatar, display_name, enabled, token_version FROM kb_user WHERE id = $1',
-        [claims.userId]
-      )
-      if (!urows.length) throw new Error('user not found')
-      const u = urows[0]
-      const enabled = Boolean(u.enabled)
-      if (!enabled) throw new Error('account disabled')
-      if (Number(u.token_version || 0) !== (claims.tokenVersion || 0)) {
-        throw new Error('token revoked (password changed)')
-      }
-      const perm = await myPermission(shareId, claims.userId, claims.role)
-      if (!perm) {
-        console.warn(`[relay][鉴权拒绝] doc=${documentName} user=${claims.username}(${claims.userId}) 无权限`)
-        throw new Error('forbidden')
-      }
-      // 同步数据库头像与昵称，供前端协作光标/在线列表展示（修复头像与 kb_user 不一致）
-      const avatar = u.avatar || ''
-      const displayName = u.display_name || claims.username
-      console.log(`[relay][鉴权通过] doc=${documentName} user=${displayName}(${claims.userId}) perm=${perm}`)
-      return {
-        user: {
-          id: claims.userId,
-          name: displayName,
-          role: claims.role,
-          permission: perm,
-          color: colorFor(claims.userId),
-          avatar,
-        },
-        // 挂在 connection 上供 beforeHandleMessage 做写入级校验
-        permission: perm,
-      }
-    } catch (e) {
-      console.error(`[relay][鉴权失败] doc=${documentName} -> ${e.message}`)
-      throw e
+  async onAuthenticate({ token, documentName, connection }) {
+    const claims = verifyToken(token)
+    const access = await authorizeDocument(documentName, claims)
+    connection.readOnly = !WRITE_PERMISSIONS.has(access.permission)
+    return {
+      claims,
+      user: {
+        id: claims.userId,
+        name: access.name,
+        role: access.role,
+        permission: access.permission,
+        color: colorFor(claims.userId),
+        avatar: access.avatar,
+      },
+      // Hocuspocus 将返回值合入 context，不会直接挂在 connection 上。
+      permission: access.permission,
     }
+  },
+
+  // 通知只是复检信号，不把 payload.perm 当授权事实（通知乱序/重放不能恢复旧权限）。
+  async onRequest({ request, response }) {
+    const url = new URL(request.url, 'http://localhost')
+    if (url.pathname !== '/revoke' || request.method !== 'POST') return
+    const reply = (status, result) => {
+      response.writeHead(status, { 'Content-Type': 'application/json' })
+      response.end(JSON.stringify(result))
+    }
+    const chunks = []
+    let size = 0
+    for await (const chunk of request) {
+      size += Buffer.byteLength(chunk)
+      if (size > 8192) {
+        reply(413, { error: 'request too large' })
+        throw null // Hocuspocus 已响应请求须拒绝空值，终止默认响应，避免二次 writeHead。
+      }
+      chunks.push(Buffer.from(chunk))
+    }
+    const body = Buffer.concat(chunks).toString('utf8')
+    const sign = String(request.headers['x-kb-relay-sign'] || '')
+    const expected = crypto.createHmac('sha256', SECRET).update(body).digest('hex')
+    if (!/^[0-9a-f]{64}$/.test(sign) || !crypto.timingSafeEqual(Buffer.from(sign), Buffer.from(expected))) {
+      reply(403, { error: 'bad signature' })
+      throw null
+    }
+    let payload
+    try { payload = JSON.parse(body) } catch (e) { payload = null }
+    const shareId = Number(payload?.shareId)
+    const userId = Number(payload?.userId)
+    const docId = payload?.docId == null ? null : Number(payload.docId)
+    if (![shareId, userId].every(n => Number.isSafeInteger(n) && n > 0)
+        || (docId != null && (!Number.isSafeInteger(docId) || docId <= 0))) {
+      reply(400, { error: 'invalid shareId/userId/docId' })
+      throw null
+    }
+    const counts = await recheckPermissions({ shareId, userId, docId })
+    reply(200, { ok: true, ...counts })
+    throw null
   },
 
   async onLoadDocument({ documentName, document }) {
-    const { docId } = parseName(documentName)
-    console.log(`[relay][加载文档] doc=${documentName}`)
-    const rows = await q('SELECT yjs_state FROM kb_shared_document WHERE id = $1', [docId])
-    const state = rows[0] && rows[0].yjs_state
-    if (state && state.length) Y.applyUpdate(document, state)
+    const { docId, shareId, revision } = parseName(documentName)
+    const rows = await q('SELECT yjs_state, yjs_rev, share_id FROM kb_shared_document WHERE id = $1 AND share_id = $2', [docId, shareId])
+    const row = rows[0]
+    if (!row) throw new Error('document not found')
+    if (Number(row.yjs_rev || 0) !== revision) throw new Error('document revision changed')
+    if (row.yjs_state?.length) Y.applyUpdate(document, row.yjs_state)
+    documentRevisions.set(document, revision)
     loadedDocs.set(documentName, document)
-    console.log(`[relay][文档就绪] doc=${documentName} 已有状态=${!!(state && state.length)}`)
     return document
   },
 
-  // 写入级校验：只读（READ）客户端只能拉取文档与广播在线状态，
-  // 不得向文档推送任何 Yjs 更新（否则会绕过前端 editable 锁、把只读端的编辑写进正文）。
-  // Hocuspocus 在调用本钩子时会把「客户端推送的 Yjs 文档更新」放在 payload.update 字段
-  // （awareness 光标/在线消息不带 update，自然放行）。返回 false = 丢弃该消息；true = 放行。
-  beforeHandleMessage({ connection, documentName, update }) {
-    const perm = connection.permission
-    const canWrite = perm === 'OWNER' || perm === 'ADMIN' || perm === 'WRITE'
-    if (canWrite) return true
-
-    // update 为 truthy 表示这是一条文档内容更新（含 sync step2 / 增量 update）；
-    // 只读用户不得写入，直接丢弃，保护文档不被篡改。awareness 消息 update 为 undefined，放行。
-    if (update) {
-      console.warn(`[relay][拒绝写入] doc=${documentName} 只读用户试图推送文档更新，已丢弃`)
-      return false
+  // update 是完整协议帧，不能据其真值区分正文/光标；return false 也不会中止框架。
+  // 每条消息复检权限，再由原生 readOnly 区分同步读取与正文写入。失效必须抛错。
+  async beforeHandleMessage({ connection, documentName, document }) {
+    try {
+      if (invalidDocuments.has(document)) throw new Error('document revision changed')
+      await refreshConnection(documentName, connection)
+      if (invalidDocuments.has(document)) throw new Error('document revision changed')
+    } catch (error) {
+      if (error.message === 'document revision changed') await invalidateDocument(documentName, document)
+      closeConnection(connection, error.message === 'document revision changed' ? error.message : 'authorization failed')
+      throw error
     }
-    return true
   },
 
   // A: 每次文档变更（任意客户端合法写入）追加操作日志
@@ -221,18 +318,9 @@ const server = Server.configure({
     await persist(documentName, document)
   },
 
-  onDisconnect({ documentName, document }) {
-    // C: 用户断开时立即 flush 一次快照，缩小崩溃丢失窗口
-    console.log(`[relay][断开] doc=${documentName}`)
-    void persist(documentName, document).catch((e) => console.error('[save][disconnect]', documentName, e.message))
-
-    // 房间空了且超过宽限期再移除缓存；期间仍可被定时落库覆盖
-    setTimeout(() => {
-      const stillOpen = document.getConnectionsCount ? document.getConnectionsCount() : 0
-      if (stillOpen === 0 && loadedDocs.get(documentName) === document) {
-        loadedDocs.delete(documentName)
-      }
-    }, 5 * 60 * 1000).unref?.()
+  async onDisconnect({ documentName, document }) {
+    // 保留加载代次；保存完成后由框架卸载最后一个连接离开的房间。
+    await persist(documentName, document).catch(e => console.error('[save][disconnect]', documentName, e.message))
   },
 })
 
@@ -242,9 +330,54 @@ const timer = setInterval(() => {
 }, SAVE_INTERVAL_MS)
 timer.unref?.()
 
+/**
+ * F04：权限变更只改数据库、不会让既有长连接失效。
+ * 定期复检每个在线连接在所属空间的真实权限：
+ *  - 已无权限 → 直接关闭连接（否则能继续收广播、继续按旧资格写入）；
+ *  - 由可写降为只读 → 切到原生 readOnly，后续写入在协议层被拒；
+ *  - 只读恢复为可写 → 解除只读标记。
+ * 握手时也校验，这里是「在线期间被撤权」的兜底。
+ */
+const PERM_RECHECK_MS = Number(process.env.COLLAB_PERM_RECHECK_MS || 15000)
+async function recheckPermissions(filter = {}) {
+  const counts = { checked: 0, closed: 0, downgraded: 0, restored: 0 }
+  for (const [docName, document] of server.documents) {
+    const { shareId, docId } = parseName(docName)
+    if (filter.shareId != null && filter.shareId !== shareId) continue
+    if (filter.docId != null && filter.docId !== docId) continue
+    for (const connection of document.getConnections?.() || []) {
+      const userId = connection.context?.claims?.userId
+      if (filter.userId != null && filter.userId !== userId) continue
+      counts.checked++
+      const wasReadOnly = connection.readOnly
+      try {
+        await refreshConnection(docName, connection)
+        if (!wasReadOnly && connection.readOnly) counts.downgraded++
+        if (wasReadOnly && !connection.readOnly) counts.restored++
+      } catch (error) {
+        if (error.message === 'document revision changed') await invalidateDocument(docName, document)
+        // 账号删除/禁用、令牌过期/吊销和查询失败均关闭连接，不能只查空间成员表。
+        closeConnection(connection, 'authorization changed')
+        counts.closed++
+      }
+    }
+  }
+  return counts
+}
+let permissionCheckRunning = false
+const permTimer = setInterval(() => {
+  if (permissionCheckRunning) return
+  permissionCheckRunning = true
+  recheckPermissions()
+    .catch(e => console.error('[relay][权限复检失败]', e.message))
+    .finally(() => { permissionCheckRunning = false })
+}, PERM_RECHECK_MS)
+permTimer.unref?.()
+
 async function shutdown() {
   console.log('\n[relay] 正在落库并关闭…')
   clearInterval(timer)
+  clearInterval(permTimer)
   await persistAll().catch(() => {})
   await db.end().catch(() => {})
   process.exit(0)

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { View, Hide, Top } from '@element-plus/icons-vue'
+import { errMsg } from '../../utils/errMsg'
 import {
   listAnnouncementsAdmin,
   createAnnouncement,
@@ -102,7 +103,7 @@ const save = async () => {
     if (!f.id) page.value = 1   // 新建后回到首页，确保看到新公告
     await load()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.error || '保存失败')
+    ElMessage.error(errMsg(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -227,14 +228,14 @@ onMounted(load)
 <style scoped>
 .ann-manage { padding: 20px; max-width: 1200px; margin: 0 auto; }
 .ann-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.ann-header h2 { margin: 0; font-size: 20px; color: #111827; }
+.ann-header h2 { margin: 0; font-size: 20px; color: var(--el-text-color-primary); }
 .seg { margin-bottom: 6px; }
 .pin-ic { color: #f59e0b; margin-right: 4px; vertical-align: middle; }
 .st { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 13px; font-weight: 500; }
 .st.ok { color: #10b981; background: #ecfdf5; }
 .st.off { color: #94a3b8; background: #f1f5f9; }
 .st .el-icon { font-size: 14px; }
-.time { color: #64748b; font-size: 13px; }
+.time { color: var(--el-text-color-secondary); font-size: 13px; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .pager { margin-top: 14px; justify-content: flex-end; }
 :deep(.pinned-row) { background: #fffbeb; }

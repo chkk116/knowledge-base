@@ -5,6 +5,7 @@ import { listAllShares, adminDeleteShare, adminSetCapacity, getShareStorage,
   listPendingCapacityRequests, approveCapacityRequest, rejectCapacityRequest,
   listPendingCreateRequests, approveCreateRequest, rejectCreateRequest } from '../../api/docShare'
 import { useAuthStore } from '../../store/auth'
+import { errMsg } from '../../utils/errMsg'
 
 const auth = useAuthStore()
 const GB = 1024 * 1024 * 1024
@@ -37,7 +38,7 @@ const doApproveCreate = async (r) => {
     ElMessage.success('已批准并创建空间：' + r.requestedName)
     await loadCreateReq()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '审批失败')
+    ElMessage.error(errMsg(e, '审批失败'))
   } finally {
     approveCreateSaving.value = false
   }
@@ -56,7 +57,7 @@ const doRejectCreate = async () => {
     rejectCreate.value = false
     await loadCreateReq()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '驳回失败')
+    ElMessage.error(errMsg(e, '驳回失败'))
   } finally {
     rejectSaving.value = false
   }
@@ -98,7 +99,7 @@ const saveCap = async () => {
     capDialog.value = false
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '设置失败')
+    ElMessage.error(errMsg(e, '设置失败'))
   } finally {
     capSaving.value = false
   }
@@ -113,7 +114,7 @@ const remove = async (row) => {
     ElMessage.success('已删除')
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -162,7 +163,7 @@ const doApprove = async (r) => {
     ElMessage.success('已批准并生效：' + r.shareName + ' 扩容至 ' + fmtSize(r.requestedCapacity))
     await loadCapReq()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '审批失败')
+    ElMessage.error(errMsg(e, '审批失败'))
   } finally {
     approveCapSaving.value = false
   }
@@ -181,7 +182,7 @@ const doReject = async () => {
     rejectDialog.value = false
     await loadCapReq()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '驳回失败')
+    ElMessage.error(errMsg(e, '驳回失败'))
   } finally {
     rejectSaving.value = false
   }

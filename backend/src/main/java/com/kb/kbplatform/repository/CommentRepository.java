@@ -43,4 +43,9 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     /** 评论数最多的用户（看板「活跃用户」排行，按评论数倒序） */
     @Query("SELECT c.username, COUNT(c) FROM Comment c GROUP BY c.username ORDER BY COUNT(c) DESC")
     List<Object[]> countGroupByUsername();
+
+    /** 彻底删除文档时清理关联记录（F12/purge：不留孤儿数据） */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM Comment x WHERE x.docId = :docId")
+    void deleteByDocId(@org.springframework.data.repository.query.Param("docId") Long docId);
 }

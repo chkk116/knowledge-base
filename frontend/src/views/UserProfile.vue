@@ -10,6 +10,7 @@ const g1 = (b) => tierGradient(b.tier)[1]
 import { getLevel } from '../utils/level'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
 import { fromNow, fmtDateTime } from '../utils/time'
+import { errMsg as fmtErr } from '../utils/errMsg'
 
 const route = useRoute()
 const router = useRouter()
@@ -88,7 +89,7 @@ const toggleFollow = async () => {
     if (c.isFollowing) { await unfollowUser(c.id); c.isFollowing = false; c.fans = Math.max(0, c.fans - 1) }
     else { await followUser(c.id); c.isFollowing = true; c.fans = c.fans + 1 }
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(fmtErr(e, '操作失败'))
   }
 }
 

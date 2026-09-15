@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Close, Document, UserFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { listPending, approveDoc, rejectDoc, listPendingAvatars, approveAvatar, rejectAvatar } from '../../api/admin'
+import { errMsg } from '../../utils/errMsg'
 
 const router = useRouter()
 const activeTab = ref('docs')
@@ -19,7 +20,7 @@ const loadDocs = async () => {
     const { data } = await listPending()
     items.value = Array.isArray(data) ? data : []
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载失败')
+    ElMessage.error(errMsg(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -31,7 +32,7 @@ const approve = async (d) => {
     ElMessage.success('已通过，帖子已公开')
     await loadDocs()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 const reject = async (d) => {
@@ -46,7 +47,7 @@ const reject = async (d) => {
     await loadDocs()
   } catch (e) {
     if (e === 'cancel' || e?.action === 'cancel') return
-    ElMessage.error(e?.response?.data?.error || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 
@@ -60,7 +61,7 @@ const loadAvatars = async () => {
     const { data } = await listPendingAvatars()
     avatars.value = Array.isArray(data) ? data : []
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '加载失败')
+    ElMessage.error(errMsg(e, '加载失败'))
   } finally {
     loadingAv.value = false
   }
@@ -72,7 +73,7 @@ const approveAv = async (row) => {
     ElMessage.success('已通过，新头像已生效')
     await loadAvatars()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 const rejectAv = async (row) => {
@@ -86,7 +87,7 @@ const rejectAv = async (row) => {
     await loadAvatars()
   } catch (e) {
     if (e === 'cancel' || e?.action === 'cancel') return
-    ElMessage.error(e?.response?.data?.error || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   }
 }
 

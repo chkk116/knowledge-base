@@ -11,26 +11,12 @@ const dialog = ref(false)
 const editing = ref(null)
 const saving = ref(false)
 const form = ref({ name: '', code: '', description: '', permissions: [], sortOrder: 0 })
-const PERM_OPTIONS = [
-  { value: 'USER_MANAGE', label: '用户管理' },
-  { value: 'DOC_REVIEW', label: '文章审核' },
-  { value: 'POST_MANAGE', label: '帖子管理' },
-  { value: 'STATS_VIEW', label: '数据看板' },
-  { value: 'TAXONOMY_MANAGE', label: '分类标签管理' },
-  { value: 'ANNOUNCEMENT_MANAGE', label: '公告管理' },
-  { value: 'COURSE_MANAGE', label: '培训管理' },
-  { value: 'EXAM_MANAGE', label: '考试管理' },
-  { value: 'SHARE_CREATE', label: '创建团队空间' },
-  { value: 'SHARE_VIEW', label: '共享文档管理（查看）' },
-  { value: 'SHARE_DELETE', label: '共享文档管理（删除空间）' },
-  { value: 'SHARE_CAPACITY', label: '共享文档管理（容量分配）' },
-  { value: 'CORE_MAINTAIN', label: '核心维护（功能开关）' },
-  { value: 'DOC_EXPORT', label: '文档导出' },
-  { value: 'BANNED_WORDS_MANAGE', label: '违禁词管理' },
-  { value: 'ASSET_MANAGE', label: '资产管理' },
-  { value: 'AVATAR_REVIEW', label: '头像审核' },
-]
+// 权限码清单已抽到 utils/permCodes.js（与后端 Perm.WHITELIST 同步，含 BLACKLIST_MANAGE）
+import { PERM_GROUPS, PERM_OPTIONS, isFullAdminPerms } from '../../utils/permCodes'
+import { errMsg } from '../../utils/errMsg'
 const permLabel = (v) => (PERM_OPTIONS.find(o => o.value === v)?.label || v)
+// 完全管理员判定（语义=覆盖）：角色权限码覆盖全量白名单 → 持有者视同 ADMIN
+const isFullAdmin = computed(() => isFullAdminPerms(form.value.permissions))
 
 // 角色成员统计：roleId -> 人数（仅展示已加载页内的用户，粗略计数）
 const memberCount = ref({})
@@ -83,15 +69,15 @@ const save = async () => {
     }
     if (editing.value) {
       await updateRole(editing.value, payload)
-      ElMessage.success('已更新角色')
+      ElMessage.success(isFullAdmin.value ? '已更新角色（该角色为完全管理员权限，持有者视同 ADMIN）' : '已更新角色')
     } else {
       await createRole(payload)
-      ElMessage.success('已创建角色')
+      ElMessage.success(isFullAdmin.value ? '已创建角色（该角色为完全管理员权限，持有者视同 ADMIN）' : '已创建角色')
     }
     dialog.value = false
     await load(); await loadMembers()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || e.response?.data?.message || '操作失败')
+    ElMessage.error(errMsg(e, '操作失败'))
   } finally {
     saving.value = false
   }
@@ -105,7 +91,7 @@ const remove = async (r) => {
     ElMessage.success('已删除')
     await load(); await loadMembers()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '删除失败')
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 
@@ -165,9 +151,16 @@ onMounted(async () => { await load(); await loadMembers() })
           <el-input v-model="form.description" type="textarea" :rows="2" placeholder="可选" />
         </el-form-item>
         <el-form-item label="权限">
-          <el-checkbox-group v-model="form.permissions" class="perm-grid">
-            <el-checkbox v-for="o in PERM_OPTIONS" :key="o.value" :value="o.value" border>{{ o.label }}</el-checkbox>
-          </el-checkbox-group>
+          <div class="pgroups">
+            <div v-for="g in PERM_GROUPS" :key="g.title" class="pgroup">
+              <div class="pgroup-title">{{ g.title }}<span class="pgroup-count">{{ g.perms.length }} 项</span></div>
+              <el-checkbox-group v-model="form.permissions" class="perm-grid">
+                <el-checkbox v-for="o in g.perms" :key="o.value" :value="o.value" border>{{ o.label }}</el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+          <el-alert v-if="isFullAdmin" type="warning" :closable="false" show-icon style="margin-top: 8px"
+            title="该角色已覆盖全部管理员权限：持有此角色的用户将视同完全管理员（ADMIN），包括仅管理员可用的接口" />
         </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="form.sortOrder" :min="0" :max="999" :step="1" />
@@ -188,12 +181,22 @@ onMounted(async () => { await load(); await loadMembers() })
   background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; box-shadow: 0 4px 12px rgba(79,70,229,.3); flex-shrink: 0;
 }
 .head-text { flex: 1; min-width: 220px; }
-.head-text h2 { margin: 0; font-size: 20px; font-weight: 700; color: #1e293b; }
-.head-text p { margin: 4px 0 0; font-size: 13px; color: #94a3b8; }
-.role-name { font-weight: 600; color: #1e293b; }
+.head-text h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
+.head-text p { margin: 4px 0 0; font-size: 13px; color: var(--el-text-color-secondary); }
+.role-name { font-weight: 600; color: var(--el-text-color-primary); }
 .builtin-tag { margin-left: 6px; }
 .perm-tag { margin: 2px 4px 2px 0; }
-.muted { color: #94a3b8; font-size: 13px; }
+.muted { color: var(--el-text-color-secondary); font-size: 13px; }
 .panel { border-radius: 14px; }
+/* 权限勾选：按业务域分组，同组内的勾选共享同一个 checkbox-group（v-model 相同） */
+.pgroups { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; align-items: start; }
+.pgroup { border: 1px solid var(--el-border-color-lighter); border-radius: 10px; padding: 10px 12px 12px; background: var(--el-fill-color-extra-light, #fafbfd); }
+.pgroup-title { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--el-text-color-primary); margin-bottom: 8px; }
+.pgroup-title::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--el-color-primary); }
+.pgroup-count { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--el-text-color-secondary); }
 .perm-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.perm-grid :deep(.el-checkbox.is-bordered) { margin-right: 0; }
+html.dark .pgroup { border-color: #2a3858; background: #131c33; }
+/* 窄屏分组单列 */
+@media (max-width: 1024px) { .pgroups { grid-template-columns: 1fr; } }
 </style>

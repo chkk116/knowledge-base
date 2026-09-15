@@ -134,6 +134,25 @@ public class AdminService {
             u.setPermissions(newPerms);
             if (!oldPerms.equals(newPerms)) identityChanged = true;
         }
+        // 资料字段：允许清空（传空串即清），故不能用 isBlank 判断；仅在做有效性校验时校验非空值
+        if (r.email != null) {
+            String mail = r.email.trim();
+            if (!mail.isEmpty() && !mail.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                throw new IllegalArgumentException("邮箱格式不正确");
+            }
+            u.setEmail(mail.isEmpty() ? null : mail);
+        }
+        if (r.gender != null) {
+            String g = r.gender.trim();
+            if (!g.isEmpty() && !java.util.Set.of("男", "女", "保密").contains(g)) {
+                throw new IllegalArgumentException("性别只能是 男 / 女 / 保密");
+            }
+            u.setGender(g.isEmpty() ? null : g);
+        }
+        if (r.bio != null) {
+            String bio = r.bio.trim();
+            u.setBio(bio.isEmpty() ? null : bio);
+        }
         if (r.password != null && !r.password.isBlank()) {
             if (r.password.length() < 6) throw new IllegalArgumentException("密码至少 6 位");
             u.setPassword(PasswordUtil.encode(r.password));
@@ -242,5 +261,9 @@ public class AdminService {
         public Long storageQuota;    // 个人存储总容量（字节）；0 = 恢复系统默认 5GB
         public java.util.List<Long> roleIds;   // 角色 id 列表（整体替换）
         public Long departmentId;                // 所属部门 id（置 null 表示清除部门）
+        // 以下为「可编辑的资料字段」（2026-09-13 起管理员也能直接改，此前仅用户自己在个人资料页可改）
+        public String email;                     // 邮箱，空串表示清空
+        public String gender;                     // 男 / 女 / 保密，空串表示清空
+        public String bio;                        // 个人简介，空串表示清空
     }
 }
