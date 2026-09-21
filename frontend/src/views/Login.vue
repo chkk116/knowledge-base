@@ -461,7 +461,7 @@ function startParticles() {
 
 /* ---- 左栏：浅蓝渐变 + 3D 插画 ---- */
 .login-hero {
-  position: relative; flex: 0 0 45%; max-width: 45%;
+  position: relative; z-index: 2; flex: 0 0 45%; max-width: 45%;   /* z-index 抬到粒子画布(z-index:1)之上，落实「画布在内容层之下」 */
   overflow: hidden;
   background: linear-gradient(160deg, #d6e4ff 0%, #eaf1ff 35%, #f4f8ff 70%, #f9fbff 100%);
 }

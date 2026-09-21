@@ -156,6 +156,7 @@ onMounted(async () => {
       loaded.value = true          // 正文到位后才放开编辑（F14）
     } catch (e) {
       loadFailed.value = true      // 加载失败：锁住保存，禁止用空初值覆盖已有文档
+      loaded.value = true          // 仍渲染表单（按钮 :disabled="loadFailed" 全锁死），否则 v-if="!loaded" 永远转圈
       ElMessage.error('加载文档失败，为避免覆盖原文已锁定保存，请刷新重试')
     }
   } else {

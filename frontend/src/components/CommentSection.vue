@@ -178,18 +178,15 @@ async function focusCommentFromQuery() {
   await nextTick()
   let rest = 0
   while (rest++ < 20) {                      // 评论是异步加载的，最多等 2s
+    // 深层回复折叠时不渲染（slice(0,3)），DOM 永远查不到：先按数据展开父楼，再等元素出现
+    const owner = comments.value.find(x => (x.replies || []).some(r => r.id === cid))
+    if (owner && !expandedReplies[owner.id]) {
+      expandedReplies[owner.id] = true
+      await nextTick()
+    }
     const el = document.getElementById('c' + cid)
     if (el) {
-      // 若是折叠在「展开更多回复」里的子评论，先展开再滚动
-      const parent = el.closest('li.citem')
-      const parentId = parent && parent.id ? Number(parent.id.slice(1)) : null
-      const hit = comments.value.find(x => (x.replies || []).some(r => r.id === cid))
-      if (hit && parentId && !expandedReplies[hit.id]) {
-        expandedReplies[hit.id] = true
-        await nextTick()
-      }
-      const target = document.getElementById('c' + cid) || el
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
       flashId.value = cid
       setTimeout(() => { if (flashId.value === cid) flashId.value = null }, 2200)
       return

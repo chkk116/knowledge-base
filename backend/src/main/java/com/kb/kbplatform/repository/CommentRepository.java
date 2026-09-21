@@ -44,8 +44,10 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     @Query("SELECT c.username, COUNT(c) FROM Comment c GROUP BY c.username ORDER BY COUNT(c) DESC")
     List<Object[]> countGroupByUsername();
 
-    /** 彻底删除文档时清理关联记录（F12/purge：不留孤儿数据） */
+    /** 彻底删除文档时清理关联记录（F12/purge：不留孤儿数据）。
+     *  必须限定 targetType='DOC'：Comment.docId 复用为 targetId（CHAPTER 评论存章节 id），
+     *  文档与章节分表自增、id 必然大量重叠——不加过滤会误删无辜章节的评论。 */
     @org.springframework.data.jpa.repository.Modifying
-    @org.springframework.data.jpa.repository.Query("DELETE FROM Comment x WHERE x.docId = :docId")
+    @org.springframework.data.jpa.repository.Query("DELETE FROM Comment x WHERE x.docId = :docId AND x.targetType = 'DOC'")
     void deleteByDocId(@org.springframework.data.repository.query.Param("docId") Long docId);
 }

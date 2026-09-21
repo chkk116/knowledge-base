@@ -708,15 +708,15 @@ async function focusCommentFromQuery() {
   let waited = 0
   while (waited < 3000) {
     await nextTick()
+    // 深层回复折叠时不渲染（slice(0,3)），DOM 永远查不到：先按数据展开父楼，再等元素出现
+    const owner = comments.value.find((x) => (x.replies || []).some((r) => r.id === cid))
+    if (owner && !expandedReplies[owner.id]) {
+      expandedReplies[owner.id] = true
+      await nextTick()
+    }
     const el = document.getElementById('pc' + cid)
     if (el) {
-      const owner = comments.value.find((x) => (x.replies || []).some((r) => r.id === cid))
-      if (owner && !expandedReplies[owner.id]) {
-        expandedReplies[owner.id] = true
-        await nextTick()
-      }
-      const target = document.getElementById('pc' + cid) || el
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
       flashCommentId.value = cid
       clearTimeout(focusTimer)
       focusTimer = setTimeout(() => { flashCommentId.value = null }, 2200)
@@ -737,6 +737,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (scrollTarget) scrollTarget.removeEventListener('scroll', onScroll)
   window.removeEventListener('keydown', onKeydown)
+  clearTimeout(focusTimer)   // 锚点轮询的高亮定时器：卸载后不再改状态/滚已分离节点
 })
 </script>
 
