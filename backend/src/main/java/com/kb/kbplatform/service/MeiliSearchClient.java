@@ -110,14 +110,16 @@ public class MeiliSearchClient {
         }
         // 清理孤儿条目
         try {
-            List<?> existing = client.get()
+            // Meili v1.1+ 返回分页对象 {"results":[...], "offset":.., "limit":.., "total":..}，不能直接反序列化成 List
+            java.util.Map<?, ?> page = client.get()
                     .uri(uri -> uri.path("/indexes/{uid}/documents")
                             .queryParam("fields", "id")
                             .queryParam("limit", 100000)
                             .build(indexUid))
                     .retrieve()
-                    .body(java.util.List.class);
-            if (existing == null) return;
+                    .body(java.util.Map.class);
+            List<?> existing = page == null ? null : (List<?>) page.get("results");
+            if (existing == null || existing.isEmpty()) return;
             List<Long> stale = new ArrayList<>();
             for (Object o : existing) {
                 if (!(o instanceof Map<?, ?> m) || m.get("id") == null) continue;

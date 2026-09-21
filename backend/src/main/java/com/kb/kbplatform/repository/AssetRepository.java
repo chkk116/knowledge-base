@@ -13,6 +13,10 @@ public interface AssetRepository extends JpaRepository<Asset, Long>, JpaSpecific
 
     Optional<Asset> findByCode(String code);
 
+    /** 一次取回前缀匹配的已占用编号（编号生成器内存探测用，避免逐号 findByCode 的最多 2000 次往返） */
+    @org.springframework.data.jpa.repository.Query("select a.code from Asset a where a.code like concat(:prefix, '%')")
+    java.util.List<String> findCodeByPrefix(@org.springframework.data.repository.query.Param("prefix") String prefix);
+
     /** 用于生成下一个资产编号（基于当前最大 id + 1） */
     @Query("select coalesce(max(a.id), 0) from Asset a")
     Long maxId();

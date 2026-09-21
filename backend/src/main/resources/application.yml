@@ -44,7 +44,7 @@ kb:
       base-url: https://open.bigmodel.cn/api/paas/v4   # 智谱 OpenAI 兼容端点（国内直连）
       # 不在仓库里存任何真实 Key：启动前通过环境变量注入（IDEA Run Configuration、
       # set KB_ZHIPU_API_KEY=xxx 或 deploy/env.prod 均可），未注入时 AI 功能自动不可用。
-      api-key: ${KB_ZHIPU_API_KEY}
+      api-key: ${KB_ZHIPU_API_KEY:}
       model: glm-4.7-flash                              # 免费主力（200K 上下文，GLM-4.7 基座）；更强付费可选 glm-4.6 / glm-5
       models: glm-4.7-flash,glm-4.5-flash,glm-4-flash   # 文本模型降级链：主力被挤爆(1305/429)时自动切下一个免费模型
       vision-models: glm-4.6v-flash,glm-4.1v-thinking-flash   # OCR 视觉模型降级链：4.6V 挤爆(1305)自动切 4.1V-Thinking

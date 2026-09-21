@@ -568,9 +568,11 @@ async function openDetail(row) {
   qrDataUrl.value = ''
   // 再拉一次单条详情覆盖：列表行可能是本次保存前的旧对象，
   // 否则「刚上传的主图/刚改的字段」在详情里看不到
+  const reqId = row.id
   try {
     const { data } = await getAsset(row.id)
-    if (data && data.id) current.value = data
+    // 慢请求守卫：响应仍属于当前抽屉展示的资产才覆盖，防止旧响应把新详情覆盖回别的资产
+    if (data && data.id === reqId && current.value?.id === reqId) current.value = data
   } catch (e) { /* 拉取失败就沿用列表行 */ }
   try { qrDataUrl.value = await QRCode.toDataURL(row.code, { width: 220, margin: 1 }) } catch (e) {}
   try { const { data } = await assetBorrows(row.id); borrows.value = data || [] } catch (e) { borrows.value = [] }

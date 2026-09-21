@@ -10,6 +10,7 @@ import { BADGE_ICONS, DEFAULT_BADGE_ICON, tierGradient } from '../utils/badgeIco
 const g0 = (b) => tierGradient(b.tier)[0]
 const g1 = (b) => tierGradient(b.tier)[1]
 import { uploadFile } from '../api/file'
+import api from '../api/request'
 import { myCertificates } from '../api/training'
 import { getLevel } from '../utils/level'
 import { DEFAULT_AVATARS } from '../utils/defaultAvatars'
@@ -76,6 +77,15 @@ const loadingMine = ref(false)
 const showAvatarPicker = ref(false)
 const avatarPending = ref(null)   // 待审新头像 URL（null=无待审）——用于「审核中」持久提示与角标
 
+// 个人资料页背景图：管理员在外观设置里统一配置（key=appearance 的 profileBg），空则用内置默认
+const profileBg = ref('')
+async function loadAppearanceBg() {
+  try {
+    const { data } = await api.get('/admin/settings/appearance')
+    if (data?.value) profileBg.value = JSON.parse(data.value).profileBg || ''
+  } catch { /* 无配置时用内置默认 */ }
+}
+
 onMounted(() => {
   displayName.value = auth.user?.displayName || auth.user?.username || ''
   email.value = auth.user?.email || ''
@@ -83,6 +93,7 @@ onMounted(() => {
   gender.value = auth.user?.gender || ''
   avatar.value = auth.user?.avatar || ''
   avatarPending.value = auth.user?.avatarPending || null
+  loadAppearanceBg()
   loadDocs()
   loadLog()
   loadMine()
@@ -285,7 +296,11 @@ async function changePwd() {
 <template>
   <div class="profile-page">
     <!-- 封面 -->
-    <div class="cover">
+    <div class="cover" :class="{ 'has-bg': profileBg }">
+      <div v-if="profileBg" class="cover-bg">
+        <div class="cover-blur" :style="{ backgroundImage: 'url(' + profileBg + ')' }"></div>
+        <img class="cover-fit" :src="profileBg" alt="" />
+      </div>
       <div class="cover-avatar">
         <img v-if="preview" :src="preview" alt="" />
         <span v-else>{{ initial }}</span>
@@ -638,6 +653,12 @@ async function changePwd() {
   background: url('../assets/profile-cover.jpg') no-repeat top center / cover;
   position: relative;
 }
+/* 自定义背景：裁剪只在 .cover-bg 内做（.cover 不能 overflow:hidden，否则骑边头像被裁半截） */
+.cover-bg { position: absolute; inset: 0; overflow: hidden; border-radius: 16px 16px 0 0; }
+/* 双层适配：底层同图模糊铺满兜底，上层原图 contain 完整显示——任何比例不裁切不变形 */
+.cover-blur { position: absolute; inset: -30px; background: center / cover no-repeat; filter: blur(22px) brightness(1.06); }
+.cover-fit { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.cover.has-bg { background: #eef2f7; }
 .cover-avatar {
   position: absolute; left: 28px; bottom: -42px;
   width: 96px; height: 96px; border-radius: 50%;
@@ -701,6 +722,7 @@ async function changePwd() {
 }
 .avatar-pending-alert { margin-bottom: 14px; }
 html.dark .avatar-pending-alert { --el-alert-bg-color: #2a2312; }
+html.dark .cover.has-bg { background: #1e2430; }
 .av-prev.av-initial { display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: #6366f1; background: #eef2ff; }
 .av-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .av-up { font-size: 13px; color: #6366f1; cursor: pointer; background: #eef2ff; padding: 6px 12px; border-radius: 8px; }

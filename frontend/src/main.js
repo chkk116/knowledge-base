@@ -86,7 +86,7 @@ import {
   HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
-  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box
+  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush
 } from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
@@ -126,7 +126,7 @@ const icons = {
   HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
-  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box
+  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)

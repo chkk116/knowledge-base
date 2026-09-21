@@ -64,6 +64,7 @@ const loadQuota = async () => {
 }
 
 function formatSize(n) {
+  if (n == null) return '-'
   if (n < 1024) return n + ' B'
   const u = ['KB', 'MB', 'GB', 'TB']; let i = -1, v = n
   do { v /= 1024; i++ } while (v >= 1024 && i < u.length - 1)

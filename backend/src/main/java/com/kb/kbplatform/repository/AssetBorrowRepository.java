@@ -2,11 +2,19 @@ package com.kb.kbplatform.repository;
 
 import com.kb.kbplatform.domain.AssetBorrow;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface AssetBorrowRepository extends JpaRepository<AssetBorrow, Long> {
+
+    /** 加行锁读取借用记录：归还流程在锁住资产后回读复核状态，挡住并发「双击归还」（锁序：资产→借用，与 borrow() 一致） */
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from AssetBorrow b where b.id = :id")
+    Optional<AssetBorrow> findByIdForUpdate(@Param("id") Long id);
 
     List<AssetBorrow> findByAssetIdOrderByBorrowAtDesc(Long assetId);
 

@@ -149,7 +149,8 @@ public class DocumentImportService {
                         }
                     }
                 } catch (Exception ignore) {
-                    // 单张图片提取失败不影响整体导入
+                    // 单张图片提取失败不影响整体导入，但留 debug 痕迹便于排查图片丢失
+                    log.debug("DOCX 图片提取失败（已忽略）: {}", ignore.getMessage());
                 }
             }
         }
@@ -194,6 +195,7 @@ public class DocumentImportService {
                 }
             } catch (Exception ignore) {
                 // 样式解析失败则按普通段落处理
+                log.debug("导入容错跳过: {}", ignore.getMessage());
             }
         }
         return "p";
@@ -216,18 +218,22 @@ public class DocumentImportService {
                 s = "<span style=\"color:#" + color + "\">" + s + "</span>";
             }
         } catch (Exception ignore) {
+            log.debug("导入容错跳过: {}", ignore.getMessage());
         }
         try {
             if (run.isStrikeThrough()) s = "<s>" + s + "</s>";
         } catch (Exception ignore) {
+            log.debug("导入容错跳过: {}", ignore.getMessage());
         }
         try {
             if (run.isItalic()) s = "<em>" + s + "</em>";
         } catch (Exception ignore) {
+            log.debug("导入容错跳过: {}", ignore.getMessage());
         }
         try {
             if (run.isBold()) s = "<strong>" + s + "</strong>";
         } catch (Exception ignore) {
+            log.debug("导入容错跳过: {}", ignore.getMessage());
         }
         return s;
     }

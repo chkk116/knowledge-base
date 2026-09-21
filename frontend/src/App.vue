@@ -8,6 +8,7 @@ import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import { useNotificationStore } from './store/notification'
 import { reader, closeReader, startDrag, startResize, clampToViewport } from './store/reader'
 import { featureMap } from './api/features'
+import api from './api/request'
 import { applyTheme } from './utils/theme'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -52,8 +53,17 @@ onMounted(async () => {
   // 水印配置与 client-info 都要求登录态（匿名访问会 401），仅登录后拉取；
   // 匿名用户本就不显示水印，无需请求。等 fetchMe 恢复登录态/令牌后再调，避免 401 噪音。
   if (auth.loggedIn) wm.load()
-  if (auth.loggedIn) { notification.connect(); loadFlags() }
+  if (auth.loggedIn) { notification.connect(); loadFlags(); loadAppearance() }
 })
+
+// 外观设置：管理员自定义的站点 Logo（外观设置页保存后，登录用户刷新即生效）
+const siteLogo = ref('')
+async function loadAppearance() {
+  try {
+    const { data } = await api.get('/admin/settings/appearance')
+    if (data?.value) siteLogo.value = JSON.parse(data.value).logo || ''
+  } catch { /* 无配置 / 无权限时用内置默认 */ }
+}
 
 // 核心维护开关变更后即时刷新侧边栏菜单（无需整页刷新）：
 // 监听全局事件 + 路由守卫缓存重置，保证普通用户立即看到入口变化。
@@ -190,6 +200,7 @@ const menus = computed(() => {
   if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/maintain', title: '核心维护', icon: 'Setting' })
   if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/watermark', title: '水印设置', icon: 'Tools' })
   if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
+  if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
   if (contentMgmt.length) base.push({ index: 'g-content', title: '内容管理', icon: 'Document', children: contentMgmt })
 
   if (auth.loggedIn) {
@@ -309,7 +320,7 @@ function openHelp() { helpVisible.value = true }
               class="aside"
               :class="{ collapsed: collapsed && !isNarrow, 'is-drawer': isNarrow, 'drawer-open': drawerOpen }">
       <div class="brand" :title="collapsed ? '知识库' : ''" @click="goHome">
-        <img class="brand-ico" src="/logo.gif" alt="" />
+        <img class="brand-ico" :src="siteLogo || '/logo.gif'" alt="" />
         <span v-show="!collapsed" class="brand-txt">知识库</span>
       </div>
       <el-menu :default-active="route.path" router class="menu"

@@ -229,7 +229,16 @@ public class RagService {
                 Set<Long> visible = hitIds.isEmpty() ? Set.of()
                         : repository.findByStatusAndIdIn("PUBLISHED", new ArrayList<>(hitIds)).stream()
                             .map(Document::getId).collect(java.util.stream.Collectors.toSet());
-                for (Map<String, Object> h : hits.stream().limit(TOP_K).toList()) {
+                // 先按可见性过滤再取 TOP_K：否则不可见的过期索引条目会占坑，实际喂给模型的有效来源变少
+                List<Map<String, Object>> picked = new ArrayList<>();
+                for (Map<String, Object> h : hits) {
+                    if (picked.size() >= TOP_K) break;
+                    Long hid = null;
+                    try { hid = h.get("id") == null ? null : Long.valueOf(String.valueOf(h.get("id"))); } catch (Exception e) { /* ignore */ }
+                    if (hid != null && !visible.contains(hid)) continue;   // 索引过期条目：跳过
+                    picked.add(h);
+                }
+                for (Map<String, Object> h : picked) {
                     String title = str(h.get("title"));
                     String snippet = str(h.get("snippet"));
                     if (title.isEmpty()) continue;

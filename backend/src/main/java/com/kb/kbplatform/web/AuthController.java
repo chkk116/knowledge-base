@@ -7,6 +7,8 @@ import com.kb.kbplatform.security.RateLimitService;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AuthService;
 import com.kb.kbplatform.service.NotificationService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.kb.kbplatform.service.BizException;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,6 +20,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final AuthService authService;
     private final UserRepository userRepo;
@@ -91,7 +95,8 @@ public class AuthController {
                     notificationService.notifySecurityAlert(logName, realIp, ua);
                 }
             } catch (Exception alertEx) {
-                // 告警只是旁路，登录主流程不受影响
+                // 告警只是旁路，登录主流程不受影响；但留痕便于排查"为什么没收到告警"
+                log.warn("发送 SECURITY_ALERT 告警失败（不影响登录）: {}", alertEx.getMessage());
             }
             return result;
         } catch (RuntimeException e) {

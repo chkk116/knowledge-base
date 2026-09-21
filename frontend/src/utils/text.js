@@ -16,7 +16,7 @@ export function splitTags(s) {
 
 /** HTML 转义（& < > " '），用于把纯文本安全地放进 innerHTML/v-html */
 export function escapeHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',

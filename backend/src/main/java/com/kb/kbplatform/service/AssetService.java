@@ -32,13 +32,16 @@ public class AssetService {
     private final AssetCategoryRepository catRepo;
     private final AssetLogRepository logRepo;
     private final AssetBorrowRepository borrowRepo;
+    private final AssetService self;   // 自注入代理：createAsset 的重试落库必须走代理才能开 REQUIRES_NEW 新事务
 
     public AssetService(AssetRepository assetRepo, AssetCategoryRepository catRepo,
-                        AssetLogRepository logRepo, AssetBorrowRepository borrowRepo) {
+                        AssetLogRepository logRepo, AssetBorrowRepository borrowRepo,
+                        @org.springframework.context.annotation.Lazy AssetService self) {
         this.assetRepo = assetRepo;
         this.catRepo = catRepo;
         this.logRepo = logRepo;
         this.borrowRepo = borrowRepo;
+        this.self = self;
     }
 
     // ---------- 编号生成 ----------
@@ -54,16 +57,19 @@ public class AssetService {
      */
     public String nextAvailableCode() {
         long n = (assetRepo.maxId() == null ? 0 : assetRepo.maxId()) + 1;
+        // 一次取回 AS 前缀已占用编号，内存探测——号段拥挤时不再产生最多 2000 次逐号 DB 往返
+        java.util.Set<String> used = new java.util.HashSet<>(assetRepo.findCodeByPrefix("AS"));
         for (int i = 0; i < 2000; i++) {
             String candidate = "AS" + String.format("%06d", n + i);
-            if (assetRepo.findByCode(candidate).isEmpty()) return candidate;
+            if (!used.contains(candidate)) return candidate;
         }
-        // 极端兜底：号段被大量自定义编号占满时，退化为时间戳后缀，保证返回可用值
-        return "AS" + (System.currentTimeMillis() % 1_000_000L);
+        // 极端兜底：号段被大量自定义编号占满时，退化为时间戳后缀（补零保持格式一致 + 随机尾巴防同毫秒并发重号）
+        return String.format("AS%08d", System.currentTimeMillis()) + String.format("%02d", java.util.concurrent.ThreadLocalRandom.current().nextInt(100));
     }
 
     // ---------- CRUD ----------
-    @org.springframework.transaction.annotation.Transactional
+    // 编排方法不加事务：PG 下唯一约束冲突会 abort 当前事务，同一事务内重试必然失败；
+    // 单次落库走 createAssetInNewTx 的独立事务（经 self 代理），重试才真正生效。
     public Asset createAsset(Map<String, Object> body, Long operatorId, String operatorName) {
         Asset a = new Asset();
         String code = str(body.get("code"));
@@ -71,18 +77,22 @@ public class AssetService {
         a.setName(requireStr(body.get("name"), "资产名称"));
         applyFields(a, body);
         // 自动编号仍可能并发撞号：唯一约束失败时重算一次再试（有界重试，不做无限循环）
-        Asset saved;
         int attempt = 0;
         while (true) {
             try {
-                saved = assetRepo.save(a);
-                break;
+                return self.createAssetInNewTx(a, operatorId, operatorName);
             } catch (org.springframework.dao.DataIntegrityViolationException e) {
                 if (code != null && !code.isBlank()) throw e;      // 用户自填编号冲突：如实报错
                 if (++attempt > 3) throw e;
                 a.setCode(nextAvailableCode());
             }
         }
+    }
+
+    @org.springframework.transaction.annotation.Transactional(
+            propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public Asset createAssetInNewTx(Asset a, Long operatorId, String operatorName) {
+        Asset saved = assetRepo.save(a);
         writeLog(saved.getId(), AssetLog.ACTION_CREATE, operatorId, operatorName,
                 "建档资产「" + saved.getName() + "」（" + saved.getCode() + "）");
         return enrich(saved);
@@ -272,11 +282,15 @@ public class AssetService {
     public AssetBorrow returnBorrow(Long borrowId, Map<String, Object> body, Long operatorId, String operatorName) {
         AssetBorrow b = borrowRepo.findById(borrowId).orElseThrow(
                 () -> new ResponseStatusException(NOT_FOUND, "借用记录不存在"));
+        Asset a = assetRepo.findByIdForUpdate(b.getAssetId()).orElseThrow(
+                () -> new ResponseStatusException(NOT_FOUND, "资产不存在"));
+        // 拿到资产锁后回读借用记录并复核状态：归还前的检查属于 check-then-act，
+        // 两个并发归还都会通过预先检查；锁后复核才能挡住「双击归还」重复写 returnAt/日志
+        b = borrowRepo.findByIdForUpdate(borrowId).orElseThrow(
+                () -> new ResponseStatusException(NOT_FOUND, "借用记录不存在"));
         if (AssetBorrow.STATUS_RETURNED.equals(b.getStatus())) {
             throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "该借用记录已归还");
         }
-        Asset a = assetRepo.findByIdForUpdate(b.getAssetId()).orElseThrow(
-                () -> new ResponseStatusException(NOT_FOUND, "资产不存在"));
         b.setReturnAt(LocalDateTime.now());
         b.setStatus(AssetBorrow.STATUS_RETURNED);
         b.setReturnRemark(str(body.get("returnRemark")));

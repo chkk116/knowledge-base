@@ -70,6 +70,7 @@ const routes = [
   { path: '/admin/maintain', component: () => import('../views/admin/CoreMaintain.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '核心维护' } },
   { path: '/admin/watermark', component: () => import('../views/admin/WatermarkSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '水印设置' } },
   { path: '/admin/login-qr', component: () => import('../views/admin/LoginQrSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '登录页二维码' } },
+  { path: '/admin/appearance', component: () => import('../views/admin/AppearanceSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '外观设置' } },
   { path: '/admin/banned-words', component: () => import('../views/admin/BannedWordsManage.vue'), meta: { admin: true, perm: 'BANNED_WORDS_MANAGE', title: '违禁词管理' } },
   // 未开放 / 建设中功能统一提示页：?feature=功能名
   { path: '/coming-soon', component: () => import('../views/ComingSoon.vue'), meta: { title: '敬请期待' } },
