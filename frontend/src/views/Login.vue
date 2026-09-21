@@ -461,7 +461,9 @@ function startParticles() {
 
 /* ---- 左栏：浅蓝渐变 + 3D 插画 ---- */
 .login-hero {
-  position: relative; z-index: 2; flex: 0 0 45%; max-width: 45%;   /* z-index 抬到粒子画布(z-index:1)之上，落实「画布在内容层之下」 */
+  position: relative; flex: 0 0 45%; max-width: 45%;
+  /* 刻意不设 z-index：粒子画布(z-index:1)覆盖全页、在左栏上方飘动是预期视觉（2026-09-21 确认，
+     勿按「画布在内容层之下」的旧注释抬高本栏，否则左栏粒子被背景挡没） */
   overflow: hidden;
   background: linear-gradient(160deg, #d6e4ff 0%, #eaf1ff 35%, #f4f8ff 70%, #f9fbff 100%);
 }
@@ -471,7 +473,8 @@ function startParticles() {
     radial-gradient(60% 50% at 20% 30%, rgba(255,255,255,.85), rgba(255,255,255,0) 60%),
     radial-gradient(50% 40% at 85% 80%, rgba(191,210,255,.55), rgba(191,210,255,0) 70%);
 }
-/* 粒子连线画布：铺满整页（左右都有），置于内容层之下、背景之上 */
+/* 粒子连线画布：铺满整页，z-index:1 介于背景与内容之间——左栏 hero 刻意不设 z-index 让粒子在其上飘动（预期视觉），
+   仅右侧 .login-main 抬到 z-index:2 保持正文输入区在粒子之下不被遮挡 */
 .particles-canvas {
   position: absolute; inset: 0; width: 100%; height: 100%;
   z-index: 1; pointer-events: none;
