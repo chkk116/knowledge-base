@@ -24,7 +24,7 @@ public class SearchAdminController {
     /** 管理员：重建 Meilisearch 索引（启用 Meili 后首次、或怀疑索引与数据库不一致时调用） */
     @PostMapping("/reindex")
     public Map<String, Object> reindex(@RequestAttribute("kbUser") TokenClaims c) {
-        if (!"ADMIN".equals(c.role())) {
+        if (c == null || !c.isAdmin()) {   // 与 AuthFilter 门统一语义：真实 ADMIN 或权限覆盖全集（2026-09-21 统一）
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要管理员权限");
         }
         if (!meili.isEnabled()) {

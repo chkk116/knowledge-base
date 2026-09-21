@@ -36,6 +36,13 @@ public class AssetExcelService {
     };
     private static final int COLS = HEADERS.length;
 
+    /** 列宽调优常量（单位 1/256 字符宽）：autoSize 后补白/限幅，备注列固定宽配合换行 */
+    private static final int WIDTH_PAD = 1500;      // autoSize 后统一补白
+    private static final int WIDTH_MIN = 3000;      // 下限，防中文算得过窄
+    private static final int WIDTH_MAX = 11000;     // 上限，防个别长值撑爆版面
+    private static final int REMARK_WIDTH = 9000;   // 备注列固定宽（配合换行）
+    private static final int REMARK_COL = COLS - 1; // 备注列固定为最后一列
+
     private static final Map<String, String> STATUS_CN = Map.of(
             "在用", "IN_USE", "闲置", "IDLE", "维修", "REPAIR", "报废", "SCRAPPED");
     private static final Set<String> STATUS_EN = Set.of("IN_USE", "IDLE", "REPAIR", "SCRAPPED");
@@ -82,10 +89,10 @@ public class AssetExcelService {
             }
             // 列宽：autoSize 对中文常常算窄，统一补白并限制上下限（单位 1/256 字符宽）
             for (int i = 0; i < COLS; i++) {
-                if (i == COLS - 1) { sh.setColumnWidth(i, 9000); continue; }  // 备注固定宽 + 换行
+                if (i == REMARK_COL) { sh.setColumnWidth(i, REMARK_WIDTH); continue; }  // 备注固定宽 + 换行
                 sh.autoSizeColumn(i);
                 int w = sh.getColumnWidth(i);
-                sh.setColumnWidth(i, Math.min(Math.max(w + 1500, 3000), 11000));
+                sh.setColumnWidth(i, Math.min(Math.max(w + WIDTH_PAD, WIDTH_MIN), WIDTH_MAX));
             }
             wb.write(out);
             return out.toByteArray();

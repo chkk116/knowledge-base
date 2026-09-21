@@ -88,10 +88,18 @@ public class AuthController {
                         ? userRepo.findById(((Number) uid).longValue()).orElse(null) : null;
                 String ua = request.getHeader("User-Agent");
                 boolean suspiciousClient = ua == null || !ua.contains("Mozilla");
-                if (lu != null && "ADMIN".equals(lu.getRole()) && suspiciousClient) {
-                    String realIp = request.getHeader("X-Forwarded-For");
-                    if (realIp == null || realIp.isBlank()) realIp = request.getRemoteAddr();
-                    else realIp = realIp.split(",")[0].trim();
+                // 与 TokenClaims.isAdmin() 语义对齐（2026-09-21 ocr 评审）：真实 ADMIN 或权限覆盖全集的
+                // 账号都按管理员告警——否则全权限角色拿到完整管理 API 却绕过告警，留下覆盖缺口。
+                // result 已含 role/permissions，无需再回查 User；收件人仍为真实 ADMIN（告警的最终责任人）。
+                boolean coversAll = result.get("permissions") instanceof java.util.Collection<?> coll
+                        && coll.containsAll(com.kb.kbplatform.security.Perm.WHITELIST);
+                boolean adminLike = lu != null && ("ADMIN".equals(lu.getRole()) || coversAll);
+                if (adminLike && suspiciousClient) {
+                    String xff = request.getHeader("X-Forwarded-For");
+                    // nginx $proxy_add_x_forwarded_for 会把真实地址附加在尾部，首段可被客户端伪造——
+                    // 两段都带上，事件响应时可甄别（第二段为 TCP 层来源，不可伪造）
+                    String realIp = (xff == null || xff.isBlank()) ? request.getRemoteAddr()
+                            : xff.split(",")[0].trim() + " (via " + request.getRemoteAddr() + ")";
                     notificationService.notifySecurityAlert(logName, realIp, ua);
                 }
             } catch (Exception alertEx) {

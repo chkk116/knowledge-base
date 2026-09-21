@@ -63,21 +63,11 @@ public class SearchService {
      */
     private List<Map<String, Object>> verifyVisible(List<Map<String, Object>> hits) {
         if (hits == null || hits.isEmpty()) return hits;
-        Set<Long> ids = hits.stream()
-                .map(h -> h.get("id"))
-                .filter(Objects::nonNull)
-                .map(o -> {
-                    try { return Long.valueOf(String.valueOf(o)); } catch (Exception e) { return null; }
-                })
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+        Set<Long> ids = SearchVisibility.extractIds(hits);
         if (ids.isEmpty()) return hits;
         Set<Long> visible = repo.findByStatusAndIdIn("PUBLISHED", new ArrayList<>(ids)).stream()
                 .map(Document::getId).collect(Collectors.toSet());
-        List<Map<String, Object>> out = hits.stream()
-                .filter(h -> h.get("id") != null
-                        && visible.contains(Long.valueOf(String.valueOf(h.get("id")))))
-                .collect(Collectors.toList());
+        List<Map<String, Object>> out = SearchVisibility.filterVisible(hits, visible, 0);
         if (out.size() != hits.size()) {
             log.warn("搜索索引与数据库不一致：{} 条命中中有 {} 条已不可见，已过滤（建议重建索引）",
                     hits.size(), hits.size() - out.size());

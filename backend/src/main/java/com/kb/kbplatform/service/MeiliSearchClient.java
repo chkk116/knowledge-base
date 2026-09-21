@@ -1,6 +1,7 @@
 package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.Document;
+import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,14 +32,17 @@ public class MeiliSearchClient {
     private final String apiKey;
     private final String indexUid;
     private final boolean enabled;
+    private final com.kb.kbplatform.repository.DocumentRepository docRepo;
 
     public MeiliSearchClient(@Value("${kb.search.meili.host:}") String host,
                              @Value("${kb.search.meili.api-key:}") String apiKey,
-                             @Value("${kb.search.meili.index:documents}") String indexUid) {
+                             @Value("${kb.search.meili.index:documents}") String indexUid,
+                             com.kb.kbplatform.repository.DocumentRepository docRepo) {
         this.host = host == null ? "" : host.trim();
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.indexUid = (indexUid == null || indexUid.isBlank()) ? "documents" : indexUid.trim();
         this.enabled = !this.host.isEmpty();
+        this.docRepo = docRepo;
         if (enabled) {
             // 用静态工厂构建，不依赖 Spring 自动配置的 RestClient.Builder bean（SB 4.1.0 下该 bean 未注入）
             RestClient.Builder b = RestClient.builder().baseUrl(this.host);
@@ -110,22 +114,41 @@ public class MeiliSearchClient {
         }
         // 清理孤儿条目
         try {
-            // Meili v1.1+ 返回分页对象 {"results":[...], "offset":.., "limit":.., "total":..}，不能直接反序列化成 List
-            java.util.Map<?, ?> page = client.get()
-                    .uri(uri -> uri.path("/indexes/{uid}/documents")
-                            .queryParam("fields", "id")
-                            .queryParam("limit", 100000)
-                            .build(indexUid))
-                    .retrieve()
-                    .body(java.util.Map.class);
-            List<?> existing = page == null ? null : (List<?>) page.get("results");
-            if (existing == null || existing.isEmpty()) return;
+            // 分页拉取全量索引文档 id：单次大 limit 可能被服务端分页截断，漏删后面的孤儿
+            List<Long> existingIds = new ArrayList<>();
+            int offset = 0;
+            final int pageSize = 1000;
+            while (true) {
+                // Meili v1.1+ 返回分页对象 {"results":[...], "offset":.., "limit":.., "total":..}，不能直接反序列化成 List
+                final int off = offset;   // lambda 捕获需 effectively final
+                java.util.Map<?, ?> page = client.get()
+                        .uri(uri -> uri.path("/indexes/{uid}/documents")
+                                .queryParam("fields", "id")
+                                .queryParam("limit", pageSize)
+                                .queryParam("offset", off)
+                                .build(indexUid))
+                        .retrieve()
+                        .body(java.util.Map.class);
+                List<?> batch = page == null ? null : (List<?>) page.get("results");
+                if (batch == null || batch.isEmpty()) break;
+                for (Object o : batch) {
+                    if (!(o instanceof Map<?, ?> m) || m.get("id") == null) continue;
+                    try { existingIds.add(Long.parseLong(String.valueOf(m.get("id")))); } catch (Exception e) { /* ignore */ }
+                }
+                if (batch.size() < pageSize) break;
+                offset += pageSize;
+            }
+            if (existingIds.isEmpty()) return;
             List<Long> stale = new ArrayList<>();
-            for (Object o : existing) {
-                if (!(o instanceof Map<?, ?> m) || m.get("id") == null) continue;
-                long id;
-                try { id = Long.parseLong(String.valueOf(m.get("id"))); } catch (Exception e) { continue; }
+            for (Long id : existingIds) {
                 if (!kept.contains(id)) stale.add(id);
+            }
+            // 防竞态（TOCTOU）：kept 是重建开始前的快照，期间新发布文档已增量写入索引但不在快照里；
+            // 删除前用数据库最新状态复核，把仍是 PUBLISHED 的剔除，避免刚发布的文档被误当孤儿删掉
+            if (!stale.isEmpty() && docRepo != null) {
+                Set<Long> stillVisible = docRepo.findByStatusAndIdIn("PUBLISHED", stale).stream()
+                        .map(Document::getId).collect(java.util.stream.Collectors.toSet());
+                stale.removeIf(stillVisible::contains);
             }
             if (stale.isEmpty()) return;
             client.post()
