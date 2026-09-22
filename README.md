@@ -119,7 +119,12 @@ export KB_ZHIPU_API_KEY=你的智谱Key     # Linux / macOS
 cd frontend && npm install && npm run dev   # http://localhost:5173（/api 代理到 :8080）
 ```
 
-### 4.（可选）启动协同中继
+### 4. 协同中继（随后端自动启动，无需手动操作）
+
+后端启动时通过 `CollabRelayLauncher` 自动拉起 collab-relay（Node/Hocuspocus）进程，停服时一并销毁——**无需手动 `npm start`**（前提：部署机已装 Node；依赖缺失会自动 `npm install`）。
+
+相关配置（`application.yml` 的 `kb.collab.*`）：`enabled`（默认 true，false 关闭内嵌中继）、`port`（ws 端口 1234）、`relay-dir`、`auto-install`、快照落库间隔。
+仅当**独立部署中继**（与后端不同机）时才需要手动运行：
 
 ```bash
 cd collab-relay && npm install && npm start
