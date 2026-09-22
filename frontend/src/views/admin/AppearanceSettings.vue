@@ -100,7 +100,7 @@ async function save() {
         <div class="item-preview">
           <div class="logo-box">
             <img v-if="logo" :src="logo" alt="站点 Logo" />
-            <img v-else src="/logo.gif" alt="默认 Logo" />
+            <img v-else src="/logo.png" alt="默认 Logo" />
           </div>
           <p class="preview-cap">{{ logo ? '自定义 Logo · 显示于侧栏顶部' : '当前为系统内置默认' }}</p>
           <p class="preview-tip">建议正方形图片，≥ 64×64，支持 PNG / JPG / WebP / GIF</p>

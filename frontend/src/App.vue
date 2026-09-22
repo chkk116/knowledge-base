@@ -313,7 +313,7 @@ function openHelp() { helpVisible.value = true }
               class="aside"
               :class="{ collapsed: collapsed && !isNarrow, 'is-drawer': isNarrow, 'drawer-open': drawerOpen }">
       <div class="brand" :title="collapsed ? '知识库' : ''" @click="goHome">
-        <img class="brand-ico" :src="siteLogo || '/logo.gif'" alt="" />
+        <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
         <span v-show="!collapsed" class="brand-txt">知识库</span>
       </div>
       <el-menu :default-active="route.path" router class="menu"
