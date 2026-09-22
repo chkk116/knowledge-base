@@ -61,7 +61,7 @@ const siteLogo = ref('')
 async function loadAppearance() {
   try {
     const { data } = await api.get('/admin/settings/appearance')
-    if (data?.value) siteLogo.value = JSON.parse(data.value).logo || ''
+    if (data?.value) siteLogo.value = JSON.parse(data.value)?.logo || ''
   } catch { /* 无配置 / 无权限时用内置默认 */ }
 }
 
@@ -76,7 +76,7 @@ onUnmounted(() => window.removeEventListener('kb:feature-flags-changed', onFlags
 // 登录态变化（登录 / 登出 / 令牌过期）时同步 SSE 连接与未读
 // 登录成功后补拉水印配置（覆盖「本页登录」场景，否则水印参数仍是 localStorage 兜底值）
 watch(() => auth.loggedIn, (v) => {
-  if (v) { notification.connect(); wm.load() }
+  if (v) { notification.connect(); wm.load(); loadAppearance() }   // SPA 登录不刷新页面也要拉自定义 Logo
   else { notification.disconnect(); notification.setUnread(0) }
 })
 
