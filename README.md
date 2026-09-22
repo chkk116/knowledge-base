@@ -199,6 +199,14 @@ cd android && gradlew.bat assembleDebug
 
 商业授权与 AGPL 社区版功能完全一致，购买即获得对应版本的开源义务豁免。
 
+### 📮 联系作者
+
+商业授权、定制开发与私有化交付请联系（说明来意，会尽快回复）：
+
+- **邮箱（推荐）**：zxc1275981466 **(at)** qq.com
+- **手机 / 微信**：`130****8975`（邮件说明来意后提供完整号码）
+- 作者：周顺
+
 ## 📄 License
 
 本仓库源码：[GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）。商业授权为双许可模式下的替代许可，详见上文。
