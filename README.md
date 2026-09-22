@@ -92,9 +92,18 @@ knowledge-base/
 
 ### 1. 数据库（唯一前置依赖）
 
-PostgreSQL 18（推荐，MIT 协议可自由分发），默认连接 `jdbc:postgresql://localhost:5432/kb`（账号 `kb/kb`，见 `application.yml`）。
-业务表由 JPA（`ddl-auto: update`）自动创建；`db/*.sql` 为结构约束与数据迁移增量脚本。
-切回 MySQL：`application.yml` 数据源换回 `jdbc:mysql://localhost:3306/kb` 即可（双驱动均已引入）。
+PostgreSQL 18（推荐，MIT 协议可自由分发），默认连接 `jdbc:postgresql://localhost:5432/kb`（账号 `kb/kb`）。
+
+**首次安装 PG 后执行一次初始化**（用 pgAdmin 或 psql 均可）：
+
+```sql
+CREATE USER kb WITH PASSWORD 'kb';
+CREATE DATABASE kb OWNER kb;
+```
+
+业务表由 JPA（`ddl-auto: update`）**自动创建，无需手动导表**；`db/*.sql` 为结构约束与数据迁移增量脚本。
+连接信息在 [`backend/src/main/resources/application.yml`](backend/src/main/resources/application.yml) 的 `spring.datasource` 段（约第 15~18 行），改完保存重启后端即可。
+切回 MySQL：同文件里注释掉 PostgreSQL 四行、启用文件末尾的 MySQL 数据源配置（双驱动均已引入）。
 
 ### 2. 启动后端
 
@@ -104,24 +113,36 @@ IDEA 打开根目录（自动识别 Maven 聚合工程），运行预置配置 `
 cd backend && mvn spring-boot:run
 ```
 
-**启用 AI 问答**（可选）：启动前注入环境变量，无需改代码：
+**启用 AI 问答**（可选，不配置不影响其他功能）——三种方式任选其一：
+
+| 方式 | 操作 | 适合场景 |
+|---|---|---|
+| ① 环境变量（推荐） | 启动前注入 `KB_ZHIPU_API_KEY`（命令见下） | 生产部署 / 不想改文件 |
+| ② 改配置文件 | 打开 `backend/src/main/resources/application.yml`，找到 `kb:` 段下的 `api-key: ${KB_ZHIPU_API_KEY:}`，改成 `api-key: 你的智谱Key`（⚠️ 此改动**不要提交到仓库**） | 本地开发图省事 |
+| ③ 生产部署 | 填写 `deploy/env.prod` 文件里的 `KB_ZHIPU_API_KEY=` 一行 | nginx + env.prod 部署 |
 
 ```bash
-set KB_ZHIPU_API_KEY=你的智谱Key        # Windows
-export KB_ZHIPU_API_KEY=你的智谱Key     # Linux / macOS
+# 方式① 示例
+set KB_ZHIPU_API_KEY=你的智谱Key           # Windows CMD
+$env:KB_ZHIPU_API_KEY="你的智谱Key"        # Windows PowerShell
+export KB_ZHIPU_API_KEY=你的智谱Key        # Linux / macOS
 ```
+
+**Key 获取**：智谱开放平台 https://open.bigmodel.cn 注册 → 控制台 → API Keys 创建。未注入时 AI 模块自动降级不可用，其余功能不受影响；仓库内不存任何真实 Key。
 
 ### 3. 启动前端
 
 ```bash
-cd frontend && npm install && npm run dev   # http://localhost:5173（/api 代理到 :8080）
+cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
+
+前端代理已配好（`vite.config.js`：`/api` 与 `/uploads` 转发到 `localhost:8080`），无需改任何地址；后端换端口时同步改这里。
 
 ### 4. 协同中继（随后端自动启动，无需手动操作）
 
 后端启动时通过 `CollabRelayLauncher` 自动拉起 collab-relay（Node/Hocuspocus）进程，停服时一并销毁——**无需手动 `npm start`**（前提：部署机已装 Node；依赖缺失会自动 `npm install`）。
 
-相关配置（`application.yml` 的 `kb.collab.*`）：`enabled`（默认 true，false 关闭内嵌中继）、`port`（ws 端口 1234）、`relay-dir`、`auto-install`、快照落库间隔。
+相关配置在 `application.yml` 的 `kb.collab.*` 段：`enabled`（默认 true，false 关闭内嵌中继）、`port`（ws 端口 1234）、`relay-dir`（中继目录，相对路径自动探测）、`auto-install`、快照落库间隔。
 仅当**独立部署中继**（与后端不同机）时才需要手动运行：
 
 ```bash
@@ -129,6 +150,13 @@ cd collab-relay && npm install && npm start
 ```
 
 ws 地址跟随页面协议：HTTPS 同源走 `/collab/`，HTTP 走 `ws://主机:1234`。
+
+### 5. 登录与初始化配置
+
+用下方测试账号登录（管理员入口在左侧菜单「内容管理」分组）：
+
+- **外观设置**：站点 Logo / 资料页背景图自定义、登录页二维码跳转地址
+- **水印设置 / 功能开关 / 数据看板 / 审核中心 / 资产管理** 等均在此分组内
 
 ### 内置测试账号
 
