@@ -155,6 +155,7 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 ## 📱 移动端（Capacitor / Android）——未验证
 
 > ⚠️ **状态：仅完成工程搭建与构建链路，尚未实际使用验证**。构建产物仅供参考，功能完整性与兼容性待测。
+> 注意：`capacitor.settings.gradle`、`capacitor.build.gradle`、`capacitor-cordova-android-plugins/` 均为 `npx cap sync` 生成的产物（不入库）——**克隆后直接用 IDE 打开 `android/` 会缺少这些生成物**，gradle 已做守卫只会警告不报错，但必须先完整执行下方同步步骤才能出包。
 
 ```bash
 cd mobile

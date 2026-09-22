@@ -1,5 +1,15 @@
 include ':app'
-include ':capacitor-cordova-android-plugins'
-project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 
-apply from: 'capacitor.settings.gradle'
+// Capacitor 相关模块由 `npx cap sync android` 生成；clone 后未同步时跳过，
+// 避免 IDE 打开工程即报 cordova.variables.gradle 缺失
+def capAndroidDir = file('../node_modules/@capacitor/android/capacitor')
+def cordovaPluginsDir = file('capacitor-cordova-android-plugins/')
+gradle.ext.capSynced = capAndroidDir.exists() && cordovaPluginsDir.exists()
+
+if (gradle.ext.capSynced) {
+    include ':capacitor-cordova-android-plugins'
+    project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+    apply from: 'capacitor.settings.gradle'
+} else {
+    println('WARN: Capacitor 尚未同步（缺少生成物）——请先在 mobile/ 目录执行: npm install && node sync-web.js && npx cap sync android')
+}
