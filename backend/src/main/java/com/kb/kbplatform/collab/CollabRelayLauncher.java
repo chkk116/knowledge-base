@@ -171,12 +171,19 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
 
     private File resolveRelayDir() {
         File f = new File(relayDirRaw);
-        if (!f.isAbsolute()) {
-            // 相对路径基于后端模块工作目录（IDEA 运行配置的工作目录通常为 backend/）
-            String cwd = System.getProperty("user.dir");
-            f = new File(cwd, relayDirRaw);
+        if (f.isAbsolute()) return f;
+        // 相对路径按工作目录歧义探测：IDEA 运行配置的工作目录可能是 backend/（模块目录）
+        // 也可能是项目根（IDE 默认），依次尝试候选，第一个存在的生效
+        String cwd = System.getProperty("user.dir");
+        File[] candidates = {
+                new File(cwd, relayDirRaw),                       // backend/ 或仓库根直接拼
+                new File(cwd, "collab-relay"),                    // 仓库根启动时
+                new File(cwd, "backend/collab-relay")             // 兜底
+        };
+        for (File c : candidates) {
+            if (c.isDirectory()) return c;
         }
-        return f;
+        return candidates[0];   // 都不存在时返回首选，让上层日志提示路径
     }
 
     /** 解析 jdbc:mysql://host:port/db?... 或 jdbc:postgresql://host:port/db?... */

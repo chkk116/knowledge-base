@@ -22,6 +22,7 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: false
+    open-in-view: true   # 显式声明保持 OSIV 默认行为（API 型 JSON 序列化依赖事务外懒加载），消除启动警告
     properties:
       hibernate:
         format_sql: true
@@ -33,6 +34,11 @@ spring:
       max-request-size: 50MB
 
 # ---- 自定义配置 ----
+# PageImpl 直接序列化的警告为已知噪音（改为 VIA_DTO 会改变分页 JSON 结构、破坏前端解析，故仅压制该日志）
+logging:
+  level:
+    org.springframework.data.web.PageModule$WarningLoggingModifier: error
+
 kb:
   security:
     # 生产必须注入（≥32 位随机串）；留空时本地开发会生成一次性随机密钥（见 TokenSecretProvider）

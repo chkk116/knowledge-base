@@ -57,6 +57,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
+    /** 静态资源 404（/uploads/… 文件不存在等）：常见且无害（克隆环境/换机后历史附件缺失、文件被清理），
+     *  返回 404 即可——走通用兜底会打 ERROR 全栈刷屏。 */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResource(
+            org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        log.info("静态资源不存在：{}", e.getResourcePath());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", "资源不存在");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException e) {
         Map<String, Object> body = new LinkedHashMap<>();
