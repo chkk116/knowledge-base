@@ -4,7 +4,7 @@
 
 **一站式企业内网知识库 · 文档 · 实时协同 · 考核培训 · AI 问答**
 
-[![License](https://img.shields.io/badge/License-MulanPSL--2-blue)](#-开源许可与商业授权)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue)](#-开源许可与商业授权)
 [![Java](https://img.shields.io/badge/Java-21-orange)](https://openjdk.org)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.x-green)](https://spring.io/projects/spring-boot)
 [![Vue](https://img.shields.io/badge/Vue-3-brightgreen)](https://vuejs.org)
@@ -183,17 +183,22 @@ cd android && gradlew.bat assembleDebug
 
 ## 📄 开源许可与商业授权
 
-本仓库代码基于 **木兰宽松许可证，第 2 版（Mulan PSL v2）** 开源：可自由复制、使用、修改、分发（含商用），仅需保留版权与许可声明。完整文本见 [LICENSE](LICENSE)。
+本仓库**全部代码**基于 **GNU AGPL-3.0** 开源（完整文本见 [LICENSE](LICENSE)）：
 
-采用 **Open Core（开放核心）** 模式，功能分两档：
+- ✅ **个人 / 学习 / 研究使用**：自由复制、部署、修改，无需任何授权
+- ✅ **纯部署不改代码**：企业内网直接部署使用官方未修改版本，无额外义务
+- ⚠️ **修改后对外提供服务**（含企业内网部署修改版）：须依 AGPL-3.0 向服务使用者**开源全部修改**
 
-| 档位 | 内容 | 授权方式 |
-|---|---|---|
-| **社区版（免费）** | 本仓库全部代码：文档 / 实时协同 / 搜索 / 评论社区 / 考试课程 / 共享文档权限 / 资产管理 / 外观自定义等基础与进阶功能 | Mulan PSL v2，随意部署与二次开发 |
-| **商业版（收费）** | 企业增值能力（示例：AI 问答配额扩展、SSO / LDAP 域账号集成、组织架构与多部门报表、审计合规报表、私有化技术支持与升级服务） | 代码**不在本仓库**，按实例授权（授权文件解锁），详情联系作者 |
+### 需要商业授权的场景
 
-> 说明：商业版功能以**独立模块 + 授权文件**形式发布，不依赖修改本仓库代码即可叠加运行；本仓库的功能开关体系（维护页 / 隐藏双模式）即为商业模块的启用入口。授权文件经签名校验，绑定部署实例，到期自动回落社区版功能，数据不受影响。
+以下诉求与 AGPL 开源义务冲突时，可联系作者获取**商业授权**（双许可模式，同一份代码两种许可任选）：
+
+- 将本系统或其修改版整合进**不愿开源的闭源商业产品**
+- 希望在内网部署**修改版**但不履行 AGPL 开源义务
+- 定制开发、私有化交付与技术支持
+
+商业授权与 AGPL 社区版功能完全一致，购买即获得对应版本的开源义务豁免。
 
 ## 📄 License
 
-本仓库源码：[木兰宽松许可证，第 2 版](LICENSE)（Mulan PSL v2）。商业版模块另行授权，不在本许可范围内。
+本仓库源码：[GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）。商业授权为双许可模式下的替代许可，详见上文。
