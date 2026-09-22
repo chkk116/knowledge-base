@@ -1,6 +1,6 @@
 // 归一化输入：兼容 LocalDateTime 字符串 / Date 对象 / 毫秒时间戳（如浏览历史的 Date.now()），统一转成字符串
 function toStr(v) {
-  if (v == null || v === '') return ''
+  if (v === null || v === undefined || v === '') return ''
   if (v instanceof Date) v = v.getTime()
   if (typeof v === 'number') {
     const d = new Date(v)

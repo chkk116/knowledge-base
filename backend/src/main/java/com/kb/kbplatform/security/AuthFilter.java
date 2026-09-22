@@ -76,9 +76,10 @@ public class AuthFilter implements Filter {
             }
         }
         if (!publicRequest && path.startsWith("/api/admin")) {
-            // 功能开关状态与水印配置只读接口对所有登录用户开放；写入仍需细粒度权限。
+            // 功能开关状态/水印配置/外观配置（站点 Logo、资料页背景）只读接口对所有登录用户开放；写入仍需细粒度权限。
             boolean loginOnlyRead = "GET".equals(method)
-                    && ("/api/admin/features/map".equals(path) || "/api/admin/settings/watermark".equals(path));
+                    && ("/api/admin/features/map".equals(path) || "/api/admin/settings/watermark".equals(path)
+                        || "/api/admin/settings/appearance".equals(path));
             if (!loginOnlyRead) {
                 String need = adminPermRequired(path, method);
                 // 全权限覆盖视同 ADMIN，包括没有细粒度权限码的仅管理员接口。

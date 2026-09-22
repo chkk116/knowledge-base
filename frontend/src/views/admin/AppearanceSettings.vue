@@ -12,6 +12,7 @@ const KEY = 'appearance'
 const logo = ref('')
 const profileBg = ref('')
 const loaded = ref(false)
+const loadFailed = ref(false)   // 读取失败≠无配置：禁用保存，防止用空表单覆盖掉已有配置
 const saving = ref(false)
 
 // ---- 上传（走通用 /api/files，返回 /uploads/... 直链，与登录页二维码同款） ----
@@ -26,7 +27,9 @@ async function onPick(which, e) {
   const file = e.target.files && e.target.files[0]
   e.target.value = ''
   if (!file) return
-  if (!/^image\/(png|jpe?g|webp|gif)$/i.test(file.type)) { ElMessage.warning('仅支持 PNG / JPG / WebP / GIF 图片'); return }
+  // 背景槽不接受 GIF（动画帧会扰乱 cover/contain 适配），仅 Logo 允许
+  const okTypes = which === 'logo' ? /^image\/(png|jpe?g|webp|gif)$/i : /^image\/(png|jpe?g|webp)$/i
+  if (!okTypes.test(file.type)) { ElMessage.warning('该槽位仅支持 PNG / JPG / WebP' + (which === 'logo' ? ' / GIF' : '') + ' 图片'); return }
   if (file.size > 5 * 1024 * 1024) { ElMessage.warning('图片不能超过 5MB'); return }
   uploading.value = true
   try {
@@ -55,11 +58,16 @@ onMounted(async () => {
       logo.value = cfg.logo || ''
       profileBg.value = cfg.profileBg || ''
     }
-  } catch (e) { /* 无配置时保持空，前端用内置默认兜底 */ }
-  loaded.value = true
+    loaded.value = true
+  } catch (e) {
+    // 读取失败（网络/权限/坏 JSON）：不放开保存——空表单一保存就会把已有配置抹掉
+    loadFailed.value = true
+    ElMessage.error('读取现有配置失败，已禁用保存，请刷新重试')
+  }
 })
 
 async function save() {
+  if (loadFailed.value) { ElMessage.warning('配置读取失败，请刷新页面后重试'); return }
   saving.value = true
   try {
     await api.put(`/admin/settings/${KEY}`, {
@@ -121,7 +129,7 @@ async function save() {
     </div>
 
     <div class="save-bar">
-      <el-button type="primary" :loading="saving" :disabled="!loaded" @click="save">保存配置</el-button>
+      <el-button type="primary" :loading="saving" :disabled="!loaded || loadFailed" @click="save">保存配置</el-button>
     </div>
   </div>
 </template>

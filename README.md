@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![License](https://img.shields.io/badge/License-MulanPSL--2-blue)
+![License](https://img.shields.io/badge/License-GPLv3-blue)
 ![Java](https://img.shields.io/badge/Java-21%2B-orange)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.x-green)
 ![Vue](https://img.shields.io/badge/Vue-3-brightgreen)
