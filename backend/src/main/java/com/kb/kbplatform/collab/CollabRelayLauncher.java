@@ -99,7 +99,8 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
         File nodeModules = new File(relayDir, "node_modules");
         if (!nodeModules.exists() && autoInstall) {
             log.info("[relay] 未检测到 node_modules，正在自动 npm install（目录 {}）…", relayDir.getAbsolutePath());
-            if (!runSimple(new String[]{"npm", "install"}, relayDir)) {
+            String[] npm = npmCommand();
+            if (!runSimple(new String[]{npm[0], "install"}, relayDir)) {
                 log.warn("[relay] npm install 失败，尝试直接启动（若缺依赖则会失败）");
             }
         }
@@ -156,9 +157,24 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
         });
     }
 
+    /**
+     * 解析 npm 可执行命令。Windows 上 npm 是 npm.cmd 批处理，Java 的 ProcessBuilder
+     * 不做 PATHEXT 解析（直接写 "npm" 会 CreateProcess error=2），须显式带扩展名：
+     * 优先取 node 同目录（node-path 为绝对路径时最可靠），否则依赖 PATH 中的 npm.cmd。
+     */
+    private String[] npmCommand() {
+        boolean win = System.getProperty("os.name", "").toLowerCase().contains("win");
+        if (!win) return new String[]{"npm"};
+        File nodeFile = new File(nodePath);
+        if (nodeFile.isAbsolute()) {
+            File npmCmd = new File(nodeFile.getParentFile(), "npm.cmd");
+            if (npmCmd.isFile()) return new String[]{npmCmd.getAbsolutePath()};
+        }
+        return new String[]{"npm.cmd"};
+    }
+
     /** 简单执行命令（用于 npm install），阻塞等待完成，返回是否成功 */
-    private boolean runSimple(String[] cmd, File dir) {
-        try {
+    private boolean runSimple(String[] cmd, File dir) {        try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(dir);
             pb.redirectErrorStream(true);
