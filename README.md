@@ -10,8 +10,6 @@
 [![Vue](https://img.shields.io/badge/Vue-3-brightgreen)](https://vuejs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-blue)](https://www.postgresql.org)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F)](https://www.electronjs.org)
-[![Gitee Stars](https://img.shields.io/gitee/stars/beixun/knowledge-base)](https://gitee.com/beixun/knowledge-base/stargazers)
-[![Last Commit](https://img.shields.io/gitee/last-commit/beixun/knowledge-base/master)](https://gitee.com/beixun/knowledge-base/commits/master)
 
 </div>
 
@@ -140,7 +138,9 @@ ws 地址跟随页面协议：HTTPS 同源走 `/collab/`，HTTP 走 `ws://主机
 | `zhangsan` | `Zhang@123` | USER |
 | `lisi` | `Li@123` | USER |
 
-## 🖥️ 桌面客户端（Electron）
+## 🖥️ 桌面客户端（Electron）——实验性预览
+
+> ⚠️ **状态：初步可用，尚未完整验证**。核心流程（登录 / 文档浏览 / 协同）已跑通，仅做了简单试用，不建议作为生产主力端。
 
 ```bash
 cd desktop
@@ -149,10 +149,12 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 ```
 
 - 产物：`desktop/dist-electron/知识库 Setup 1.0.0.exe`（安装版）/ `win-unpacked/知识库.exe`（免安装）
-- 特性：自绘深蓝紫标题栏、原生登录框 + 安全验证弹窗、单实例锁、端口占用中文提示、系统托盘常驻
+- 设计特性：自绘深蓝紫标题栏、原生登录框 + 安全验证弹窗、单实例锁、系统托盘常驻
 - 后端地址默认 `http://localhost:8080`，环境变量 `KB_BACKEND_URL` / `KB_BACKEND_WS` 可覆盖
 
-## 📱 移动端（Capacitor / Android）
+## 📱 移动端（Capacitor / Android）——未验证
+
+> ⚠️ **状态：仅完成工程搭建与构建链路，尚未实际使用验证**。构建产物仅供参考，功能完整性与兼容性待测。
 
 ```bash
 cd mobile
