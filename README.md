@@ -15,6 +15,23 @@
 
 ---
 
+## 🖼️ 界面预览
+
+<div align="center">
+
+| | |
+|---|---|
+| ![知识库首页](docs/screenshots/01-home.png) | ![用户管理](docs/screenshots/02-admin-users.png) |
+| *知识库首页* | *用户与权限管理* |
+| ![数据看板](docs/screenshots/03-dashboard.png) | ![AI 问答](docs/screenshots/04-ai-chat.png) |
+| *数据看板* | *AI 问答（RAG）* |
+| ![个人资料](docs/screenshots/05-profile.png) | |
+| *个人资料（自定义背景）* | |
+
+</div>
+
+---
+
 ## ✨ 功能一览
 
 ### 📝 文档与知识
