@@ -9,7 +9,8 @@ gradle.ext.capSynced = capAndroidDir.exists() && cordovaPluginsDir.exists()
 if (gradle.ext.capSynced) {
     include ':capacitor-cordova-android-plugins'
     project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
-    apply from: 'capacitor.settings.gradle'
+    def capSettingsFile = file('capacitor.settings.gradle')
+    if (capSettingsFile.exists()) { apply from: capSettingsFile }
 } else {
     println('WARN: Capacitor 尚未同步（缺少生成物）——请先在 mobile/ 目录执行: npm install && node sync-web.js && npx cap sync android')
 }

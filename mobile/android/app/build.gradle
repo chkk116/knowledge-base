@@ -46,8 +46,10 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
 }
 
-def capBuildFile = file('capacitor.build.gradle')
-if (capBuildFile.exists()) { apply from: capBuildFile }
+if (gradle.ext.capSynced) {
+    def capBuildFile = file('capacitor.build.gradle')
+    if (capBuildFile.exists()) { apply from: capBuildFile }
+}
 
 try {
     def servicesJSON = file('google-services.json')
