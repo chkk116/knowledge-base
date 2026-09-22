@@ -702,11 +702,13 @@ const onKeydown = (e) => { if (e.key === 'Escape') lightboxSrc.value = '' }
  */
 const flashCommentId = ref(null)
 let focusTimer = null
+let focusAborted = false   // 卸载标志：轮询循环随之终止，不再改状态/滚已分离节点
 async function focusCommentFromQuery() {
   const cid = Number(route.query.c)
   if (!cid) return
   let waited = 0
   while (waited < 3000) {
+    if (focusAborted) return
     await nextTick()
     // 深层回复折叠时不渲染（slice(0,3)），DOM 永远查不到：先按数据展开父楼，再等元素出现
     const owner = comments.value.find((x) => (x.replies || []).some((r) => r.id === cid))
@@ -738,6 +740,7 @@ onBeforeUnmount(() => {
   if (scrollTarget) scrollTarget.removeEventListener('scroll', onScroll)
   window.removeEventListener('keydown', onKeydown)
   clearTimeout(focusTimer)   // 锚点轮询的高亮定时器：卸载后不再改状态/滚已分离节点
+  focusAborted = true
 })
 </script>
 

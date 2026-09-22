@@ -182,6 +182,10 @@ onBeforeUnmount(() => {
 
 // status: 'DRAFT' 存草稿 / 'PENDING_REVIEW' 提交审核 / null 仅保存（已发布帖编辑）
 const save = async (status) => {
+  if (loadFailed.value) {   // 加载失败时空表单一保存就会覆盖原文档（含存草稿路径），一律拦下
+    ElMessage.error('文档加载失败，已锁定保存，请刷新重试')
+    return
+  }
   if (!form.value.title.trim()) {
     ElMessage.warning('请填写标题')
     return
@@ -331,11 +335,11 @@ const restoreVersion = async (v) => {
           <el-button type="primary" :loading="loading" :disabled="loadFailed" @click="save(null)">保存修改</el-button>
         </template>
         <template v-else-if="auth.isAdmin">
-          <el-button :loading="loading" @click="save('DRAFT')">存草稿</el-button>
+          <el-button :loading="loading" :disabled="loadFailed" @click="save('DRAFT')">存草稿</el-button>
           <el-button type="primary" :loading="loading" :disabled="loadFailed" @click="save(null)">发布</el-button>
         </template>
         <template v-else>
-          <el-button :loading="loading" @click="save('DRAFT')">存草稿</el-button>
+          <el-button :loading="loading" :disabled="loadFailed" @click="save('DRAFT')">存草稿</el-button>
           <el-button type="primary" :loading="loading" :disabled="loadFailed" @click="save('PENDING_REVIEW')">提交</el-button>
         </template>
         <el-button :loading="importing" @click="onPickFile">

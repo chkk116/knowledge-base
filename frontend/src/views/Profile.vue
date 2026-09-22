@@ -10,7 +10,6 @@ import { BADGE_ICONS, DEFAULT_BADGE_ICON, tierGradient } from '../utils/badgeIco
 const g0 = (b) => tierGradient(b.tier)[0]
 const g1 = (b) => tierGradient(b.tier)[1]
 import { uploadFile } from '../api/file'
-import api from '../api/request'
 import { myCertificates } from '../api/training'
 import { getLevel } from '../utils/level'
 import { DEFAULT_AVATARS } from '../utils/defaultAvatars'
@@ -77,14 +76,10 @@ const loadingMine = ref(false)
 const showAvatarPicker = ref(false)
 const avatarPending = ref(null)   // 待审新头像 URL（null=无待审）——用于「审核中」持久提示与角标
 
-// 个人资料页背景图：管理员在外观设置里统一配置（key=appearance 的 profileBg），空则用内置默认
-const profileBg = ref('')
-async function loadAppearanceBg() {
-  try {
-    const { data } = await api.get('/admin/settings/appearance')
-    if (data?.value) profileBg.value = JSON.parse(data.value).profileBg || ''
-  } catch { /* 无配置时用内置默认 */ }
-}
+// 个人资料页背景图：管理员在外观设置里统一配置（utils/appearance 共享缓存），空则用内置默认
+import { appearanceProfileBg as profileBg, loadAppearance } from '../utils/appearance'
+// url() 内的引号在 JS 里生成，避免在模板属性值里写裸双引号破坏 HTML 解析
+const coverBlurStyle = computed(() => profileBg.value ? { backgroundImage: 'url("' + profileBg.value + '")' } : null)
 
 onMounted(() => {
   displayName.value = auth.user?.displayName || auth.user?.username || ''
@@ -93,7 +88,7 @@ onMounted(() => {
   gender.value = auth.user?.gender || ''
   avatar.value = auth.user?.avatar || ''
   avatarPending.value = auth.user?.avatarPending || null
-  loadAppearanceBg()
+  loadAppearance()
   loadDocs()
   loadLog()
   loadMine()
@@ -298,7 +293,7 @@ async function changePwd() {
     <!-- 封面 -->
     <div class="cover" :class="{ 'has-bg': profileBg }">
       <div v-if="profileBg" class="cover-bg">
-        <div class="cover-blur" :style="{ backgroundImage: 'url(' + profileBg + ')' }"></div>
+        <div class="cover-blur" :style="coverBlurStyle"></div>
         <img class="cover-fit" :src="profileBg" alt="" />
       </div>
       <div class="cover-avatar">

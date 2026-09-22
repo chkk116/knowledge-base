@@ -84,7 +84,7 @@ public class AssetExcelService {
                     Cell c = row.createCell(i);
                     setCell(c, valueOf(a, FIELDS[i]));
                     // 备注（最后一列）单独自动换行，其余列保持单行以免行高被撑爆
-                    c.setCellStyle(i == COLS - 1 ? wrapStyle : bodyStyle);
+                    c.setCellStyle(i == REMARK_COL ? wrapStyle : bodyStyle);
                 }
             }
             // 列宽：autoSize 对中文常常算窄，统一补白并限制上下限（单位 1/256 字符宽）

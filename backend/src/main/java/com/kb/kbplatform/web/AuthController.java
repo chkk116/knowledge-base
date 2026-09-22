@@ -90,7 +90,8 @@ public class AuthController {
                 boolean suspiciousClient = ua == null || !ua.contains("Mozilla");
                 // 与 TokenClaims.isAdmin() 语义对齐（2026-09-21 ocr 评审）：真实 ADMIN 或权限覆盖全集的
                 // 账号都按管理员告警——否则全权限角色拿到完整管理 API 却绕过告警，留下覆盖缺口。
-                // effectivePerms 是逗号分隔字符串（AuthService 直接透传），支持 * 通配，与 TokenClaims.hasPerm 一致。
+                // effectivePerms 是逗号分隔字符串（AuthService 直接透传）；经 OrgService.effectivePermissions 的 Perm.valid 过滤，
+                // 实际只含 WHITELIST 内的码，"*" 分支仅为防御（与 TokenClaims.hasPerm 的通配检查保持一致）。
                 java.util.Set<String> have = new java.util.HashSet<>();
                 for (String p : String.valueOf(result.get("permissions")).split(",")) {
                     String t = p.trim().toUpperCase();

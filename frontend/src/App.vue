@@ -8,7 +8,7 @@ import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import { useNotificationStore } from './store/notification'
 import { reader, closeReader, startDrag, startResize, clampToViewport } from './store/reader'
 import { featureMap } from './api/features'
-import api from './api/request'
+import { appearanceLogo as siteLogo, loadAppearance, resetAppearance } from './utils/appearance'
 import { applyTheme } from './utils/theme'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -56,14 +56,7 @@ onMounted(async () => {
   if (auth.loggedIn) { notification.connect(); loadFlags(); loadAppearance() }
 })
 
-// 外观设置：管理员自定义的站点 Logo（外观设置页保存后，登录用户刷新即生效）
-const siteLogo = ref('')
-async function loadAppearance() {
-  try {
-    const { data } = await api.get('/admin/settings/appearance')
-    if (data?.value) siteLogo.value = JSON.parse(data.value)?.logo || ''
-  } catch { /* 无配置 / 无权限时用内置默认 */ }
-}
+// 外观配置见 utils/appearance.js（共享缓存：Logo + 资料页背景，一次拉取全站使用）
 
 // 核心维护开关变更后即时刷新侧边栏菜单（无需整页刷新）：
 // 监听全局事件 + 路由守卫缓存重置，保证普通用户立即看到入口变化。
@@ -77,7 +70,7 @@ onUnmounted(() => window.removeEventListener('kb:feature-flags-changed', onFlags
 // 登录成功后补拉水印配置（覆盖「本页登录」场景，否则水印参数仍是 localStorage 兜底值）
 watch(() => auth.loggedIn, (v) => {
   if (v) { notification.connect(); wm.load(); loadAppearance() }   // SPA 登录不刷新页面也要拉自定义 Logo
-  else { notification.disconnect(); notification.setUnread(0) }
+  else { notification.disconnect(); notification.setUnread(0); resetAppearance() }   // 登出恢复内置默认，与匿名态一致
 })
 
 // 浏览器窗口缩放 / 全屏切换时，把阅读浮窗夹回可视区内（避免被挤出屏幕外）

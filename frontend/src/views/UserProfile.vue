@@ -11,6 +11,7 @@ import { getLevel } from '../utils/level'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
 import { fromNow, fmtDateTime } from '../utils/time'
 import { errMsg as fmtErr } from '../utils/errMsg'
+import { appearanceProfileBg, loadAppearance } from '../utils/appearance'
 
 const route = useRoute()
 const router = useRouter()
@@ -106,15 +107,10 @@ onMounted(reload)
 // 同路由不同用户（点关注列表里的某人）切换时重载
 watch(() => route.params.id, reload)
 
-// 个人资料页背景图：管理员在外观设置里统一配置（key=appearance 的 profileBg），空则用内置默认
-import api from '../api/request'
-const profileBg = ref('')
-onMounted(async () => {
-  try {
-    const { data } = await api.get('/admin/settings/appearance')
-    if (data?.value) profileBg.value = JSON.parse(data.value).profileBg || ''
-  } catch { /* 无配置时用内置默认 */ }
-})
+// 个人资料页背景图：管理员在外观设置里统一配置（utils/appearance 共享缓存），空则用内置默认
+const profileBg = appearanceProfileBg
+const coverBlurStyle = computed(() => profileBg.value ? { backgroundImage: 'url("' + profileBg.value + '")' } : null)
+onMounted(loadAppearance)
 </script>
 
 <template>
@@ -136,7 +132,7 @@ onMounted(async () => {
     </button>
     <div class="cover" :class="{ 'has-bg': profileBg }">
       <div v-if="profileBg" class="cover-bg">
-        <div class="cover-blur" :style="{ backgroundImage: 'url(' + profileBg + ')' }"></div>
+        <div class="cover-blur" :style="coverBlurStyle"></div>
         <img class="cover-fit" :src="profileBg" alt="" />
       </div>
       <div class="cover-avatar">

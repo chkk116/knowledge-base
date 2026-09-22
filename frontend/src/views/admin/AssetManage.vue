@@ -569,14 +569,15 @@ async function openDetail(row) {
   // 再拉一次单条详情覆盖：列表行可能是本次保存前的旧对象，
   // 否则「刚上传的主图/刚改的字段」在详情里看不到
   const reqId = row.id
+  const stale = () => current.value?.id !== reqId   // 快速切换资产后，旧请求的响应一律丢弃
   try {
     const { data } = await getAsset(row.id)
     // 慢请求守卫：响应仍属于当前抽屉展示的资产才覆盖，防止旧响应把新详情覆盖回别的资产
-    if (data && data.id === reqId && current.value?.id === reqId) current.value = data
+    if (data && data.id === reqId && !stale()) current.value = data
   } catch (e) { /* 拉取失败就沿用列表行 */ }
-  try { qrDataUrl.value = await QRCode.toDataURL(row.code, { width: 220, margin: 1 }) } catch (e) {}
-  try { const { data } = await assetBorrows(row.id); borrows.value = data || [] } catch (e) { borrows.value = [] }
-  try { const { data } = await assetLogs(row.id); logs.value = data || [] } catch (e) { logs.value = [] }
+  try { if (!stale()) qrDataUrl.value = await QRCode.toDataURL(row.code, { width: 220, margin: 1 }) } catch (e) {}
+  try { const { data } = await assetBorrows(row.id); if (!stale()) borrows.value = data || [] } catch (e) { if (!stale()) borrows.value = [] }
+  try { const { data } = await assetLogs(row.id); if (!stale()) logs.value = data || [] } catch (e) { if (!stale()) logs.value = [] }
 }
 
 function openBorrow() { borrowForm.borrower = ''; borrowForm.borrowReason = ''; borrowForm.expectedReturnAt = ''; borrowDialog.value = true }
