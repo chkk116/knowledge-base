@@ -139,7 +139,7 @@ cd backend && mvn spring-boot:run
 | 方式 | 操作 | 适合场景 |
 |---|---|---|
 | ① 环境变量（推荐） | 启动前注入 `KB_ZHIPU_API_KEY`（命令见下） | 生产部署 / 不想改文件 |
-| ② 改配置文件 | 打开 `backend/src/main/resources/application.yml` 的 `kb.ai.zhipu` 段，将 `api-key: ${KB_ZHIPU_API_KEY:}` 的冒号后填入你的 Key（⚠️ 此改动**不要提交到仓库**） | 本地开发图省事 |
+| ② 改配置文件 | 打开 `backend/src/main/resources/application.yml` 的 `kb.ai.zhipu` 段，将 `api-key: ${KB_ZHIPU_API_KEY:}` 的冒号后填入你的 Key | 本地开发图省事 |
 | ③ 生产部署 | 填写 `deploy/env.prod` 文件里的 `KB_ZHIPU_API_KEY=` 一行 | nginx + env.prod 部署 |
 
 ```bash
