@@ -49,6 +49,7 @@ const WS_URL = wsOverride
     ? collabScheme + '://' + location.host + '/collab/'
     : collabScheme + '://' + location.hostname + ':1234')
 const token = localStorage.getItem('kb_token') || ''
+const authExpired = !token   // 登录过期/未登录：不建协同连接，页面提示重新登录
 
 const status = ref('connecting') // connecting | connected | disconnected
 const peers = ref([])
@@ -97,7 +98,7 @@ function colorFor(seed) {
 
 // 创建 Yjs 文档与 Hocuspocus 中继连接（documentName = shareId:docId）
 const ydoc = new Y.Doc()
-const provider = new HocuspocusProvider({
+const provider = authExpired ? null : new HocuspocusProvider({
   url: WS_URL,
   name: `${props.shareId}:${props.docId}`,
   token,
@@ -144,7 +145,7 @@ const editor = useEditor({
     // 只读（canWrite=false）时不挂载协同光标扩展：
     // 避免本地光标/选区被广播到其他协作者屏幕上，造成「别人能移动你的光标」的错觉，
     // 同时只读端本身也不应产生可编辑光标。
-    ...(props.canWrite ? [CollaborationCursor.configure({
+    ...(props.canWrite && provider ? [CollaborationCursor.configure({
       provider,
       user: { name: meName.value, color: colorFor(meName.value), avatar: auth.user?.avatar || '' },
     })] : []),
@@ -609,6 +610,11 @@ const versionSnippet = (html) => {
   return t.length > 100 ? t.slice(0, 100) + '…' : t
 }
 
+function goLogin() {
+  localStorage.removeItem('kb_token')
+  location.href = '/login?redirect=' + encodeURIComponent(location.pathname)
+}
+
 // 漫游式功能引导（driver.js）：首次进入自动播放，之后可点「引导」随时重看
 const TOUR_KEY = 'kb-collab-tour-v1-done'
 function startTour() {
@@ -672,6 +678,10 @@ watch(() => props.canWrite, (w) => {
 <template>
   <div class="collab">
     <!-- 顶部工具栏（飞书式：白底分组按钮 + 右侧在线状态） -->
+    <div v-if="authExpired" class="auth-expired-tip">
+      ⚠️ 登录已过期或未登录——协同与保存不可用，请
+      <a href="/login" @click.prevent="goLogin">重新登录</a>后刷新本页。
+    </div>
     <div class="collab-toolbar">
       <div class="tb-left" v-if="canWrite">
         <div class="tb-group" data-tour="undo-redo">

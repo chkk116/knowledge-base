@@ -113,8 +113,9 @@ function render() {
   const el = mapEl.value
   const stop = (e) => e.stopPropagation()
   const refocus = () => setTimeout(() => { try { mapEl.value?.focus() } catch { /* ignore */ } }, 0)
-  const events = ['keydown', 'keyup', 'keypress', 'mousedown', 'mouseup', 'click',
-    'dblclick', 'contextmenu', 'pointerdown', 'pointerup', 'wheel', 'touchstart', 'touchend']
+  // 只拦键盘 + mousedown（防 PM 抢焦点）；mouseup/click/dblclick/contextmenu/pointer 必须放行——
+  // 全拦会截断 mind-elixir 内部事件链（click 委托收不到→中心节点点不动；mouseup 链断→工具栏引用悬空报错）
+  const events = ['keydown', 'keyup', 'keypress', 'mousedown', 'wheel', 'touchstart']
   if (isEditing) {
     events.forEach((ev) => el.addEventListener(ev, stop))
     el.addEventListener('mousedown', refocus)
