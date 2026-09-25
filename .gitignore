@@ -38,3 +38,4 @@ mobile/web-app/
 
 # 会话/token 缓存等序列化文件
 *.pkl
+logs/

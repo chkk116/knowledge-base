@@ -243,6 +243,16 @@ cd android && gradlew.bat assembleDebug
 - **敏感词**：评论过滤，≤4 位纯 ASCII 词要求词边界匹配，命中返回 400 + 中文 error
 - **公开资源**：`/uploads`、`/api/thumb` 在 AuthFilter 白名单放行（ThumbController 内做穿越防护）
 
+## 🧹 代码质量工具
+
+| 层 | 工具 | 命令 |
+|---|---|---|
+| 前端 | ESLint 9（flat config，Vue essential 规则集） | `npm run lint`（修复：`npm run lint:fix`） |
+| 后端 | Checkstyle（命名/空块/未用导入等高价值规则） | `mvn checkstyle:checkstyle` |
+| 后端 | SpotBugs（空指针/资源泄漏/并发误用） | `mvn spotbugs:check` |
+
+> 存量代码告警全部为 warning（不阻塞构建），新增代码请逐步收紧。
+
 ## 📄 开源许可与商业授权
 
 本仓库**全部代码**基于 **GNU AGPL-3.0** 开源（完整文本见 [LICENSE](LICENSE)）：

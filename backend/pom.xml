@@ -119,6 +119,38 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+
+            <!-- 代码规范：Checkstyle（命名/空块/未用导入等），手动 `mvn checkstyle:checkstyle` 查看，
+                 不绑定构建阶段（存量代码告警多，避免阻塞日常打包） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>10.21.4</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <configLocation>checkstyle.xml</configLocation>
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>false</failOnViolation>
+                </configuration>
+            </plugin>
+
+            <!-- 缺陷检测：SpotBugs（空指针/资源泄漏/并发误用等），手动 `mvn spotbugs:check` 查看 -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.8.6.6</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Medium</threshold>
+                    <failOnError>false</failOnError>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

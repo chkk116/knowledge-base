@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!-- 极简 Checkstyle 规则集：只抓高价值问题（未用导入/空捕获/equals与hashCode/坏实践），
+     不约束格式风格（缩进/行长交给 IDE 格式化），避免存量代码告警爆炸。 -->
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<module name="Checker">
+    <property name="severity" value="warning"/>
+    <module name="TreeWalker">
+        <module name="UnusedImports"/>
+        <module name="RedundantImport"/>
+        <module name="EmptyCatchBlock"/>
+        <module name="EqualsHashCode"/>
+        <module name="DefaultComesLast"/>
+        <module name="EmptyStatement"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="StringLiteralEquality"/>
+        <module name="OneStatementPerLine"/>
+    </module>
+</module>

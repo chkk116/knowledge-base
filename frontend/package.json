@@ -8,7 +8,9 @@
     "build": "vite build",
     "build:prod": "vite build --mode production --outDir dist-prod",
     "build:test": "vite build --mode test --outDir dist-test",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -39,6 +41,9 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
+    "eslint": "^9.39.5",
+    "eslint-plugin-vue": "^9.33.0",
+    "globals": "^15.15.0",
     "vite": "^8.0.0"
   }
 }
