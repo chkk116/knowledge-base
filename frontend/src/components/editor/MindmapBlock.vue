@@ -19,7 +19,8 @@
         </span>
       </div>
       <div ref="mapEl" class="kb-mindmap-canvas" :class="{ readonly: !editing }"></div>
-      <div v-if="!editing" class="kb-mindmap-hint">点击「编辑导图」进入拖拽编辑，期间其他人只读</div>
+      <div v-if="!editing" class="kb-mindmap-hint">点「编辑导图」后：Tab 加子节点 · Enter 加同级 · F2 编辑文字 · 右键更多操作</div>
+      <div v-else class="kb-mindmap-hint editing-hint">Tab 加子节点 · Enter 加同级 · F2 / 双击节点编辑文字 · 右键菜单 · 拖拽调整结构</div>
     </div>
   </NodeViewWrapper>
 </template>
@@ -41,6 +42,7 @@ const editing = ref(false)
 let instance = null
 let dirty = false
 let snapshot = ''   // 进入编辑时的数据快照，取消时回滚用
+let cleanupStop = null   // 编辑态事件拦截的清理函数
 
 const LOCK_TIMEOUT = 120000   // 锁超时：持锁端异常退出 2 分钟后允许强制接管
 
@@ -72,6 +74,15 @@ function render() {
   } catch {
     data = null
   }
+  if (!data) {
+    // 新导图预置两个示例子节点（对齐亿图脑图的新建体验：打开即有结构可改）
+    data = MindElixir.new(props.node.attrs.title || '中心主题')
+    const gen = () => 'kb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    data.nodeData.children = [
+      { topic: '子主题 1', id: gen(), children: [] },
+      { topic: '子主题 2', id: gen(), children: [] },
+    ]
+  }
   const isEditing = editing.value
   instance = new MindElixir({
     el: mapEl.value,
@@ -86,6 +97,26 @@ function render() {
     locale: 'zh_CN',
   })
   instance.init(data || MindElixir.new(props.node.attrs.title || '中心主题'))
+
+  // 防止 ProseMirror 吞事件/抢焦点（否则 Tab/双击/右键全部静默失效——
+  // 实测：点击节点后焦点变成 ProseMirror-focused，keydown 根本到不了画布）：
+  // 编辑态在容器冒泡阶段拦截全部交互事件，不再传给 ProseMirror；
+  // contextmenu 走 window capture 由 mind-elixir 自行处理，不受影响。
+  const el = mapEl.value
+  const stop = (e) => e.stopPropagation()
+  const refocus = () => setTimeout(() => { try { mapEl.value?.focus() } catch { /* ignore */ } }, 0)
+  const events = ['keydown', 'keyup', 'keypress', 'mousedown', 'mouseup', 'click',
+    'dblclick', 'contextmenu', 'pointerdown', 'pointerup', 'wheel', 'touchstart', 'touchend']
+  if (isEditing) {
+    events.forEach((ev) => el.addEventListener(ev, stop))
+    el.addEventListener('mousedown', refocus)
+    el.focus()
+    cleanupStop = () => events.forEach((ev) => el.removeEventListener(ev, stop))
+  } else if (cleanupStop) {
+    cleanupStop()
+    cleanupStop = null
+  }
+
   if (isEditing) {
     instance.bus.addListener('operation', () => { dirty = true })
   }
