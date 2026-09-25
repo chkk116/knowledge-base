@@ -73,6 +73,7 @@
 | AI | 智谱 GLM（OpenAI 兼容 `/chat/completions`），RAG 检索增强 |
 | 桌面端 | Electron 33：纯 Node 本地托管 + 反代后端，零框架改动套壳 |
 | 移动端 | Capacitor 8（Android），远端模式直连内网后端 |
+| 工程与质量 | HikariCP 连接池 · Hibernate 7 · Logback 滚动日志（ERROR 分离）· ESLint 9（前端）· Checkstyle + SpotBugs（后端） |
 | 部署 | `deploy/`：env.prod / env.test + nginx 模板，HTTPS + 静态预压缩（.gz / .br） |
 
 ## 📂 目录结构
