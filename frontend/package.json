@@ -30,6 +30,7 @@
     "@wangeditor/editor": "^5.1.23",
     "@wangeditor/plugin-md": "^1.0.0",
     "axios": "^1.7.7",
+    "driver.js": "^1.8.0",
     "element-plus": "^2.8.8",
     "markdown-it": "^14.3.0",
     "mind-elixir": "^5.15.1",

@@ -2,7 +2,15 @@
   <NodeViewWrapper class="kb-mindmap-wrap" data-type="mindmap-block">
     <div class="kb-mindmap" :class="{ editing }">
       <div class="kb-mindmap-bar">
-        <span class="kb-mindmap-title">🧠 {{ node.attrs.title || '思维导图' }}</span>
+        <span class="kb-mindmap-title">
+          <svg class="kb-mindmap-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+            <rect x="9" y="2" width="6" height="5" rx="1.5" fill="#6366f1"/>
+            <rect x="2" y="16" width="6" height="5" rx="1.5" fill="#a5b4fc"/>
+            <rect x="16" y="16" width="6" height="5" rx="1.5" fill="#a5b4fc"/>
+            <path d="M12 7v4M12 11H5v5M12 11h7v5" stroke="#818cf8" stroke-width="1.5"/>
+          </svg>
+          {{ node.attrs.title || '思维导图' }}
+        </span>
         <span v-if="lockInfo && !isMine" class="kb-mindmap-status locked">
           {{ lockInfo.uname }} 正在编辑<template v-if="lockExpired">（编辑异常退出，可强制接管）</template>
         </span>
@@ -191,7 +199,8 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border, #e5e7eb);
   font-size: 13px;
 }
-.kb-mindmap-title { font-weight: 600; color: #334155; }
+.kb-mindmap-title { font-weight: 600; color: #334155; display: inline-flex; align-items: center; gap: 6px; }
+.kb-mindmap-ico { flex: none; }
 .kb-mindmap-status { font-size: 12px; }
 .kb-mindmap-status.locked { color: #d97706; }
 .kb-mindmap-status.editing { color: #6366f1; }

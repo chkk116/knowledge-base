@@ -11,7 +11,9 @@ import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
-import { RefreshLeft, RefreshRight, ArrowDown } from '@element-plus/icons-vue'
+import { RefreshLeft, RefreshRight, ArrowDown, Share, QuestionFilled } from '@element-plus/icons-vue'
+import { driver } from 'driver.js'
+import 'driver.js/dist/driver.css'
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -607,8 +609,40 @@ const versionSnippet = (html) => {
   return t.length > 100 ? t.slice(0, 100) + '…' : t
 }
 
+// 漫游式功能引导（driver.js）：首次进入自动播放，之后可点「引导」随时重看
+const TOUR_KEY = 'kb-collab-tour-v1-done'
+function startTour() {
+  const el = (sel) => document.querySelector(sel)
+  const d = driver({
+    showProgress: true,
+    progressText: '{{current}} / {{total}}',
+    nextBtnText: '下一步',
+    prevBtnText: '上一步',
+    doneBtnText: '完成',
+    steps: [
+      { popover: { title: '欢迎使用协同文档', description: '用 30 秒了解一下编辑器的功能布局。' } },
+      { element: el('[data-tour="undo-redo"]'), popover: { title: '撤销 / 重做', description: '编辑错了随时回退，由实时协同引擎保证多人一致。' } },
+      { element: el('[data-tour="heading"]'), popover: { title: '标题与正文', description: '切换段落与各级标题，构建文档结构。' } },
+      { element: el('[data-tour="format"]'), popover: { title: '引用与代码', description: '引用块、代码块、分割线，写技术文档常用。' } },
+      { element: el('[data-tour="list"]'), popover: { title: '列表与待办', description: '无序/有序列表，以及可勾选的待办清单。' } },
+      { element: el('[data-tour="table"]'), popover: { title: '表格', description: '插入表格后可增删行列。' } },
+      { element: el('[data-tour="mindmap"]'), popover: { title: '思维导图 🆕', description: '在文档里直接画思维导图：插入后点「编辑导图」，Tab 加子节点、F2 编辑文字；编辑期间其他人只读。' } },
+      { element: el('[data-tour="snapshot"]'), popover: { title: '快照与版本', description: '手动保存快照；「版本」里可查看 / 回滚任意历史版本。' } },
+      { element: el('[data-tour="presence"]'), popover: { title: '协作状态', description: '这里能看到当前在线的协作者及其光标颜色。开始创作吧！' } },
+    ],
+    onDestroyed: () => localStorage.setItem(TOUR_KEY, '1'),
+  })
+  d.drive()
+}
+
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibility)
+  // 首次进入（可写用户）自动播放一次漫游引导
+  if (props.canWrite && !localStorage.getItem(TOUR_KEY)) {
+    setTimeout(() => {
+      if (!destroyed && editor.value) startTour()
+    }, 1200)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -640,12 +674,12 @@ watch(() => props.canWrite, (w) => {
     <!-- 顶部工具栏（飞书式：白底分组按钮 + 右侧在线状态） -->
     <div class="collab-toolbar">
       <div class="tb-left" v-if="canWrite">
-        <div class="tb-group">
+        <div class="tb-group" data-tour="undo-redo">
           <button class="tb-btn" title="撤销" @click="cmd('undo')"><el-icon :size="15"><RefreshLeft /></el-icon></button>
           <button class="tb-btn" title="重做" @click="cmd('redo')"><el-icon :size="15"><RefreshRight /></el-icon></button>
         </div>
         <span class="tb-sep" />
-        <div class="tb-group">
+        <div class="tb-group" data-tour="heading">
           <button class="tb-btn txt" :class="{ on: on('paragraph') }" title="正文" @click="cmd('paragraph')">正文</button>
           <button class="tb-btn" :class="{ on: on('heading', { level: 1 }) }" title="标题 1" @click="cmd('h1')"><b>H1</b></button>
           <button class="tb-btn" :class="{ on: on('heading', { level: 2 }) }" title="标题 2" @click="cmd('h2')"><b>H2</b></button>
@@ -659,20 +693,20 @@ watch(() => props.canWrite, (w) => {
           <button class="tb-btn code-ic" :class="{ on: on('code') }" title="行内代码" @click="cmd('inlineCode')">&lt;/&gt;</button>
         </div>
         <span class="tb-sep" />
-        <div class="tb-group">
+        <div class="tb-group" data-tour="list">
           <button class="tb-btn" :class="{ on: on('bulletList') }" title="无序列表" @click="cmd('bullet')">•••</button>
           <button class="tb-btn num" :class="{ on: on('orderedList') }" title="有序列表" @click="cmd('ordered')">1.</button>
           <button class="tb-btn chk" :class="{ on: on('taskList') }" title="待办清单" @click="cmd('task')">☑</button>
         </div>
         <span class="tb-sep" />
-        <div class="tb-group">
+        <div class="tb-group" data-tour="format">
           <button class="tb-btn" :class="{ on: on('blockquote') }" title="引用" @click="cmd('quote')">❝</button>
           <button class="tb-btn code-ic" :class="{ on: on('codeBlock') }" title="代码块" @click="cmd('codeBlock')">{&nbsp;}</button>
           <button class="tb-btn dash" title="分割线" @click="cmd('hr')">—</button>
           <button class="tb-btn" title="清除格式" @click="cmd('clear')">✕格式</button>
         </div>
         <span class="tb-sep" />
-        <div class="tb-group">
+        <div class="tb-group" data-tour="table">
           <button class="tb-btn" :class="{ on: on('table') }" title="插入 3×3 表格" @click="cmd('table')">▦ 表格</button>
           <template v-if="on('table')">
             <button class="tb-btn txt" title="在下方插入一行" @click="cmd('addRow')">+行</button>
@@ -683,17 +717,20 @@ watch(() => props.canWrite, (w) => {
           </template>
         </div>
         <span class="tb-sep" />
-        <div class="tb-group">
-          <button class="tb-btn" title="插入思维导图（双击标题编辑，带协同编辑锁）" @click="cmd('mindmap')">🧠 导图</button>
+        <div class="tb-group" data-tour="mindmap">
+          <button class="tb-btn" title="插入思维导图（带协同编辑锁）" @click="cmd('mindmap')"><el-icon :size="15"><Share /></el-icon> 导图</button>
         </div>
         <span class="tb-sep" />
-        <button class="tb-btn txt" :class="{ saving }" title="把当前内容保存为 HTML 快照" @click="saveSnapshot">
+        <button class="tb-btn txt" data-tour="snapshot" :class="{ saving }" title="把当前内容保存为 HTML 快照" @click="saveSnapshot">
           {{ saving ? '保存中…' : '存快照' }}
         </button>
       </div>
 
-      <div class="tb-right">
-        <el-button size="small" class="ver-btn" @click="openVersions" title="查看 / 回滚历史版本">🕑 版本</el-button>
+      <div class="tb-right" data-tour="presence">
+        <el-button size="small" class="ver-btn" @click="startTour" title="漫游式功能引导">
+          <el-icon :size="13" style="margin-right: 4px"><QuestionFilled /></el-icon>引导
+        </el-button>
+        <el-button size="small" class="ver-btn" data-tour="versions" @click="openVersions" title="查看 / 回滚历史版本">🕑 版本</el-button>
         <el-dropdown trigger="click" @command="onExport">
           <el-button size="small" class="export-btn">导出<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
           <template #dropdown>
