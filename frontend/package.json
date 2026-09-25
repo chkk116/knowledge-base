@@ -32,6 +32,7 @@
     "axios": "^1.7.7",
     "element-plus": "^2.8.8",
     "markdown-it": "^14.3.0",
+    "mind-elixir": "^5.15.1",
     "pinia": "^2.2.6",
     "prismjs": "^1.30.0",
     "qrcode": "^1.5.4",

@@ -17,6 +17,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { updateShareDoc, saveShareDocVersion, listShareDocVersions, restoreShareDocVersion } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
+import MindmapNode from '../extensions/MindmapNode'
 import { fromNow, fmtDateTime } from '../utils/time'
 import { errMsg } from '../utils/errMsg'
 
@@ -137,6 +138,7 @@ const editor = useEditor({
     TableHeader,
     TableCell,
     Collaboration.configure({ document: ydoc }),
+    MindmapNode,   // 思维导图块（mind-elixir NodeView + 编辑锁，协同经 Yjs 属性同步）
     // 只读（canWrite=false）时不挂载协同光标扩展：
     // 避免本地光标/选区被广播到其他协作者屏幕上，造成「别人能移动你的光标」的错觉，
     // 同时只读端本身也不应产生可编辑光标。
@@ -179,6 +181,7 @@ function cmd(name) {
     case 'task': c.toggleTaskList().run(); break
     case 'quote': c.toggleBlockquote().run(); break
     case 'codeBlock': c.toggleCodeBlock().run(); break
+    case 'mindmap': c.insertMindmapBlock({ title: '思维导图' }).run(); break
     case 'hr': c.setHorizontalRule().run(); break
     case 'clear': c.unsetAllMarks().clearNodes().run(); break
     case 'table': c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); break
@@ -678,6 +681,10 @@ watch(() => props.canWrite, (w) => {
             <button class="tb-btn txt" title="删除当前列" @click="cmd('delColumn')">删列</button>
             <button class="tb-btn txt danger" title="删除整个表格" @click="cmd('delTable')">删表</button>
           </template>
+        </div>
+        <span class="tb-sep" />
+        <div class="tb-group">
+          <button class="tb-btn" title="插入思维导图（双击标题编辑，带协同编辑锁）" @click="cmd('mindmap')">🧠 导图</button>
         </div>
         <span class="tb-sep" />
         <button class="tb-btn txt" :class="{ saving }" title="把当前内容保存为 HTML 快照" @click="saveSnapshot">
