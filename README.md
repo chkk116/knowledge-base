@@ -118,7 +118,8 @@ CREATE USER kb WITH PASSWORD 'kb';
 CREATE DATABASE kb OWNER kb;
 ```
 
-业务表由 JPA（`ddl-auto: update`）**自动创建，无需手动导表**；`db/*.sql` 为结构约束与数据迁移增量脚本。
+业务表由 JPA（`ddl-auto: update`）**自动创建，无需手动导表**——`update` 模式「只增不删不改」：已有表不重建、已有数据不覆盖，新版加字段时仅自动补列，升级安全。
+`db/*.sql` 为结构约束与数据迁移增量脚本；内置测试账号与示例文档仅在**库为空时**自动插入，已有数据不受影响。
 连接信息在 [`backend/src/main/resources/application.yml`](backend/src/main/resources/application.yml) 的 `spring.datasource` 段（约第 15~18 行），改完保存重启后端即可。
 切回 MySQL：同文件里注释掉 PostgreSQL 四行、启用文件末尾的 MySQL 数据源配置（双驱动均已引入）。
 
