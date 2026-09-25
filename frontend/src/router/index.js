@@ -4,6 +4,7 @@ import { featureMap } from '../api/features'
 
 const routes = [
   { path: '/', component: () => import('../views/Home.vue'), meta: { title: '知识库', maintenance: 'docs' } },
+  { path: '/dev/mindmap-test', component: () => import('../views/DevMindmapTest.vue'), meta: { public: true, title: '导图测试' } },
   { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true, title: '登录' } },
   { path: '/post/:id', component: () => import('../views/PostDetail.vue'), meta: { title: '文档详情', maintenance: 'docs' } },
   // 独立阅读窗口：用 window.open 在桌面弹出真实浏览器窗口，public 以免新窗口被守卫踢回登录
