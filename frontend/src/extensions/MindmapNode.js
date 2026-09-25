@@ -9,8 +9,9 @@ export default Node.create({
   name: 'mindmapBlock',
   group: 'block',
   atom: true,
-  draggable: true,
   selectable: true,
+  // 注意：不要设 draggable——ProseMirror 的块拖拽会与 mind-elixir 内部节点拖拽冲突
+  // （拖拽吸附判定被打断，节点回弹）
 
   addAttributes() {
     return {
