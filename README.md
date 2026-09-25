@@ -131,22 +131,35 @@ IDEA 打开根目录（自动识别 Maven 聚合工程），运行预置配置 `
 cd backend && mvn spring-boot:run
 ```
 
-**启用 AI 问答**（可选，不配置不影响其他功能）——三种方式任选其一：
+**启用 AI 问答**（可选，不配置不影响其他功能）——配置本质是 **OpenAI 兼容三件套**：`base-url`（端点）、`api-key`（密钥）、`model`（模型名）。任何 OpenAI 兼容服务都可用（智谱 / DeepSeek / 通义 / 本地 vLLM 网关等），仓库默认以智谱为例。
+
+三种注入 `api-key` 的方式任选其一：
 
 | 方式 | 操作 | 适合场景 |
 |---|---|---|
 | ① 环境变量（推荐） | 启动前注入 `KB_ZHIPU_API_KEY`（命令见下） | 生产部署 / 不想改文件 |
-| ② 改配置文件 | 打开 `backend/src/main/resources/application.yml`，找到 `kb:` 段下的 `api-key: ${KB_ZHIPU_API_KEY:}`，改成 `api-key: 你的智谱Key`（⚠️ 此改动**不要提交到仓库**） | 本地开发图省事 |
+| ② 改配置文件 | 打开 `backend/src/main/resources/application.yml` 的 `kb.ai.zhipu` 段，将 `api-key: ${KB_ZHIPU_API_KEY:}` 的冒号后填入你的 Key（⚠️ 此改动**不要提交到仓库**） | 本地开发图省事 |
 | ③ 生产部署 | 填写 `deploy/env.prod` 文件里的 `KB_ZHIPU_API_KEY=` 一行 | nginx + env.prod 部署 |
 
 ```bash
 # 方式① 示例
-set KB_ZHIPU_API_KEY=你的智谱Key           # Windows CMD
-$env:KB_ZHIPU_API_KEY="你的智谱Key"        # Windows PowerShell
-export KB_ZHIPU_API_KEY=你的智谱Key        # Linux / macOS
+set KB_ZHIPU_API_KEY=你的Key              # Windows CMD
+$env:KB_ZHIPU_API_KEY="你的Key"           # Windows PowerShell
+export KB_ZHIPU_API_KEY=你的Key           # Linux / macOS
 ```
 
-**Key 获取**：智谱开放平台 https://open.bigmodel.cn 注册 → 控制台 → API Keys 创建。未注入时 AI 模块自动降级不可用，其余功能不受影响；仓库内不存任何真实 Key。
+**换用其他供应商**（以 DeepSeek 为例）：同文件里改三行——
+
+```yaml
+kb:
+  ai:
+    zhipu:          # 段名沿用，本质是 OpenAI 兼容客户端
+      base-url: https://api.deepseek.com/v1
+      api-key: ${KB_ZHIPU_API_KEY:}
+      model: deepseek-chat
+```
+
+**Key 获取**：到你选用的大模型平台控制台创建（各家注册流程类似）。未配置时 AI 模块自动降级不可用，其余功能不受影响；仓库内不存任何真实 Key。
 
 ### 3. 启动前端
 
