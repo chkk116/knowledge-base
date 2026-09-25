@@ -97,9 +97,10 @@ public class RagService {
             return Map.of("answer", "AI 问答暂不可用，请稍后再试或联系管理员。", "sources", List.of());
         }
 
-        // 1. 检索相关知识片段（通用模式跳过检索）
+        // 1. 检索相关知识片段（通用模式跳过检索）；多轮对话时检索词并入最近几轮用户消息，
+        //    解决「怎么申请」「那个怎么弄」这类省略/指代单独检索必然跑偏的问题
         boolean general = "general".equalsIgnoreCase(mode);
-        List<Map<String, Object>> sources = general ? List.of() : retrieve(question.trim());
+        List<Map<String, Object>> sources = general ? List.of() : retrieve(buildSearchQuery(question.trim(), history));
         boolean hasContext = !sources.isEmpty();
 
         // 2. 组装 system prompt：身份 + 知识库概况 + 行为准则 + 对话条例 + 用户习惯
@@ -143,9 +144,14 @@ public class RagService {
             }
         }
         if (hasContext) {
-            String ctx = sources.stream()
-                    .map(s -> "【" + s.getOrDefault("title", "") + "】\n" + s.getOrDefault("snippet", ""))
-                    .collect(java.util.stream.Collectors.joining("\n\n"));
+            // 上下文增强：优先喂「全文中最相关的段落」（fullText），无则回退 160 字摘要
+            StringBuilder ctx = new StringBuilder();
+            for (Map<String, Object> s : sources) {
+                String ft = str(s.get("fullText"));
+                String body = (ft == null || ft.isBlank()) ? str(s.get("snippet")) : ft;
+                if (ctx.length() > 0) ctx.append("\n\n");
+                ctx.append("【").append(s.getOrDefault("title", "")).append("】\n").append(body);
+            }
             messages.add(Map.of("role", "user", "content",
                     "【资料】\n" + ctx + "\n\n【问题】" + question.trim()));
         } else {
@@ -219,6 +225,68 @@ public class RagService {
 
     /** 检索 top-K 片段：优先 Meili，失败/未启用回退 MySQL；返回引用来源（id/title/snippet） */
     @SuppressWarnings("unchecked")
+    /**
+     * 构造检索词：多轮对话时把最近 2 条用户消息并入当前问题，
+     * 解决「怎么申请」「那个怎么弄」这类省略/指代单独检索必然跑偏的问题。
+     * 轻量方案（不做 LLM 查询改写）：拼接即够用——Meili 多词 OR 与 MySQL 逐词兜底都兼容长检索串。
+     */
+    private String buildSearchQuery(String question, List<Map<String, String>> history) {
+        if (history == null || history.isEmpty()) return question;
+        List<String> prevUser = new ArrayList<>();
+        for (Map<String, String> h : history) {
+            if (!"user".equals(h.get("role"))) continue;
+            String c = h.get("content");
+            if (c != null && !c.isBlank()) prevUser.add(c.trim());
+        }
+        if (prevUser.isEmpty()) return question;
+        int from = Math.max(0, prevUser.size() - 2);
+        StringBuilder sb = new StringBuilder();
+        for (String p : prevUser.subList(from, prevUser.size())) {
+            sb.append(p, 0, Math.min(p.length(), 80)).append(' ');
+        }
+        sb.append(question);
+        return sb.toString();
+    }
+
+    /**
+     * 上下文增强：从全文中挑出与问题最相关的段落喂给模型（此前只有 160 字摘要，上下文严重不足）。
+     * 切块优先按换行（纯文本段落），无换行则按 300 字窗口；评分用问题 2-gram 命中数（无中文分词依赖）；
+     * 取 top-2 段落拼接（截 1200 字），无任何命中时回退文档开头 800 字。
+     */
+    private String focusParagraphs(String content, String query) {
+        if (content == null || content.isBlank()) return "";
+        content = content.trim();
+        if (content.length() <= 800) return content;
+        List<String> blocks = new ArrayList<>();
+        String[] paras = content.split("\n+");
+        if (paras.length > 1) {
+            for (String p : paras) {
+                String t = p.trim();
+                if (t.length() >= 20) blocks.add(t.length() > 300 ? t.substring(0, 300) : t);
+            }
+        }
+        if (blocks.isEmpty()) {
+            for (int i = 0; i < content.length(); i += 280) {
+                blocks.add(content.substring(i, Math.min(content.length(), i + 300)));
+            }
+        }
+        String q = query == null ? "" : query;
+        java.util.Set<String> grams = new java.util.HashSet<>();
+        for (int i = 0; i + 2 <= q.length(); i++) grams.add(q.substring(i, i + 2));
+        String best1 = null, best2 = null;
+        int s1 = 0, s2 = 0;
+        for (String b : blocks) {
+            int score = 0;
+            for (String g : grams) if (b.contains(g)) score++;
+            if (score > s1) { s2 = s1; best2 = best1; s1 = score; best1 = b; }
+            else if (score > s2) { s2 = score; best2 = b; }
+        }
+        String result = (best1 == null)
+                ? content.substring(0, Math.min(content.length(), 800))
+                : (best2 == null || best2.equals(best1) ? best1 : best1 + "\n…\n" + best2);
+        return result.length() > 1200 ? result.substring(0, 1200) : result;
+    }
+
     private List<Map<String, Object>> retrieve(String q) {
         List<Map<String, Object>> out = new ArrayList<>();
         if (meili != null && meili.isEnabled()) {
@@ -240,6 +308,8 @@ public class RagService {
                     s.put("id", h.get("id"));
                     s.put("title", title);
                     s.put("snippet", snippet);
+                    // 上下文增强：Meili hit 自带全文（纯文本），挑出与问题最相关的段落喂给模型
+                    s.put("fullText", focusParagraphs(str(h.get("content")), q));
                     out.add(s);
                 }
                 if (!out.isEmpty()) return out;
@@ -306,6 +376,11 @@ public class RagService {
         s.put("id", d.getId());
         s.put("title", d.getTitle());
         s.put("snippet", snippet);
+        // 上下文增强：MySQL 兜底分支同样提供相关段落（关键词窗口取双倍长度再聚焦）
+        String focusBase = (bestStart >= 0)
+                ? text.substring(bestStart, Math.min(text.length(), bestStart + FRAG_LEN * 3))
+                : text;
+        s.put("fullText", focusParagraphs(focusBase, String.join(" ", kws)));
         return s;
     }
 
