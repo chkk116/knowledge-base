@@ -291,7 +291,7 @@ public class NotificationService {
     }
 
     /** 全部标记已读：批量写入需事务，否则中途失败会留下「一半已读一半未读」 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void markAllRead(Long userId) {
         List<Notification> all = repo.findByUserIdOrderByCreatedAtDesc(userId);
         for (Notification n : all) n.setRead(true);
@@ -312,7 +312,7 @@ public class NotificationService {
 
     /** 批量删除：仅删除 id 列表中真正属于该用户的通知（其余忽略，不报错）。
      *  deleteByUserIdAndIdIn 是 JPQL DELETE 修改查询，必须有事务包裹。 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteMany(List<Long> ids, Long userId) {
         if (ids == null || ids.isEmpty()) return;
         repo.deleteByUserIdAndIdIn(userId, ids);
@@ -320,7 +320,7 @@ public class NotificationService {
     }
 
     /** 清空本人全部通知（deleteByUserId 为修改查询，需事务） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteAll(Long userId) {
         repo.deleteByUserId(userId);
         sse.pushUnread(userId, 0);   // 全部清空，未读数归零

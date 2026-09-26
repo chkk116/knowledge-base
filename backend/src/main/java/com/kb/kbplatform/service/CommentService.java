@@ -119,7 +119,7 @@ public class CommentService {
      * 需要事务：评论入库 + 最多 3 处通知写入（@提及 / 回复 / 作者）必须一起成功，
      * 否则会出现「评论已发出但作者收不到通知」的静默不一致。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Comment add(String targetType, Long targetId, TokenClaims claims, String rawContent, Long parentId) {
         String content = HtmlSanitizer.sanitize(rawContent);
         if (content == null || content.isBlank()) {
@@ -165,7 +165,7 @@ public class CommentService {
     }
 
     /** 删除自己的评论：仅评论作者本人可删（按 username 判定归属，兼容旧数据 userId 为空的情况） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteOwn(Long id, TokenClaims claims) {
         if (claims == null) throw new ResponseStatusException(FORBIDDEN, "请先登录");
         Comment c = repo.findById(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "评论不存在"));
@@ -178,7 +178,7 @@ public class CommentService {
     }
 
     /** 管理员删除（保留原语义） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         likeRepo.deleteByCommentId(id);
         repo.deleteById(id);

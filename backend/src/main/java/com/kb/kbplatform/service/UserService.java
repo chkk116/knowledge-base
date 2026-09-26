@@ -72,7 +72,7 @@ public class UserService {
         return m;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     @CacheEvict(cacheNames = "userCard", allEntries = true)
     public boolean follow(Long viewerId, Long targetId) {
         if (viewerId.equals(targetId)) {
@@ -88,7 +88,7 @@ public class UserService {
         return true;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     @CacheEvict(cacheNames = "userCard", allEntries = true)
     public boolean unfollow(Long viewerId, Long targetId) {
         followRepo.deleteByFollowerIdAndFollowingId(viewerId, targetId);

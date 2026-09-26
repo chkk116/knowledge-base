@@ -90,7 +90,7 @@ public class CourseService {
     }
 
     /** 登录：标记某章节完成（已存在则更新，幂等）；首次完成时奖励学习积分 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public LearningProgress finishChapter(Long userId, Long courseId, Long chapterId) {
         if (!chapterRepo.findById(chapterId).map(c -> c.getCourseId().equals(courseId)).orElse(false)) {
             throw new IllegalArgumentException("章节不属于该课程");
@@ -207,7 +207,7 @@ public class CourseService {
 
     /** 删除课程：先清章节（deleteByCourseId 为修改查询，必须包在事务里，否则报
      *  "No active transaction for update or delete query"） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         chapterRepo.deleteByCourseId(id);
         courseRepo.deleteById(id);
@@ -220,7 +220,7 @@ public class CourseService {
     }
 
     /** 删除章节：一并清掉该章节的学习进度，否则进度表残留指向已删章节的孤儿记录 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteChapter(Long id) {
         progressRepo.deleteByChapterId(id);
         chapterRepo.deleteById(id);

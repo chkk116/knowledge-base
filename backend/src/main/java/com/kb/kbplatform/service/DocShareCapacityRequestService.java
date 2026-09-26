@@ -41,7 +41,7 @@ public class DocShareCapacityRequestService {
     }
 
     /** 空间 OWNER/ADMIN 提交扩容申请 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocShareCapacityRequest submit(Long shareId, TokenClaims c, Long requestedCapacity, String reason) {
         Long uid = resolveUserId(c);
         DocShare s = docShareService.get(shareId, uid, isSysAdmin(c));   // 校验可读
@@ -84,7 +84,7 @@ public class DocShareCapacityRequestService {
     }
 
     /** 审批通过：自动将空间容量上限调整为申请值（复用 DocShareService.update） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocShareCapacityRequest approve(Long requestId, TokenClaims c) {
         requireAdmin(c);
         DocShareCapacityRequest r = repo.findByIdLocked(requestId)
@@ -108,7 +108,7 @@ public class DocShareCapacityRequestService {
     }
 
     /** 驳回 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocShareCapacityRequest reject(Long requestId, TokenClaims c, String comment) {
         requireAdmin(c);
         DocShareCapacityRequest r = repo.findByIdLocked(requestId)

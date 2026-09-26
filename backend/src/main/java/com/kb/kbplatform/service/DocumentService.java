@@ -210,7 +210,7 @@ public class DocumentService {
         }
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document create(Document d) {
         applyCreateWhitelist(d, "PUBLISHED");
         Document saved = repo.save(d);
@@ -225,7 +225,7 @@ public class DocumentService {
     /** 普通用户写帖：作者固定为当前用户。
      *  非法/缺失状态回退为 PENDING_REVIEW（而非 PUBLISHED）——否则客户端伪造
      *  status=BLOCKED 之类会被白名单回退成已发布，绕过审核（F01 补丁）。 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document createAs(Document d, Long ownerId) {
         applyCreateWhitelist(d, "PENDING_REVIEW");
         d.setOwnerId(ownerId);
@@ -244,7 +244,7 @@ public class DocumentService {
     }
 
     /** 管理员：置顶（列表优先展示） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document pin(Long id) {
         Document d = get(id);
         d.setPinned(true);
@@ -253,7 +253,7 @@ public class DocumentService {
     }
 
     /** 管理员：取消置顶 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document unpin(Long id) {
         Document d = get(id);
         d.setPinned(false);
@@ -296,7 +296,7 @@ public class DocumentService {
      *    持 DOC_REVIEW 的审核人只能预览待审核文档，不能查看他人的草稿或封禁文档；
      *    其余人访问按“不存在/已下架”处理。
      *  预览不做任何写入（不累计浏览量、不发热帖奖励）。 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document view(Long id, TokenClaims c) {
         Document d = get(id);
         boolean published = "PUBLISHED".equals(d.getStatus());
@@ -320,7 +320,7 @@ public class DocumentService {
     }
 
     /** 管理员用：不校验归属，直接改 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document update(Long id, Document patch, Long editorId) {
         Document d = get(id);
         String previousStatus = d.getStatus();
@@ -346,7 +346,7 @@ public class DocumentService {
      *  业务规则（2026-09-11 拍板）：已发布文章一经修改必须重新审核——
      *  作者编辑已发布文档 → 状态回到 PENDING_REVIEW 并通知管理员；发布积分按修订版结算，
      *  离开已发布状态时原路扣回，审核通过再次发放，保证「每个过审修订版恰好对应一次积分」（F06 补充口径）。 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document updateOwn(Long id, Document patch, Long ownerId) {
         Document d = get(id);
         if (!Objects.equals(d.getOwnerId(), ownerId)) {
@@ -458,7 +458,7 @@ public class DocumentService {
     }
 
     /** 移动文档：换父节点（null = 移到该空间根级）+ 可选同级排序号。禁止移到自己或自己的子孙下 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document moveDoc(Long id, Long newParentId, Integer sortOrder, TokenClaims c) {
         Document d = get(id);
         boolean admin = c != null && "ADMIN".equals(c.role());
@@ -514,7 +514,7 @@ public class DocumentService {
 
     /** 版本历史：回滚到指定版本（回滚前先存当前快照，避免覆盖丢失）。
      *  业务规则（规则 A/B）：非管理员把「已发布」文档回滚 → 视同修改，转入重新审核并按修订版结算积分 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document restoreVersion(Long docId, Long vid, Long editorId) {
         Document d = get(docId);
         DocumentVersion v = getVersion(vid);
@@ -560,7 +560,7 @@ public class DocumentService {
     }
 
     /** 普通用户删除自己的帖子：校验归属，否则 403。软删除（移入回收站），保留恢复与彻底删除能力 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteOwn(Long id, Long ownerId) {
         Document d = get(id);
         if (!Objects.equals(d.getOwnerId(), ownerId)) {
@@ -570,7 +570,7 @@ public class DocumentService {
         auditDoc("DELETE_DOC", ownerId, d.getId(), d.getTitle(), "将文档《" + clip(d.getTitle()) + "》移入回收站");
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void block(Long id) {
         Document d = get(id);
         String previousStatus = d.getStatus();
@@ -603,7 +603,7 @@ public class DocumentService {
         repo.saveAll(children);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void unblock(Long id) {
         Document d = get(id);
         d.setStatus("PUBLISHED");
@@ -612,7 +612,7 @@ public class DocumentService {
     }
 
     /** 作者提交审核：草稿 → 待审核（校验归属） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document submitForReview(Long id, Long ownerId) {
         Document d = get(id);
         if (!Objects.equals(d.getOwnerId(), ownerId)) {
@@ -634,7 +634,7 @@ public class DocumentService {
      * 新建即进入待审核（普通用户发文章被直接置为 PENDING_REVIEW）时通知管理员。
      * 与 submitForReview 共用同一通知逻辑，避免「写文章」绕过审核通知。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyReviewSubmitIfPending(Document d, Long ownerId) {
         if (d != null && "PENDING_REVIEW".equals(d.getStatus())) {
             notifyReviewSubmit(d, ownerId);
@@ -649,7 +649,7 @@ public class DocumentService {
 
     /** 作者撤回：待审核 → 草稿（审核前可拉回）；已发布 → 草稿（下架自己的文章重新修改）。
      *  仅作者本人或管理员可操作。已发布撤回时扣回发布积分，避免「撤回→重新提交→再通过」反复刷分。 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document withdraw(Long id, Long ownerId, boolean isAdmin) {
         Document d = get(id);
         String st = d.getStatus();
@@ -676,7 +676,7 @@ public class DocumentService {
 
     /** 管理员通过审核：待审核 → 已发布，并首次发放积分。
      *  必须校验当前状态：审核人页面停留期间作者可能已撤回为草稿，此时旧审核动作不得把草稿发布出去（F06） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document approve(Long id) {
         Document d = get(id);
         if (!"PENDING_REVIEW".equals(d.getStatus())) {
@@ -694,7 +694,7 @@ public class DocumentService {
     }
 
     /** 管理员驳回：待审核 → 退回草稿，并记录驳回理由（作者可见）。理由必填，否则 400 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document reject(Long id, String reason) {
         Document d = get(id);
         if (!"PENDING_REVIEW".equals(d.getStatus())) {
@@ -713,7 +713,7 @@ public class DocumentService {
     }
 
     /** 管理员删除：软删除（移入回收站）。审计由 AdminDocController 负责，避免重复 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         Document d = get(id);
         moveToRecycle(d);
@@ -878,7 +878,7 @@ public class DocumentService {
     }
 
     /** 从回收站恢复：清除软删除标记并重新进 Meili 索引（仅当已发布） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Document restore(Long id, Long actorId, boolean isAdmin) {
         Document d = repo.findIncludingDeletedById(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "文档不存在"));
         if (!isAdmin && !Objects.equals(d.getOwnerId(), actorId)) {
@@ -898,7 +898,7 @@ public class DocumentService {
      * 业务规则（2026-09-11 拍板）：「彻底删除」就是真删——作者/管理员可直接彻底删除，
      * 不强制先进回收站；同时统一清理全部关联记录，不留孤儿数据。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void purge(Long id, Long actorId, boolean isAdmin) {
         Document d = repo.findIncludingDeletedById(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "文档不存在"));
         if (!isAdmin && !Objects.equals(d.getOwnerId(), actorId)) {

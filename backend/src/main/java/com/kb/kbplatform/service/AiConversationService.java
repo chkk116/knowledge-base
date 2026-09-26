@@ -43,7 +43,7 @@ public class AiConversationService {
         return convRepo.findByUserIdOrderByUpdatedAtDesc(userId);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public AiConversation create(Long userId, String title) {
         long count = convRepo.countByUserId(userId);
         if (count >= MAX_CONVERSATIONS) {
@@ -60,7 +60,7 @@ public class AiConversationService {
         return convRepo.save(c);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public AiConversation update(Long userId, Long id, String title, String instructions) {
         AiConversation c = convRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在"));
@@ -72,7 +72,7 @@ public class AiConversationService {
         return convRepo.save(c);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long userId, Long id) {
         AiConversation c = convRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在"));
@@ -191,7 +191,7 @@ public class AiConversationService {
         return parsePersona(persona);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> savePreference(Long userId, Map<String, Object> body) {
         User u = userRepo.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在"));

@@ -84,7 +84,7 @@ public class AdminService {
                 enabled, PageRequest.of(page, size, s));
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public User createUser(CreateReq r) {
         if (r.username == null || r.username.isBlank()) {
             throw new IllegalArgumentException("用户名不能为空");
@@ -115,7 +115,7 @@ public class AdminService {
         return userRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public User updateUser(Long id, UpdateReq r) {
         User u = userRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
         // 身份类字段（角色 / 权限 / 启用状态）一旦变更，必须让该用户的旧 token 立即失效。
@@ -192,13 +192,13 @@ public class AdminService {
         return userRepo.save(u);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteUser(Long id) {
         userRepo.deleteById(id);
     }
 
     /** 管理员重置密码：生成 10 位随机密码并写回（原密码失效），返回明文供管理员转交用户（无 SMTP 故不发邮件） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public String resetPassword(Long id) {
         User u = userRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
         String raw = genRandomPassword();
@@ -217,7 +217,7 @@ public class AdminService {
         return sb.toString();
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public User toggleUser(Long id, boolean enabled) {
         User u = userRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
         u.setEnabled(enabled);

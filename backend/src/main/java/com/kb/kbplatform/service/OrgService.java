@@ -62,7 +62,7 @@ public class OrgService {
         return roleRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("角色不存在"));
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Role createRole(RoleReq r) {
         if (r.name == null || r.name.isBlank()) throw new IllegalArgumentException("角色名称不能为空");
         if (r.code == null || r.code.isBlank()) throw new IllegalArgumentException("角色编码不能为空");
@@ -79,7 +79,7 @@ public class OrgService {
         return roleRepo.save(role);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Role updateRole(Long id, RoleReq r) {
         Role role = getRole(id);
         if (role.isBuiltin()) throw new IllegalArgumentException("系统内置角色不可修改");
@@ -106,7 +106,7 @@ public class OrgService {
         return saved;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteRole(Long id) {
         Role role = getRole(id);
         if (role.isBuiltin()) throw new IllegalArgumentException("系统内置角色不可删除");
@@ -124,7 +124,7 @@ public class OrgService {
         return departmentRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("部门不存在"));
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Department createDepartment(DeptReq r) {
         if (r.name == null || r.name.isBlank()) throw new IllegalArgumentException("部门名称不能为空");
         Department d = new Department();
@@ -136,7 +136,7 @@ public class OrgService {
         return departmentRepo.save(d);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Department updateDepartment(Long id, DeptReq r) {
         Department d = getDepartment(id);
         if (r.name != null && !r.name.isBlank()) d.setName(r.name.trim());
@@ -151,7 +151,7 @@ public class OrgService {
         return departmentRepo.save(d);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteDepartment(Long id) {
         if (!departmentRepo.findByParentIdOrderBySortOrderAsc(id).isEmpty()) {
             throw new IllegalArgumentException("该部门下存在子部门，无法删除（请先移除子部门）");
@@ -183,7 +183,7 @@ public class OrgService {
     // ==================== 部门成员 ====================
 
     /** 批量把用户加入部门（若原属其他部门则移动过去）；返回实际分配人数 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public int assignMembers(Long deptId, List<Long> userIds) {
         getDepartment(deptId);
         int n = 0;
@@ -201,7 +201,7 @@ public class OrgService {
     }
 
     /** 把用户移出部门（departmentId 置空） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void removeMember(Long deptId, Long userId) {
         User u = userRepo.findById(userId).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
         if (u.getDepartmentId() == null || !deptId.equals(u.getDepartmentId())) {
@@ -221,7 +221,7 @@ public class OrgService {
     }
 
     /** 整体替换用户角色（仅落库，不 bump tokenVersion，由调用方统一处理失效） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void setUserRoles(Long userId, List<Long> roleIds) {
         userRoleRepo.deleteByUserId(userId);
         if (roleIds == null) return;
@@ -237,7 +237,7 @@ public class OrgService {
     }
 
     /** 设置用户所属部门（仅落库，不 bump tokenVersion；deptId 为 null 表示清除部门） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void setUserDepartment(Long userId, Long deptId) {
         User u = userRepo.findById(userId).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
         if (deptId != null && !departmentRepo.existsById(deptId)) {

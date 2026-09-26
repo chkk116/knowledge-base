@@ -40,7 +40,7 @@ public class AnnouncementService {
         return repo.findAllByOrderByPinnedDescSortOrderAscUpdatedAtDesc(pageable);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Announcement create(String title, String content, boolean pinned, int sortOrder, Long createdBy) {
         title = (title == null ? "" : title.trim());
         if (title.isEmpty()) throw new IllegalArgumentException("公告标题不能为空");
@@ -56,7 +56,7 @@ public class AnnouncementService {
         return repo.save(a);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Announcement update(Long id, String title, String content, Boolean pinned, Integer sortOrder, Boolean enabled) {
         Announcement a = repo.findById(id).orElseThrow(() -> new IllegalArgumentException("公告不存在"));
         if (title != null && !title.trim().isEmpty()) a.setTitle(title.trim());
@@ -68,13 +68,13 @@ public class AnnouncementService {
         return repo.save(a);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         repo.deleteById(id);
     }
 
     /** 快捷置顶/取消置顶 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Announcement togglePin(Long id) {
         Announcement a = repo.findById(id).orElseThrow(() -> new IllegalArgumentException("公告不存在"));
         a.setPinned(!a.isPinned());
@@ -83,7 +83,7 @@ public class AnnouncementService {
     }
 
     /** 快捷启用/禁用 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Announcement toggleEnabled(Long id) {
         Announcement a = repo.findById(id).orElseThrow(() -> new IllegalArgumentException("公告不存在"));
         a.setEnabled(!a.isEnabled());

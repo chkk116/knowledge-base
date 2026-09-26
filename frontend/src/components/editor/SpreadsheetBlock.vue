@@ -101,7 +101,7 @@ function mountSheet() {
     col: { len: 26, width: 100, indexWidth: 60, minWidth: 60 },
   })
     .loadData(parseData())
-    .change((d) => {
+    .change(() => {
       if (!editing.value) return   // 只读端绝不写回
       dirty.value = true
     })

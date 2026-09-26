@@ -61,7 +61,7 @@ public class FeatureFlagService {
      * 跨 bean 调用确保 @Transactional 由 Spring 代理正常开启，避免
      * ApplicationRunner 自调用导致的事务失效（No active transaction）。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void ensureDefaults(java.util.List<FeatureFlag> defaults) {
         for (FeatureFlag def : defaults) {
             if (repo.findByFeatureKey(def.getFeatureKey()).isEmpty()) {
@@ -71,7 +71,7 @@ public class FeatureFlagService {
     }
 
     /** 切换某功能开关；返回切换后的记录 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public FeatureFlag setEnabled(String featureKey, boolean enabled) {
         FeatureFlag f = repo.findByFeatureKey(featureKey)
                 .orElseThrow(() -> new IllegalArgumentException("未知功能：" + featureKey));
@@ -84,7 +84,7 @@ public class FeatureFlagService {
      * 编辑某功能的完整维护状态（核心维护页「编辑」用）：
      * 可改 enabled / 维护公告 / 预计恢复时间 / 跳转的后台管理页，其余字段（featureKey/label/description/groupKey）不允许改。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public FeatureFlag updateFeature(String featureKey, FeatureEditReq req) {
         FeatureFlag f = repo.findByFeatureKey(featureKey)
                 .orElseThrow(() -> new IllegalArgumentException("未知功能：" + featureKey));

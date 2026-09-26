@@ -57,19 +57,19 @@ public class AuthService {
      * 必须标注事务：内部自调用 awardPoints 不会触发 AOP，事务不被继承；而 addPointsRaw 是
      * @Modifying 更新查询，无事务会抛 "No active transaction for update or delete query"。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void addPoints(String username, int delta) {
         userRepo.findByUsername(username).ifPresent(u -> awardPoints(u.getId(), delta, "SYSTEM", "系统调整"));
     }
 
     /** 按用户 id 累加积分（无明细记录，按系统调整处理） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void addPointsByUserId(Long userId, int delta) {
         awardPoints(userId, delta, "SYSTEM", "系统调整");
     }
 
     /** 管理员手动调整积分：写入 ADJUST 类型明细，便于追溯 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void adjustPoints(Long userId, int delta, String reason) {
         awardPoints(userId, delta, "ADJUST", reason == null || reason.isBlank() ? "管理员调整" : reason);
     }
@@ -81,7 +81,7 @@ public class AuthService {
      * @param reason 变动说明（如「发布《标题》」）
      * @return 变动后的积分余额
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public int awardPoints(Long userId, int delta, String type, String reason) {
         if (delta == 0) return 0;
         User u = userRepo.findById(userId).orElse(null);

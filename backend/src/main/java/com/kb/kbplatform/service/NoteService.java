@@ -27,7 +27,7 @@ public class NoteService {
     }
 
     /** 保存笔记：同一 (userId, chapterId) 幂等 upsert */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public String saveNote(Long userId, Long chapterId, String content) {
         if (content == null) content = "";
         CourseNote n = repo.findByUserIdAndChapterId(userId, chapterId).orElseGet(() -> {

@@ -176,7 +176,7 @@ public class DocShareService {
     }
 
     /** 设置某文档对某个空间成员的权限（READ/WRITE/ADMIN）；传与空间权限相同的值即视为清除单独设置（回退继承） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SharedDocPermission setDocMember(Long shareId, Long docId, Long targetUserId, String permission,
                                            Long userId, boolean sysAdmin) {
         if (!canAdminDoc(shareId, docId, userId, sysAdmin))
@@ -213,7 +213,7 @@ public class DocShareService {
     }
 
     /** 清除某文档对某个成员的单独权限（回退继承空间权限） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void clearDocMember(Long shareId, Long docId, Long targetUserId, Long userId, boolean sysAdmin) {
         if (!canAdminDoc(shareId, docId, userId, sysAdmin))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要文档管理员权限");
@@ -284,7 +284,7 @@ public class DocShareService {
 
     // ---------- 共享空间 CRUD ----------
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocShare create(String name, String description, Long ownerId, String type, Long capacity, String color,
                            List<Long> memberIds, String memberPermission) {
         if (name == null || name.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "空间名称不能为空");
@@ -467,7 +467,7 @@ public class DocShareService {
         return s;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocShare update(Long shareId, String name, String description, String status, Long capacity, Long userId, boolean sysAdmin) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
@@ -479,7 +479,7 @@ public class DocShareService {
         return shareRepo.save(s);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long shareId, Long userId, boolean sysAdmin) {
         DocShare s = shareRepo.findById(shareId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "共享空间不存在"));
         if (!sysAdmin && !s.getOwnerId().equals(userId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只有所有者或系统管理员可删除空间");
@@ -498,7 +498,7 @@ public class DocShareService {
         return list;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocSharePermission addMember(Long shareId, Long targetUserId, String permission, Long userId, boolean sysAdmin) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
@@ -521,7 +521,7 @@ public class DocShareService {
         return saved;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocSharePermission updateMember(Long shareId, Long targetUserId, String permission, Long userId, boolean sysAdmin) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
@@ -537,7 +537,7 @@ public class DocShareService {
         return saved;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void removeMember(Long shareId, Long targetUserId, Long userId, boolean sysAdmin) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
@@ -587,7 +587,7 @@ public class DocShareService {
         return d;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SharedDocument createDoc(Long shareId, String title, String content, Long userId, boolean sysAdmin) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canWrite(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要写入权限");
@@ -618,7 +618,7 @@ public class DocShareService {
         return saved;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SharedDocument updateDoc(Long shareId, Long docId, String title, String content, Long userId, boolean sysAdmin) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canWriteDoc(shareId, docId, userId, sysAdmin))
@@ -646,7 +646,7 @@ public class DocShareService {
         return saved;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteDoc(Long shareId, Long docId, Long userId, boolean sysAdmin) {
         DocShare s = get(shareId, userId, sysAdmin);
         // 空间管理员可删任意文档；文档所有者（创建者）可删自己的文档；文档级 ADMIN 也可管理该文档
@@ -661,7 +661,7 @@ public class DocShareService {
         shareRepo.save(s);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SharedDocument moveDoc(Long shareId, Long docId, Long targetShareId, Long userId, boolean sysAdmin) {
         DocShare src = get(shareId, userId, sysAdmin);
         SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
@@ -689,7 +689,7 @@ public class DocShareService {
     // ---------- 共享文档版本历史 ----------
 
     /** 手动保存当前文档状态为一份版本快照（标题 / 正文 / 协同态） */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void snapshotSharedDoc(Long shareId, Long docId, Long editorId, boolean sysAdmin) {
         getDoc(shareId, docId, editorId, sysAdmin); // 校验可读
         SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
@@ -711,7 +711,7 @@ public class DocShareService {
     }
 
     /** 恢复到指定版本：写回 title/content/yjs_state；协同端下次加载（重连）即生效。恢复前自动留一份当前快照 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SharedDocument restoreSharedDocVersion(Long shareId, Long docId, Long vid, Long editorId, boolean sysAdmin) {
         SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));

@@ -53,7 +53,7 @@ public class DocSubscriptionService {
     /** 取消订阅（未订阅也不报错，返回 false 表示本来就没订阅）。
      *  注意：deleteByUserAndDoc 是 JPQL DELETE 修改查询，必须在事务内执行，否则报
      *  "No active transaction for update or delete query"。 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public boolean unsubscribe(Long userId, Long docId) {
         return repo.deleteByUserAndDoc(userId, docId) > 0;
     }

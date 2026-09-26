@@ -45,7 +45,7 @@ public class DocShareCreateRequestService {
     }
 
     /** 有 SHARE_CREATE 权限但已达团队空间上限的用户提交创建申请 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocShareCreateRequest submit(TokenClaims c, Map<String, Object> body) {
         Long uid = resolveUserId(c);
         String name = str(body.get("requestedName"));
@@ -84,7 +84,7 @@ public class DocShareCreateRequestService {
     }
 
     /** 审批通过：自动创建团队空间（申请人成为所有者），容量沿用默认 2GB，并附带入成员 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocShareCreateRequest approve(Long requestId, TokenClaims c) {
         requireAdmin(c);
         DocShareCreateRequest r = repo.findByIdLocked(requestId)
@@ -117,7 +117,7 @@ public class DocShareCreateRequestService {
     }
 
     /** 驳回 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DocShareCreateRequest reject(Long requestId, TokenClaims c, String comment) {
         requireAdmin(c);
         DocShareCreateRequest r = repo.findByIdLocked(requestId)

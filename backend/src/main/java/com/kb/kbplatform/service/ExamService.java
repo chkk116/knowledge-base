@@ -163,7 +163,7 @@ public class ExamService {
     }
 
     /** 超时未交的记录按 0 分关闭（不判分、不发分），避免永久占位导致无法重新考试 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     protected void settleExpired(ExamRecord rec) {
         rec.setScore(0);
         rec.setPassed(false);
@@ -176,7 +176,7 @@ public class ExamService {
 
     /** 提交试卷并自动阅卷（客观题判分，主观题记 0 待人工）；首次提交且及格时奖励考试积分。
      *  幂等 + 限时（F07/F08）：已提交直接返回首次结果；超时（含宽限）拒绝；并发提交只有一条能判分发分。 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ExamRecord submit(Long userId, Long recordId, List<AnswerItem> items) {
         ExamRecord rec = recordRepo.findById(recordId).orElseThrow(() -> new IllegalArgumentException("考试记录不存在"));
         if (!rec.getUserId().equals(userId)) throw new ResponseStatusException(FORBIDDEN, "无权提交该考试");
@@ -299,7 +299,7 @@ public class ExamService {
     }
 
     /** 保存题目：选项清理为派生删除（需事务），且多步写入需原子 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Question adminSaveQuestion(Question q, List<QuestionOption> options) {
         if (q.getContent() == null || q.getContent().isBlank()) throw new IllegalArgumentException("题干不能为空");
         if (q.getType() == null || q.getType().isBlank()) q.setType("SINGLE");
@@ -326,14 +326,14 @@ public class ExamService {
     }
 
     /** 删除题目：选项清理为修改查询，需事务 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void adminDeleteQuestion(Long id) {
         optionRepo.deleteByQuestionId(id);
         questionRepo.deleteById(id);
     }
 
     /** 保存试卷：与 adminDeletePaper / assemble 一致，需要事务保证多步写入原子 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ExamPaper adminSavePaper(ExamPaper p) {
         if (p.getTitle() == null || p.getTitle().isBlank()) throw new IllegalArgumentException("试卷标题不能为空");
         if (p.getStatus() == null || p.getStatus().isBlank()) p.setStatus("PUBLISHED");
@@ -352,7 +352,7 @@ public class ExamService {
     }
 
     /** 删除试卷：连带清理试卷题目与作答记录，整体需事务保证原子性 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void adminDeletePaper(Long id) {
         pqRepo.deleteByPaperId(id);
         // 按试卷批量清理作答明细与考试记录（单条 DELETE），替代原「全表扫描 + 逐条 N+1 删除」
@@ -363,7 +363,7 @@ public class ExamService {
 
     /** 组卷：替换试卷题目与分值，并回写总分/题量 */
     /** 组卷：先清空旧题目再写入新题目，需事务保证不出现半套卷 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ExamPaper assemble(Long paperId, List<PaperItem> items) {
         ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
         if (items == null || items.isEmpty()) throw new IllegalArgumentException("试卷至少包含一道题");
