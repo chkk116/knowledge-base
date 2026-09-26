@@ -73,6 +73,10 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
     private Process relayProcess;
     private volatile boolean stopping = false;
 
+    /** 中继异常退出后的自动重启上限（防 crash loop 刷日志）；间隔 5s */
+    private static final int MAX_RESTARTS = 5;
+    private static final long RESTART_DELAY_MS = 5000;
+
     @Override
     public void run(ApplicationArguments args) {
         if (!enabled) {
@@ -80,10 +84,11 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
             return;
         }
         // 后台启动，避免 npm install 拖慢应用启动
-        CompletableFuture.runAsync(this::launch);
+        CompletableFuture.runAsync(this::supervise);
     }
 
-    private void launch() {
+    /** 中继守护循环：启动 → 监视退出 → 非主动关闭则延迟重启（带上限）；端口已被占则复用已有中继 */
+    private void supervise() {
         File relayDir = resolveRelayDir();
         if (relayDir == null || !relayDir.isDirectory()) {
             log.warn("[relay] 中继目录不存在：{}，协同编辑将不可用（请在 kb.collab.relay-dir 配置正确路径）", relayDirRaw);
@@ -105,6 +110,44 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
             }
         }
 
+        int restarts = 0;
+        while (!stopping) {
+            // 预检端口：已被监听 = 大概率已有中继在跑（如强杀后端留下的孤儿进程）。
+            // 前端只连 ws://host:1234，谁拉起的中继无所谓——直接复用，避免 EADDRINUSE 反复崩溃。
+            // （本地密钥已持久化到用户目录，复用旧中继的令牌校验依然有效。）
+            if (portOccupied()) {
+                log.info("[relay] 端口 {} 已被监听，判定已有协同中继在运行——直接复用，不再自启", port);
+                return;
+            }
+            Process p = startRelay(relayDir);
+            if (p == null) {
+                if (stopping) return;
+            } else {
+                try {
+                    int code = p.waitFor();   // 同步监视退出
+                    if (stopping) return;
+                    log.error("[relay] 协同中继进程异常退出（exit={}）", code);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            if (++restarts > MAX_RESTARTS) {
+                log.error("[relay] 已连续 {} 次启动/重启失败，放弃自动重启（协同编辑不可用）。排查环境后重启应用即可恢复", MAX_RESTARTS);
+                return;
+            }
+            log.warn("[relay] {}ms 后自动重启中继（第 {}/{} 次）…", RESTART_DELAY_MS, restarts, MAX_RESTARTS);
+            try {
+                Thread.sleep(RESTART_DELAY_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    /** 拉起中继进程并桥接日志；失败返回 null（日志已打） */
+    private Process startRelay(File relayDir) {
         try {
             List<String> cmd = new ArrayList<>();
             cmd.add(nodePath);
@@ -128,19 +171,19 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
             relayProcess = pb.start();
             // 将中继日志桥接到应用日志，便于在后端控制台统一观察
             bridgeOutput(relayProcess);
-            // 进程退出监控：非主动关闭时告警（协同功能中断）
-            CompletableFuture.runAsync(() -> {
-                try {
-                    int code = relayProcess.waitFor();
-                    if (!stopping) {
-                        log.error("[relay] 协同中继进程已退出（exit={}），实时协同编辑将不可用，请检查日志与 Node 环境", code);
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            });
+            return relayProcess;
         } catch (Exception e) {
             log.error("[relay] 启动失败：{}，协同编辑不可用", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 端口是否已被监听（bind 探测，不实际连接）：被占 = 已有中继或其它服务在用 */
+    private boolean portOccupied() {
+        try (java.net.ServerSocket ss = new java.net.ServerSocket(port)) {
+            return false;
+        } catch (Exception e) {
+            return true;
         }
     }
 
@@ -174,7 +217,8 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
     }
 
     /** 简单执行命令（用于 npm install），阻塞等待完成，返回是否成功 */
-    private boolean runSimple(String[] cmd, File dir) {        try {
+    private boolean runSimple(String[] cmd, File dir) {
+        try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(dir);
             pb.redirectErrorStream(true);

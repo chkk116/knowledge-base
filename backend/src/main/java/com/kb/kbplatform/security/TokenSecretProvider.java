@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
 
@@ -41,11 +43,9 @@ public class TokenSecretProvider {
                     "请通过环境变量 KB_TOKEN_SECRET 注入不少于 32 位的随机串后重启。");
         }
         if (v.isEmpty()) {
-            byte[] rnd = new byte[32];
-            new SecureRandom().nextBytes(rnd);
-            v = Base64.getUrlEncoder().withoutPadding().encodeToString(rnd);
-            log.warn("[安全] 未配置 KB_TOKEN_SECRET，已生成临时随机令牌密钥（仅适用于本地开发）：" +
-                    "重启后所有登录态失效。生产环境务必显式注入 KB_TOKEN_SECRET。");
+            v = loadOrCreateLocalSecret();
+            log.warn("[安全] 未配置 KB_TOKEN_SECRET，已使用本地持久化的随机密钥（{}）：" +
+                    "本地重启后登录态保持有效。生产环境务必显式注入 KB_TOKEN_SECRET。", localSecretPath());
         } else if (v.length() < 32) {
             log.warn("[安全] KB_TOKEN_SECRET 长度不足 32 位，建议更换为更长的随机串。");
         }
@@ -54,5 +54,35 @@ public class TokenSecretProvider {
 
     public String get() {
         return secret;
+    }
+
+    /** 本地持久化密钥文件（固定在用户目录，避免与工作目录歧义；仅本地开发用，绝不入库） */
+    private static File localSecretFile() {
+        return new File(System.getProperty("user.home"), ".kb-platform" + File.separator + "token-secret");
+    }
+    private static String localSecretPath() {
+        try { return localSecretFile().getAbsolutePath(); } catch (Exception e) { return "user.home/.kb-platform/token-secret"; }
+    }
+
+    /** 未配置 KB_TOKEN_SECRET 时：优先读本地持久化密钥（跨重启稳定，登录态/协同中继不受重启影响），没有则生成并写盘 */
+    private static String loadOrCreateLocalSecret() {
+        File f = localSecretFile();
+        try {
+            if (f.isFile()) {
+                String s = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).trim();
+                if (s.length() >= 32) return s;
+            }
+            byte[] rnd = new byte[32];
+            new SecureRandom().nextBytes(rnd);
+            String s = Base64.getUrlEncoder().withoutPadding().encodeToString(rnd);
+            java.nio.file.Files.createDirectories(f.getParentFile().toPath());
+            java.nio.file.Files.writeString(f.toPath(), s);
+            return s;
+        } catch (Exception e) {
+            log.warn("[安全] 本地持久化令牌密钥读写失败（{}），退回一次性随机密钥", e.getMessage());
+            byte[] rnd = new byte[32];
+            new SecureRandom().nextBytes(rnd);
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(rnd);
+        }
     }
 }
