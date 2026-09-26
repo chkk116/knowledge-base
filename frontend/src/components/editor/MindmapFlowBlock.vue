@@ -1,0 +1,533 @@
+<template>
+  <NodeViewWrapper class="kb-mindmap-wrap" data-type="mindmap-block">
+    <div class="kb-mindmap" :class="{ editing }">
+      <div class="kb-mindmap-bar">
+        <span class="kb-mindmap-title">
+          <svg class="kb-mindmap-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+            <rect x="9" y="2" width="6" height="5" rx="1.5" fill="#6366f1"/>
+            <rect x="2" y="16" width="6" height="5" rx="1.5" fill="#a5b4fc"/>
+            <rect x="16" y="16" width="6" height="5" rx="1.5" fill="#a5b4fc"/>
+            <path d="M12 7v4M12 11H5v5M12 11h7v5" stroke="#818cf8" stroke-width="1.5"/>
+          </svg>
+          {{ node.attrs.title || '思维导图' }}
+        </span>
+        <span v-if="lockInfo && !isMine" class="kb-mindmap-status locked">
+          {{ lockInfo.uname }} 正在编辑<template v-if="lockExpired">（编辑异常退出，可强制接管）</template>
+        </span>
+        <span v-else-if="editing" class="kb-mindmap-status editing">你正在编辑</span>
+        <span class="kb-mindmap-actions">
+          <button class="kb-mm-btn" @click="fit">适应视图</button>
+          <button v-if="!editing && canAcquire" class="kb-mm-btn primary" @click="acquire">编辑导图</button>
+          <button
+            v-if="!editing && lockInfo && !isMine && lockExpired"
+            class="kb-mm-btn"
+            @click="acquire"
+          >强制接管</button>
+          <button v-if="editing" class="kb-mm-btn primary" @click="finish">完成编辑</button>
+          <button v-if="editing" class="kb-mm-btn" @click="cancel">取消</button>
+        </span>
+      </div>
+      <div
+        ref="mapEl"
+        class="kb-mindmap-canvas"
+        :class="{ readonly: !editing }"
+        tabindex="0"
+        @mousedown="onMouseDown"
+        @keydown="onKeyDown"
+      >
+        <VueFlow
+          :id="flowId"
+          :nodes-draggable="editing"
+          :nodes-connectable="false"
+          :elements-selectable="editing"
+          :pan-on-drag="true"
+          :zoom-on-scroll="true"
+          :select-nodes-on-drag="false"
+          :delete-key-code="null"
+          :selection-key-code="null"
+          :multi-selection-key-code="null"
+          :pan-activation-key-code="null"
+          :min-zoom="0.3"
+          :max-zoom="2"
+          :default-edge-options="edgeOptions"
+          class="mm-flow"
+          @node-click="onNodeClick"
+          @pane-click="onPaneClick"
+          @node-drag-stop="onDragStop"
+        >
+          <template #node-mindNode="slotProps">
+            <div
+              class="mm-node"
+              :class="{ editing: editingId === slotProps.id }"
+              @dblclick.stop="startEdit(slotProps.id)"
+            >
+              <input
+                v-if="editingId === slotProps.id"
+                ref="editInput"
+                v-model="editText"
+                class="mm-edit"
+                @keydown="onInputKeyDown"
+                @blur="commitEdit"
+              />
+              <span v-else class="mm-label">{{ slotProps.data?.label }}</span>
+            </div>
+          </template>
+        </VueFlow>
+      </div>
+      <div v-if="!editing" class="kb-mindmap-hint">点「编辑导图」后：Tab 加子节点 · Enter 加同级（在中心主题上按 Enter 则为「自由主题」，与现有导图平级）· F2 / 双击编辑文字 · 节点可直接拖拽到任意位置</div>
+      <div v-else class="kb-mindmap-hint editing-hint">Tab 加子节点 · Enter 加同级（根节点按 Enter ＝新增自由主题）· F2 / 双击编辑文字 · Delete 删除节点及其子树 · 节点可自由拖拽摆放 · Ctrl+滚轮缩放</div>
+    </div>
+  </NodeViewWrapper>
+</template>
+
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
+import { VueFlow, useVueFlow, MarkerType } from '@vue-flow/core'
+import '@vue-flow/core/dist/style.css'
+import '@vue-flow/core/dist/theme-default.css'
+import { useAuthStore } from '../../store/auth'
+
+const props = defineProps(nodeViewProps)
+const auth = useAuthStore()
+const uid = String(auth.user?.id ?? auth.user?.username ?? 'me')
+const uname = auth.user?.displayName || auth.user?.username || '我'
+
+const flowId = `mm-${Math.random().toString(36).slice(2, 10)}`
+const {
+  nodes, edges, addNodes, addEdges, setNodes, setEdges,
+  removeNodes, findNode, fitView,
+} = useVueFlow(flowId)
+
+const mapEl = ref(null)
+const editInput = ref(null)
+const editing = ref(false)
+const selectedId = ref(null)
+const editingId = ref(null)
+const editText = ref('')
+const dirty = ref(false)
+let snapshot = ''   // 进入编辑时的数据快照，取消时回滚用
+let idc = 0         // 自增 id 计数器（新节点用 n{idc}）
+
+const LOCK_TIMEOUT = 120000   // 锁超时：持锁端异常退出 2 分钟后允许强制接管
+
+const edgeOptions = {
+  type: 'smoothstep',
+  style: { stroke: '#94a3b8', strokeWidth: 1.5 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+}
+
+const lockInfo = computed(() => {
+  try {
+    return props.node.attrs.locked ? JSON.parse(props.node.attrs.locked) : null
+  } catch {
+    return null
+  }
+})
+const isMine = computed(() => !!lockInfo.value && String(lockInfo.value.uid) === uid)
+const lockExpired = computed(
+  () => !!lockInfo.value && Date.now() - Number(lockInfo.value.ts) > LOCK_TIMEOUT
+)
+// 编辑器只读（查看模式）时不能获取编辑权
+const canAcquire = computed(() => props.editor.isEditable && !editing.value &&
+  (!lockInfo.value || isMine.value || lockExpired.value))
+
+// ---------- 数据解析 / 序列化 ----------
+
+/** 把旧 simple-mind-map / mind-elixir 格式转成 Vue Flow 节点+边（左→右布局） */
+function smmToFlow(root) {
+  const ns = []
+  const es = []
+  let order = 0
+  const walk = (node, depth, parentId) => {
+    const id = 'n' + (++order)
+    const label = String(node.data?.text ?? node.topic ?? '')
+    ns.push({
+      id, type: 'mindNode',
+      position: { x: 40 + depth * 260, y: order * 80 + 20 },
+      data: { label },
+    })
+    if (parentId) es.push({ id: 'e' + id, source: parentId, target: id })
+    ;(node.children || []).forEach((c) => walk(c, depth + 1, id))
+  }
+  walk(root, 0, null)
+  return { nodes: ns, edges: es }
+}
+
+/** 解析节点属性里的导图数据；兼容旧格式（一次性转换） */
+function parseData() {
+  let raw = null
+  try {
+    raw = props.node.attrs.data ? JSON.parse(props.node.attrs.data) : null
+  } catch {
+    raw = null
+  }
+  if (raw && Array.isArray(raw.nodes)) {
+    // 已是 Vue Flow 格式
+    const ns = raw.nodes.map((n) => ({
+      id: n.id,
+      type: 'mindNode',
+      position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
+      data: { label: n.data?.label ?? '' },
+    }))
+    const es = (raw.edges || []).map((e) => ({ id: e.id, source: e.source, target: e.target }))
+    return { nodes: ns, edges: es }
+  }
+  if (raw && raw.data && typeof raw.data.text === 'string') {
+    return smmToFlow(raw)   // simple-mind-map 格式
+  }
+  if (raw && raw.nodeData && typeof raw.nodeData.topic === 'string') {
+    return smmToFlow({ data: { text: raw.nodeData.topic, children: raw.nodeData.children } })  // mind-elixir 旧格式
+  }
+  // 预置：一个中心主题（打开即有结构可改；Enter 中心主题即可加自由主题）
+  return {
+    nodes: [{ id: 'n1', type: 'mindNode', position: { x: 60, y: 200 }, data: { label: props.node.attrs.title || '中心主题' } }],
+    edges: [],
+  }
+}
+
+/** 当前画布序列化为可落盘 JSON（仅保留必要字段） */
+function serialize() {
+  const ns = nodes.value.map((n) => ({
+    id: n.id,
+    type: 'mindNode',
+    position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
+    data: { label: n.data?.label ?? '' },
+  }))
+  const es = edges.value.map((e) => ({ id: e.id, source: e.source, target: e.target }))
+  return { nodes: ns, edges: es }
+}
+
+function maxIdc(ns) {
+  let m = 0
+  ns.forEach((n) => {
+    const mm = /n(\d+)/.exec(n.id)
+    if (mm) m = Math.max(m, +mm[1])
+  })
+  return m
+}
+
+// ---------- 渲染 / 加载 ----------
+
+function loadFromProps() {
+  const parsed = parseData()
+  idc = maxIdc(parsed.nodes)
+  setNodes(parsed.nodes)
+  setEdges(parsed.edges)
+  selectedId.value = parsed.nodes.length ? parsed.nodes[0].id : null
+}
+
+function fit() {
+  requestAnimationFrame(() => fitView({ padding: 0.2 }))
+}
+
+// ---------- 编辑语义（Tab / Enter / F2 / Delete） ----------
+
+function getParentId(id) {
+  const e = edges.value.find((x) => x.target === id)
+  return e ? e.source : null
+}
+function getChildren(id) {
+  return edges.value.filter((x) => x.source === id).map((x) => x.target)
+}
+
+function addRoot() {
+  const nid = 'n' + (++idc)
+  addNodes({ id: nid, type: 'mindNode', position: { x: 60, y: 200 }, data: { label: '中心主题' } })
+  selectedId.value = nid
+  dirty.value = true
+  fit()
+  startEdit(nid)
+}
+
+function addChild(id) {
+  if (!id) return addRoot()
+  const parent = findNode(id)
+  if (!parent) return
+  const nid = 'n' + (++idc)
+  const nKids = getChildren(id).length
+  addNodes({
+    id: nid, type: 'mindNode',
+    position: { x: parent.position.x + 260, y: parent.position.y + nKids * 80 + 20 },
+    data: { label: '新主题' },
+  })
+  addEdges({ id: 'e' + nid, source: id, target: nid })
+  selectedId.value = nid
+  dirty.value = true
+  fit()
+  startEdit(nid)
+}
+
+function addSibling(id) {
+  if (!id) return addRoot()
+  const node = findNode(id)
+  if (!node) return
+  const parentId = getParentId(id)
+  if (!parentId) {
+    // 根节点 → 新增「自由主题」（与现有导图平级，不挂任何父节点）
+    const nid = 'n' + (++idc)
+    addNodes({
+      id: nid, type: 'mindNode',
+      position: { x: node.position.x + 40, y: node.position.y + 150 },
+      data: { label: '自由主题' },
+    })
+    selectedId.value = nid
+    dirty.value = true
+    fit()
+    startEdit(nid)
+    return
+  }
+  const parent = findNode(parentId)
+  const nid = 'n' + (++idc)
+  addNodes({
+    id: nid, type: 'mindNode',
+    position: { x: parent.position.x + 260, y: node.position.y + 90 },
+    data: { label: '新主题' },
+  })
+  addEdges({ id: 'e' + nid, source: parentId, target: nid })
+  selectedId.value = nid
+  dirty.value = true
+  fit()
+  startEdit(nid)
+}
+
+function deleteSelected(id) {
+  if (!id) return
+  const toRemove = new Set([id])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const e of edges.value) {
+      if (toRemove.has(e.source) && !toRemove.has(e.target)) {
+        toRemove.add(e.target)
+        changed = true
+      }
+    }
+  }
+  removeNodes(Array.from(toRemove))   // 默认会连带删除相关连线
+  selectedId.value = nodes.value.length ? nodes.value[0].id : null
+  dirty.value = true
+  fit()
+}
+
+// ---------- 文字编辑 ----------
+
+function startEdit(id) {
+  if (!id) return
+  const node = findNode(id)
+  if (!node) return
+  editingId.value = id
+  editText.value = node.data?.label ?? ''
+  nextTick(() => {
+    editInput.value?.focus()
+    editInput.value?.select()
+  })
+}
+function commitEdit() {
+  if (!editingId.value) return
+  const node = findNode(editingId.value)
+  if (node) node.data.label = editText.value.trim() || '未命名'
+  editingId.value = null
+  dirty.value = true
+}
+function cancelEdit() {
+  editingId.value = null
+}
+function onInputKeyDown(e) {
+  e.stopPropagation()
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    commitEdit()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelEdit()
+  }
+}
+
+// ---------- 事件拦截（防 ProseMirror 抢焦点 / 抢输入） ----------
+
+// 容器层拦截：mousedown 阻止冒泡到 PM（避免 PM 抢焦点）；keydown 仅处理我们关心的
+// 快捷键，其余放行。Vue Flow 快捷键已通过 delete-key-code/selection-key-code=null 关闭，
+// 所有 Tab/Enter/F2/Delete 由我们自行分发，行为与 simple-mind-map 版一致。
+function onMouseDown(e) {
+  e.stopPropagation()
+  const active = document.activeElement
+  if (active && active !== document.body && active.closest?.('.ProseMirror')) {
+    try { active.blur() } catch { /* ignore */ }
+  }
+  if (editing.value) mapEl.value?.focus({ preventScroll: true })
+}
+function onKeyDown(e) {
+  if (editingId.value) return            // 正在编辑文字：交给输入框处理
+  if (!editing.value) return            // 查看模式：不拦截，交给文档
+  const k = e.key
+  if (k !== 'Tab' && k !== 'Enter' && k !== 'F2' && k !== 'Delete' && k !== 'Backspace') return
+  e.stopPropagation()
+  e.preventDefault()
+  if (k === 'Tab') addChild(selectedId.value)
+  else if (k === 'Enter') addSibling(selectedId.value)
+  else if (k === 'F2') startEdit(selectedId.value)
+  else if (k === 'Delete' || k === 'Backspace') deleteSelected(selectedId.value)
+}
+
+function onNodeClick({ node }) {
+  if (!editing.value) return
+  selectedId.value = node.id
+  mapEl.value?.focus({ preventScroll: true })
+}
+function onPaneClick() {
+  if (!editing.value) return
+  selectedId.value = null
+}
+function onDragStop() {
+  if (editing.value) dirty.value = true
+}
+
+// ---------- 编辑锁生命周期 ----------
+
+function acquire() {
+  if (lockInfo.value && !isMine.value && !lockExpired.value) return
+  snapshot = JSON.stringify(serialize())
+  editing.value = true
+  selectedId.value = nodes.value.length ? nodes.value[0].id : null
+  props.updateAttributes({
+    locked: JSON.stringify({ uid, uname, ts: Date.now() }),
+  })
+  fit()
+}
+function finish() {
+  if (dirty.value) {
+    props.updateAttributes({
+      data: JSON.stringify(serialize()),
+      locked: '',
+    })
+  } else {
+    props.updateAttributes({ locked: '' })
+  }
+  editing.value = false
+  editingId.value = null
+  selectedId.value = null
+  dirty.value = false
+}
+function cancel() {
+  // 取消：回滚到进入编辑前的数据（props 尚未被改动，直接重载即可）
+  loadFromProps()
+  fit()
+  editing.value = false
+  editingId.value = null
+  selectedId.value = null
+  dirty.value = false
+}
+
+// 数据/锁/编辑态变化：非编辑态时同步渲染最新数据（含协作者的改动）
+watch(
+  [() => props.node.attrs.data, () => props.node.attrs.locked, editing],
+  () => {
+    if (editing.value) return   // 编辑中不被外部刷新打断
+    nextTick(() => loadFromProps())
+  },
+  { immediate: false }
+)
+
+onMounted(() => {
+  nextTick(() => {
+    loadFromProps()
+    fit()
+  })
+})
+onBeforeUnmount(() => {
+  // 编辑中直接卸载：尽量把已做的改动落盘
+  if (editing.value && dirty.value) {
+    try {
+      props.updateAttributes({ data: JSON.stringify(serialize()), locked: '' })
+    } catch { /* 卸载晚期属性更新可能失败，锁会随超时自动释放 */ }
+  }
+  editing.value = false
+})
+</script>
+
+<style>
+.kb-mindmap-wrap { margin: 10px 0; }
+.kb-mindmap {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.kb-mindmap.editing { border-color: #6366f1; }
+.kb-mindmap-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  font-size: 13px;
+}
+.kb-mindmap-title { font-weight: 600; color: #334155; display: inline-flex; align-items: center; gap: 6px; }
+.kb-mindmap-ico { flex: none; }
+.kb-mindmap-status { font-size: 12px; }
+.kb-mindmap-status.locked { color: #d97706; }
+.kb-mindmap-status.editing { color: #6366f1; }
+.kb-mindmap-actions { margin-left: auto; display: flex; gap: 8px; }
+.kb-mm-btn {
+  border: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+  color: #475569;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kb-mm-btn.primary { background: #6366f1; border-color: #6366f1; color: #fff; }
+.kb-mm-btn:hover { opacity: 0.88; }
+.kb-mindmap-canvas { height: 420px; position: relative; outline: none; }
+.kb-mindmap-canvas.readonly { background:
+  radial-gradient(circle, #eef2f7 1px, transparent 1px) 0 0 / 22px 22px; }
+.kb-mindmap-hint {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #94a3b8;
+  background: #fafbfc;
+  border-top: 1px dashed var(--border, #e5e7eb);
+}
+.mm-flow { width: 100%; height: 100%; background: transparent; }
+
+/* 节点外观 */
+.mm-node {
+  background: #6366f1;
+  color: #fff;
+  border: 1px solid rgba(0,0,0,.1);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.3;
+  min-width: 60px;
+  text-align: center;
+  cursor: grab;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(15,23,42,.12);
+}
+.kb-mindmap.editing .mm-node { cursor: grab; }
+.vue-flow__node.selected .mm-node {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
+.mm-node.editing { cursor: text; }
+.mm-label { display: inline-block; white-space: pre-wrap; word-break: break-word; max-width: 220px; }
+.mm-edit {
+  width: 140px;
+  border: none;
+  outline: none;
+  background: #fff;
+  color: #1e293b;
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+/* ProseMirror 选中态：外框高亮 */
+.kb-mindmap-wrap.ProseMirror-selectednode .kb-mindmap { border-color: #6366f1; }
+</style>

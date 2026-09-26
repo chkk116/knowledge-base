@@ -2,7 +2,7 @@
   <div style="max-width: 1000px; margin: 30px auto; font-family: sans-serif">
     <h3>Vue Flow 自由主题原型（隔离验证：多中心 + 自由摆放）</h3>
     <p style="color:#888;font-size:13px">
-      两个独立中心主题、各自子节点、连线自由。拖拽节点可在画布任意移动——这正是 simple-mind-map 开源版做不到的。
+      两个独立中心主题、各自子节点、连线自由。拖拽节点可在画布任意移动——这正是旧 simple-mind-map 单根限制做不到的。
     </p>
     <div style="height: 520px; border: 1px solid #ddd">
       <VueFlow :nodes="nodes" :edges="edges" fit-view-on-init>
