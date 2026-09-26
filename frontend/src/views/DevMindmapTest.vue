@@ -5,39 +5,47 @@
       插入思维导图
     </button>
     <editor-content :editor="editor" />
-    <h4>裸 mind-elixir 对照（无 Tiptap）</h4>
+    <h4>裸 simple-mind-map 对照（无 Tiptap）</h4>
     <div ref="bareEl" style="height: 400px; border: 1px solid #ddd"></div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Collaboration from '@tiptap/extension-collaboration'
 import * as Y from 'yjs'
+import MindMap from 'simple-mind-map'
+import Drag from 'simple-mind-map/src/plugins/Drag.js'
 import MindmapNode from '../extensions/MindmapNode'
+
+MindMap.usePlugin(Drag)
 
 const ydoc = new Y.Doc()
 const bareEl = ref(null)
+let bare = null
 
 onMounted(() => {
   if (!bareEl.value) return
-  const inst = new MindElixir({
+  bare = new MindMap({
     el: bareEl.value,
-    editable: true,
-    draggable: true,
-    contextMenu: true,
-    toolBar: true,
-    keypress: true,
-    locale: 'zh_CN',
+    data: {
+      data: { text: '裸测试根', expand: true },
+      children: [
+        { data: { text: '裸子节点 A', expand: true }, children: [] },
+        { data: { text: '裸子节点 B', expand: true }, children: [] },
+      ],
+    },
+    enableFreeDrag: true,
+    enableShortcutOnlyWhenMouseInSvg: false,
+    customCheckEnableShortcut: () => true,
   })
-  const d = MindElixir.new('裸测试根')
-  d.nodeData.children = [
-    { topic: '裸子节点 A', id: 'bareA', children: [] },
-    { topic: '裸子节点 B', id: 'bareB', children: [] },
-  ]
-  inst.init(d)
+})
+
+onBeforeUnmount(() => {
+  try { bare?.destroy?.() } catch { /* ignore */ }
+  bare = null
 })
 
 const editor = useEditor({

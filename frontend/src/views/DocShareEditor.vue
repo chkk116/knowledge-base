@@ -141,7 +141,7 @@ const editor = useEditor({
     TableHeader,
     TableCell,
     Collaboration.configure({ document: ydoc }),
-    MindmapNode,   // 思维导图块（mind-elixir NodeView + 编辑锁，协同经 Yjs 属性同步）
+    MindmapNode,   // 思维导图块（simple-mind-map NodeView + 编辑锁，协同经 Yjs 属性同步）
     // 只读（canWrite=false）时不挂载协同光标扩展：
     // 避免本地光标/选区被广播到其他协作者屏幕上，造成「别人能移动你的光标」的错觉，
     // 同时只读端本身也不应产生可编辑光标。

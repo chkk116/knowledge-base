@@ -27,8 +27,8 @@
         </span>
       </div>
       <div ref="mapEl" class="kb-mindmap-canvas" :class="{ readonly: !editing }"></div>
-      <div v-if="!editing" class="kb-mindmap-hint">点「编辑导图」后：Tab 加子节点 · Enter 加同级 · F2 编辑文字 · 右键更多操作</div>
-      <div v-else class="kb-mindmap-hint editing-hint">Tab 加子节点 · Enter 加同级 · F2 / 双击节点编辑文字 · 右键菜单 · 拖拽调整结构</div>
+      <div v-if="!editing" class="kb-mindmap-hint">点「编辑导图」后：Tab 加子节点 · Enter 加同级 · F2 编辑文字 · 节点可直接拖拽</div>
+      <div v-else class="kb-mindmap-hint editing-hint">Tab 加子节点 · Enter 加同级 · F2 / 双击节点编辑文字 · 拖到节点上调整结构、拖到空白处自由摆放 · Ctrl+Z 撤销 · 右键更多操作</div>
     </div>
   </NodeViewWrapper>
 </template>
@@ -36,9 +36,12 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
-import MindElixir from 'mind-elixir'
-import 'mind-elixir/style'
+import MindMap from 'simple-mind-map'
+import Drag from 'simple-mind-map/src/plugins/Drag.js'
 import { useAuthStore } from '../../store/auth'
+
+// 节点拖拽是插件，需静态注册一次（usePlugin 内部自带去重）
+MindMap.usePlugin(Drag)
 
 const props = defineProps(nodeViewProps)
 const auth = useAuthStore()
@@ -49,8 +52,9 @@ const mapEl = ref(null)
 const editing = ref(false)
 let instance = null
 let dirty = false
+let pendingData = null  // 编辑期间 data_change 收集的最新导图数据
 let snapshot = ''   // 进入编辑时的数据快照，取消时回滚用
-let cleanupStop = null   // 编辑态事件拦截的清理函数
+let cleanupFns = []
 
 const LOCK_TIMEOUT = 120000   // 锁超时：持锁端异常退出 2 分钟后允许强制接管
 
@@ -69,65 +73,100 @@ const lockExpired = computed(
 const canAcquire = computed(() => props.editor.isEditable && (!editing.value) &&
   (!lockInfo.value || isMine.value || lockExpired.value))
 
-/** 初始化/重建 mind-elixir 实例：编辑态全功能，只读态禁交互仅展示 */
+/** 解析节点属性里的导图数据；兼容旧 mind-elixir 格式（一次性转换） */
+function parseData() {
+  let raw = null
+  try {
+    raw = props.node.attrs.data ? JSON.parse(props.node.attrs.data) : null
+  } catch {
+    raw = null
+  }
+  if (raw && raw.nodeData && typeof raw.nodeData.topic === 'string') {
+    const conv = (n) => ({
+      data: { text: String(n.topic ?? ''), expand: n.expand !== false },
+      children: Array.isArray(n.children) ? n.children.map(conv) : [],
+    })
+    return conv(raw.nodeData)
+  }
+  if (raw && raw.data && typeof raw.data.text === 'string') return raw
+  // 新导图预置两个示例子节点（对齐亿图脑图的新建体验：打开即有结构可改）
+  // uid 不用手写：setData/init 时库会通过 createUidForAppointNodes 自动补全
+  return {
+    data: { text: props.node.attrs.title || '中心主题', expand: true },
+    children: [
+      { data: { text: '子主题 1', expand: true }, children: [] },
+      { data: { text: '子主题 2', expand: true }, children: [] },
+    ],
+  }
+}
+
+/** 初始化/重建 simple-mind-map 实例：编辑态全功能，只读态禁交互仅展示 */
 function render() {
+  cleanupFns.forEach((fn) => { try { fn() } catch { /* ignore */ } })
+  cleanupFns = []
   if (instance) {
     try { instance.destroy() } catch { /* 旧实例可能已随 DOM 卸载 */ }
     instance = null
   }
   if (!mapEl.value) return
-  let data
-  try {
-    data = props.node.attrs.data ? JSON.parse(props.node.attrs.data) : null
-  } catch {
-    data = null
-  }
-  if (!data) {
-    // 新导图预置两个示例子节点（对齐亿图脑图的新建体验：打开即有结构可改）
-    data = MindElixir.new(props.node.attrs.title || '中心主题')
-    const gen = () => 'kb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-    data.nodeData.children = [
-      { topic: '子主题 1', id: gen(), children: [] },
-      { topic: '子主题 2', id: gen(), children: [] },
-    ]
-  }
+  const data = parseData()
   const isEditing = editing.value
-  instance = new MindElixir({
+  instance = new MindMap({
     el: mapEl.value,
-    editable: isEditing,          // v5 官方只读开关
-    draggable: isEditing,
-    contextMenu: isEditing,
-    toolBar: isEditing,
-    keypress: isEditing,
-    nodeMenu: isEditing,
-    allowUndo: isEditing,
-    overflowHidden: false,
-    locale: 'zh_CN',
+    data,
+    readonly: !isEditing,          // 只读开关（自动禁节点编辑/拖拽/右键）
+    enableFreeDrag: isEditing,     // 自由拖拽：拖到空白处 = 自由摆放（亿图脑图风格）
+    enableShortcutOnlyWhenMouseInSvg: false,
+    // 快捷键监听在 window 上，默认要求 target 为 body/编辑框；
+    // NodeView 内合成转发的事件 target 是 window，这里直接按编辑态放行
+    customCheckEnableShortcut: () => isEditing,
   })
-  instance.init(data || MindElixir.new(props.node.attrs.title || '中心主题'))
-
-  // 防止 ProseMirror 吞事件/抢焦点（否则 Tab/双击/右键全部静默失效——
-  // 实测：点击节点后焦点变成 ProseMirror-focused，keydown 根本到不了画布）：
-  // 编辑态在容器冒泡阶段拦截全部交互事件，不再传给 ProseMirror；
-  // contextmenu 走 window capture 由 mind-elixir 自行处理，不受影响。
-  const el = mapEl.value
-  const stop = (e) => e.stopPropagation()
-  const refocus = () => setTimeout(() => { try { mapEl.value?.focus() } catch { /* ignore */ } }, 0)
-  // 只拦键盘 + mousedown（防 PM 抢焦点）；mouseup/click/dblclick/contextmenu/pointer 必须放行——
-  // 全拦会截断 mind-elixir 内部事件链（click 委托收不到→中心节点点不动；mouseup 链断→工具栏引用悬空报错）
-  const events = ['keydown', 'keyup', 'keypress', 'mousedown', 'wheel', 'touchstart']
-  if (isEditing) {
-    events.forEach((ev) => el.addEventListener(ev, stop))
-    el.addEventListener('mousedown', refocus)
-    el.focus()
-    cleanupStop = () => events.forEach((ev) => el.removeEventListener(ev, stop))
-  } else if (cleanupStop) {
-    cleanupStop()
-    cleanupStop = null
-  }
 
   if (isEditing) {
-    instance.bus.addListener('operation', () => { dirty = true })
+    instance.on('data_change', (d) => {
+      dirty = true
+      pendingData = d
+    })
+    // simple-mind-map 的快捷键监听在 window，而 ProseMirror 的事件监听在
+    // contenteditable 上（两者都在冒泡链上）。NodeView 是 PM 的后代节点，
+    // 若放任事件冒泡：mousedown 会被 PM 抢焦点、keydown 会被 PM 当正文输入。
+    // 策略（比 mind-elixir 时代简单）：
+    //  - mousedown：在容器层截断（PM 收不到 → 不抢焦点），导图库自身监听在
+    //    容器内 SVG 上、先于容器层触发，不受影响；再把可能残留在 PM 里的
+    //    焦点主动 blur 掉，让后续 keydown 走 body → window 的默认通道。
+    //  - keydown：在容器层截断后，克隆重派发到 window（导图库靠它分发快捷键；
+    //    配合 customCheckEnableShortcut 放行）。
+    //  - mouseup/click/dblclick/contextmenu/wheel 全部放行（库自身监听，
+    //    截断会打断内部事件链——mind-elixir 的教训）。
+    const el = mapEl.value
+    const onMouseDown = (e) => {
+      e.stopPropagation()
+      const active = document.activeElement
+      if (active && active !== document.body && active.closest?.('.ProseMirror')) {
+        try { active.blur() } catch { /* ignore */ }
+      }
+    }
+    const onKeyDown = (e) => {
+      e.stopPropagation()
+      e.preventDefault()
+      try {
+        window.dispatchEvent(new KeyboardEvent(e.type, {
+          key: e.key, code: e.code, location: e.location,
+          ctrlKey: e.ctrlKey, shiftKey: e.shiftKey,
+          altKey: e.altKey, metaKey: e.metaKey,
+          repeat: e.repeat, isComposing: e.isComposing, cancelable: true,
+        }))
+      } catch { /* ignore */ }
+    }
+    const stopOnly = (e) => e.stopPropagation()
+    el.addEventListener('mousedown', onMouseDown)
+    el.addEventListener('keydown', onKeyDown)
+    el.addEventListener('keyup', stopOnly)
+    cleanupFns = [
+      () => el.removeEventListener('mousedown', onMouseDown),
+      () => el.removeEventListener('keydown', onKeyDown),
+      () => el.removeEventListener('keyup', stopOnly),
+    ]
   }
 }
 
@@ -141,9 +180,9 @@ function acquire() {
 }
 
 function finish() {
-  if (dirty && instance) {
+  if (dirty && pendingData) {
     props.updateAttributes({
-      data: JSON.stringify(instance.getData()),
+      data: JSON.stringify(pendingData),
       locked: '',
     })
   } else {
@@ -151,6 +190,7 @@ function finish() {
   }
   editing.value = false
   dirty = false
+  pendingData = null
 }
 
 function cancel() {
@@ -158,6 +198,7 @@ function cancel() {
   props.updateAttributes({ data: snapshot, locked: '' })
   editing.value = false
   dirty = false
+  pendingData = null
 }
 
 // 数据/锁/编辑态任一变化都重建实例（保证协作者看到的渲染与最新数据一致）
@@ -168,15 +209,17 @@ watch(
 )
 onMounted(() => { nextTick(render) })
 onBeforeUnmount(() => {
-  // 编辑中直接关闭页面/组件卸载：已做的改动随最后一次 operation 丢失前尽量落盘
-  if (editing.value && dirty && instance) {
+  // 编辑中直接关闭页面/组件卸载：已做的改动随最后一次 data_change 尽量落盘
+  if (editing.value && dirty && pendingData) {
     try {
       props.updateAttributes({
-        data: JSON.stringify(instance.getData()),
+        data: JSON.stringify(pendingData),
         locked: '',
       })
     } catch { /* 卸载晚期的属性更新可能失败，锁会因超时自动释放 */ }
   }
+  cleanupFns.forEach((fn) => { try { fn() } catch { /* ignore */ } })
+  cleanupFns = []
   try { instance?.destroy?.() } catch { /* ignore */ }
   instance = null
 })
@@ -218,7 +261,6 @@ onBeforeUnmount(() => {
 .kb-mm-btn.primary { background: #6366f1; border-color: #6366f1; color: #fff; }
 .kb-mm-btn:hover { opacity: 0.88; }
 .kb-mindmap-canvas { height: 420px; position: relative; }
-.kb-mindmap-canvas.readonly { pointer-events: auto; }
 .kb-mindmap-hint {
   padding: 5px 12px;
   font-size: 12px;
