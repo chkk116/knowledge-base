@@ -673,7 +673,32 @@ function diagramTourSteps() {
   if (editBtn) {
     steps.push({ element: editBtn, popover: { title: '第一步：点「编辑」', description: '获得编辑锁后才能修改——同一时刻仅一人可编辑，其他人只读实时查看。' } })
   }
-  steps.push({ popover: { title: '怎么用', description: meta.ops } })
+  // 电子表格：编辑态下逐个讲解工具栏功能（用户重点）；未编辑时给简版并提示进入编辑后再看
+  if (kind === 'sheet') {
+    const tb = document.querySelector('.kb-sheet-canvas .x-spreadsheet-toolbar')
+    const editingNow = !!tb && tb.offsetParent !== null   // display:none 判定编辑态
+    if (editingNow) {
+      const tip = (name) => document.querySelector(`.kb-sheet-wrap [data-tooltip="${name}"]`)
+      const headers = document.querySelectorAll('.kb-sheet-wrap .x-spreadsheet-dropdown-header')
+      const push = (elm, title, desc) => { if (elm) steps.push({ element: elm, popover: { title, description: desc } }) }
+      push(tip('Undo (Ctrl+Z)'), '撤销 / 重做', '操作错了随时回退；旁边是重做，再往右是打印。')
+      if (headers[0]) push(headers[0], '数字格式', '把选中格子设为数字 / 货币 / 百分比 / 日期等格式。注意：选格式前先选中目标格子（输完数字按回车后选中框会跳到下一格）。')
+      if (headers[1]) push(headers[1], '字体 / 字号', '设置选中区域的字体和字号（旁边的下拉同理）。')
+      push(tip('Font bold (Ctrl+B)'), '加粗 / 斜体 / 下划线 / 删除线', '常用文字样式快捷键齐全（Ctrl+B / I / U）。')
+      push(tip('Text color'), '文字颜色', '改选中格子文字的颜色。')
+      push(tip('Fill color'), '填充颜色', '给选中格子加背景底色。')
+      push(tip('Merge cells'), '合并单元格', '把选中区域合并成一个大格，做表头常用。')
+      push(tip('Borders'), '边框', '给选中区域加 / 换边框线。')
+      push(tip('Horizontal align'), '对齐方式', '水平与垂直对齐调整。')
+      push(tip('Text wrapping'), '自动换行', '内容过长时在格子内换行显示。')
+      push(tip('Freeze cell'), '冻结 / 筛选', '冻结窗格固定表头；漏斗图标是筛选。')
+      push(tip('Functions'), '函数', '插入常用函数（求和 Σ、平均值等），也可在单元格里直接输 =SUM(A1:A10)。')
+    } else {
+      steps.push({ popover: { title: '工具栏功能', description: '进入编辑后，顶部会出现完整工具栏：数字格式（货币 / 百分比 / 日期）、字体字号、加粗、文字与填充颜色、合并、边框、对齐、换行、筛选、求和函数等——届时再点右上「引导」可看逐项讲解。' } })
+    }
+  } else {
+    steps.push({ popover: { title: '怎么用', description: meta.ops } })
+  }
   const exitBtn = document.querySelector('.diagram-exit button')
   if (exitBtn) {
     steps.push({ element: exitBtn, popover: { title: '想加文字说明？', description: '点「转为普通文档」回到常规编辑器，即可文字与图块混排。' } })
