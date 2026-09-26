@@ -10,16 +10,16 @@
           {{ node.attrs.title || '电子表格' }}
         </span>
         <span v-if="lockInfo && !isMine" class="kb-sheet-status locked">
-          {{ lockInfo.uname }} 正在编辑<template v-if="lockExpired">（编辑异常退出，可强制接管）</template>
+          🔒 {{ lockInfo.uname }} 正在编辑 · {{ lockRemainText }}后可接管
         </span>
         <span v-else-if="editing" class="kb-sheet-status editing">你正在编辑</span>
         <span class="kb-sheet-actions">
           <button v-if="!editing && canAcquire" class="kb-st-btn primary" @click="acquire">编辑</button>
           <button
-            v-if="!editing && lockInfo && !isMine && lockExpired"
+            v-if="!editing && lockInfo && !isMine"
             class="kb-st-btn"
             @click="acquire"
-          >强制接管</button>
+          >{{ lockExpired ? '强制接管' : '接管（' + lockRemainText + '）' }}</button>
           <button v-if="editing" class="kb-st-btn primary" @click="finish">完成编辑</button>
           <button v-if="editing" class="kb-st-btn" @click="cancel">取消</button>
         </span>
@@ -77,6 +77,21 @@ const isMine = computed(() => !!lockInfo.value && String(lockInfo.value.uid) ===
 const lockExpired = computed(
   () => !!lockInfo.value && Date.now() - Number(lockInfo.value.ts) > LOCK_TIMEOUT
 )
+
+// 锁剩余时间倒计时（每秒 tick；持有者心跳刷新 ts，倒计时随之重置）
+const nowTick = ref(Date.now())
+let tickTimer = null
+const lockRemainSec = computed(() => {
+  const li = lockInfo.value
+  if (!li) return 0
+  return Math.max(0, Math.ceil((LOCK_TIMEOUT - (nowTick.value - Number(li.ts))) / 1000))
+})
+const lockRemainText = computed(() => {
+  const sec = lockRemainSec.value
+  if (sec <= 0) return '可接管'
+  const m = Math.floor(sec / 60), ss = sec % 60
+  return (m > 0 ? m + '分' : '') + ss + '秒'
+})
 const canAcquire = computed(() => props.editor.isEditable && !editing.value &&
   (!lockInfo.value || isMine.value || lockExpired.value))
 
@@ -202,7 +217,10 @@ function stopHeartbeat() {
   if (lockHeartbeat) { clearInterval(lockHeartbeat); lockHeartbeat = null }
 }
 function acquire() {
-  if (lockInfo.value && !isMine.value && !lockExpired.value) return
+  if (lockInfo.value && !isMine.value && !lockExpired.value) {
+    ElMessage.warning('「' + lockInfo.value.uname + '」正在编辑，约 ' + lockRemainText.value + ' 后可接管（对方关闭页面或掉线会提前释放）')
+    return
+  }
   dirty.value = false
   editing.value = true   // 本地立即生效；locked 属性随后经 Yjs 同步（watch 同步态，重建也恢复）
   // 写锁 → 属性经 Yjs 同步，其他端看到「xxx 正在编辑」
@@ -260,10 +278,12 @@ watch(
 )
 
 onMounted(() => {
+  tickTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
   document.addEventListener('keydown', docKeyDownCapture, true)
   nextTick(() => mountSheet())
 })
 onBeforeUnmount(() => {
+  clearInterval(tickTimer)
   document.removeEventListener('keydown', docKeyDownCapture, true)
   stopHeartbeat()
   // 编辑中直接卸载：尽量把已做的改动落盘（锁会随落盘/超时释放）
