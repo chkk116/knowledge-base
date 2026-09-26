@@ -61,6 +61,7 @@ const status = ref('connecting') // connecting | connected | disconnected
 const peers = ref([])
 const saving = ref(false)
 const seeded = ref(false)
+let seedRetries = 0
 const wordCount = ref(0)
 
 // 断线重连兜底：浏览器后台标签页会冻结 WS 心跳，中继侧超时断开后，
@@ -125,12 +126,18 @@ const provider = authExpired ? null : new HocuspocusProvider({
 })
 
 function seedIfEmpty() {
-  if (seeded.value) return
-  seeded.value = true
   // 只读端绝不做 setContent：否则会修改协同文档并推送更新（即便中继拦截，本地也会脏写）
-  if (!props.canWrite) return
-  if (editor.value && editor.value.isEmpty && props.legacyContent && props.legacyContent.trim()) {
-    // 把旧版 HTML 一次性注入协同文档，随后由中继落库为 yjs_state
+  if (seeded.value || !props.canWrite) return
+  // editor 是异步创建的：onSynced（本地中继，很快）可能早于 editor 就绪——
+  // 此前一次性 latch 会在这里永久跳过 → 图块文档打开后一直是空白。改为延迟重试（不置 latch）。
+  if (!editor.value) {
+    if (++seedRetries > 20) { seeded.value = true; return }
+    setTimeout(seedIfEmpty, 300)
+    return
+  }
+  seeded.value = true
+  if (editor.value.isEmpty && props.legacyContent && props.legacyContent.trim()) {
+    // 把旧版 HTML / 新建种子一次性注入协同文档，随后由中继落库为 yjs_state
     editor.value.commands.setContent(props.legacyContent)
   }
 }
@@ -811,7 +818,7 @@ watch(() => props.canWrite, (w) => {
 
     <!-- 灰色画布 + 居中纸张（飞书式版面） -->
     <div class="collab-canvas" :class="{ ro: !canWrite }">
-      <div class="page" @click.self="canWrite && editor?.commands.focus('end')">
+      <div class="page" @click.self="canWrite && !diagram && editor?.commands.focus('end')">
         <editor-content :editor="editor" class="page-inner" />
       </div>
     </div>
@@ -936,31 +943,9 @@ watch(() => props.canWrite, (w) => {
 .collab-canvas.ro .page-inner :deep(.kb-collab-body) { user-select: none; -webkit-user-select: none; cursor: default; }
 .collab-canvas.ro .page-inner :deep(.ProseMirror) { caret-color: transparent; }
 
-/* ---------- 图块专属模式（整篇文档 = 单个图块，画布占满右侧） ---------- */
-.diagram-exit {
-  display: flex; align-items: center; gap: 10px;
-  padding: 5px 12px;
-  background: #fafbfc;
-  border-bottom: 1px dashed var(--border, #e5e7eb);
-  font-size: 12px;
-}
-.diagram-exit-tip { color: #94a3b8; }
-/* 去掉"居中纸张"感：画布铺满 */
-.diagram-mode .page {
-  max-width: none; margin: 0; padding: 0;
-  background: transparent; border-radius: 0; box-shadow: none;
-  min-height: 100%;
-}
-/* 三种图块画布拉满（bar/hint/标题栏约 210px，给保底 420px） */
-.diagram-mode .kb-mindmap-canvas,
-.diagram-mode .kb-fc-canvas,
-.diagram-mode .kb-sheet-canvas { height: max(420px, calc(100vh - 210px)); }
-.diagram-mode .kb-mindmap-wrap,
-.diagram-mode .kb-fc-wrap,
-.diagram-mode .kb-sheet-wrap { margin: 0; }
-.diagram-mode .kb-mindmap,
-.diagram-mode .kb-fc,
-.diagram-mode .kb-sheet { border: none; border-radius: 0; }
+/* ---------- 图块专属模式（整篇文档 = 单个图块，画布占满右侧） ----------
+   注意：本 style 块是 scoped 的，选择器对子组件（NodeView）内部元素不生效；
+   diagram 全屏的高度/去纸张规则统一放文件末尾的非 scoped <style> 块。 */
 
 /* ---------- 正文排版 ---------- */
 .page-inner :deep(.kb-collab-body) { outline: none; color: #262a2e; font-size: 15.5px; line-height: 1.78; }
@@ -1113,4 +1098,41 @@ html.dark .page-inner :deep(.kb-collab-body .selectedCell::after) { background: 
   .ver-head { gap: 8px; }
   .ver-item { flex-wrap: wrap; padding: 10px; }
 }
+</style>
+
+<style>
+/* ========== 图块专属模式（非 scoped：需命中 NodeView 子组件内部元素） ==========
+   整篇文档 = 单个导图/流程图/电子表格块时，画布经 flex 链精确撑满右侧剩余高度。 */
+.diagram-exit {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 12px;
+  background: #fafbfc;
+  border-bottom: 1px dashed var(--border, #e5e7eb);
+  font-size: 12px;
+}
+.diagram-exit-tip { color: #94a3b8; }
+/* 去掉"居中纸张"感：画布铺满 */
+.diagram-mode .collab-canvas { display: flex; flex-direction: column; }
+.diagram-mode .page {
+  flex: 1; display: flex; flex-direction: column;
+  max-width: none; margin: 0; padding: 0; min-height: 0;
+  background: transparent; border-radius: 0; box-shadow: none;
+}
+.diagram-mode .page-inner { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.diagram-mode .page-inner .ProseMirror { flex: 1; min-height: 0; outline: none; display: flex; flex-direction: column; }
+/* 三种图块 wrap/壳/canvas 全程 flex，canvas 吃掉 bar/hint 之外的剩余高度 */
+.diagram-mode .kb-mindmap-wrap,
+.diagram-mode .kb-fc-wrap,
+.diagram-mode .kb-sheet-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: 0; }
+.diagram-mode .kb-mindmap,
+.diagram-mode .kb-fc,
+.diagram-mode .kb-sheet { flex: 1; display: flex; flex-direction: column; min-height: 0; border: none; border-radius: 0; }
+.diagram-mode .page-inner .ProseMirror > p { display: none; margin: 0; height: 0; }
+/* 提示条在专属模式下隐藏（编辑态的操作提示同步隐藏，画布顶到视口底部） */
+.diagram-mode .kb-sheet-hint,
+.diagram-mode .kb-fc-hint,
+.diagram-mode .kb-mindmap-hint { display: none; }
+.diagram-mode .kb-mindmap-canvas,
+.diagram-mode .kb-fc-canvas,
+.diagram-mode .kb-sheet-canvas { flex: 1; min-height: 320px; height: auto; }
 </style>
