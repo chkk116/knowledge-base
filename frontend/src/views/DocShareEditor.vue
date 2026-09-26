@@ -32,6 +32,10 @@ const props = defineProps({
   canWrite: { type: Boolean, default: false },
   // 旧版 HTML 内容，仅用于首次协同时把历史内容种入 Yjs 文档（一次性迁移）
   legacyContent: { type: String, default: '' },
+  // 图块专属模式：'mindmap' | 'flowchart' | 'sheet'——整篇文档就是单个图块时，
+  // 右侧全屏渲染该组件（隐藏文字工具栏、去掉纸张版面、画布拉满）；
+  // 要文字混排可点「转为普通文档」。空串 = 普通文档。
+  diagram: { type: String, default: '' },
 })
 
 const emit = defineEmits(['reload-document'])
@@ -223,8 +227,21 @@ async function saveSnapshot() {
 function safeName(s) {
   return (s || 'document').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'document'
 }
-function download(filename, content, mime) {
-  const blob = new Blob([content], { type: mime + ';charset=utf-8' })
+// 图块专属模式 → 普通文档：在文末插入一个空段落（content 不再是"纯单图块"），
+// 工作区据此自动切回通用编辑器；立即落盘快照并通知工作区刷新
+const toNormalDoc = async () => {
+  if (!editor.value || !props.canWrite) return
+  editor.value.commands.insertContent({ type: 'paragraph' })
+  try {
+    await updateShareDoc(props.shareId, props.docId, { content: editor.value.getHTML() })
+    ElMessage.success('已转为普通文档，可插入文字与图块混排')
+    emit('reload-document')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '转换失败'))
+  }
+}
+
+function download(filename, content, mime) {  const blob = new Blob([content], { type: mime + ';charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -684,14 +701,14 @@ watch(() => props.canWrite, (w) => {
 </script>
 
 <template>
-  <div class="collab">
+  <div class="collab" :class="{ 'diagram-mode': !!diagram }">
     <!-- 顶部工具栏（飞书式：白底分组按钮 + 右侧在线状态） -->
     <div v-if="authExpired" class="auth-expired-tip">
       ⚠️ 登录已过期或未登录——协同与保存不可用，请
       <a href="/login" @click.prevent="goLogin">重新登录</a>后刷新本页。
     </div>
     <div class="collab-toolbar">
-      <div class="tb-left" v-if="canWrite">
+      <div class="tb-left" v-if="canWrite && !diagram">
         <div class="tb-group" data-tour="undo-redo">
           <button class="tb-btn" title="撤销" @click="cmd('undo')"><el-icon :size="15"><RefreshLeft /></el-icon></button>
           <button class="tb-btn" title="重做" @click="cmd('redo')"><el-icon :size="15"><RefreshRight /></el-icon></button>
@@ -783,6 +800,12 @@ watch(() => props.canWrite, (w) => {
           <span class="dot" />{{ statusText }}
         </span>
       </div>
+    </div>
+
+    <!-- 图块专属模式：画布占满右侧；想加文字混排则转回普通文档 -->
+    <div v-if="diagram" class="diagram-exit">
+      <button class="kb-fc-btn" @click="toNormalDoc">转为普通文档（文字与图块混排）</button>
+      <span class="diagram-exit-tip">当前为{{ diagram === 'mindmap' ? '思维导图' : diagram === 'flowchart' ? '流程图' : '电子表格' }}专属文档</span>
     </div>
 
     <!-- 灰色画布 + 居中纸张（飞书式版面） -->
@@ -911,6 +934,32 @@ watch(() => props.canWrite, (w) => {
 /* 只读态物理锁：彻底禁止聚焦/选择，杜绝只读端产生本地光标或 selection */
 .collab-canvas.ro .page-inner :deep(.kb-collab-body) { user-select: none; -webkit-user-select: none; cursor: default; }
 .collab-canvas.ro .page-inner :deep(.ProseMirror) { caret-color: transparent; }
+
+/* ---------- 图块专属模式（整篇文档 = 单个图块，画布占满右侧） ---------- */
+.diagram-exit {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 12px;
+  background: #fafbfc;
+  border-bottom: 1px dashed var(--border, #e5e7eb);
+  font-size: 12px;
+}
+.diagram-exit-tip { color: #94a3b8; }
+/* 去掉"居中纸张"感：画布铺满 */
+.diagram-mode .page {
+  max-width: none; margin: 0; padding: 0;
+  background: transparent; border-radius: 0; box-shadow: none;
+  min-height: 100%;
+}
+/* 三种图块画布拉满（bar/hint/标题栏约 210px，给保底 420px） */
+.diagram-mode .kb-mindmap-canvas,
+.diagram-mode .kb-fc-canvas,
+.diagram-mode .kb-sheet-canvas { height: max(420px, calc(100vh - 210px)); }
+.diagram-mode .kb-mindmap-wrap,
+.diagram-mode .kb-fc-wrap,
+.diagram-mode .kb-sheet-wrap { margin: 0; }
+.diagram-mode .kb-mindmap,
+.diagram-mode .kb-fc,
+.diagram-mode .kb-sheet { border: none; border-radius: 0; }
 
 /* ---------- 正文排版 ---------- */
 .page-inner :deep(.kb-collab-body) { outline: none; color: #262a2e; font-size: 15.5px; line-height: 1.78; }

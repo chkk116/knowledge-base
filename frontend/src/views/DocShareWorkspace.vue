@@ -134,6 +134,21 @@ const selectDoc = async (doc) => {
   }
 }
 
+/** 图块专属文档判定：content 快照恰好是单个导图/流程图/电子表格块（无其他正文）
+ *  时，右侧全屏渲染对应组件（新建导图/流程图/电子表格即此类）；点了「转为普通文档」
+ *  或手动加过文字后不再匹配，自动回到通用编辑器。 */
+const DIAGRAM_RE = /^<div data-type="(mindmap|flowchart|sheet)-block"[\s\S]*?><\/div>$/
+const diagramKind = computed(() => {
+  const c = (activeDoc.value?.content || '').trim()
+  const m = DIAGRAM_RE.exec(c)
+  return m ? m[1] : ''
+})
+
+// 图块专属文档点「转为普通文档」后刷新当前文档（content 已变，切回通用编辑器）
+const onDocReload = async () => {
+  if (activeDoc.value) await selectDoc(activeDoc.value)
+}
+
 /** 把当前打开的文档 id 写进地址栏（?doc=<id>）。
  *  旧行为：URL 永远停在空间首页，切换文档不反映到地址，
  *  导致「想把这篇文档发给同事」只能发空间首页，对方还得自己找。 */
@@ -143,18 +158,17 @@ const syncDocToUrl = (docId) => {
 }
 
 /** 新建文档类型种子：content 写进快照列，编辑器首次协同时由 seedIfEmpty 种入 Yjs 文档。
- *  导图/流程图块是 Tiptap 原子节点（parseHTML 按 data-type 识别），空 data 时组件内
- *  自带预置结构（中心主题 / 开始节点），所以只需一个空 div。 */
+ *  导图/流程图/电子表格是 Tiptap 原子节点（parseHTML 按 data-type 识别），空 data 时组件内
+ *  自带预置结构（中心主题 / 开始节点 / 空表），所以只需一个空 div。
+ *  「整篇文档 = 单个图块」时工作区会全屏渲染该组件（见 diagramKind）。 */
 const DOC_SEEDS = {
   doc: { title: '未命名文档', content: '' },
-  table: {
-    title: '未命名表格',
-    content: '<table><tr><th>列1</th><th>列2</th><th>列3</th></tr>'
-      + '<tr><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr></table>',
+  sheet: {
+    title: '未命名电子表格',
+    content: '<div data-type="sheet-block" title="电子表格"></div>',
   },
   mindmap: { title: '未命名导图', content: '<div data-type="mindmap-block" title="思维导图"></div>' },
   flowchart: { title: '未命名流程图', content: '<div data-type="flowchart-block" title="流程图"></div>' },
-  sheet: { title: '未命名电子表格', content: '<div data-type="sheet-block" title="电子表格"></div>' },
 }
 
 const createDoc = async (kind = 'doc') => {
@@ -513,8 +527,7 @@ watch(() => route.query.doc, async (want) => {
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="doc"><el-icon><Document /></el-icon> 空白文档</el-dropdown-item>
-                  <el-dropdown-item command="table"><el-icon><Grid /></el-icon> 表格</el-dropdown-item>
-                  <el-dropdown-item command="sheet"><el-icon><Grid /></el-icon> 电子表格（Excel 式）</el-dropdown-item>
+                  <el-dropdown-item command="sheet"><el-icon><Grid /></el-icon> 电子表格</el-dropdown-item>
                   <el-dropdown-item command="mindmap"><el-icon><Share /></el-icon> 思维导图</el-dropdown-item>
                   <el-dropdown-item command="flowchart"><el-icon><Connection /></el-icon> 流程图</el-dropdown-item>
                 </el-dropdown-menu>
@@ -566,7 +579,8 @@ watch(() => route.query.doc, async (want) => {
           <input v-model="editorTitle" class="title-input" placeholder="无标题文档" :disabled="!canWrite" @change="saveTitle" />
         </div>
         <DocShareEditor :key="activeDoc.id" :share-id="shareId" :doc-id="activeDoc.id"
-                        :can-write="docCanWrite" :legacy-content="activeDoc.content" />
+                        :can-write="docCanWrite" :legacy-content="activeDoc.content"
+                        :diagram="diagramKind" @reload-document="onDocReload" />
       </main>
 
       <div v-else class="editor empty">
