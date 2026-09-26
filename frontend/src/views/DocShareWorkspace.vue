@@ -154,6 +154,7 @@ const DOC_SEEDS = {
   },
   mindmap: { title: '未命名导图', content: '<div data-type="mindmap-block" title="思维导图"></div>' },
   flowchart: { title: '未命名流程图', content: '<div data-type="flowchart-block" title="流程图"></div>' },
+  sheet: { title: '未命名电子表格', content: '<div data-type="sheet-block" title="电子表格"></div>' },
 }
 
 const createDoc = async (kind = 'doc') => {
@@ -513,6 +514,7 @@ watch(() => route.query.doc, async (want) => {
                 <el-dropdown-menu>
                   <el-dropdown-item command="doc"><el-icon><Document /></el-icon> 空白文档</el-dropdown-item>
                   <el-dropdown-item command="table"><el-icon><Grid /></el-icon> 表格</el-dropdown-item>
+                  <el-dropdown-item command="sheet"><el-icon><Grid /></el-icon> 电子表格（Excel 式）</el-dropdown-item>
                   <el-dropdown-item command="mindmap"><el-icon><Share /></el-icon> 思维导图</el-dropdown-item>
                   <el-dropdown-item command="flowchart"><el-icon><Connection /></el-icon> 流程图</el-dropdown-item>
                 </el-dropdown-menu>

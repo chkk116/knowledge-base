@@ -11,7 +11,7 @@ import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
-import { RefreshLeft, RefreshRight, ArrowDown, Share, QuestionFilled } from '@element-plus/icons-vue'
+import { RefreshLeft, RefreshRight, ArrowDown, Share, QuestionFilled, Grid } from '@element-plus/icons-vue'
 import { driver } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import * as Y from 'yjs'
@@ -21,6 +21,7 @@ import { updateShareDoc, saveShareDocVersion, listShareDocVersions, restoreShare
 import { useAuthStore } from '../store/auth'
 import MindmapNode from '../extensions/MindmapNode'
 import FlowchartNode from '../extensions/FlowchartNode'
+import SpreadsheetNode from '../extensions/SpreadsheetNode'
 import { fromNow, fmtDateTime } from '../utils/time'
 import { errMsg } from '../utils/errMsg'
 
@@ -144,6 +145,7 @@ const editor = useEditor({
     Collaboration.configure({ document: ydoc }),
     MindmapNode,   // 思维导图块（Vue Flow NodeView + 编辑锁，协同经 Yjs 属性同步）
     FlowchartNode, // 流程图块（多形状 + 连线 + 连线标签，同款编辑锁与 Yjs 同步）
+    SpreadsheetNode, // 电子表格块（x-data-spreadsheet 引擎，公式/填充/冻结，同款编辑锁与 Yjs 同步）
     // 只读（canWrite=false）时不挂载协同光标扩展：
     // 避免本地光标/选区被广播到其他协作者屏幕上，造成「别人能移动你的光标」的错觉，
     // 同时只读端本身也不应产生可编辑光标。
@@ -188,6 +190,7 @@ function cmd(name) {
     case 'codeBlock': c.toggleCodeBlock().run(); break
     case 'mindmap': c.insertMindmapBlock({ title: '思维导图' }).run(); break
     case 'flowchart': c.insertFlowchartBlock({ title: '流程图' }).run(); break
+    case 'sheet': c.insertSheetBlock({ title: '电子表格' }).run(); break
     case 'hr': c.setHorizontalRule().run(); break
     case 'clear': c.unsetAllMarks().clearNodes().run(); break
     case 'table': c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); break
@@ -637,6 +640,7 @@ function startTour() {
       { element: el('[data-tour="table"]'), popover: { title: '表格', description: '插入表格后可增删行列。' } },
       { element: el('[data-tour="mindmap"]'), popover: { title: '思维导图 🆕', description: '在文档里直接画思维导图：插入后点「编辑导图」，Tab 加子节点、F2 编辑文字；编辑期间其他人只读。' } },
       { element: el('[data-tour="flowchart"]'), popover: { title: '流程图 🆕', description: '在文档里画流程图：插入后点「编辑」，从形状栏加矩形 / 圆 / 菱形等图形，从图形圆点拖线连接，点连线加「是/否」标签；编辑期间其他人只读。' } },
+      { element: el('[data-tour="sheet"]'), popover: { title: '电子表格 🆕', description: '在文档里插入 Excel 式表格：单元格可输公式（=SUM(...)）、拖拽填充、复制粘贴、合并冻结；插入后点「编辑」，编辑期间其他人只读。' } },
       { element: el('[data-tour="snapshot"]'), popover: { title: '快照与版本', description: '手动保存快照；「版本」里可查看 / 回滚任意历史版本。' } },
       { element: el('[data-tour="presence"]'), popover: { title: '协作状态', description: '这里能看到当前在线的协作者及其光标颜色。开始创作吧！' } },
     ],
@@ -736,6 +740,9 @@ watch(() => props.canWrite, (w) => {
         </div>
         <div class="tb-group" data-tour="flowchart">
           <button class="tb-btn" title="插入流程图（带协同编辑锁）" @click="cmd('flowchart')"><el-icon :size="15"><Share /></el-icon> 流程</button>
+        </div>
+        <div class="tb-group" data-tour="sheet">
+          <button class="tb-btn" title="插入电子表格（Excel 式：公式/填充/冻结，带协同编辑锁）" @click="cmd('sheet')"><el-icon :size="15"><Grid /></el-icon> 表格</button>
         </div>
         <span class="tb-sep" />
         <button class="tb-btn txt" data-tour="snapshot" :class="{ saving }" title="把当前内容保存为 HTML 快照" @click="saveSnapshot">
