@@ -48,7 +48,10 @@ public final class HtmlSanitizer {
     }
             .addAttributes("span", "style")
             .addAttributes("p", "style")
-            .addAttributes("div", "style")
+            // 图块节点（思维导图/流程图/电子表格）以 <div data-type="xxx-block" data="..." locked="" title="..."> 存储：
+            // 放行这四个属性，否则种子/快照会被剥成 <div></div>（块丢失、前端无法识别专属文档）。
+            // 属性值是纯字符串（JSON/枚举），无脚本执行面。
+            .addAttributes("div", "style", "data-type", "data", "locked", "title")
             .addAttributes("a", "target", "rel")
             .addAttributes("img", "style", "class", "width", "height", "loading", "decoding")
             // 语音条 <audio controls src>：src 相对路径经上方覆写放行，其余按协议白名单
