@@ -1,5 +1,5 @@
 <template>
-  <NodeViewWrapper class="kb-sheet-wrap" data-type="sheet-block">
+  <NodeViewWrapper class="kb-sheet-wrap" data-type="sheet-block" @mousedown.capture="onWrapMouseDown">
     <div class="kb-sheet" :class="{ editing }">
       <div class="kb-sheet-bar">
         <span class="kb-sheet-title">
@@ -40,6 +40,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
+import { NodeSelection } from '@tiptap/pm/state'
+import { ElMessage } from 'element-plus'
 // 主包走 ESM 源码（Vite 原生解析）；dist 的 UMD 会被 Vite 预构建成
 // 「无 default 导出」的 ESM 导致运行时 SyntaxError，故 js/locale 一律不 import dist。
 // CSS 是静态资源无 interop 问题，继续用 dist。代价：工具栏为英文（locale 文件也是 UMD，同理放弃）。
@@ -128,6 +130,11 @@ function mountSheet() {
 }
 
 // ---------- 事件拦截（防 ProseMirror 抢焦点 / 吃键盘） ----------
+// 只读态：块区域 pointer-events:none 会让点击穿透到 PM 产生 NodeSelection，
+// 随后任意打字都会删块——在 wrapper 捕获层直接吞掉点击
+function onWrapMouseDown(e) {
+  if (!editing.value) { e.stopPropagation(); e.preventDefault() }
+}
 function onMouseDown(e) {
   e.stopPropagation()
   const active = document.activeElement
@@ -141,7 +148,25 @@ function onMouseDown(e) {
 //  - 焦点在 ProseMirror 时打字，PM 会用字符「替换」被 NodeSelection 选中的本块 → 表格消失（真实环境实测复现）
 //  - x-data-spreadsheet 的键盘监听绑在 window 上；PM 根是 target 时容器冒泡层拦不到，必须在 document capture 层处理
 const docKeyDownCapture = (e) => {
-  if (!editing.value) return
+  // 只读态保护：焦点在 PM 且 NodeSelection 选中的是本块时，打字会把块替换成文本（删块）——
+  // 拦截并提示去点「编辑」。普通模式下的正文打字不受影响（选中的不是本块就不拦）。
+  if (!editing.value) {
+    const ae = document.activeElement
+    if (ae && ae.closest && ae.closest('.ProseMirror')) {
+      try {
+        const sel = props.editor.state.selection
+        if (sel instanceof NodeSelection && sel.node.type.name === 'sheetBlock') {
+          e.stopImmediatePropagation()
+          e.preventDefault()
+          if (Date.now() - roTipTs > 3000) {
+            roTipTs = Date.now()
+            ElMessage.warning('当前为只读预览，点击右上「编辑」后即可修改')
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    return
+  }
   const ae = document.activeElement
   // 引擎自己的单元格 textarea 编辑中：放行（原生输入 + 它自带的 Enter 提交；PM 因无焦点自动忽略这些事件）
   if (ae && ae.tagName === 'TEXTAREA' && ae.closest && ae.closest('.x-spreadsheet')) return
@@ -163,6 +188,7 @@ const docKeyDownCapture = (e) => {
 // ---------- 编辑锁生命周期 ----------
 // 锁心跳：编辑中每 60s 续一次 locked.ts，避免 2 分钟超时把派生编辑态踢出
 let lockHeartbeat = null
+let roTipTs = 0   // 只读提示节流
 function startHeartbeat() {
   stopHeartbeat()
   lockHeartbeat = setInterval(() => {

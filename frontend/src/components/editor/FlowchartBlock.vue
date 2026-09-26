@@ -149,6 +149,7 @@ import {
 } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
+import { NodeSelection } from '@tiptap/pm/state'
 import { useAuthStore } from '../../store/auth'
 
 const props = defineProps(nodeViewProps)
@@ -529,13 +530,29 @@ watch(
   { immediate: false }
 )
 
+// 只读态键盘保护：焦点在 PM 且 NodeSelection 选中本块时，打字会删块——拦截
+const guardKey = (e) => {
+  if (editing.value) return   // 编辑态由容器拦截逻辑处理
+  const ae = document.activeElement
+  if (!ae || !ae.closest || !ae.closest('.ProseMirror')) return
+  try {
+    const sel = props.editor.state.selection
+    if (sel instanceof NodeSelection && sel.node.type.name === 'flowchartBlock') {
+      e.stopImmediatePropagation()
+      e.preventDefault()
+    }
+  } catch { /* ignore */ }
+}
+
 onMounted(() => {
+  document.addEventListener('keydown', guardKey, true)
   nextTick(() => {
     loadFromProps()
     fit()
   })
 })
 onBeforeUnmount(() => {
+  document.removeEventListener('keydown', guardKey, true)
   if (editing.value && dirty.value) {
     try {
       props.updateAttributes({ data: JSON.stringify(serialize()), locked: '' })
