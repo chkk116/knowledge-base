@@ -15,14 +15,24 @@
 <script setup>
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import Table from '@tiptap/extension-table'
+import TableRow from '@tiptap/extension-table-row'
+import TableHeader from '@tiptap/extension-table-header'
+import TableCell from '@tiptap/extension-table-cell'
 import FlowchartNode from '../extensions/FlowchartNode'
 
 const editor = useEditor({
   editable: true,
   extensions: [
     StarterKit,
+    Table,
+    TableRow,
+    TableHeader,
+    TableCell,
     FlowchartNode,
   ],
   content: '<p>flowchart dev test</p>',
 })
+// 暴露给验收脚本：验证「新建种子 HTML」能否被 schema 正确解析
+window.__ed = () => editor.value
 </script>

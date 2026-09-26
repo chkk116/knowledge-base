@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MoreFilled, Document } from '@element-plus/icons-vue'
+import { MoreFilled, Document, Grid, Share, Connection, ArrowDown } from '@element-plus/icons-vue'
 import {
   getShare, updateShare, listShareDocs, createShareDoc,
   getShareDoc, updateShareDoc, deleteShareDoc, moveShareDoc,
@@ -142,10 +142,25 @@ const syncDocToUrl = (docId) => {
   router.replace({ path: `/doc-shares/${shareId.value}`, query: { ...route.query, doc: docId } })
 }
 
-const createDoc = async () => {
+/** 新建文档类型种子：content 写进快照列，编辑器首次协同时由 seedIfEmpty 种入 Yjs 文档。
+ *  导图/流程图块是 Tiptap 原子节点（parseHTML 按 data-type 识别），空 data 时组件内
+ *  自带预置结构（中心主题 / 开始节点），所以只需一个空 div。 */
+const DOC_SEEDS = {
+  doc: { title: '未命名文档', content: '' },
+  table: {
+    title: '未命名表格',
+    content: '<table><tr><th>列1</th><th>列2</th><th>列3</th></tr>'
+      + '<tr><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr></table>',
+  },
+  mindmap: { title: '未命名导图', content: '<div data-type="mindmap-block" title="思维导图"></div>' },
+  flowchart: { title: '未命名流程图', content: '<div data-type="flowchart-block" title="流程图"></div>' },
+}
+
+const createDoc = async (kind = 'doc') => {
   if (!canWrite.value) return
+  const seed = DOC_SEEDS[kind] || DOC_SEEDS.doc
   try {
-    const { data } = await createShareDoc(shareId.value, { title: '未命名文档', content: '' })
+    const { data } = await createShareDoc(shareId.value, { title: seed.title, content: seed.content })
     await loadDocs()
     await selectDoc(data)
   } catch (e) {
@@ -490,7 +505,19 @@ watch(() => route.query.doc, async (want) => {
         <div class="list-head">
           <span>文档 ({{ docs.length }})</span>
           <div class="head-actions" v-if="canWrite">
-            <el-button type="primary" size="small" @click="createDoc">新建</el-button>
+            <el-dropdown trigger="click" @command="(c) => createDoc(c)">
+              <el-button type="primary" size="small">
+                新建 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="doc"><el-icon><Document /></el-icon> 空白文档</el-dropdown-item>
+                  <el-dropdown-item command="table"><el-icon><Grid /></el-icon> 表格</el-dropdown-item>
+                  <el-dropdown-item command="mindmap"><el-icon><Share /></el-icon> 思维导图</el-dropdown-item>
+                  <el-dropdown-item command="flowchart"><el-icon><Connection /></el-icon> 流程图</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button size="small" :loading="importing" @click="openImport">导入</el-button>
             <input ref="importFileInput" type="file" accept=".md,.markdown,.txt,.text,.html,.htm,.docx,.pdf"
                    style="display:none" @change="onImportFile" />

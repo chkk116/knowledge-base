@@ -25,4 +25,6 @@ const editor = useEditor({
   ],
   content: '<p>mindmap dev test</p>',
 })
+// 暴露给验收脚本：验证「新建种子 HTML」能否被 schema 正确解析
+window.__ed = () => editor.value
 </script>
