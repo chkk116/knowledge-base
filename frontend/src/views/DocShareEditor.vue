@@ -646,17 +646,47 @@ function goLogin() {
   location.href = '/login?redirect=' + encodeURIComponent(location.pathname)
 }
 
-// 漫游式功能引导（driver.js）：首次进入自动播放，之后可点「引导」随时重看
-const TOUR_KEY = 'kb-collab-tour-v1-done'
+// 漫游式功能引导（driver.js）：普通文档讲编辑器全貌；图块专属文档（导图/流程图/电子表格）
+// 讲对应画布的操作。完成标记按类型分开——每类文档首次打开时各播一次，「引导」按钮随时重看。
+const TOUR_KEYS = {
+  normal: 'kb-collab-tour-v1-done',
+  mindmap: 'kb-collab-tour-mindmap-done',
+  flowchart: 'kb-collab-tour-flowchart-done',
+  sheet: 'kb-collab-tour-sheet-done',
+}
+const tourKey = () => TOUR_KEYS[props.diagram || 'normal']
+
+/** 图块专属文档的引导步骤（锚点：块的「编辑」按钮 + 居中说明 + 转普通文档入口） */
+function diagramTourSteps() {
+  const kind = props.diagram
+  const wrapSel = { mindmap: '.kb-mindmap-wrap', flowchart: '.kb-fc-wrap', sheet: '.kb-sheet-wrap' }[kind]
+  const meta = {
+    mindmap: { name: '思维导图', ops: '进入编辑后：双击或 F2 改文字，Tab 加子主题、Enter 加同级；「+ 自由主题」可加互不相连的新主题；节点可自由拖拽。编辑期间其他人只读。' },
+    flowchart: { name: '流程图', ops: '进入编辑后：从形状栏添加矩形 / 圆 / 菱形 / 文档 / 步骤等图形并自由摆放；从图形圆点拖线连接；点连线可加「是/否」标签。编辑期间其他人只读。' },
+    sheet: { name: '电子表格', ops: '进入编辑后：与 Excel 同款操作——单元格直接输公式（=SUM(...)）、拖动选区右下角填充、复制粘贴、合并冻结；顶部工具栏可设字体、填充色和数字格式（RMB / 百分比 / 日期等，选格式前先选中目标格子）。' },
+  }[kind]
+  const editBtn = Array.from(document.querySelectorAll(wrapSel + ' button'))
+    .find((b) => b.textContent.trim().startsWith('编辑'))
+  const steps = [
+    { popover: { title: meta.name + ' · 专属文档', description: '这篇文档整页就是一张' + meta.name + '画布，右侧即为画布本体，无需插入操作。' } },
+  ]
+  if (editBtn) {
+    steps.push({ element: editBtn, popover: { title: '第一步：点「编辑」', description: '获得编辑锁后才能修改——同一时刻仅一人可编辑，其他人只读实时查看。' } })
+  }
+  steps.push({ popover: { title: '怎么用', description: meta.ops } })
+  const exitBtn = document.querySelector('.diagram-exit button')
+  if (exitBtn) {
+    steps.push({ element: exitBtn, popover: { title: '想加文字说明？', description: '点「转为普通文档」回到常规编辑器，即可文字与图块混排。' } })
+  }
+  return steps
+}
+
 function startTour() {
   const el = (sel) => document.querySelector(sel)
-  const d = driver({
-    showProgress: true,
-    progressText: '{{current}} / {{total}}',
-    nextBtnText: '下一步',
-    prevBtnText: '上一步',
-    doneBtnText: '完成',
-    steps: [
+  const isDiagram = !!props.diagram
+  const steps = isDiagram
+    ? diagramTourSteps()
+    : [
       { popover: { title: '欢迎使用协同文档', description: '用 30 秒了解一下编辑器的功能布局。' } },
       { element: el('[data-tour="undo-redo"]'), popover: { title: '撤销 / 重做', description: '编辑错了随时回退，由实时协同引擎保证多人一致。' } },
       { element: el('[data-tour="heading"]'), popover: { title: '标题与正文', description: '切换段落与各级标题，构建文档结构。' } },
@@ -668,19 +698,27 @@ function startTour() {
       { element: el('[data-tour="sheet"]'), popover: { title: '电子表格 🆕', description: '在文档里插入 Excel 式表格：单元格可输公式（=SUM(...)）、拖拽填充、复制粘贴、合并冻结；插入后点「编辑」，编辑期间其他人只读。' } },
       { element: el('[data-tour="snapshot"]'), popover: { title: '快照与版本', description: '手动保存快照；「版本」里可查看 / 回滚任意历史版本。' } },
       { element: el('[data-tour="presence"]'), popover: { title: '协作状态', description: '这里能看到当前在线的协作者及其光标颜色。开始创作吧！' } },
-    ],
-    onDestroyed: () => localStorage.setItem(TOUR_KEY, '1'),
+    ]
+  const key = tourKey()
+  const d = driver({
+    showProgress: true,
+    progressText: '{{current}} / {{total}}',
+    nextBtnText: '下一步',
+    prevBtnText: '上一步',
+    doneBtnText: '完成',
+    steps,
+    onDestroyed: () => localStorage.setItem(key, '1'),
   })
   d.drive()
 }
 
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibility)
-  // 首次进入（可写用户）自动播放一次漫游引导
-  if (props.canWrite && !localStorage.getItem(TOUR_KEY)) {
+  // 首次进入（可写用户）自动播放一次漫游引导——按文档类型各播一次
+  if (props.canWrite && !localStorage.getItem(tourKey())) {
     setTimeout(() => {
       if (!destroyed && editor.value) startTour()
-    }, 1200)
+    }, props.diagram ? 1800 : 1200)
   }
 })
 
