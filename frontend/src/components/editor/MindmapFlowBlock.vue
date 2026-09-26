@@ -17,6 +17,7 @@
         <span v-else-if="editing" class="kb-mindmap-status editing">你正在编辑</span>
         <span class="kb-mindmap-actions">
           <button class="kb-mm-btn" @click="fit">适应视图</button>
+          <button v-if="editing" class="kb-mm-btn" @click="addFreeTopic">+ 自由主题</button>
           <button v-if="!editing && canAcquire" class="kb-mm-btn primary" @click="acquire">编辑导图</button>
           <button
             v-if="!editing && lockInfo && !isMine && lockExpired"
@@ -67,15 +68,15 @@
                 v-model="editText"
                 class="mm-edit"
                 @keydown="onInputKeyDown"
-                @blur="commitEdit"
+                @blur="commitEdit(slotProps.id)"
               />
               <span v-else class="mm-label">{{ slotProps.data?.label }}</span>
             </div>
           </template>
         </VueFlow>
       </div>
-      <div v-if="!editing" class="kb-mindmap-hint">点「编辑导图」后：Tab 加子节点 · Enter 加同级（在中心主题上按 Enter 则为「自由主题」，与现有导图平级）· F2 / 双击编辑文字 · 节点可直接拖拽到任意位置</div>
-      <div v-else class="kb-mindmap-hint editing-hint">Tab 加子节点 · Enter 加同级（根节点按 Enter ＝新增自由主题）· F2 / 双击编辑文字 · Delete 删除节点及其子树 · 节点可自由拖拽摆放 · Ctrl+滚轮缩放</div>
+      <div v-if="!editing" class="kb-mindmap-hint">点「编辑导图」后：Tab 加子节点 · Enter 加同级 · 「+ 自由主题」按钮加互不相连的新主题 · F2 / 双击编辑文字 · 节点可直接拖拽到任意位置</div>
+      <div v-else class="kb-mindmap-hint editing-hint">输入文字时：Tab＝保存并建子节点、Enter＝保存并建同级（免确认连建）· 选中根节点按 Enter 或点「+ 自由主题」＝不连线的新主题 · F2 / 双击改字 · Delete 删子树 · 节点可自由拖拽</div>
     </div>
   </NodeViewWrapper>
 </template>
@@ -218,7 +219,14 @@ function loadFromProps() {
 }
 
 function fit() {
-  requestAnimationFrame(() => fitView({ padding: 0.2 }))
+  // fitView 依赖节点 DOM 测量：新建节点当场 fit 会因拿不到其尺寸而把它排除在
+  // 包围盒外（fitView 还会 resolve(true) 不再重试），节点被留在画布外裁掉。
+  // 因此 0/200/500ms 三次补 fit（duration:0 立即生效），测量完成后必能收进视口。
+  ;[0, 200, 500].forEach((delay) => {
+    setTimeout(() => {
+      Promise.resolve(fitView({ padding: 0.2, duration: 0 })).catch(() => { /* ignore */ })
+    }, delay)
+  })
 }
 
 // ---------- 编辑语义（Tab / Enter / F2 / Delete） ----------
@@ -231,9 +239,19 @@ function getChildren(id) {
   return edges.value.filter((x) => x.source === id).map((x) => x.target)
 }
 
-function addRoot() {
+/** 自由主题：不连任何线的新根节点（多中心），落在现有内容右下方的空白处 */
+function addFreeTopic() {
   const nid = 'n' + (++idc)
-  addNodes({ id: nid, type: 'mindNode', position: { x: 60, y: 200 }, data: { label: '中心主题' } })
+  let maxX = 60, maxY = 200
+  nodes.value.forEach((n) => {
+    maxX = Math.max(maxX, n.position.x)
+    maxY = Math.max(maxY, n.position.y)
+  })
+  addNodes({
+    id: nid, type: 'mindNode',
+    position: nodes.value.length ? { x: maxX + 140, y: maxY + 60 } : { x: 60, y: 200 },
+    data: { label: '自由主题' },
+  })
   selectedId.value = nid
   dirty.value = true
   fit()
@@ -241,7 +259,7 @@ function addRoot() {
 }
 
 function addChild(id) {
-  if (!id) return addRoot()
+  if (!id) return addFreeTopic()
   const parent = findNode(id)
   if (!parent) return
   const nid = 'n' + (++idc)
@@ -259,7 +277,7 @@ function addChild(id) {
 }
 
 function addSibling(id) {
-  if (!id) return addRoot()
+  if (!id) return addFreeTopic()
   const node = findNode(id)
   if (!node) return
   const parentId = getParentId(id)
@@ -279,9 +297,15 @@ function addSibling(id) {
   }
   const parent = findNode(parentId)
   const nid = 'n' + (++idc)
+  // 放到父节点现有子节点的最下方，避免连按 Enter 时兄弟节点全叠在同一坐标
+  let bottomY = node.position.y
+  getChildren(parentId).forEach((kidId) => {
+    const k = findNode(kidId)
+    if (k) bottomY = Math.max(bottomY, k.position.y)
+  })
   addNodes({
     id: nid, type: 'mindNode',
-    position: { x: parent.position.x + 260, y: node.position.y + 90 },
+    position: { x: parent.position.x + 260, y: bottomY + 90 },
     data: { label: '新主题' },
   })
   addEdges({ id: 'e' + nid, source: parentId, target: nid })
@@ -323,9 +347,11 @@ function startEdit(id) {
     editInput.value?.select()
   })
 }
-function commitEdit() {
-  if (!editingId.value) return
-  const node = findNode(editingId.value)
+function commitEdit(id) {
+  // 只提交「自己这个节点」的编辑：连建时旧输入框卸载会触发 blur，
+  // 此时 editingId 已指向新建节点，不守卫会把新节点的编辑态误关掉
+  if (!id || editingId.value !== id) return
+  const node = findNode(id)
   if (node) node.data.label = editText.value.trim() || '未命名'
   editingId.value = null
   dirty.value = true
@@ -337,7 +363,14 @@ function onInputKeyDown(e) {
   e.stopPropagation()
   if (e.key === 'Enter') {
     e.preventDefault()
-    commitEdit()
+    const id = editingId.value
+    commitEdit(id)
+    addSibling(id)   // 输入中按 Enter：保存并直接建同级，免确认连建
+  } else if (e.key === 'Tab') {
+    e.preventDefault()
+    const id = editingId.value
+    commitEdit(id)
+    addChild(id)     // 输入中按 Tab：保存并直接建子节点
   } else if (e.key === 'Escape') {
     e.preventDefault()
     cancelEdit()
