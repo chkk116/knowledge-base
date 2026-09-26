@@ -323,4 +323,23 @@ onBeforeUnmount(() => {
   border-top: 1px dashed var(--border, #e5e7eb);
 }
 .kb-sheet-wrap.ProseMirror-selectednode .kb-sheet { border-color: #10b981; }
+
+/* 引擎 UI 隔离：文档正文的表格样式（.kb-collab-body table/td：fixed 宽 100%、
+   padding、边框、position:relative）会穿透到引擎的色板/日期面板（同为 table 布局），
+   导致颜色选择器错乱——就近还原（注意不要动 background，色块背景是 inline style） */
+.kb-sheet-canvas table {
+  width: auto !important;
+  table-layout: auto !important;
+  border: none !important;
+  margin: 0 !important;
+}
+.kb-sheet-canvas table td,
+.kb-sheet-canvas table th {
+  padding: 0 !important;
+  border: none !important;
+  position: static !important;
+  min-width: 0 !important;
+  vertical-align: middle !important;
+  box-sizing: content-box;
+}
 </style>
