@@ -27,6 +27,7 @@
     "@tiptap/pm": "2.27.2",
     "@tiptap/starter-kit": "2.27.2",
     "@tiptap/vue-3": "2.27.2",
+    "@vue-flow/core": "^1.48.2",
     "@wangeditor/editor": "^5.1.23",
     "@wangeditor/plugin-md": "^1.0.0",
     "axios": "^1.7.7",
