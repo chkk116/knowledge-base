@@ -5,6 +5,7 @@ import { featureMap } from '../api/features'
 const routes = [
   { path: '/', component: () => import('../views/Home.vue'), meta: { title: '知识库', maintenance: 'docs' } },
   { path: '/dev/mindmap-test', component: () => import('../views/DevMindmapTest.vue'), meta: { public: true, title: '导图测试' } },
+  { path: '/dev/flowchart-test', component: () => import('../views/DevFlowchartTest.vue'), meta: { public: true, title: '流程图测试' } },
   { path: '/dev/vueflow-test', component: () => import('../views/DevVueFlowTest.vue'), meta: { public: true, title: 'Vue Flow 原型' } },
   { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true, title: '登录' } },
   { path: '/post/:id', component: () => import('../views/PostDetail.vue'), meta: { title: '文档详情', maintenance: 'docs' } },

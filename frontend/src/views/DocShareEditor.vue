@@ -20,6 +20,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { updateShareDoc, saveShareDocVersion, listShareDocVersions, restoreShareDocVersion } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import MindmapNode from '../extensions/MindmapNode'
+import FlowchartNode from '../extensions/FlowchartNode'
 import { fromNow, fmtDateTime } from '../utils/time'
 import { errMsg } from '../utils/errMsg'
 
@@ -142,6 +143,7 @@ const editor = useEditor({
     TableCell,
     Collaboration.configure({ document: ydoc }),
     MindmapNode,   // 思维导图块（Vue Flow NodeView + 编辑锁，协同经 Yjs 属性同步）
+    FlowchartNode, // 流程图块（多形状 + 连线 + 连线标签，同款编辑锁与 Yjs 同步）
     // 只读（canWrite=false）时不挂载协同光标扩展：
     // 避免本地光标/选区被广播到其他协作者屏幕上，造成「别人能移动你的光标」的错觉，
     // 同时只读端本身也不应产生可编辑光标。
@@ -185,6 +187,7 @@ function cmd(name) {
     case 'quote': c.toggleBlockquote().run(); break
     case 'codeBlock': c.toggleCodeBlock().run(); break
     case 'mindmap': c.insertMindmapBlock({ title: '思维导图' }).run(); break
+    case 'flowchart': c.insertFlowchartBlock({ title: '流程图' }).run(); break
     case 'hr': c.setHorizontalRule().run(); break
     case 'clear': c.unsetAllMarks().clearNodes().run(); break
     case 'table': c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); break
@@ -633,6 +636,7 @@ function startTour() {
       { element: el('[data-tour="list"]'), popover: { title: '列表与待办', description: '无序/有序列表，以及可勾选的待办清单。' } },
       { element: el('[data-tour="table"]'), popover: { title: '表格', description: '插入表格后可增删行列。' } },
       { element: el('[data-tour="mindmap"]'), popover: { title: '思维导图 🆕', description: '在文档里直接画思维导图：插入后点「编辑导图」，Tab 加子节点、F2 编辑文字；编辑期间其他人只读。' } },
+      { element: el('[data-tour="flowchart"]'), popover: { title: '流程图 🆕', description: '在文档里画流程图：插入后点「编辑」，从形状栏加矩形 / 圆 / 菱形等图形，从图形圆点拖线连接，点连线加「是/否」标签；编辑期间其他人只读。' } },
       { element: el('[data-tour="snapshot"]'), popover: { title: '快照与版本', description: '手动保存快照；「版本」里可查看 / 回滚任意历史版本。' } },
       { element: el('[data-tour="presence"]'), popover: { title: '协作状态', description: '这里能看到当前在线的协作者及其光标颜色。开始创作吧！' } },
     ],
@@ -729,6 +733,9 @@ watch(() => props.canWrite, (w) => {
         <span class="tb-sep" />
         <div class="tb-group" data-tour="mindmap">
           <button class="tb-btn" title="插入思维导图（带协同编辑锁）" @click="cmd('mindmap')"><el-icon :size="15"><Share /></el-icon> 导图</button>
+        </div>
+        <div class="tb-group" data-tour="flowchart">
+          <button class="tb-btn" title="插入流程图（带协同编辑锁）" @click="cmd('flowchart')"><el-icon :size="15"><Share /></el-icon> 流程</button>
         </div>
         <span class="tb-sep" />
         <button class="tb-btn txt" data-tour="snapshot" :class="{ saving }" title="把当前内容保存为 HTML 快照" @click="saveSnapshot">
