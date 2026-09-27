@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import java.time.Duration;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import java.util.*;
@@ -113,8 +115,15 @@ public class OcrService {
                     ? "OCR 未启用：请在「AI 模型管理」中添加一条启用的智谱（ZHIPU）模型配置并填写 API Key"
                     : "OCR 未启用：kb.ai.enabled=false，请先在配置中开启 AI 功能");
         }
+        // 与 AI 模型调用同理：不给超时，模型端 hang 住会把请求线程一直占着
+        JdkClientHttpRequestFactory rf = new JdkClientHttpRequestFactory(
+                java.net.http.HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build());
+        rf.setReadTimeout(Duration.ofSeconds(120));
         RestClient client = RestClient.builder()
                 .baseUrl(conf.baseUrl())
+                .requestFactory(rf)
                 .defaultHeader("Authorization", "Bearer " + conf.apiKey())
                 .defaultHeader("Content-Type", "application/json")
                 .build();

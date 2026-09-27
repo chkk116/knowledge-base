@@ -9,6 +9,7 @@ import com.kb.kbplatform.domain.AiModel;
 import com.kb.kbplatform.domain.AiUsageLog;
 import com.kb.kbplatform.repository.AiModelRepository;
 import com.kb.kbplatform.repository.AiUsageLogRepository;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,6 +18,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -141,10 +144,15 @@ public class AiModelClient {
                 recordUsage(m, source, false, null, System.currentTimeMillis() - t0, e.getMessage());
             }
         }
-        StringBuilder hint = new StringBuilder("AI 服务暂时不可用，请稍后重试。");
-        if (!errors.isEmpty()) hint.append("（").append(String.join("；", errors.stream()
-                .limit(2).map(String::valueOf).toList())).append("）");
-        return AiChatResult.fail(hint.toString());
+        // 失败细节只进日志：这段文案会被当答案落库并展示给普通用户，
+        // 一旦拼上异常原文，内部端点 / 主机名等就可能泄露出去
+        if (!errors.isEmpty()) {
+            log.warn("AI 全部候选模型均失败：{}", String.join("；", errors));
+        }
+        String hint = errors.isEmpty()
+                ? "AI 服务暂时不可用，请稍后重试。"
+                : "AI 服务暂时不可用：已依次尝试 " + errors.size() + " 个模型，均调用失败，请稍后重试。";
+        return AiChatResult.fail(hint);
     }
 
     /** 记调用流水（用量统计的数据源）：绝不因记录失败影响正常调用 */
@@ -211,11 +219,24 @@ public class AiModelClient {
             String base = m.getBaseUrl() == null || m.getBaseUrl().isBlank()
                     ? defaultBaseUrl(m.getProvider())
                     : m.getBaseUrl().trim();
-            RestClient.Builder b = RestClient.builder().baseUrl(base);
+            RestClient.Builder b = RestClient.builder()
+                    .baseUrl(base)
+                    .requestFactory(timeoutRequestFactory());
             b = b.defaultHeader("Authorization", "Bearer " + cipher.decrypt(m.getApiKey()).trim());
             b = b.defaultHeader("Content-Type", "application/json");
             return b.build();
         });
+    }
+
+    /** 带连接/读取超时的请求工厂：不给超时，模型端 hang 住会把 Tomcat 线程一直钉着 */
+    private static ClientHttpRequestFactory timeoutRequestFactory() {
+        // JDK HttpClient 自身没有读超时，读超时由 JdkClientHttpRequestFactory 负责（注意 SF7 只有 setter，不能走构造参数）
+        JdkClientHttpRequestFactory rf = new JdkClientHttpRequestFactory(
+                java.net.http.HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build());
+        rf.setReadTimeout(Duration.ofSeconds(120));
+        return rf;
     }
 
     /** 常见平台默认端点（管理员留空时兜底，减少填错） */

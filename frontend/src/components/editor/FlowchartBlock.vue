@@ -59,7 +59,8 @@
         @drop="onCanvasDrop"
       >
         <!-- 亿图式左侧图形面板：分组 + 真实形状预览，点击添加 / 拖到画布落点 -->
-        <div v-if="editing" class="fc-palette">
+        <!-- @mousedown.stop：面板在画布内，不透传会顺带触发画布的空格点击/拖拽起手 -->
+        <div v-if="editing" class="fc-palette" @mousedown.stop>
           <template v-for="g in SHAPE_GROUPS" :key="g.label">
             <div class="fc-pal-group">{{ g.label }}</div>
             <div
@@ -70,6 +71,7 @@
               draggable="true"
               @click="addShape(s.key)"
               @dragstart="onPaletteDragStart(s.key, $event)"
+              @dragend="dragShape = null"
             >
               <svg viewBox="0 0 40 26" width="36" height="24" aria-hidden="true">
                 <template v-if="s.key === 'rect'">

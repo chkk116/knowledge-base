@@ -14,7 +14,8 @@ import java.time.LocalDateTime;
  * 对标各平台官方控制台的「用量信息」页。只记元数据，不记问答内容。
  */
 @Entity
-@Table(name = "kb_ai_usage_log")
+// 用量统计按时间范围查询（最新 1/7/30/90 天），created_at 索引避免全表扫
+@Table(name = "kb_ai_usage_log", indexes = @Index(name = "idx_ai_usage_created", columnList = "created_at"))
 public class AiUsageLog {
 
     @Id
