@@ -4,11 +4,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound, Plus, Delete, EditPen, ChatLineRound, Document,
   Paperclip, Link, ArrowDown, CopyDocument, Refresh, Reading, Promotion,
-  Fold, Expand, VideoPause
+  Fold, Expand, VideoPause, Cpu
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
 import {
-  aiAsk, listConversations, createConversation, updateConversation,
+  aiAsk, listAiModels, listConversations, createConversation, updateConversation,
   deleteConversation, listMessages
 } from '../api/ai'
 import MarkdownIt from 'markdown-it'
@@ -39,6 +39,50 @@ const messages = computed(() => (currentId.value ? (convMessages.value[currentId
 const started = computed(() => messages.value.length > 0)
 
 const mode = ref('kb')
+// ---------- 模型选择（模型由管理员在「AI 模型管理」页配置，这里只选不配）----------
+// selectedModelId 为 '' 时不指定，走后端「默认模型」；选了具体 id 则本次请求强制用它
+const modelList = ref([])
+const selectedModelId = ref('')
+async function loadModels() {
+  try {
+    const { data } = await listAiModels()
+    modelList.value = data || []
+    // 下拉里选过、但管理员把该模型停用了 → 回到默认模型
+    if (selectedModelId.value && !modelList.value.some((m) => String(m.id) === String(selectedModelId.value))) {
+      selectedModelId.value = ''
+    }
+  } catch {
+    modelList.value = []
+  }
+}
+// ---------- 调用可视化：本次实际用的模型 / 耗时 / token 用量，回答下方一行展示 ----------
+function buildMeta(data) {
+  if (!data) return null
+  const name = data.modelName || data.model || ''
+  if (!name && data.latencyMs == null) return null
+  return { name, latencyMs: Number(data.latencyMs) || 0, usage: data.usage || null }
+}
+function fmtMs(ms) {
+  if (!ms) return ''
+  return ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : ms + 'ms'
+}
+function onModelChange() {
+  // 只影响后续提问：切换模型不会改写已有回答（历史回答保留当时的模型与耗时）
+  ElMessage.info(selectedModelId.value ? '下一句将使用所选模型' : '下一句将使用默认模型')
+}
+function fmtTokens(u) {
+  if (!u) return ''
+  // OpenAI 兼容格式：prompt_tokens / completion_tokens / total_tokens
+  const inp = u.prompt_tokens ?? u.promptTokens ?? u.input_tokens
+  const out = u.completion_tokens ?? u.completionTokens ?? u.output_tokens
+  const total = u.total_tokens ?? u.totalTokens
+  if (total == null && inp == null && out == null) return ''
+  const t = total != null ? total : ((inp || 0) + (out || 0))
+  let s = t + ' tokens'
+  if (inp != null || out != null) s += `（输入 ${inp || 0} / 输出 ${out || 0}）`
+  return s
+}
+
 const showScrollBtn = ref(false)
 const thumbStyle = computed(() => ({ transform: mode.value === 'general' ? 'translateX(100%)' : 'translateX(0)' }))
 
@@ -218,11 +262,13 @@ async function send(text) {
 
   try {
     abortCtrl.value = new AbortController()
-    const { data } = await aiAsk(q, convId, mode.value, { signal: abortCtrl.value.signal })
+    const { data } = await aiAsk(q, convId, mode.value, {
+      modelId: selectedModelId.value || null, signal: abortCtrl.value.signal
+    })
     const curAi = convMessages.value[convId] || []
     convMessages.value[convId] = [...curAi, {
       role: 'ai', content: data.answer || '（暂无返回内容）',
-      sources: data.sources || [], mode: mode.value
+      sources: data.sources || [], mode: mode.value, meta: buildMeta(data)
     }]
     if (currentId.value === convId) {
       const c2 = conversations.value.find((c) => c.id === convId)
@@ -254,9 +300,14 @@ async function regenerate() {
   await nextTick()
   try {
     abortCtrl.value = new AbortController()
-    const { data } = await aiAsk(lastQ, convId, mode.value, { signal: abortCtrl.value.signal })
+    const { data } = await aiAsk(lastQ, convId, mode.value, {
+      modelId: selectedModelId.value || null, signal: abortCtrl.value.signal
+    })
     const newArr = [...arr]
-    const aiMsg = { role: 'ai', content: data.answer || '（暂无返回内容）', sources: data.sources || [], mode: mode.value }
+    const aiMsg = {
+      role: 'ai', content: data.answer || '（暂无返回内容）',
+      sources: data.sources || [], mode: mode.value, meta: buildMeta(data)
+    }
     if (newArr[ui + 1] && newArr[ui + 1].role === 'ai') newArr[ui + 1] = aiMsg
     else newArr.splice(ui + 1, 0, aiMsg)
     convMessages.value[convId] = newArr
@@ -366,6 +417,8 @@ onMounted(async () => {
 
   bodyRef.value?.addEventListener('scroll', onBodyScroll)
   bodyRef.value?.addEventListener('click', onBodyClick)
+  // 先拉可用模型，头部下拉与发送时的 modelId 都依赖它
+  await loadModels()
   await loadConversations()
   const saved = localStorage.getItem(STORAGE_KEY)
   if (saved && conversations.value.some((c) => String(c.id) === saved)) {
@@ -459,9 +512,18 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
           </div>
         </div>
         <div class="ai-head-right">
-          <span class="ai-model-tag">
-            <span class="ai-dot"></span>GLM-4-Flash
-          </span>
+          <el-select
+            v-if="modelList.length"
+            v-model="selectedModelId" class="ai-model-select" size="small"
+            placeholder="选择模型" @change="onModelChange">
+            <el-option value="" label="使用默认模型" />
+            <el-option
+              v-for="m in modelList" :key="m.id" :value="String(m.id)"
+              :label="m.name + ' · ' + m.model" />
+          </el-select>
+          <el-tooltip v-else content="管理员尚未配置可用模型，AI 暂不可用" placement="bottom" :show-after="200">
+            <span class="ai-model-tag is-empty"><span class="ai-dot"></span>未配置模型</span>
+          </el-tooltip>
         </div>
       </div>
 
@@ -524,6 +586,17 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                       <span class="ai-source-snippet">{{ s.snippet }}</span>
                     </button>
                   </div>
+                </div>
+
+                <!-- 调用可视化：本次实际用的模型、耗时、token 用量 -->
+                <div v-if="m.meta" class="ai-meta">
+                  <span v-if="m.meta.name" class="ai-meta-chip">
+                    <el-icon><Cpu /></el-icon>{{ m.meta.name }}
+                  </span>
+                  <span v-if="m.meta.latencyMs" class="ai-meta-chip">{{ fmtMs(m.meta.latencyMs) }}</span>
+                  <span v-if="fmtTokens(m.meta.usage)" class="ai-meta-chip">
+                    {{ fmtTokens(m.meta.usage) }}
+                  </span>
                 </div>
 
                 <div class="ai-actions">
@@ -689,6 +762,34 @@ html.dark .ai-head-left .ai-title { color: #e7e7ee; }
 }
 .ai-dot { width: 6px; height: 6px; border-radius: 50%; background: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.18); }
 html.dark .ai-model-tag { background: #26264f; border-color: #3a3a63; }
+.ai-model-tag.is-empty { color: #94a3b8; background: #f1f5f9; border-color: #e2e8f0; }
+html.dark .ai-model-tag.is-empty { color: #8b8ca4; background: #1b1b35; border-color: #2b2c4d; }
+
+/* 模型选择下拉 */
+.ai-model-select { width: 200px; }
+.ai-model-select :deep(.el-select__wrapper) {
+  height: 30px; font-size: 12.5px; border-radius: 999px;
+  background: #eef2ff; border-color: #e0e7ff; color: #4f46e5;
+}
+.ai-model-select :deep(.el-select__placeholder) { color: #818cf8; }
+html.dark .ai-model-select :deep(.el-select__wrapper) {
+  background: #26264f; border-color: #3a3a63; color: #a5b4fc;
+}
+html.dark .ai-model-select :deep(.el-select__placeholder) { color: #8b8ca4; }
+.ai-model-select :deep(.el-select__selected-item),
+.ai-model-select :deep(.el-select__selected-item .el-select__placeholder) { color: inherit; }
+
+/* 调用元信息（模型 / 耗时 / token） */
+.ai-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.ai-meta-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; color: #64748b; background: #f8fafc;
+  border: 1px solid #eef0f4; padding: 2px 8px; border-radius: 999px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ai-meta-chip .el-icon { font-size: 12px; color: #6366f1; }
+html.dark .ai-meta-chip { background: #1b1b35; border-color: #2b2c4d; color: #8b8ca4; }
+html.dark .ai-meta-chip .el-icon { color: #8b8ca4; }
 
 /* 消息区 */
 .ai-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 24px 0 12px; }
@@ -994,6 +1095,7 @@ html.dark .ai-foot-disclaimer { color: #5b5c74; }
   .ai-head-left .ai-title { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ai-head-left .ai-sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ai-model-tag { font-size: 11px; padding: 3px 8px; }
+  .ai-model-select { width: 148px; }
 
   .ai-msgs { gap: 16px; padding: 0 12px; }
   .ai-msg.user { max-width: 100%; }

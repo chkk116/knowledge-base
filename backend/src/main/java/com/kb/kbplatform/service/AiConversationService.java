@@ -116,7 +116,7 @@ public class AiConversationService {
     // 注意：此处不加 @Transactional —— ragService.ask() 是同步 HTTP 调用 LLM，
     // 若包在事务里会一直占用 DB 连接直到模型返回（数秒~数十秒）。
     // 下面各 msgRepo/convRepo.save 走 Spring Data JPA 自带的独立短事务，已各自原子。
-    public Map<String, Object> ask(Long userId, Long conversationId, String question, String mode) {
+    public Map<String, Object> ask(Long userId, Long conversationId, String question, String mode, Long modelId) {
         AiConversation c;
         if (conversationId == null) {
             c = create(userId, autoTitle(question));
@@ -153,9 +153,14 @@ public class AiConversationService {
         Map<String, Object> rag = ragService.ask(question, history,
                 c.getInstructions() == null ? "" : c.getInstructions(),
                 persona == null ? "" : persona,
-                mode == null ? "kb" : mode);
+                mode == null ? "kb" : mode,
+                modelId);
         String answer = rag.get("answer") == null ? "" : rag.get("answer").toString();
         Object sources = rag.get("sources");
+        // 调用可视化字段透传：模型名 / 耗时 / token 用量，前端在回答旁展示
+        Object modelName = rag.get("modelName");
+        Object latencyMs = rag.get("latencyMs");
+        Object usage = rag.get("usage");
 
         // 保存 AI 消息（引用来源一并落库为 JSON 快照，重开页面后仍能显示）
         AiMessage aiMsg = new AiMessage();
@@ -177,6 +182,9 @@ public class AiConversationService {
         result.put("title", c.getTitle());
         result.put("answer", answer);
         if (sources instanceof List) result.put("sources", sources);
+        if (modelName != null) result.put("modelName", modelName);
+        if (latencyMs != null) result.put("latencyMs", latencyMs);
+        if (usage != null) result.put("usage", usage);
         return result;
     }
 

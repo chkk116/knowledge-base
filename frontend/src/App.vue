@@ -194,6 +194,8 @@ const menus = computed(() => {
   if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/watermark', title: '水印设置', icon: 'Tools' })
   if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
   if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
+  // AI 模型含第三方 API Key：仅系统管理员
+  if (auth.isAdmin) contentMgmt.push({ index: '/admin/ai-models', title: 'AI 模型管理', icon: 'Cpu' })
   if (contentMgmt.length) base.push({ index: 'g-content', title: '内容管理', icon: 'Document', children: contentMgmt })
 
   if (auth.loggedIn) {

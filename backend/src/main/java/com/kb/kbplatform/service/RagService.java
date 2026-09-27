@@ -11,9 +11,7 @@ import com.kb.kbplatform.security.HtmlSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
 
 import java.util.*;
 
@@ -22,12 +20,12 @@ import java.util.*;
  *
  * 方案：检索增强生成（Retrieval-Augmented Generation）。
  *   1) 检索：优先 Meilisearch（若启用），否则回退 DocumentRepository 的 MySQL LIKE 检索；
- *   2) 生成：调用智谱大模型（OpenAI 兼容端点，默认 glm-4-flash 永久免费）基于检索片段作答；
+ *   2) 生成：走 AiModelClient 统一调用管理员配置的模型（OpenAI / DashScope / DeepSeek / 智谱 等），
+ *      管理员在「AI 模型管理」页填入 API Key 并选模型后即时生效，无需改配置重启；
  *   3) 基础聊天兜底：当知识库检索不到相关资料时，转为通用闲聊/通用问答（模型自身知识），不再机械回复“未找到”。
  *
  * 与 MeiliSearchClient 一致的约束：任何异常都降级为友好提示，绝不影响主流程；
  * 模型调用消耗云端 token，受 AiController 限流保护（每用户 20 次/小时）。
- * API Key 通过环境变量 KB_ZHIPU_API_KEY 注入（原明文 Key 已泄露并轮换）。
  */
 @Service
 public class RagService {
@@ -38,38 +36,18 @@ public class RagService {
 
     private final MeiliSearchClient meili;
     private final DocumentRepository repository;
-    private final RestClient client;
-    private final boolean enabled;
-    private final List<String> modelChain;   // 文本模型降级链：免费 flash 模型常被挤爆(1305/429)，自动换下一个
+    // 统一多模型调用层：模型与 API Key 由管理员在「AI 模型管理」页维护，保存后即时生效、无需重启后端
+    private final AiModelClient aiModelClient;
+    private final boolean enabled;   // kb.ai.enabled：总开关，false 时强制关闭 AI（默认 true）
 
     public RagService(MeiliSearchClient meili,
                       DocumentRepository repository,
                       @Value("${kb.ai.enabled:false}") boolean enabled,
-                      @Value("${kb.ai.zhipu.base-url:https://open.bigmodel.cn/api/paas/v4}") String baseUrl,
-                      @Value("${kb.ai.zhipu.api-key:}") String apiKey,
-                      @Value("${kb.ai.zhipu.model:glm-4.7-flash}") String model,
-                      @Value("${kb.ai.zhipu.models:}") String modelsCsv) {
+                      AiModelClient aiModelClient) {
         this.meili = meili;
         this.repository = repository;
-        this.enabled = enabled && apiKey != null && !apiKey.isBlank();
-        List<String> chain = new ArrayList<>();
-        if (modelsCsv != null) {
-            for (String m : modelsCsv.split(",")) {
-                String t = m == null ? "" : m.trim();
-                if (!t.isEmpty()) chain.add(t);
-            }
-        }
-        if (chain.isEmpty()) chain.add(model);
-        this.modelChain = chain;
-        if (this.enabled) {
-            // 静态工厂构建 RestClient，不依赖 Spring 自动配置的 RestClient.Builder bean（SB 4.1.0 下该 bean 未注入）
-            RestClient.Builder b = RestClient.builder().baseUrl(baseUrl.trim());
-            b = b.defaultHeader("Authorization", "Bearer " + apiKey.trim());
-            b = b.defaultHeader("Content-Type", "application/json");
-            this.client = b.build();
-        } else {
-            this.client = null;
-        }
+        this.enabled = enabled;
+        this.aiModelClient = aiModelClient;
     }
 
     public String ask(String question) {
@@ -88,13 +66,25 @@ public class RagService {
      * @return { answer, sources }，sources 为引用来源列表（id/title/snippet），通用模式下为空
      */
     @SuppressWarnings("unchecked")
+    /** 兼容旧调用：不指定模型时用管理员配置的默认模型 */
     public Map<String, Object> ask(String question, List<Map<String, String>> history,
                                    String instructions, String persona, String mode) {
+        return ask(question, history, instructions, persona, mode, null);
+    }
+
+    /**
+     * @param modelId 本次对话要用的模型配置 id；null = 用默认模型
+     */
+    public Map<String, Object> ask(String question, List<Map<String, String>> history,
+                                   String instructions, String persona, String mode, Long modelId) {
         if (!enabled || question == null || question.isBlank()) {
             if (!enabled) {
-                log.warn("AI 问答未启用：kb.ai.enabled=false 或 kb.ai.zhipu.api-key 未注入（请在 application.yml 设 enabled=true 并通过环境变量 KB_ZHIPU_API_KEY 注入 Key）");
+                log.warn("AI 问答未启用：kb.ai.enabled=false（若已在「AI 模型管理」配好模型，请改回 true）");
             }
             return Map.of("answer", "AI 问答暂不可用，请稍后再试或联系管理员。", "sources", List.of());
+        }
+        if (!aiModelClient.hasAvailable()) {
+            return Map.of("answer", "尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。", "sources", List.of());
         }
 
         // 1. 检索相关知识片段（通用模式跳过检索）；多轮对话时检索词并入最近几轮用户消息，
@@ -158,10 +148,15 @@ public class RagService {
             messages.add(Map.of("role", "user", "content", question.trim()));
         }
 
-        String answer = callModel(messages);
+        AiModelClient.AiChatResult call = callModel(modelId, messages);
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("answer", answer);
+        result.put("answer", call.text());
         result.put("sources", sources);
+        // 可视化：把本次实际用的模型、耗时、token 用量带出去，前端可在回答旁展示
+        result.put("model", call.model());
+        result.put("modelName", call.modelName());
+        result.put("latencyMs", call.latencyMs());
+        result.put("usage", call.usage());
         return result;
     }
 
@@ -191,36 +186,9 @@ public class RagService {
         }
     }
 
-    /** 调用智谱 chat/completions，传入完整 messages；429/5xx 自动降级到链内下一个模型（免费 flash 模型常被挤爆 1305） */
-    private String callModel(List<Map<String, String>> messages) {
-        for (String m : modelChain) {
-            try {
-                Map<String, Object> body = new LinkedHashMap<>();
-                body.put("model", m);
-                body.put("temperature", 0.3);
-                // GLM-4.7-Flash 支持动态思考（默认开）：思考内容也计入 max_tokens，
-                // 实测简单问题思考就要消耗数百 token，上限给 4096 防止答案被思考挤掉截断
-                body.put("max_tokens", 4096);
-                body.put("messages", messages);
-
-                Map<String, Object> resp = client.post()
-                        .uri("/chat/completions")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body(body)
-                        .retrieve()
-                        .body(Map.class);
-                return extractContent(resp);
-            } catch (org.springframework.web.client.RestClientResponseException re) {
-                int sc = re.getStatusCode().value();
-                log.warn("智谱 AI 调用失败(model={}, http={}): {}", m, sc, re.getMessage());
-                if (sc == 429 || sc >= 500) continue;   // 模型过载/服务端错误：降级试链内下一个
-                break;                                   // 其余 4xx（如 Key 失效）换模型也没用
-            } catch (Exception e) {
-                log.warn("智谱 AI 调用失败(model={}): {}", m, e.getMessage());
-                continue;   // 网络抖动等：试下一个模型
-            }
-        }
-        return "AI 服务暂时不可用，请稍后重试，或先用搜索框检索知识库。";
+    /** 交给统一模型层：该层负责按配置选模型，并在限流/报错时自动降级到下一个可用模型 */
+    private AiModelClient.AiChatResult callModel(Long modelId, List<Map<String, String>> messages) {
+        return aiModelClient.chat(modelId, messages);
     }
 
     /** 检索 top-K 片段：优先 Meili，失败/未启用回退 MySQL；返回引用来源（id/title/snippet） */
@@ -400,25 +368,6 @@ public class RagService {
             if (t.length() >= 2 && !out.contains(t)) out.add(t);
         }
         return out;
-    }
-
-    @SuppressWarnings("unchecked")
-    private String extractContent(Map<String, Object> resp) {
-        if (resp == null) return "AI 返回为空。";
-        Object choicesObj = resp.get("choices");
-        if (choicesObj instanceof List<?> choices && !choices.isEmpty()) {
-            Object first = choices.get(0);
-            if (first instanceof Map<?, ?> m) {
-                Object message = m.get("message");
-                if (message instanceof Map<?, ?> msg) {
-                    Object content = msg.get("content");
-                    if (content != null) return String.valueOf(content).trim();
-                }
-            }
-        }
-        Object err = resp.get("error");
-        if (err != null) return "AI 返回错误：" + err;
-        return "AI 返回为空。";
     }
 
     private static String str(Object o) {

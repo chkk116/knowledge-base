@@ -163,6 +163,8 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/admin/features")) return "CORE_MAINTAIN";
         if (path.startsWith("/api/admin/settings")) return "CORE_MAINTAIN";
         if (path.startsWith("/api/admin/banned-words")) return "BANNED_WORDS_MANAGE";
+        // AI 模型与 API Key 属敏感凭证：仅完全管理员（ADMIN 角色）可增删改
+        if (path.startsWith("/api/admin/ai")) return null;
         return null;   // 其他管理接口（如黑名单）仍仅 ADMIN 可访问
     }
 

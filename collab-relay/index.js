@@ -199,8 +199,8 @@ async function persistOpLog(docName, doc, update, context) {
   try {
     await db.query(
       `INSERT INTO kb_doc_op_log
-         (doc_id, user_id, op_type, update_blob, state_vector, client_id, content_length)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (doc_id, user_id, op_type, update_blob, state_vector, client_id, content_length, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now())`,
       [docId, userId, 'UPDATE', Buffer.from(update), Buffer.from(stateVector), clientId, update.length]
     )
   } catch (e) {

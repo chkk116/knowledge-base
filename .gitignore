@@ -39,3 +39,7 @@ mobile/web-app/
 # 会话/token 缓存等序列化文件
 *.pkl
 logs/
+
+# 本地密钥文件（含第三方 API Key，含敏感信息，绝不入库）
+# application.yml 以 optional 方式导入本文件；缺失时 AI 走管理页配置的模型即可
+backend/src/main/resources/application-secret.yml

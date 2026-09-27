@@ -10,6 +10,7 @@ import com.kb.kbplatform.domain.AiMessage;
 import com.kb.kbplatform.security.RateLimitService;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AiConversationService;
+import com.kb.kbplatform.service.AiModelClient;
 import com.kb.kbplatform.service.RagService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,13 +29,22 @@ public class AiController {
     private final ObjectProvider<RagService> ragProvider;
     private final RateLimitService rateLimit;
     private final AiConversationService convService;
+    private final AiModelClient aiModelClient;
 
     public AiController(ObjectProvider<RagService> ragProvider,
                         RateLimitService rateLimit,
-                        AiConversationService convService) {
+                        AiConversationService convService,
+                        AiModelClient aiModelClient) {
         this.ragProvider = ragProvider;
         this.rateLimit = rateLimit;
         this.convService = convService;
+        this.aiModelClient = aiModelClient;
+    }
+
+    /** 当前可用模型列表（不含 API Key），普通登录用户即可查询，用于对话页的模型下拉 */
+    @GetMapping("/models")
+    public List<Map<String, Object>> models() {
+        return aiModelClient.publicModels();
     }
 
     @PostMapping("/ask")
@@ -52,7 +62,9 @@ public class AiController {
         String question = body.get("question") == null ? "" : body.get("question").toString();
         Long conversationId = parseLong(body.get("conversationId"));
         String mode = body.get("mode") == null ? "kb" : body.get("mode").toString();
-        return convService.ask(claims.userId(), conversationId, question, mode);
+        // modelId 省略时用管理员配置的默认模型
+        Long modelId = parseLong(body.get("modelId"));
+        return convService.ask(claims.userId(), conversationId, question, mode, modelId);
     }
 
     @GetMapping("/conversations")
