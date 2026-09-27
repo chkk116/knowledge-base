@@ -81,6 +81,9 @@
           @node-drag="onNodeDrag"
           @node-drag-stop="onDragStop"
         >
+          <template #edge-mindEdge="edgeProps">
+            <MindEdge v-bind="edgeProps" />
+          </template>
           <template #node-mindNode="slotProps">
             <div
               class="mm-node"
@@ -117,9 +120,9 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, defineComponent, h } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
-import { VueFlow, useVueFlow, MarkerType, Handle, Position } from '@vue-flow/core'
+import { VueFlow, useVueFlow, MarkerType, Handle, Position, getSmoothStepPath } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import { NodeSelection } from '@tiptap/pm/state'
@@ -162,10 +165,169 @@ function startHeartbeat() {
 function stopHeartbeat() { if (lockHeartbeat) { clearInterval(lockHeartbeat); lockHeartbeat = null } }
 
 const edgeOptions = {
-  // 保留圆角折线（与参考图一致）；真正决定观感的是连接点选边，不是线型
-  type: 'smoothstep',
+  // 用自定义 mindEdge：横向连线走「平直圆角」而不是 smoothstep 的 Z 形台阶
+  type: 'mindEdge',
   style: { stroke: '#94a3b8', strokeWidth: 1.5 },
   markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+}
+
+/**
+ * 折线 → SVG path：在拐点处切圆角。
+ * b 轴：行进方向（前进为正）；a 轴：与行进垂直的「偏离」方向。两者构成右手系
+ * （水平行进时 a=1 表示向下、b=1 表示向右）。
+ * 每个拐角半径 r 单独钳制到相邻两段长度的一半，因此绝不会出现回头/交叠的线段 ——
+ * 上一版手推坐标乘法的写法正是在这里出错，画出了自相交的台阶。
+ */
+function roundPolyline(pts, r) {
+  const n = pts.length
+  if (n < 2) return ''
+  const f = (v) => Math.round(v * 100) / 100
+  let d = `M ${f(pts[0][0])},${f(pts[0][1])}`
+  for (let i = 1; i < n - 1; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], [x2, y2] = pts[i + 1]
+    const lenj1 = Math.hypot(x1 - x0, y1 - y0)
+    const lenj2 = Math.hypot(x2 - x1, y2 - y1)
+    const cr = Math.max(0, Math.min(r, lenj1 / 2, lenj2 / 2))
+    if (!(cr > 0.01)) {
+      d += ` L ${f(x1)},${f(y1)}`
+      continue
+    }
+    const e1 = [(x1 - x0) / lenj1, (y1 - y0) / lenj1]   // 进入方向（指向拐点）
+    const e2 = [(x2 - x1) / lenj2, (y2 - y1) / lenj2]   // 离开方向
+    d += ` L ${f(x1 - e1[0] * cr)},${f(y1 - e1[1] * cr)}`
+    d += ` Q ${f(x1)},${f(y1)} ${f(x1 + e2[0] * cr)},${f(y1 + e2[1] * cr)}`
+  }
+  d += ` L ${f(pts[n - 1][0])},${f(pts[n - 1][1])}`
+  return d
+}
+
+/**
+ * 自定义连线：
+ *   · 横向连接（左右出入）→ 先水平离开、再垂直拐半程、再水平收进目标。
+ *     只要两个节点高度不一致，就必须有一次垂直位移；把它放在「两端各半」的对称位置，
+ *     视觉上就是一条居中的水平干线（而不是 smoothstep 那条贴着一端的 Z 形台阶），
+ *     用户不用再手动对齐节点。
+ *   · 纵向连接（上下出入）→ 同理，改成「竖直—水平—竖直」。
+ *   · 另外把「路上的节点」当作障碍绕开，避免视线穿模。
+ * 所有拐角统一走 roundPolyline，绝不会自相交。
+ */
+const MindEdge = defineComponent({
+  name: 'MindEdge',
+  props: {
+    sourceX: Number, sourceY: Number, targetX: Number, targetY: Number,
+    sourcePosition: String, targetPosition: String,
+    source: String, target: String,
+    markerEnd: [String, Object], style: [String, Object],
+    data: Object,
+  },
+  setup(p) {
+    const CORNER = 8    // 圆角半径
+    const MARGIN = 14   // 绕障留白
+    const d = computed(() => {
+      const p1 = [p.sourceX, p.sourceY]
+      const p2 = [p.targetX, p.targetY]
+      const horizontal = (p.sourcePosition === 'right' || p.sourcePosition === 'left') &&
+                         (p.targetPosition === 'left' || p.targetPosition === 'right')
+      const vertical = (p.sourcePosition === 'top' || p.sourcePosition === 'bottom') &&
+                       (p.targetPosition === 'top' || p.targetPosition === 'bottom')
+      const simple = (pts) => roundPolyline(pts, CORNER)
+
+      // 路上节点 → 障碍矩形（这是「line 穿过中间节点」的直接原因）
+      const obstacles = horizontal ? siblingRects(p.source, p.target) : []
+
+      if (horizontal) {
+        const b = Math.sign(p2[0] - p1[0]) || 1      // 水平行进方向
+        const u = Math.sign(p2[1] - p1[1]) || 0      // 纵向偏离方向（0 = 同高）
+        const dx = Math.abs(p2[0] - p1[0])
+        // 口子留多宽：太窄则圆角吃满，观感变差
+        const nub = Math.max(6, Math.min(12, dx / 4))
+        const pts = [p1]
+        const dy = Math.abs(p2[1] - p1[1])
+        // 同高时默认向上绕（脑图里向下绕更容易撞上下一行）
+        const up = u !== 0 ? u < 0 : true
+        // 中间干线的 y：先取两端中线（视觉上最"平"）
+        let yMid = p1[1] + u * dy / 2
+        const xLo = Math.min(p1[0], p2[0]), xHi = Math.max(p1[0], p2[0])
+        let blocked = false
+        for (const r of obstacles) {
+          if (r.x1 <= xLo || r.x0 >= xHi) continue          // 不在本段水平区间内
+          if (r.y1 + MARGIN <= yMid || r.y0 - MARGIN >= yMid) continue   // 没挡住干线
+          const above = r.y0 - MARGIN      // 从障碍上方走的候选高度
+          const below = r.y1 + MARGIN      // 从障碍下方走的候选高度
+          // 同高时 yMid 就压在障碍上，没有"半程高度"可依，必须真让位；
+          // 有高差时只允许朝行进方向让（避免来回折返）。
+          if (up) yMid = Math.min(yMid, above)
+          else yMid = Math.max(yMid, below)
+          blocked = true
+        }
+        if (!blocked && dy < 2) {
+          // 两端基本同高（含拖拽后的亚像素抖动）且无遮挡：一条直线最干净，
+          // 不要为了 0.x px 的高度差画出一段肉眼看不见的微弯。
+          pts.push([p2[0], p1[1]])
+          return simple(pts)
+        }
+        pts.push([p1[0] + b * nub, p1[1]], [p1[0] + b * nub, yMid])
+        pts.push([p2[0] - b * nub, yMid], [p2[0] - b * nub, p2[1]], p2)
+        return simple(pts)
+      }
+
+      if (vertical) {
+        const u = Math.sign(p2[0] - p1[0]) || 0       // 横向偏离
+        const dx = Math.abs(p2[0] - p1[0])
+        const vSign = Math.sign(p2[1] - p1[1]) || 1
+        const nub = Math.max(6, Math.min(12, Math.abs(p2[1] - p1[1]) / 4))
+        const pts = [p1]
+        if (dx < 2) {
+          // 两端基本同列：一条竖直线最干净
+          pts.push([p1[0], p2[1]])
+          return simple(pts)
+        }
+        const xMid = p1[0] + u * dx / 2
+        const n1 = p1[1] + vSign * nub
+        const n2 = p2[1] - vSign * nub
+        pts.push([p1[0], n1], [xMid, n1], [xMid, n2], [p2[0], n2], p2)
+        return simple(pts)
+      }
+
+      // 左右非同侧（极少见）：退回 smoothstep，保证语义正确
+      const [path] = getSmoothStepPath({
+        sourceX: p.sourceX, sourceY: p.sourceY,
+        targetX: p.targetX, targetY: p.targetY,
+        sourcePosition: posEnum(p.sourcePosition),
+        targetPosition: posEnum(p.targetPosition),
+      })
+      return path
+    })
+    return () => h('path', {
+      d: d.value,
+      class: 'vue-flow__edge-path',
+      markerEnd: p.markerEnd,
+      style: p.style,
+      fill: 'none',
+    })
+  },
+})
+/** 字符串方位 → Position 枚举 */
+function posEnum(s) {
+  return s === 'right' ? Position.Right
+    : s === 'left' ? Position.Left
+    : s === 'bottom' ? Position.Bottom : Position.Top
+}
+/** 与当前边无血缘关系的其他节点矩形（用于绕障）；取不到就返回空表。 */
+function siblingRects(sourceId, targetId) {
+  try {
+    return nodes.value
+      .filter((n) => n.id !== sourceId && n.id !== targetId)
+      .map((n) => {
+        const x = n.computedPosition?.x ?? n.position?.x ?? 0
+        const y = n.computedPosition?.y ?? n.position?.y ?? 0
+        const w = n.dimensions?.width || NODE_W
+        const h = n.dimensions?.height || NODE_H
+        return { x0: x, x1: x + w, y0: y, y1: y + h }
+      })
+  } catch {
+    return []
+  }
 }
 
 /** 八向连接点 id（模板与选边逻辑共用，避免字符串写歪）。
