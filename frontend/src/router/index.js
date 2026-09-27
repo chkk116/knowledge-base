@@ -79,6 +79,8 @@ const routes = [
   // AI 模型与 API Key 属敏感凭证：仅完全管理员（adminOnly），不给细粒度权限码，
   // 与后端 AuthFilter 对 /api/admin/ai 前缀「仅 ADMIN 角色」的判定保持一致
   { path: '/admin/ai-models', component: () => import('../views/admin/AiModelManage.vue'), meta: { adminOnly: true, title: 'AI 模型管理' } },
+  // 检索测试：管理员验证搜索质量（引擎 / 耗时 / 命中明细），纯只读
+  { path: '/admin/search-test', component: () => import('../views/admin/SearchTest.vue'), meta: { adminOnly: true, title: '检索测试' } },
   // 未开放 / 建设中功能统一提示页：?feature=功能名
   { path: '/coming-soon', component: () => import('../views/ComingSoon.vue'), meta: { title: '敬请期待' } },
   // 核心维护 · 临时维护界面：功能关闭且 closeMode=MAINTENANCE 时进入

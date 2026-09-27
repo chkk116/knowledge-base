@@ -36,6 +36,41 @@ public class SearchService {
     }
 
     /**
+     * 检索测试（管理页「检索测试」用）：跑一条与用户搜索完全相同的链路，
+     * 额外回报实际使用的引擎 / 耗时 / 命中数，供管理员验证「搜得到、搜得准」。
+     * 不写审计、不改任何状态，纯只读。
+     */
+    public Map<String, Object> probe(String q, String category) {
+        long t0 = System.currentTimeMillis();
+        String kw = (q == null ? "" : q).replace("%", "").replace("_", "").trim();
+        String engine = "mysql";
+        List<Map<String, Object>> hits = Collections.emptyList();
+        if (!kw.isEmpty()) {
+            if (meili.isEnabled() && System.currentTimeMillis() > meiliCooldownUntil) {
+                try {
+                    hits = verifyVisible(meili.search(kw, category));
+                    engine = "meili";
+                } catch (MeiliUnavailableException e) {
+                    meiliCooldownUntil = System.currentTimeMillis() + MEILI_COOLDOWN_MS;
+                    hits = searchByMysql(kw, category, null);
+                } catch (Exception e) {
+                    meiliCooldownUntil = System.currentTimeMillis() + MEILI_COOLDOWN_MS;
+                    hits = searchByMysql(kw, category, null);
+                }
+            } else {
+                hits = searchByMysql(kw, category, null);
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("engine", engine);
+        out.put("meiliEnabled", meili.isEnabled());
+        out.put("tookMs", System.currentTimeMillis() - t0);
+        out.put("total", hits.size());
+        out.put("hits", hits);
+        return out;
+    }
+
+    /**
      * 关键词检索。
      *  - 若配置了 Meilisearch：优先走 Meili（中文分词 / 容错 / 相关度排序更优）；
      *    一旦 Meili 不可用（未启用 / 宕机 / 异常），自动回退到 MySQL LIKE，保证搜索永远可用。

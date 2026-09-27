@@ -75,3 +75,7 @@ export const deleteDepartment = (id) => api.delete('/admin/departments/' + id)
 // 角色 / 部门在用户新建、编辑接口（createUser / updateUser）中通过 roleIds / departmentId 字段一并提交。
 // 编辑表单预填时，先拉取该用户的角色 id 列表与部门 id（安全视图，不含密码）。
 export const getUserDetail = (id) => api.get('/admin/users/' + id)
+
+// ---- 检索测试（仅管理员）----
+// 用与用户搜索完全相同的链路跑一次查询：searchTest({ q, category }) → { engine, meiliEnabled, tookMs, total, hits }
+export const searchTest = (params) => api.get('/admin/search/test', { params })
