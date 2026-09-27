@@ -23,6 +23,12 @@ const platformMap = computed(() => {
 })
 const providerLabel = (key) => (platformMap.value[key] ? platformMap.value[key].label : key)
 
+// 当前选中平台：平台自带官方端点与可选模型版本，供表单联动使用
+const currentPlatform = computed(() => platformMap.value[form.provider] || null)
+// 只有「自定义」平台才让管理员手填地址，其余平台官方端点固定，避免往这里填错东西
+const isCustomPlatform = computed(() => form.provider === 'CUSTOM')
+const modelOptions = ref([])
+
 const load = async () => {
   loading.value = true
   try {
@@ -44,18 +50,27 @@ const form = reactive({
   enabled: true, isDefault: false, keyMasked: ''
 })
 
+/**
+ * 换平台 = 一次把「地址 / 版本 / 名称」都带好：
+ * - 接口地址用该平台官方端点（自定义平台除外，交管理员填）
+ * - 模型版本默认选推荐项，管理员可在下拉里换别的版本
+ * - 显示名称没填过时，直接沿用模型名，省得再编一个
+ */
 const onProviderChange = () => {
-  const p = platformMap.value[form.provider]
-  if (p && !form.baseUrl) form.baseUrl = p.baseUrl
+  const p = currentPlatform.value
+  if (!p) return
+  modelOptions.value = Array.isArray(p.models) ? p.models : []
+  form.baseUrl = p.baseUrl || ''
+  const dm = p.defaultModel || ''
+  form.model = dm
+  if (!form.name.trim()) form.name = dm
 }
 const openAdd = () => {
   Object.assign(form, {
     id: null, provider: 'DEEPSEEK', name: '', baseUrl: '', model: '', apiKey: '',
     enabled: true, isDefault: false, keyMasked: ''
   })
-  // 选平台即带出官方端点，管理员无需手抄
-  const p = platformMap.value[form.provider]
-  if (p) form.baseUrl = p.baseUrl
+  onProviderChange()
   dialog.value = true
 }
 const openEdit = (row) => {
@@ -65,12 +80,17 @@ const openEdit = (row) => {
     // 回显脱敏值：后端据此判断「Key 没改」，不会把原 Key 覆盖掉
     apiKey: row.keyMasked || '', keyMasked: row.keyMasked || ''
   })
+  // 编辑时平台不可改，模型下拉仍要按当前平台渲染
+  const p = currentPlatform.value
+  modelOptions.value = p && Array.isArray(p.models) ? p.models : []
   dialog.value = true
 }
 
 const submit = async () => {
+  // 显示名称留空 = 用模型名（换平台时已自动带好，这里是兜底）
+  if (!form.name.trim()) form.name = form.model
   if (!form.name.trim()) return ElMessage.warning('请填写模型显示名称')
-  if (!form.baseUrl.trim()) return ElMessage.warning('请填写 API 基础地址')
+  if (!form.baseUrl.trim()) return ElMessage.warning('请填写接口地址（自定义平台）')
   if (!form.model.trim()) return ElMessage.warning('请填写模型名称')
   // 新增时必须给 Key；编辑时留空（含 **** 的脱敏回显）表示沿用原值
   if (!form.id && !form.apiKey.trim()) return ElMessage.warning('请填写该平台的 API Key')
@@ -215,19 +235,32 @@ onMounted(load)
           <el-select v-model="form.provider" style="width: 100%" @change="onProviderChange" :disabled="!!form.id">
             <el-option v-for="p in platforms" :key="p.key" :label="p.label" :value="p.key" />
           </el-select>
+          <div class="hint">换平台会自动带出官方地址、推荐模型版本与显示名称。</div>
         </el-form-item>
         <el-form-item label="显示名称">
-          <el-input v-model="form.name" placeholder="如：DeepSeek 通用问答" maxlength="40" />
+          <el-input v-model="form.name" placeholder="留空则自动用模型名" maxlength="40" />
         </el-form-item>
-        <el-form-item label="API 基础地址">
-          <el-input v-model="form.baseUrl" placeholder="https://api.deepseek.com/v1" />
+        <el-form-item label="接口地址">
+          <el-input v-model="form.baseUrl" :disabled="!isCustomPlatform"
+                    placeholder="https://api.deepseek.com/v1" />
           <div class="hint">
-            选平台时会自动带入官方端点；自定义平台请填自己的兼容端点。请求实际打
-            <span class="mono">{{ form.baseUrl.replace(/\/$/, '') }}/chat/completions</span>
+            官方端点由平台固定，<b>这里填地址而不是 API Key</b>；请求实际打
+            <span class="mono">{{ form.baseUrl.replace(/\/$/, '') }}/chat/completions</span>。
+            要改用自建网关/代理，把平台切到「自定义」后可自己填写。
           </div>
         </el-form-item>
-        <el-form-item label="模型名称">
-          <el-input v-model="form.model" placeholder="如：deepseek-chat" />
+        <el-form-item label="模型版本">
+          <el-select v-model="form.model" filterable allow-create default-first-option
+                     style="width: 100%" placeholder="选择该平台的模型版本，或直接输入">
+            <el-option v-for="m in modelOptions" :key="m.id" :label="m.label" :value="m.id" />
+          </el-select>
+          <div class="hint">
+            <template v-if="modelOptions.length">
+              已内置 {{ modelOptions.length }} 个可选版本；选中的
+              <span class="mono">{{ form.model || '（空）' }}</span> 就是实际调用的模型名。
+            </template>
+            <template v-else>自定义平台请直接输入模型名，如 gpt-4o-mini。</template>
+          </div>
         </el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="form.apiKey" type="password" show-password

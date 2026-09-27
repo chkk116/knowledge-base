@@ -35,23 +35,63 @@ public class AdminAiModelController {
 
     private static final Logger log = LoggerFactory.getLogger(AdminAiModelController.class);
 
-    /** 支持的平台：各平台都提供 OpenAI 兼容端点，baseUrl 供管理员留空时自动填充 */
+    /* 每个平台的可选模型版本：{id=实际调用的模型名, label=给人看的说明}，供管理页下拉与默认值使用 */
+    private static Map<String, Object> mv(String id, String label) {
+        return Map.of("id", id, "label", label);
+    }
+
+    static final List<Map<String, Object>> OPENAI_MODELS = List.of(
+            mv("gpt-4o", "GPT-4o（旗舰）"),
+            mv("gpt-4o-mini", "GPT-4o mini（轻量省钱）"),
+            mv("gpt-4.1", "GPT-4.1"),
+            mv("gpt-4.1-mini", "GPT-4.1 mini"),
+            mv("gpt-4-turbo", "GPT-4 Turbo（旧版）"));
+
+    static final List<Map<String, Object>> DASHSCOPE_MODELS = List.of(
+            mv("qwen-plus", "通义千问 Plus（推荐）"),
+            mv("qwen-turbo", "通义千问 Turbo（最快）"),
+            mv("qwen-max", "通义千问 Max（最强）"),
+            mv("qwen3-max", "通义千问 3 Max"),
+            mv("qwen2.5-72b-instruct", "Qwen2.5 72B（开源版）"));
+
+    static final List<Map<String, Object>> DEEPSEEK_MODELS = List.of(
+            mv("deepseek-chat", "DeepSeek V3 / 对话版（推荐）"),
+            mv("deepseek-reasoner", "DeepSeek R1 推理版"),
+            mv("deepseek-coder", "DeepSeek Coder（代码）"));
+
+    static final List<Map<String, Object>> ZHIPU_MODELS = List.of(
+            mv("glm-4.7-flash", "GLM-4.7 Flash（免费主力）"),
+            mv("glm-4.6", "GLM-4.6（旗舰）"),
+            mv("glm-4.5-flash", "GLM-4.5 Flash（免费）"),
+            mv("glm-4.5-air", "GLM-4.5 Air（免费轻量）"),
+            mv("glm-4-flash", "GLM-4 Flash（旧版免费）"));
+
+    /**
+     * 支持的平台：各平台都提供 OpenAI 兼容端点。
+     * baseUrl 由平台固定（官方端点，管理页自动填充，无需管理员手抄）；defaultModel + models
+     * 供管理页的「模型版本」下拉使用，选中即填入实际调用的模型名。
+     */
     static final List<Map<String, Object>> PLATFORMS = List.of(
             Map.of("key", AiModel.PROVIDER_OPENAI, "label", "OpenAI",
                     "baseUrl", "https://api.openai.com/v1",
+                    "defaultModel", "gpt-4o", "models", OPENAI_MODELS,
                     "doc", "https://platform.openai.com/api-keys"),
             Map.of("key", AiModel.PROVIDER_DASHSCOPE, "label", "阿里 DashScope（百炼）",
                     "baseUrl", "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "defaultModel", "qwen-plus", "models", DASHSCOPE_MODELS,
                     "doc", "https://bailian.console.aliyun.com/?tab=model#/api-key"),
             Map.of("key", AiModel.PROVIDER_DEEPSEEK, "label", "DeepSeek 深度求索",
                     "baseUrl", "https://api.deepseek.com/v1",
+                    "defaultModel", "deepseek-chat", "models", DEEPSEEK_MODELS,
                     "doc", "https://platform.deepseek.com/api_keys"),
             Map.of("key", AiModel.PROVIDER_ZHIPU, "label", "智谱 GLM",
                     "baseUrl", "https://open.bigmodel.cn/api/paas/v4",
+                    "defaultModel", "glm-4.7-flash", "models", ZHIPU_MODELS,
                     "doc", "https://open.bigmodel.cn/usercenter/apikeys"),
             Map.of("key", AiModel.PROVIDER_CUSTOM, "label", "自定义（任何 OpenAI 兼容端点）",
                     "baseUrl", "https://api.openai.com/v1",
-                    "doc", "填入你自己的 OpenAI 兼容 base-url 即可")
+                    "defaultModel", "", "models", List.of(),
+                    "doc", "换成「自定义」后，接口地址与模型名都可由你填写")
     );
 
     private final AiModelRepository repo;
