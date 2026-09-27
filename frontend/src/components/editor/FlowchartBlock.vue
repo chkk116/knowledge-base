@@ -16,15 +16,6 @@
         <span v-else-if="editing" class="kb-fc-status editing">你正在编辑</span>
         <span class="kb-fc-actions">
           <button class="kb-fc-btn" @click="fit">适应视图</button>
-          <span v-if="editing" class="kb-fc-palette">
-            <button
-              v-for="s in SHAPES"
-              :key="s.key"
-              class="kb-fc-shape"
-              :title="'添加' + s.label"
-              @click="addShape(s.key)"
-            >{{ s.label }}</button>
-          </span>
           <button v-if="!editing && canAcquire" class="kb-fc-btn primary" @click="acquire">编辑</button>
           <button
             v-if="!editing && lockInfo && !isMine"
@@ -42,7 +33,43 @@
         tabindex="0"
         @mousedown="onMouseDown"
         @keydown="onKeyDown"
+        @dragover.prevent
+        @drop="onCanvasDrop"
       >
+        <!-- 亿图式左侧图形面板：真实形状预览，点击添加 / 拖到画布落点 -->
+        <div v-if="editing" class="fc-palette">
+          <div
+            v-for="s in SHAPES"
+            :key="s.key"
+            class="fc-pal-item"
+            :title="'添加' + s.label + '（可拖到画布指定位置）'"
+            draggable="true"
+            @click="addShape(s.key)"
+            @dragstart="onPaletteDragStart(s.key, $event)"
+          >
+            <svg viewBox="0 0 40 26" width="36" height="24" aria-hidden="true">
+              <template v-if="s.key === 'rect'">
+                <rect x="4" y="4" width="32" height="18" rx="3" class="pv-rect" />
+              </template>
+              <template v-else-if="s.key === 'circle'">
+                <circle cx="20" cy="13" r="10" class="pv-circle" />
+              </template>
+              <template v-else-if="s.key === 'ellipse'">
+                <ellipse cx="20" cy="13" rx="15" ry="9.5" class="pv-ellipse" />
+              </template>
+              <template v-else-if="s.key === 'diamond'">
+                <polygon points="20,2.5 37,13 20,23.5 3,13" class="pv-diamond" />
+              </template>
+              <template v-else-if="s.key === 'document'">
+                <path d="M4 4 h32 v13 c-6 0 -6 5 -11 5 h-10 c-5 0 -5 -5 -11 -5 z" class="pv-document" />
+              </template>
+              <template v-else>
+                <polygon points="10,4 37,4 30,22 3,22" class="pv-step" />
+              </template>
+            </svg>
+            <span class="fc-pal-label">{{ s.label }}</span>
+          </div>
+        </div>
         <VueFlow
           :id="flowId"
           :nodes-draggable="editing"
@@ -132,10 +159,10 @@
           <span class="kb-fc-tip">从图形右侧 / 底部圆点拖到另一图形左侧 / 顶部圆点即可连线</span>
         </template>
         <template v-else>
-          <span class="kb-fc-tip">从上方形状栏添加图形 · 双击图形改文字 · 拖圆点连线 · 点连线加「是/否」标签 · Delete 删除选中</span>
+          <span class="kb-fc-tip">从左侧图形栏添加图形（点击或拖到落点） · 双击图形改文字 · 拖圆点连线 · 点连线加「是/否」标签 · Delete 删除选中</span>
         </template>
       </div>
-      <div v-else class="kb-fc-hint">点「编辑」后：形状栏添加图形 · 拖拽摆放 · 从图形圆点拉线连接 · 双击图形改字 · 点连线加标签（如 是/否）· Delete 删除</div>
+      <div v-else class="kb-fc-hint">点「编辑」后：左侧图形栏添加图形（可拖到指定位置） · 拖拽摆放 · 从图形圆点拉线连接 · 双击图形改字 · 点连线加标签（如 是/否）· Delete 删除</div>
     </div>
   </NodeViewWrapper>
 </template>
@@ -161,7 +188,7 @@ const uname = auth.user?.displayName || auth.user?.username || '我'
 const flowId = `fc-${Math.random().toString(36).slice(2, 10)}`
 const {
   nodes, edges, addNodes, addEdges, setNodes, setEdges,
-  removeNodes, removeEdges, findNode, fitView,
+  removeNodes, removeEdges, findNode, fitView, screenToFlowCoordinate,
 } = useVueFlow(flowId)
 
 const SHAPES = [
@@ -350,28 +377,50 @@ function labelStyle(b) {
 }
 
 // ---------- 形状 / 连线操作 ----------
-function addShape(shape) {
+/**
+ * addShape(shape, pos?)
+ *  - pos 不传：点击面板添加，落在当前最右侧节点右边 200px（避免与已有图形重叠）
+ *  - pos 传（拖拽落点）：按落点放置，不触发适应视图（拖拽时视图跳动很突兀）
+ */
+function addShape(shape, pos) {
   const nid = 'n' + (++idc)
-  let maxX = 0
-  let maxY = 0
-  nodes.value.forEach((n) => {
-    maxX = Math.max(maxX, n.position.x)
-    maxY = Math.max(maxY, n.position.y)
-  })
-  // 新图形落在当前最右侧节点右边 200px 处，避免与已有图形重叠
-  const x = nodes.value.length ? maxX + 200 : 120
-  const y = nodes.value.length ? maxY : 120
+  let position
+  if (pos) {
+    position = { x: pos.x - 40, y: pos.y - 20 }   // 让图形中心大致落在指针处
+  } else {
+    let maxX = 0
+    let maxY = 0
+    nodes.value.forEach((n) => {
+      maxX = Math.max(maxX, n.position.x)
+      maxY = Math.max(maxY, n.position.y)
+    })
+    position = nodes.value.length ? { x: maxX + 200, y: maxY } : { x: 120, y: 120 }
+  }
   addNodes({
     id: nid,
     type: 'fcNode',
-    position: { x, y },
+    position,
     data: { label: '节点', shape },
   })
   selectedId.value = nid
   selectedEdgeId.value = null
   dirty.value = true
-  fit()
-  startEdit(nid)
+  if (!pos) { fit(); startEdit(nid) }
+}
+
+// 拖拽放置（亿图式：从左侧图形面板拖到画布落点）
+let dragShape = null
+const onPaletteDragStart = (shape, e) => {
+  dragShape = shape
+  e.dataTransfer.effectAllowed = 'copy'
+  e.dataTransfer.setData('text/plain', shape)   // Firefox 需要 setData 才会触发 drag 事件
+}
+const onCanvasDrop = (e) => {
+  if (!dragShape || !editing.value) return
+  e.preventDefault()
+  const p = screenToFlowCoordinate({ x: e.clientX, y: e.clientY })
+  addShape(dragShape, p)
+  dragShape = null
 }
 
 // 连线：从源 handle 拖到目标 handle
@@ -688,7 +737,7 @@ onBeforeUnmount(() => {
 .kb-fc-edge-input:focus { border-color: #0ea5e9; }
 .fc-flow { width: 100%; height: 100%; background: transparent; }
 
-/* 节点外观 */
+/* 节点外观（对照亿图：浅色填充 + 深色描边 + 深色文字） */
 .fc-node {
   position: relative;
   display: flex;
@@ -696,7 +745,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   min-width: 64px;
   min-height: 40px;
-  color: #fff;
+  color: #1e3a8a;
   font-size: 13px;
   font-weight: 600;
   cursor: grab;
@@ -706,7 +755,6 @@ onBeforeUnmount(() => {
 .fc-node .fc-shape {
   position: absolute;
   inset: 0;
-  background: #0ea5e9;
   box-shadow: 0 1px 2px rgba(15,23,42,.12);
 }
 .fc-node .fc-body {
@@ -732,14 +780,58 @@ onBeforeUnmount(() => {
 .fc-node.selected .fc-shape { outline: 2px solid #f59e0b; outline-offset: 3px; }
 .fc-node.editing { cursor: text; }
 
-/* 形状变体 */
-.shape-rect .fc-shape { border-radius: 4px; }
-.shape-circle .fc-shape { border-radius: 50%; }
-.shape-circle { min-width: 72px; min-height: 72px; }
-.shape-ellipse .fc-shape { border-radius: 50%; }
-.shape-diamond .fc-shape { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
-.shape-document .fc-shape { clip-path: polygon(0 0, 100% 0, 100% 84%, 50% 100%, 0 84%); }
-.shape-step .fc-shape { clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%); }
+/* 形状变体：浅色填充 + 深色描边；clip 形状（菱形/文档/步骤）用「外层描边色 + 内层浅色」模拟描边 */
+.shape-rect .fc-shape { background: #dbeafe; border: 1.5px solid #3b82f6; border-radius: 4px; }
+.shape-circle .fc-shape { background: #fff; border: 1.5px solid #94a3b8; border-radius: 50%; }
+.shape-circle { min-width: 72px; min-height: 72px; color: #334155; }
+.shape-ellipse .fc-shape { background: #fef3c7; border: 1.5px solid #d97706; border-radius: 50%; }
+.shape-ellipse { color: #78350f; }
+.shape-diamond .fc-shape { background: #ef4444; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.shape-diamond .fc-shape::before {
+  content: ''; position: absolute; inset: 1.5px; background: #fee2e2;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.shape-diamond { color: #991b1b; }
+.shape-document .fc-shape { background: #a855f7; clip-path: polygon(0 0, 100% 0, 100% 84%, 50% 100%, 0 84%); }
+.shape-document .fc-shape::before {
+  content: ''; position: absolute; inset: 1.5px; background: #f3e8ff;
+  clip-path: polygon(0 0, 100% 0, 100% 84%, 50% 100%, 0 84%);
+}
+.shape-document { color: #6b21a8; }
+.shape-step .fc-shape { background: #0ea5e9; clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%); }
+.shape-step .fc-shape::before {
+  content: ''; position: absolute; inset: 1.5px; background: #e0f2fe;
+  clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%);
+}
+.shape-step { color: #075985; }
+
+/* 亿图式左侧图形面板（编辑态悬浮在画布左侧） */
+.fc-palette {
+  position: absolute; left: 10px; top: 10px; z-index: 5;
+  width: 58px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .10);
+  padding: 6px 5px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.fc-pal-item {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 4px 0 3px; border-radius: 7px; cursor: grab;
+  border: 1px solid transparent; user-select: none;
+}
+.fc-pal-item:hover { background: #f1f5f9; border-color: #e2e8f0; }
+.fc-pal-item:active { cursor: grabbing; }
+.fc-pal-label { font-size: 10px; color: #64748b; line-height: 1.2; }
+/* 预览图形配色（与画布节点一致） */
+.pv-rect { fill: #dbeafe; stroke: #3b82f6; stroke-width: 1.5; }
+.pv-circle { fill: #fff; stroke: #94a3b8; stroke-width: 1.5; }
+.pv-ellipse { fill: #fef3c7; stroke: #d97706; stroke-width: 1.5; }
+.pv-diamond { fill: #fee2e2; stroke: #ef4444; stroke-width: 1.5; }
+.pv-document { fill: #f3e8ff; stroke: #a855f7; stroke-width: 1.5; }
+.pv-step { fill: #e0f2fe; stroke: #0ea5e9; stroke-width: 1.5; }
+html.dark .fc-palette { background: #1b1b24; border-color: #2a2a35; }
+html.dark .fc-pal-item:hover { background: #26262f; border-color: #3a3a45; }
+html.dark .fc-pal-label { color: #9aa0ad; }
 
 /* 连线手柄 */
 .fc-node .vue-flow__handle {
