@@ -89,8 +89,8 @@ public class AiModelClient {
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("model", m.getModel());
                 body.put("temperature", 0.3);
-                // 部分模型会把思考过程计入 max_tokens，给足上限避免答案被截断
-                body.put("max_tokens", 4096);
+                // 思考型模型（GLM-5.x、GPT-5.x）会把思考过程计入 max_tokens，给足上限避免答案被截断
+                body.put("max_tokens", 8192);
                 body.put("messages", messages);
 
                 Map<String, Object> resp = c.post()

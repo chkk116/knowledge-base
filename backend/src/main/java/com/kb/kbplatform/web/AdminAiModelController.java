@@ -40,12 +40,17 @@ public class AdminAiModelController {
         return Map.of("id", id, "label", label);
     }
 
+    /** GPT-5.6 起 naming 改为能力层级（sol 旗舰 / terra 均衡 / luna 快速经济），旧的 4o、4.1 已 deprecated */
     static final List<Map<String, Object>> OPENAI_MODELS = List.of(
-            mv("gpt-4o", "GPT-4o（旗舰）"),
-            mv("gpt-4o-mini", "GPT-4o mini（轻量省钱）"),
-            mv("gpt-4.1", "GPT-4.1"),
-            mv("gpt-4.1-mini", "GPT-4.1 mini"),
-            mv("gpt-4-turbo", "GPT-4 Turbo（旧版）"));
+            mv("gpt-5.6-sol", "GPT-5.6 Sol（最新旗舰）"),
+            mv("gpt-5.6-terra", "GPT-5.6 Terra（均衡，推荐）"),
+            mv("gpt-5.6-luna", "GPT-5.6 Luna（快速经济）"),
+            mv("gpt-5.2-pro", "GPT-5.2 Pro"),
+            mv("gpt-5.2", "GPT-5.2"),
+            mv("gpt-5.1", "GPT-5.1"),
+            mv("gpt-5-mini", "GPT-5 mini"),
+            mv("gpt-4o", "GPT-4o（旧旗舰，部分场景更便宜）"),
+            mv("gpt-4o-mini", "GPT-4o mini（轻量省钱）"));
 
     static final List<Map<String, Object>> DASHSCOPE_MODELS = List.of(
             mv("qwen-plus", "通义千问 Plus（推荐）"),
@@ -59,12 +64,15 @@ public class AdminAiModelController {
             mv("deepseek-reasoner", "DeepSeek R1 推理版"),
             mv("deepseek-coder", "DeepSeek Coder（代码）"));
 
+    /** 智谱走 open.bigmodel.cn 的 v4 端点，model id 一律小写；5.x 起是推理模型，注意 thinking 会吃 token */
     static final List<Map<String, Object>> ZHIPU_MODELS = List.of(
-            mv("glm-4.7-flash", "GLM-4.7 Flash（免费主力）"),
-            mv("glm-4.6", "GLM-4.6（旗舰）"),
-            mv("glm-4.5-flash", "GLM-4.5 Flash（免费）"),
-            mv("glm-4.5-air", "GLM-4.5 Air（免费轻量）"),
-            mv("glm-4-flash", "GLM-4 Flash（旧版免费）"));
+            mv("glm-5.3", "GLM-5.3（最新旗舰）"),
+            mv("glm-5.2", "GLM-5.2"),
+            mv("glm-5.1", "GLM-5.1（上一代旗舰，长程任务）"),
+            mv("glm-5", "GLM-5（5 系首代）"),
+            mv("glm-5-turbo", "GLM-5 Turbo（快速经济）"),
+            mv("glm-4.7", "GLM-4.7（通用主力）"),
+            mv("glm-4.6", "GLM-4.6（开源 / 多模态）"));
 
     /**
      * 支持的平台：各平台都提供 OpenAI 兼容端点。
@@ -74,7 +82,7 @@ public class AdminAiModelController {
     static final List<Map<String, Object>> PLATFORMS = List.of(
             Map.of("key", AiModel.PROVIDER_OPENAI, "label", "OpenAI",
                     "baseUrl", "https://api.openai.com/v1",
-                    "defaultModel", "gpt-4o", "models", OPENAI_MODELS,
+                    "defaultModel", "gpt-5.6-terra", "models", OPENAI_MODELS,
                     "doc", "https://platform.openai.com/api-keys"),
             Map.of("key", AiModel.PROVIDER_DASHSCOPE, "label", "阿里 DashScope（百炼）",
                     "baseUrl", "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -86,7 +94,7 @@ public class AdminAiModelController {
                     "doc", "https://platform.deepseek.com/api_keys"),
             Map.of("key", AiModel.PROVIDER_ZHIPU, "label", "智谱 GLM",
                     "baseUrl", "https://open.bigmodel.cn/api/paas/v4",
-                    "defaultModel", "glm-4.7-flash", "models", ZHIPU_MODELS,
+                    "defaultModel", "glm-5.3", "models", ZHIPU_MODELS,
                     "doc", "https://open.bigmodel.cn/usercenter/apikeys"),
             Map.of("key", AiModel.PROVIDER_CUSTOM, "label", "自定义（任何 OpenAI 兼容端点）",
                     "baseUrl", "https://api.openai.com/v1",
