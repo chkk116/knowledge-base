@@ -252,10 +252,8 @@ onMounted(load)
       <el-alert :type="testResult.ok ? 'success' : 'error'" :closable="false" show-icon>
         <template #title>
           {{ testResult.ok ? '连接成功' : '连接失败' }}
-          <template v-if="testResult.ok">
-            · 模型 <b>{{ testResult.model }}</b>
-            · 耗时 <b>{{ testResult.latencyMs }}ms</b>
-          </template>
+          <template v-if="testResult.model"> · 模型 <b>{{ testResult.model }}</b></template>
+          <template v-if="testResult.ok"> · 耗时 <b>{{ testResult.latencyMs }}ms</b></template>
         </template>
         <template v-if="testResult.reply">{{ testResult.reply }}</template>
         <template v-else>{{ testResult.error }}</template>

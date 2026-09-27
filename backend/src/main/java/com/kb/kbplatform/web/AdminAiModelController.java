@@ -235,7 +235,8 @@ public class AdminAiModelController {
             return Map.of("ok", true, "model", r.model(),
                     "latencyMs", r.latencyMs(), "reply", r.text());
         }
-        return Map.of("ok", false, "error", r.text(), "model", r.model());
+        // 失败也回带配置里的模型名，前端「连接失败 · 模型 xxx」才读得通
+        return Map.of("ok", false, "error", r.text(), "model", m.getModel());
     }
 
     private Long toLong(Object o) {

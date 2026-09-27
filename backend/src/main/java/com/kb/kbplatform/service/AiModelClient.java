@@ -72,7 +72,11 @@ public class AiModelClient {
      * @param modelId 本次要用的模型配置 id；null = 用默认
      */
     public AiChatResult chat(Long modelId, List<Map<String, String>> messages) {
-        List<AiModel> chain = candidates(modelId);
+        return chatChain(candidates(modelId), messages);
+    }
+
+    /** 沿给定候选链依次尝试（对话降级链与「测试连接」的单模型验证共用） */
+    private AiChatResult chatChain(List<AiModel> chain, List<Map<String, String>> messages) {
         if (chain.isEmpty()) {
             return AiChatResult.fail("尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。");
         }
@@ -122,11 +126,12 @@ public class AiModelClient {
         return AiChatResult.fail(hint.toString());
     }
 
-    /** 管理页「测试连接」：发一条极短请求，验证 Key 与端点是否可用 */
+    /** 管理页「测试连接」：只测指定模型本身，不走降级链 —— 测 A 报 B 可用会误导排障 */
     public AiChatResult test(Long modelId) {
+        AiModel m = repo.findById(modelId).orElse(null);
+        if (m == null || !m.isEnabled()) return AiChatResult.fail("该模型配置不存在或已停用");
         List<Map<String, String>> msgs = List.of(Map.of("role", "user", "content", "只回复两个字：正常"));
-        AiChatResult r = chat(modelId, msgs);
-        return r;
+        return chatChain(List.of(m), msgs);
     }
 
     /** 候选链：指定模型 → 默认模型 → 其余启用模型（去重） */
@@ -208,8 +213,9 @@ public class AiModelClient {
             return new AiChatResult(msg, "", "", 0, Map.of());
         }
 
+        /** 成功 = 拿到了真实模型应答（model 非空）。失败文案也写在 text 里，所以不能用 text 判断 */
         public boolean ok() {
-            return text != null && !text.isBlank();
+            return model != null && !model.isBlank();
         }
     }
 }
