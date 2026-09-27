@@ -59,10 +59,12 @@ public class AdminAiModelController {
             mv("qwen3-max", "通义千问 3 Max"),
             mv("qwen2.5-72b-instruct", "Qwen2.5 72B（开源版）"));
 
+    /** DeepSeek 现役 id 只有 deepseek-flash（V4.1-Flash）与 deepseek-v4-pro；chat/reasoner 是 V3 时代旧别名 */
     static final List<Map<String, Object>> DEEPSEEK_MODELS = List.of(
-            mv("deepseek-chat", "DeepSeek V3 / 对话版（推荐）"),
-            mv("deepseek-reasoner", "DeepSeek R1 推理版"),
-            mv("deepseek-coder", "DeepSeek Coder（代码）"));
+            mv("deepseek-flash", "DeepSeek V4.1 Flash（最新，原生多模态，1M 上下文）"),
+            mv("deepseek-v4-pro", "DeepSeek V4 Pro（上一代旗舰，现路由到 V4.1 Flash）"),
+            mv("deepseek-chat", "旧版对话别名（V3 时代，兼容保留）"),
+            mv("deepseek-reasoner", "旧版推理别名（V3 时代，兼容保留）"));
 
     /** 智谱走 open.bigmodel.cn 的 v4 端点，model id 一律小写；5.x 起是推理模型，注意 thinking 会吃 token */
     static final List<Map<String, Object>> ZHIPU_MODELS = List.of(
@@ -90,7 +92,7 @@ public class AdminAiModelController {
                     "doc", "https://bailian.console.aliyun.com/?tab=model#/api-key"),
             Map.of("key", AiModel.PROVIDER_DEEPSEEK, "label", "DeepSeek 深度求索",
                     "baseUrl", "https://api.deepseek.com/v1",
-                    "defaultModel", "deepseek-chat", "models", DEEPSEEK_MODELS,
+                    "defaultModel", "deepseek-flash", "models", DEEPSEEK_MODELS,
                     "doc", "https://platform.deepseek.com/api_keys"),
             Map.of("key", AiModel.PROVIDER_ZHIPU, "label", "智谱 GLM",
                     "baseUrl", "https://open.bigmodel.cn/api/paas/v4",
