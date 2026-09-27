@@ -226,6 +226,21 @@ const lockRemainText = computed(() => {
 const canAcquire = computed(() => props.editor.isEditable && !editing.value &&
   (!lockInfo.value || isMine.value || lockExpired.value))
 
+// 锁心跳：编辑中每 60s 续一次 locked.ts，避免 2 分钟超时把编辑态踢出（与表格块同一实现）
+let lockHeartbeat = null
+function startHeartbeat() {
+  stopHeartbeat()
+  lockHeartbeat = setInterval(() => {
+    if (!editing.value) return stopHeartbeat()
+    try {
+      props.updateAttributes({ locked: JSON.stringify({ uid, uname, ts: Date.now() }) })
+    } catch { /* ignore */ }
+  }, 60000)
+}
+function stopHeartbeat() {
+  if (lockHeartbeat) { clearInterval(lockHeartbeat); lockHeartbeat = null }
+}
+
 // ---------- 数据解析 / 序列化 ----------
 function parseData() {
   let raw = null
