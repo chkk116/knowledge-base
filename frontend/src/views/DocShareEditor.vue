@@ -650,22 +650,14 @@ function goLogin() {
 }
 
 // 漫游式功能引导（driver.js）：普通文档讲编辑器全貌；图块专属文档（导图/流程图/电子表格）
-// 讲对应画布的操作。完成标记按类型分开——每类文档首次打开时各播一次，「引导」按钮随时重看。
-const TOUR_KEYS = {
-  normal: 'kb-collab-tour-v1-done',
-  mindmap: 'kb-collab-tour-mindmap-done',
-  flowchart: 'kb-collab-tour-flowchart-done',
-  sheet: 'kb-collab-tour-sheet-done',
-}
-const tourKey = () => TOUR_KEYS[props.diagram || 'normal']
-
+// 讲对应画布的操作。**只在用户点工具栏「引导」时播放，不自动弹出**（避免每次进文档被打断）。
 /** 图块专属文档的引导步骤（锚点：块的「编辑」按钮 + 居中说明 + 转普通文档入口） */
 function diagramTourSteps() {
   const kind = props.diagram
   const wrapSel = { mindmap: '.kb-mindmap-wrap', flowchart: '.kb-fc-wrap', sheet: '.kb-sheet-wrap' }[kind]
   const meta = {
     mindmap: { name: '思维导图', ops: '进入编辑后：双击或 F2 改文字，Tab 加子主题、Enter 加同级；「+ 自由主题」可加互不相连的新主题；节点可自由拖拽。编辑期间其他人只读。' },
-    flowchart: { name: '流程图', ops: '进入编辑后：从形状栏添加矩形 / 圆 / 菱形 / 文档 / 步骤等图形并自由摆放；从图形圆点拖线连接；点连线可加「是/否」标签。编辑期间其他人只读。' },
+    flowchart: { name: '流程图', ops: '进入编辑后：左侧图形面板提供 12 种标准图形（矩形 / 菱形 / 椭圆 / 文档 / 数据库 / 子流程 等），点选即可添加、按住可拖到画布落点摆放；从图形右侧/底部圆点拖到另一图形左侧/顶部圆点连线；点连线可加「是/否」标签；工具条右下角「?」随时可看操作说明。编辑期间其他人只读。' },
     sheet: { name: '电子表格', ops: '进入编辑后：与 Excel 同款操作——单元格直接输公式（=SUM(...)）、拖动选区右下角填充、复制粘贴、合并冻结；顶部工具栏可设字体、填充色和数字格式（RMB / 百分比 / 日期等，选格式前先选中目标格子）。' },
   }[kind]
   const editBtn = Array.from(document.querySelectorAll(wrapSel + ' button'))
@@ -722,12 +714,11 @@ function startTour() {
       { element: el('[data-tour="list"]'), popover: { title: '列表与待办', description: '无序/有序列表，以及可勾选的待办清单。' } },
       { element: el('[data-tour="table"]'), popover: { title: '表格', description: '插入表格后可增删行列。' } },
       { element: el('[data-tour="mindmap"]'), popover: { title: '思维导图 🆕', description: '在文档里直接画思维导图：插入后点「编辑导图」，Tab 加子节点、F2 编辑文字；编辑期间其他人只读。' } },
-      { element: el('[data-tour="flowchart"]'), popover: { title: '流程图 🆕', description: '在文档里画流程图：插入后点「编辑」，从形状栏加矩形 / 圆 / 菱形等图形，从图形圆点拖线连接，点连线加「是/否」标签；编辑期间其他人只读。' } },
+      { element: el('[data-tour="flowchart"]'), popover: { title: '流程图 🆕', description: '在文档里画流程图：插入后点「编辑」，左侧图形面板点选或拖入图形（矩形 / 菱形 / 数据库 / 子流程 等 12 种），拖圆点连线，点连线加「是/否」标签；右下角「?」可看详细操作。编辑期间其他人只读。' } },
       { element: el('[data-tour="sheet"]'), popover: { title: '电子表格 🆕', description: '在文档里插入 Excel 式表格：单元格可输公式（=SUM(...)）、拖拽填充、复制粘贴、合并冻结；插入后点「编辑」，编辑期间其他人只读。' } },
       { element: el('[data-tour="snapshot"]'), popover: { title: '快照与版本', description: '手动保存快照；「版本」里可查看 / 回滚任意历史版本。' } },
       { element: el('[data-tour="presence"]'), popover: { title: '协作状态', description: '这里能看到当前在线的协作者及其光标颜色。开始创作吧！' } },
     ]
-  const key = tourKey()
   const d = driver({
     showProgress: true,
     progressText: '{{current}} / {{total}}',
@@ -735,19 +726,12 @@ function startTour() {
     prevBtnText: '上一步',
     doneBtnText: '完成',
     steps,
-    onDestroyed: () => localStorage.setItem(key, '1'),
   })
   d.drive()
 }
 
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibility)
-  // 首次进入（可写用户）自动播放一次漫游引导——按文档类型各播一次
-  if (props.canWrite && !localStorage.getItem(tourKey())) {
-    setTimeout(() => {
-      if (!destroyed && editor.value) startTour()
-    }, props.diagram ? 1800 : 1200)
-  }
 })
 
 onBeforeUnmount(() => {
@@ -1194,9 +1178,8 @@ html.dark .page-inner :deep(.kb-collab-body .selectedCell::after) { background: 
 .diagram-mode .kb-fc,
 .diagram-mode .kb-sheet { flex: 1; display: flex; flex-direction: column; min-height: 0; border: none; border-radius: 0; }
 .diagram-mode .page-inner .ProseMirror > p { display: none; margin: 0; height: 0; }
-/* 提示条在专属模式下隐藏（编辑态的操作提示同步隐藏，画布顶到视口底部） */
+/* 提示条在专属模式下隐藏（画布顶到视口底部）；流程图提示条已改为工具栏「?」按钮，不再常驻 */
 .diagram-mode .kb-sheet-hint,
-.diagram-mode .kb-fc-hint,
 .diagram-mode .kb-mindmap-hint { display: none; }
 .diagram-mode .kb-mindmap-canvas,
 .diagram-mode .kb-fc-canvas,

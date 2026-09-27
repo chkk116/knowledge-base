@@ -24,7 +24,29 @@
           >{{ lockExpired ? '强制接管' : '接管（' + lockRemainText + '）' }}</button>
           <button v-if="editing" class="kb-fc-btn primary" @click="finish">完成编辑</button>
           <button v-if="editing" class="kb-fc-btn" @click="cancel">取消</button>
+          <button
+            class="kb-fc-btn help"
+            :class="{ on: helpOpen }"
+            title="使用说明"
+            aria-label="使用说明"
+            @click="helpOpen = !helpOpen"
+          >?</button>
         </span>
+      </div>
+
+      <!-- 使用说明：常驻按钮触发，默认收起（不再每次渲染都占一条提示） -->
+      <div v-if="helpOpen" class="kb-fc-help" @click.stop>
+        <div class="fh-head">
+          <span>流程图使用说明</span>
+          <button class="fh-close" @click="helpOpen = false">×</button>
+        </div>
+        <ul>
+          <li><b>添加图形</b>：点左侧图形栏的图形，或按住拖到画布指定位置</li>
+          <li><b>改文字</b>：双击图形直接输入</li>
+          <li><b>连线</b>：从图形右侧 / 底部圆点拖到另一图形的左侧 / 顶部圆点</li>
+          <li><b>连线标签</b>：点一下连线，在下方输入「是 / 否」</li>
+          <li><b>删除</b>：选中图形或连线后按 Delete</li>
+        </ul>
       </div>
       <div
         ref="mapEl"
@@ -183,10 +205,9 @@
           <span class="kb-fc-tip">从图形右侧 / 底部圆点拖到另一图形左侧 / 顶部圆点即可连线</span>
         </template>
         <template v-else>
-          <span class="kb-fc-tip">从左侧图形栏添加图形（点击或拖到落点） · 双击图形改文字 · 拖圆点连线 · 点连线加「是/否」标签 · Delete 删除选中</span>
+          <span class="kb-fc-tip">从左侧图形栏点选或拖入图形 · 双击图形改文字 · 拖圆点连线</span>
         </template>
       </div>
-      <div v-else class="kb-fc-hint">点「编辑」后：左侧图形栏添加图形（可拖到指定位置） · 拖拽摆放 · 从图形圆点拉线连接 · 双击图形改字 · 点连线加标签（如 是/否）· Delete 删除</div>
     </div>
   </NodeViewWrapper>
 </template>
@@ -241,6 +262,8 @@ const SHAPE_GROUPS = [
 ]
 
 const mapEl = ref(null)
+// 操作说明默认收起：按钮常驻在工具栏，用户想看再点，不再每次渲染都弹一条引导条
+const helpOpen = ref(false)
 const editInput = ref(null)
 const edgeLabelInput = ref(null)
 const editing = ref(false)
@@ -709,6 +732,7 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
+  position: relative;
 }
 .kb-fc.editing { border-color: #0ea5e9; }
 .kb-fc-bar {
@@ -739,21 +763,39 @@ onBeforeUnmount(() => {
 .kb-fc-btn.primary { background: #0ea5e9; border-color: #0ea5e9; color: #fff; }
 .kb-fc-btn.danger { background: #fff; border-color: #fca5a5; color: #dc2626; }
 .kb-fc-btn:hover { opacity: 0.88; }
-.kb-fc-palette { display: inline-flex; gap: 4px; padding-left: 4px; border-left: 1px dashed var(--border, #e5e7eb); }
-.kb-fc-shape {
-  border: 1px solid var(--border, #e5e7eb);
-  background: #fff;
-  color: #334155;
-  border-radius: 6px;
-  padding: 3px 8px;
-  font-size: 12px;
-  cursor: pointer;
+.kb-fc-btn.help {
+  width: 24px; height: 24px; padding: 0; border-radius: 50%;
+  font-weight: 700; color: #64748b; line-height: 1;
 }
-.kb-fc-shape:hover { background: #e0f2fe; border-color: #7dd3fc; }
+.kb-fc-btn.help.on { background: #e0f2fe; border-color: #7dd3fc; color: #0284c7; }
+/* 使用说明面板（按钮触发，默认收起） */
+.kb-fc-help {
+  position: absolute; right: 10px; top: 42px; z-index: 8;
+  width: 320px; max-width: calc(100% - 20px);
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .12);
+  padding: 10px 12px 8px;
+  font-size: 12px; color: #475569;
+}
+html.dark .kb-fc-help { background: #1b1b24; border-color: #2a2a35; color: #c7cad4; }
+.fh-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-weight: 600; color: #334155; margin-bottom: 6px;
+}
+html.dark .fh-head { color: #e7e7ee; }
+.fh-close {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 16px; line-height: 1; color: #94a3b8;
+}
+.fh-close:hover { color: #475569; }
+.kb-fc-help ul { margin: 0; padding-left: 16px; }
+.kb-fc-help li { line-height: 1.9; }
+.kb-fc-help b { color: #0f172a; font-weight: 600; }
+html.dark .kb-fc-help b { color: #f1f5f9; }
 .kb-fc-canvas { height: 420px; position: relative; outline: none; }
 .kb-fc-canvas.readonly { background:
   radial-gradient(circle, #eef2f7 1px, transparent 1px) 0 0 / 22px 22px; }
-.kb-fc-hint, .kb-fc-ctx {
+.kb-fc-ctx {
   padding: 5px 12px;
   font-size: 12px;
   color: #94a3b8;
