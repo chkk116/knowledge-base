@@ -53,3 +53,5 @@ export const adminSetDefaultModel = (id) => api.post('/admin/ai/models/' + id + 
 // 测试连接：真实发一条极短请求（消耗少量 token），返回 latencyMs / reply / model
 export const adminTestModel = (id) =>
   api.post('/admin/ai/models/' + id + '/test', {}, { timeout: 60000 })
+// 用量统计：adminUsage({ days, modelId }) → { summary, daily[], models[] }（调用流水聚合）
+export const adminUsage = (params) => api.get('/admin/ai/models/usage', { params })

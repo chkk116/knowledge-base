@@ -6,13 +6,18 @@
 package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.domain.AiModel;
+import com.kb.kbplatform.domain.AiUsageLog;
 import com.kb.kbplatform.repository.AiModelRepository;
+import com.kb.kbplatform.repository.AiUsageLogRepository;
 import com.kb.kbplatform.service.AiKeyCipher;
 import com.kb.kbplatform.service.AiModelClient;
+import com.kb.kbplatform.security.TokenClaims;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -107,17 +112,113 @@ public class AdminAiModelController {
     private final AiModelRepository repo;
     private final AiKeyCipher cipher;
     private final AiModelClient client;
+    private final AiUsageLogRepository usageRepo;
 
-    public AdminAiModelController(AiModelRepository repo, AiKeyCipher cipher, AiModelClient client) {
+    public AdminAiModelController(AiModelRepository repo, AiKeyCipher cipher, AiModelClient client,
+                                  AiUsageLogRepository usageRepo) {
         this.repo = repo;
         this.cipher = cipher;
         this.client = client;
+        this.usageRepo = usageRepo;
     }
 
     /** 可选平台（前端下拉据此自动填 baseUrl） */
     @GetMapping("/platforms")
     public List<Map<String, Object>> platforms() {
         return PLATFORMS;
+    }
+
+    /**
+     * 用量统计（对标各平台官方控制台的「用量信息」页）：
+     * 汇总 + 日趋势 + 按模型分组，数据源是 kb_ai_usage_log 调用流水。
+     * 参数：days=统计天数（默认 30，上限 180），modelId=可选按配置过滤。
+     */
+    @GetMapping("/usage")
+    public Map<String, Object> usage(@RequestAttribute("kbUser") TokenClaims c,
+                                     @RequestParam(value = "days", defaultValue = "30") int days,
+                                     @RequestParam(value = "modelId", required = false) Long modelId) {
+        if (c == null || !c.isAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要管理员权限");
+        }
+        int d = (days <= 0 || days > 180) ? 30 : days;
+        LocalDate since = LocalDate.now().minusDays(d - 1L);
+        List<AiUsageLog> rows = new ArrayList<>(usageRepo.findByCreatedAtGreaterThanEqual(since.atStartOfDay()));
+        if (modelId != null) rows.removeIf(r -> !modelId.equals(r.getModelId()));
+
+        // ---- 汇总 ----
+        long requests = rows.size();
+        long okCnt = rows.stream().filter(AiUsageLog::isSuccess).count();
+        long tokens = rows.stream().mapToLong(AiUsageLog::getTotalTokens).sum();
+        long prompt = rows.stream().mapToLong(AiUsageLog::getPromptTokens).sum();
+        long completion = rows.stream().mapToLong(AiUsageLog::getCompletionTokens).sum();
+        double avgLat = rows.stream().filter(AiUsageLog::isSuccess)
+                .mapToLong(AiUsageLog::getLatencyMs).average().orElse(0);
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("requests", requests);
+        summary.put("success", okCnt);
+        summary.put("failed", requests - okCnt);
+        summary.put("tokens", tokens);
+        summary.put("promptTokens", prompt);
+        summary.put("completionTokens", completion);
+        summary.put("avgLatencyMs", Math.round(avgLat));
+
+        // ---- 日趋势（缺数据的日期补零，图表横轴连续） ----
+        Map<LocalDate, long[]> byDay = new TreeMap<>();
+        for (AiUsageLog r : rows) {
+            long[] arr = byDay.computeIfAbsent(r.getCreatedAt().toLocalDate(), k -> new long[2]);
+            arr[0]++;                                // 请求次数
+            arr[1] += r.getTotalTokens();            // tokens
+        }
+        List<Map<String, Object>> daily = new ArrayList<>();
+        for (LocalDate day = since; !day.isAfter(LocalDate.now()); day = day.plusDays(1)) {
+            long[] arr = byDay.getOrDefault(day, new long[2]);
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("date", day.toString());
+            e.put("requests", arr[0]);
+            e.put("tokens", arr[1]);
+            daily.add(e);
+        }
+
+        // ---- 按模型分组（快照字段聚合，配置删了也能看到历史用量） ----
+        Map<String, Map<String, Object>> byModel = new LinkedHashMap<>();
+        for (AiUsageLog r : rows) {
+            String key = r.getModelId() + "|" + r.getModelName() + "|" + r.getModel();
+            Map<String, Object> g = byModel.computeIfAbsent(key, k -> {
+                Map<String, Object> g0 = new LinkedHashMap<>();
+                g0.put("modelId", r.getModelId());
+                g0.put("modelName", r.getModelName());
+                g0.put("model", r.getModel());
+                g0.put("requests", 0L);
+                g0.put("success", 0L);
+                g0.put("failed", 0L);
+                g0.put("tokens", 0L);
+                g0.put("latencySum", 0L);
+                return g0;
+            });
+            g.put("requests", (long) g.get("requests") + 1);
+            if (r.isSuccess()) {
+                g.put("success", (long) g.get("success") + 1);
+                g.put("latencySum", (long) g.get("latencySum") + r.getLatencyMs());
+            } else {
+                g.put("failed", (long) g.get("failed") + 1);
+            }
+            g.put("tokens", (long) g.get("tokens") + r.getTotalTokens());
+        }
+        List<Map<String, Object>> models = new ArrayList<>();
+        for (Map<String, Object> g : byModel.values()) {
+            long ok = (long) g.get("success");
+            g.put("avgLatencyMs", ok > 0 ? Math.round((double) (long) g.get("latencySum") / ok) : 0L);
+            g.remove("latencySum");
+            models.add(g);
+        }
+        models.sort((a, b) -> Long.compare((long) b.get("requests"), (long) a.get("requests")));
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("days", d);
+        out.put("summary", summary);
+        out.put("daily", daily);
+        out.put("models", models);
+        return out;
     }
 
     /** 配置列表（脱敏，绝不返回明文 Key） */

@@ -6,7 +6,9 @@
 package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.AiModel;
+import com.kb.kbplatform.domain.AiUsageLog;
 import com.kb.kbplatform.repository.AiModelRepository;
+import com.kb.kbplatform.repository.AiUsageLogRepository;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,11 +37,13 @@ public class AiModelClient {
 
     private final AiModelRepository repo;
     private final AiKeyCipher cipher;
+    private final AiUsageLogRepository usageRepo;
     private final Map<Long, RestClient> clients = new ConcurrentHashMap<>();
 
-    public AiModelClient(AiModelRepository repo, AiKeyCipher cipher) {
+    public AiModelClient(AiModelRepository repo, AiKeyCipher cipher, AiUsageLogRepository usageRepo) {
         this.repo = repo;
         this.cipher = cipher;
+        this.usageRepo = usageRepo;
     }
 
     /** 用户端可选模型（不含 Key，供对话页下拉使用） */
@@ -83,11 +87,11 @@ public class AiModelClient {
      * @param modelId 本次要用的模型配置 id；null = 用默认
      */
     public AiChatResult chat(Long modelId, List<Map<String, String>> messages) {
-        return chatChain(candidates(modelId), messages);
+        return chatChain(candidates(modelId), messages, "chat");
     }
 
-    /** 沿给定候选链依次尝试（对话降级链与「测试连接」的单模型验证共用） */
-    private AiChatResult chatChain(List<AiModel> chain, List<Map<String, String>> messages) {
+    /** 沿给定候选链依次尝试（对话降级链与「测试连接」的单模型验证共用）；source 用于用量流水标记 */
+    private AiChatResult chatChain(List<AiModel> chain, List<Map<String, String>> messages, String source) {
         if (chain.isEmpty()) {
             return AiChatResult.fail("尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。");
         }
@@ -99,6 +103,7 @@ public class AiModelClient {
                 String key = cipher.decrypt(m.getApiKey());
                 if (key == null || key.isBlank()) {
                     errors.add(m.getName() + ": API Key 为空或解密失败（主密钥变更）");
+                    recordUsage(m, source, false, null, System.currentTimeMillis() - t0, "API Key 为空或解密失败");
                     continue;
                 }
                 Map<String, Object> body = new LinkedHashMap<>();
@@ -118,17 +123,22 @@ public class AiModelClient {
                 long ms = System.currentTimeMillis() - t0;
                 if (text == null || text.isBlank()) {
                     errors.add(m.getName() + ": 模型返回为空");
+                    recordUsage(m, source, false, null, ms, "模型返回为空");
                     continue;
                 }
-                return new AiChatResult(text, m.getModel(), m.getName(), ms, usageOf(resp));
+                Map<String, Object> usage = usageOf(resp);
+                recordUsage(m, source, true, usage, ms, null);
+                return new AiChatResult(text, m.getModel(), m.getName(), ms, usage);
             } catch (org.springframework.web.client.RestClientResponseException re) {
                 int sc = re.getStatusCode().value();
                 log.warn("AI 模型调用失败(name={}, http={}): {}", m.getName(), sc, re.getMessage());
                 errors.add(m.getName() + ": HTTP " + sc);
+                recordUsage(m, source, false, null, System.currentTimeMillis() - t0, "HTTP " + sc);
                 // 限流/服务端抖动/鉴权失败都换下一个模型再试
             } catch (Exception e) {
                 log.warn("AI 模型调用异常(name={}): {}", m.getName(), e.getMessage());
                 errors.add(m.getName() + ": " + e.getMessage());
+                recordUsage(m, source, false, null, System.currentTimeMillis() - t0, e.getMessage());
             }
         }
         StringBuilder hint = new StringBuilder("AI 服务暂时不可用，请稍后重试。");
@@ -137,12 +147,43 @@ public class AiModelClient {
         return AiChatResult.fail(hint.toString());
     }
 
+    /** 记调用流水（用量统计的数据源）：绝不因记录失败影响正常调用 */
+    private void recordUsage(AiModel m, String source, boolean success, Map<String, Object> usage,
+                             long latencyMs, String error) {
+        try {
+            AiUsageLog row = new AiUsageLog();
+            row.setModelId(m.getId());
+            row.setModelName(m.getName());
+            row.setModel(m.getModel());
+            row.setSource(source);
+            row.setSuccess(success);
+            row.setPromptTokens(intOf(usage == null ? null : usage.get("prompt_tokens")));
+            row.setCompletionTokens(intOf(usage == null ? null : usage.get("completion_tokens")));
+            Object total = usage == null ? null : usage.get("total_tokens");
+            row.setTotalTokens(total != null ? intOf(total)
+                    : row.getPromptTokens() + row.getCompletionTokens());
+            row.setLatencyMs(Math.max(0, latencyMs));
+            if (error != null) {
+                String e = error.length() > 280 ? error.substring(0, 280) : error;
+                row.setError(e);
+            }
+            usageRepo.save(row);
+        } catch (Exception ex) {
+            log.warn("记录 AI 用量流水失败（不影响调用）: {}", ex.getMessage());
+        }
+    }
+
+    private int intOf(Object o) {
+        if (o instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(String.valueOf(o)); } catch (Exception e) { return 0; }
+    }
+
     /** 管理页「测试连接」：只测指定模型本身，不走降级链 —— 测 A 报 B 可用会误导排障 */
     public AiChatResult test(Long modelId) {
         AiModel m = repo.findById(modelId).orElse(null);
         if (m == null || !m.isEnabled()) return AiChatResult.fail("该模型配置不存在或已停用");
         List<Map<String, String>> msgs = List.of(Map.of("role", "user", "content", "只回复两个字：正常"));
-        return chatChain(List.of(m), msgs);
+        return chatChain(List.of(m), msgs, "test");
     }
 
     /** 候选链：指定模型 → 默认模型 → 其余启用模型（去重） */

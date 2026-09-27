@@ -1,11 +1,12 @@
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../../store/auth'
 import {
   adminListModels, adminModelPlatforms, adminSaveModel, adminDeleteModel,
-  adminToggleModel, adminSetDefaultModel, adminTestModel
+  adminToggleModel, adminSetDefaultModel, adminTestModel, adminUsage
 } from '../../api/ai'
+import { loadEcharts, chartTxt, chartTip } from '../../utils/echartsLoader'
 
 const auth = useAuthStore()
 // 双保险：路由守卫已按 adminOnly 拦截，这里再判一次，防直接改路由配置漏人
@@ -172,7 +173,86 @@ const onTest = async (row) => {
   }
 }
 
-onMounted(load)
+// ---------- 用量统计（对标平台官方控制台的「用量信息」页） ----------
+const usageDays = ref(30)
+const usageModelId = ref(null)
+const usage = ref(null)
+const usageLoading = ref(false)
+const usageChartEl = ref(null)
+let usageChart = null
+let echartsLib = null
+let themeObserver = null
+
+const usageKpis = computed(() => {
+  const s = usage.value?.summary || {}
+  const okRate = s.requests ? Math.round((s.success / s.requests) * 100) : null
+  return [
+    { label: 'API 请求次数', value: s.requests ?? 0, sub: `成功 ${s.success ?? 0} · 失败 ${s.failed ?? 0}` },
+    { label: 'Tokens', value: s.tokens ?? 0, sub: `输入 ${s.promptTokens ?? 0} · 输出 ${s.completionTokens ?? 0}` },
+    { label: '成功率', value: okRate == null ? '—' : okRate + '%', sub: `平均耗时 ${(s.avgLatencyMs ?? 0)}ms` },
+  ]
+})
+
+const loadUsage = async () => {
+  usageLoading.value = true
+  try {
+    const { data } = await adminUsage({
+      days: usageDays.value,
+      modelId: usageModelId.value || undefined,
+    })
+    usage.value = data
+    await nextTick()
+    renderUsageChart()
+  } catch (e) {
+    ElMessage.error('加载用量统计失败：' + (e.response?.status || '网络异常'))
+  } finally {
+    usageLoading.value = false
+  }
+}
+
+async function renderUsageChart() {
+  if (!usage.value?.daily?.length) return
+  if (!echartsLib) {
+    try { echartsLib = await loadEcharts() } catch { return } // 本地 vendor 缺失时静默降级为纯数字
+  }
+  if (!usageChartEl.value) return
+  if (!usageChart) usageChart = echartsLib.init(usageChartEl.value)
+  const dark = document.documentElement.classList.contains('dark')
+  const d = usage.value.daily
+  usageChart.setOption({
+    tooltip: { trigger: 'axis', ...chartTip(dark) },
+    legend: { top: 0, textStyle: chartTxt(dark) },
+    grid: { left: 48, right: 48, top: 32, bottom: 26 },
+    xAxis: { type: 'category', data: d.map(e => e.date.slice(5)), axisLabel: chartTxt(dark) },
+    yAxis: [
+      { type: 'value', name: 'Tokens', axisLabel: chartTxt(dark), splitLine: { lineStyle: { color: dark ? '#2a2a35' : '#eef2f7' } } },
+      { type: 'value', name: '次数', axisLabel: chartTxt(dark), splitLine: { show: false } },
+    ],
+    series: [
+      { name: 'Tokens', type: 'bar', data: d.map(e => e.tokens), barMaxWidth: 26,
+        itemStyle: { color: '#6366f1', borderRadius: [4, 4, 0, 0] } },
+      { name: '请求次数', type: 'line', yAxisIndex: 1, data: d.map(e => e.requests),
+        itemStyle: { color: '#10b981' }, smooth: true, symbolSize: 6 },
+    ],
+  })
+}
+
+const onThemeChange = () => renderUsageChart()
+const onResize = () => usageChart && usageChart.resize()
+
+onMounted(() => {
+  load()
+  loadUsage()
+  // 主题切换时图表跟随重绘；窗口缩放时自适应
+  themeObserver = new MutationObserver(onThemeChange)
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  window.addEventListener('resize', onResize)
+})
+onUnmounted(() => {
+  if (themeObserver) themeObserver.disconnect()
+  window.removeEventListener('resize', onResize)
+  if (usageChart) { usageChart.dispose(); usageChart = null }
+})
 </script>
 
 <template>
@@ -246,6 +326,65 @@ onMounted(load)
 
     <el-empty v-if="!loading && !models.length"
               description="还没有模型配置 —— 点右上角「新增模型」，填入平台 API Key 即可接入" />
+
+    <!-- 用量统计（对标 DeepSeek 官方控制台「用量信息」页） -->
+    <section class="usage-sec">
+      <div class="u-head">
+        <div>
+          <div class="u-title">用量统计</div>
+          <div class="u-sub">调用流水实时聚合 · 含对话与测试连接，失败请求也会计入</div>
+        </div>
+        <div class="u-ctrl">
+          <el-select v-model="usageDays" style="width: 110px" @change="loadUsage">
+            <el-option :value="1" label="今天" />
+            <el-option :value="7" label="近 7 天" />
+            <el-option :value="30" label="近 30 天" />
+            <el-option :value="90" label="近 90 天" />
+          </el-select>
+          <el-select v-model="usageModelId" style="width: 180px" placeholder="全部模型" clearable @change="loadUsage">
+            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id" />
+          </el-select>
+          <el-button :loading="usageLoading" @click="loadUsage">刷新</el-button>
+        </div>
+      </div>
+
+      <div class="u-kpis">
+        <div v-for="k in usageKpis" :key="k.label" class="u-kpi">
+          <div class="uk-label">{{ k.label }}</div>
+          <div class="uk-value">{{ k.value }}</div>
+          <div class="uk-sub">{{ k.sub }}</div>
+        </div>
+      </div>
+
+      <div class="u-chart-wrap">
+        <div class="u-chart-title">每日 Tokens 与请求次数</div>
+        <div v-if="usage && usage.summary.requests === 0" class="u-empty">
+          统计范围内还没有调用记录 —— 去「AI 问答」问一句，或点上方「测试」产生一条流水
+        </div>
+        <div v-show="usage && usage.summary.requests > 0" ref="usageChartEl" class="u-chart"></div>
+      </div>
+
+      <el-table v-if="usage && usage.models.length" :data="usage.models" border stripe size="small"
+                style="margin-top: 12px;">
+        <el-table-column label="模型" min-width="200">
+          <template #default="{ row }">
+            <span style="font-weight: 600;">{{ row.modelName }}</span>
+            <span class="mono muted" style="margin-left: 8px;">{{ row.model }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="requests" label="请求次数" width="100" align="center" />
+        <el-table-column prop="success" label="成功" width="80" align="center" />
+        <el-table-column prop="failed" label="失败" width="80" align="center">
+          <template #default="{ row }">
+            <span :style="row.failed > 0 ? 'color:#ef4444;font-weight:600;' : ''">{{ row.failed }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="tokens" label="Tokens" width="110" align="center" />
+        <el-table-column label="平均耗时" width="100" align="center">
+          <template #default="{ row }">{{ row.avgLatencyMs }}ms</template>
+        </el-table-column>
+      </el-table>
+    </section>
 
     <!-- 测试连接结果 -->
     <div v-if="testResult" class="test-box">
@@ -406,6 +545,43 @@ html.dark .row .v { color: #d5d7e0; }
 .hint { color: #909399; font-size: 12px; line-height: 1.6; }
 .hint.inline { margin-left: 10px; }
 
+/* ===== 用量统计 ===== */
+.usage-sec {
+  margin-top: 16px;
+  background: #fff; border: 1px solid #eef2f7; border-radius: 14px;
+  padding: 14px 16px 16px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+}
+html.dark .usage-sec { background: #17171f; border-color: #2a2a35; }
+.u-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.u-title { font-size: 15px; font-weight: 700; color: #1e293b; }
+html.dark .u-title { color: #e7e7ee; }
+.u-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.u-ctrl { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.u-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.u-kpi {
+  background: #f8fafc; border: 1px solid #eef2f7; border-radius: 12px;
+  padding: 12px 14px;
+}
+html.dark .u-kpi { background: #1b1b24; border-color: #2a2a35; }
+.uk-label { font-size: 12px; color: #94a3b8; }
+html.dark .uk-label { color: #9aa0ad; }
+.uk-value { font-size: 24px; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; line-height: 1.3; }
+html.dark .uk-value { color: #f1f5f9; }
+.uk-sub { font-size: 12px; color: #98a2b3; }
+
+.u-chart-wrap {
+  margin-top: 12px;
+  background: #f8fafc; border: 1px solid #eef2f7; border-radius: 12px;
+  padding: 12px 14px;
+}
+html.dark .u-chart-wrap { background: #1b1b24; border-color: #2a2a35; }
+.u-chart-title { font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+html.dark .u-chart-title { color: #d5d7e0; }
+.u-chart { width: 100%; height: 260px; }
+.u-empty { color: #98a2b3; font-size: 13px; text-align: center; padding: 60px 0; }
+
 /* 响应式（断点与全局一致：≤1024 平板 / ≤640 手机） */
 @media (max-width: 1024px) {
   .cards { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
@@ -417,6 +593,9 @@ html.dark .row .v { color: #d5d7e0; }
   .page-head .el-button { width: 100%; }
   .kpi-row { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
   .cards { grid-template-columns: 1fr; }
+  .u-ctrl { width: 100%; }
+  .u-ctrl .el-select { flex: 1; }
+  .u-chart { height: 200px; }
   .hint { font-size: 11px; }
   .mono { font-size: 11px; }
 }
