@@ -277,13 +277,23 @@ watch(
   { immediate: true }
 )
 
+// 把编辑中数据从引擎内存落回节点属性（『转为普通文档』前由编辑器派发事件触发，
+// 防转换时拿到空 data 导致表格/图块内容丢失）
+function flushData() {
+  if (editing.value && dirty.value) {
+    try { props.updateAttributes({ data: JSON.stringify(sheetData()) }) } catch { /* ignore */ }
+  }
+}
+
 onMounted(() => {
   tickTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
   document.addEventListener('keydown', docKeyDownCapture, true)
   nextTick(() => mountSheet())
+  window.addEventListener('kb:flush-diagram', flushData)
 })
 onBeforeUnmount(() => {
   clearInterval(tickTimer)
+  window.removeEventListener('kb:flush-diagram', flushData)
   document.removeEventListener('keydown', docKeyDownCapture, true)
   stopHeartbeat()
   // 编辑中直接卸载：尽量把已做的改动落盘（锁会随落盘/超时释放）

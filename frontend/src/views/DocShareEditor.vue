@@ -238,6 +238,9 @@ function safeName(s) {
 // 工作区据此自动切回通用编辑器；立即落盘快照并通知工作区刷新
 const toNormalDoc = async () => {
   if (!editor.value || !props.canWrite) return
+  // 先把正在编辑的图块数据从引擎内存落回节点属性，避免转换后拿到空 data 把内容弄丢
+  window.dispatchEvent(new CustomEvent('kb:flush-diagram'))
+  await new Promise((r) => setTimeout(r, 30))
   editor.value.commands.insertContent({ type: 'paragraph' })
   try {
     await updateShareDoc(props.shareId, props.docId, { content: editor.value.getHTML() })
