@@ -41,6 +41,13 @@ public class OcrService {
     /** 4.1V-Thinking 会把正式答案包在这对标记里，标记外是它的碎碎念，要剥 */
     private static final String BOX_BEGIN = "<|begin_of_box|>";
     private static final String BOX_END = "<|end_of_box|>";
+    /**
+     * 「不是识别结果，而是模型在解释自己将怎么做」的开场白特征词。
+     * 实测（2026-09-27）：免费档拥挤时降级模型可能不返回文字本身，而是吐这类前言且被 max_tokens 截断；
+     * 若不识别，会把一句解释当正文落库，用户拿到一篇只有一句话的文档还显示成功。
+     */
+    private static final List<String> CHATTER_MARKERS = List.of(
+            "由于图片", "由于该图片", "以下是", "图片中的文字", "提取的", "识别结果", "整理如下", "我将", "我会先", "按原图");
     /** 智谱默认端点（管理页未填 base-url 时兜底） */
     private static final String ZHIPU_DEFAULT_BASE = "https://open.bigmodel.cn/api/paas/v4";
     /** 视觉模型降级链：与文本模型不同，须显式指定（管理页配的 model 通常是文本模型） */
@@ -139,7 +146,14 @@ public class OcrService {
                         .retrieve()
                         .body(Map.class);
                 String text = extractContent(resp, model);
-                return stripWrappers(text);
+                String cleaned = stripWrappers(text);
+                // 模型没给文字、只给了「它将怎么做」的解释：换下一个模型再试，别把前言当正文落库
+                if (looksLikeChatter(cleaned)) {
+                    log.info("OCR 模型 {} 只输出了说明性前言（未给出文字），尝试下一个模型", model);
+                    lastErr = "未能从图片中识别出文字，请确认图片内容清晰";
+                    continue;
+                }
+                return cleaned;
             } catch (OcrModelException e) {
                 // 模型侧拥挤/不可用：记下原因，降级到链上下一个
                 log.info("OCR 模型 {} 不可用: {}", model, e.getMessage());
@@ -182,6 +196,24 @@ public class OcrService {
             if (t.endsWith("```")) t = t.substring(0, t.length() - 3);
         }
         return t.trim();
+    }
+
+    /**
+     * 判断输出是否「只会说它要做什么」而非真的给出了文字。
+     * 判据（偏保守，避免误杀真实内容）：
+     *   ① 整体很短（≤ 60 字），且
+     *   ② 命中开场白特征词，或结尾是「内容」/「如下」这类未完成句式（典型被 max_tokens 截断）
+     * 真识别结果通常远长于 60 字，故短+特征词同时成立才判为前言。
+     */
+    static boolean looksLikeChatter(String s) {
+        if (s == null || s.isBlank()) return false;
+        String t = s.trim();
+        if (t.length() > 60) return false;                 // 够长一般是真内容
+        for (String mk : CHATTER_MARKERS) {
+            if (t.contains(mk)) return true;
+        }
+        // 截断特征：结尾停在「内容」/「如下」/「：」，说明句子没写完
+        return t.endsWith("内容") || t.endsWith("如下") || t.endsWith("：") || t.endsWith(":");
     }
 
     private static String escapeHtml(String s) {

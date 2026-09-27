@@ -111,4 +111,45 @@ class OcrKeySourceTest {
         // 能正确解出第一条智谱配置的明文 Key（端点留空时内部回落到智谱默认端点）
         assertEquals("sk-first-key", cipher.decrypt(first.getApiKey()));
     }
+
+    // ---------- 前言识别（2026-09-27 实测暴露：拥挤降级时模型只吐解释，不吐文字） ----------
+
+    @Test
+    @DisplayName("实测抓到的那句被截断的开场白 → 判为前言（不能当识别结果落库）")
+    void detectsTruncatedPreamble() {
+        String actual = "（由于图片中的文字分布较为复杂，需准确提取各模块文字，以下是按原图段落整理的纯文本内容";
+        assertTrue(OcrService.looksLikeChatter(actual), "应识别为前言：" + actual);
+    }
+
+    @Test
+    @DisplayName("其他常见开场白句式也判为前言")
+    void detectsCommonPreambles() {
+        assertTrue(OcrService.looksLikeChatter("以下是识别结果："));
+        assertTrue(OcrService.looksLikeChatter("图片中的文字如下："));
+        assertTrue(OcrService.looksLikeChatter("我将按段落提取文字"));
+    }
+
+    @Test
+    @DisplayName("真实识别结果不误判（含特征词但内容足够长）")
+    void doesNotFlagRealContent() {
+        String real = "数据看板\n平台核心数据实时概览\n文档总数 23篇\n用户总数 9人\n"
+                + "评论总数 47条\n累计浏览 521次\n今日发布 0篇\n热门文章 按访问量 Top5";
+        assertFalse(OcrService.looksLikeChatter(real), "真实内容不应判为前言");
+        assertFalse(OcrService.looksLikeChatter("共享文档\n用户管理\n角色管理\n数据看板"), "短菜单也不应误判");
+        assertFalse(OcrService.looksLikeChatter(""), "空串交给 isBlank 分支处理");
+    }
+
+    @Test
+    @DisplayName("边界：恰好 60 字的前言仍拦；61 字放行（阈值语义固化）")
+    void chatterThresholdBoundary() {
+        String base = "由于图片中的文字复杂，以下是整理好的纯文本内容";   // 含特征词
+        StringBuilder sb = new StringBuilder(base);
+        while (sb.length() < 60) sb.append("字");
+        assertEquals(60, sb.length());
+        assertTrue(OcrService.looksLikeChatter(sb.toString()), "60 字含特征词应拦");
+
+        sb.append("字");
+        assertEquals(61, sb.length());
+        assertFalse(OcrService.looksLikeChatter(sb.toString()), "61 字超过阈值应放行（宁可放过不含特征词的短结果）");
+    }
 }
