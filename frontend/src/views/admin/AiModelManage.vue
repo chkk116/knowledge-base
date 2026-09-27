@@ -23,6 +23,23 @@ const platformMap = computed(() => {
 })
 const providerLabel = (key) => (platformMap.value[key] ? platformMap.value[key].label : key)
 
+// 平台视觉：渐变徽章 + 缩写（白卡 + 彩色徽章，与数据看板同套视觉语言）
+const PLATFORM_META = {
+  OPENAI:    { mono: 'AI',  bg: 'linear-gradient(135deg, #10a37f, #0b7a5f)' },
+  DASHSCOPE: { mono: '千',  bg: 'linear-gradient(135deg, #ff9f43, #ff6b35)' },
+  DEEPSEEK:  { mono: 'DS',  bg: 'linear-gradient(135deg, #5b7cfa, #3b5bdb)' },
+  ZHIPU:     { mono: 'GLM', bg: 'linear-gradient(135deg, #3859ff, #1e40ff)' },
+  CUSTOM:    { mono: '⚙',   bg: 'linear-gradient(135deg, #94a3b8, #64748b)' },
+}
+const meta = (p) => PLATFORM_META[p] || PLATFORM_META.CUSTOM
+
+// 顶部 KPI：配置总量 / 启用数 / 覆盖平台数
+const kpis = computed(() => [
+  { label: '已配置模型', value: models.value.length, unit: '个', icon: 'Cpu', color: '#6366f1' },
+  { label: '启用中', value: models.value.filter(m => m.enabled).length, unit: '个', icon: 'Check', color: '#10b981' },
+  { label: '覆盖平台', value: new Set(models.value.map(m => m.provider)).size, unit: '个', icon: 'Collection', color: '#0ea5e9' },
+])
+
 // 当前选中平台：平台自带官方端点与可选模型版本，供表单联动使用
 const currentPlatform = computed(() => platformMap.value[form.provider] || null)
 // 只有「自定义」平台才让管理员手填地址，其余平台官方端点固定，避免往这里填错东西
@@ -159,74 +176,91 @@ onMounted(load)
 </script>
 
 <template>
-  <div>
-    <!-- 顶部说明：把「Key 怎么存、谁能改」讲清楚，避免管理员误填明文风险 -->
-    <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px;">
-      <template #title>
-        所有第三方平台均走 OpenAI 兼容协议（<b>POST {baseUrl}/chat/completions</b>），填入 API Key 即可直接调用。
-        Key 以 AES-GCM 加密后落库，列表只显示 <b>****</b> 脱敏形式；该页面<b>仅系统管理员</b>可访问。
-      </template>
-    </el-alert>
-
-    <el-card shadow="never">
-      <template #header>
-        <div class="head">
-          <span>AI 模型配置</span>
-          <el-button type="primary" size="small" @click="openAdd">+ 新增模型</el-button>
+  <div class="ai-manage">
+    <!-- 页头：标题 + 一句话说明 + 新增入口 -->
+    <div class="page-head">
+      <div class="ph-left">
+        <div class="ph-icon"><el-icon><Cpu /></el-icon></div>
+        <div>
+          <div class="ph-title">AI 模型管理</div>
+          <div class="ph-sub">统一接入各平台模型 · API Key 加密存储 · 仅系统管理员可见</div>
         </div>
-      </template>
-
-      <el-table v-loading="loading" :data="models" border stripe>
-        <el-table-column label="平台" width="160">
-          <template #default="{ row }">
-            <el-tag size="small" effect="plain">{{ providerLabel(row.provider) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="name" label="显示名称" min-width="140" />
-        <el-table-column prop="model" label="模型名" min-width="180" />
-        <el-table-column label="API Key" min-width="150">
-          <template #default="{ row }">
-            <span v-if="row.hasKey" class="mono">{{ row.keyMasked }}</span>
-            <span v-else class="muted">未配置</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.enabled ? 'success' : 'info'" effect="dark">
-              {{ row.enabled ? '启用' : '停用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="默认" width="90" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.isDefault" size="small" type="warning" effect="dark">默认</el-tag>
-            <span v-else class="muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" min-width="300" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" @click="onTest(row)" :loading="testing === row.id">测试</el-button>
-            <el-button size="small" @click="onDefault(row)" :disabled="row.isDefault">设默认</el-button>
-            <el-button size="small" type="danger" plain @click="onDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div v-if="testResult" class="test-box">
-        <el-alert :type="testResult.ok ? 'success' : 'error'" :closable="false" show-icon>
-          <template #title>
-            {{ testResult.ok ? '连接成功' : '连接失败' }}
-            <template v-if="testResult.ok">
-              · 模型 <b>{{ testResult.model }}</b>
-              · 耗时 <b>{{ testResult.latencyMs }}ms</b>
-            </template>
-          </template>
-          <template v-if="testResult.reply">{{ testResult.reply }}</template>
-          <template v-else>{{ testResult.error }}</template>
-        </el-alert>
       </div>
-    </el-card>
+      <el-button type="primary" @click="openAdd">＋ 新增模型</el-button>
+    </div>
+
+    <!-- KPI 摘要（与数据看板同款卡片） -->
+    <section class="kpi-row">
+      <div v-for="k in kpis" :key="k.label" class="kpi-card" :style="{ '--k': k.color }">
+        <div class="kpi-top">
+          <div class="kpi-icon"><el-icon><component :is="k.icon" /></el-icon></div>
+          <div class="kpi-meta">
+            <div class="kpi-label">{{ k.label }}</div>
+            <div class="kpi-value">{{ k.value }}<span class="unit">{{ k.unit }}</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 模型卡片网格 -->
+    <div v-loading="loading" class="cards">
+      <div v-for="m in models" :key="m.id" class="m-card" :class="{ off: !m.enabled }">
+        <div class="mc-top">
+          <div class="mc-logo" :style="{ background: meta(m.provider).bg }">
+            <span>{{ meta(m.provider).mono }}</span>
+          </div>
+          <div class="mc-name">
+            <div class="n">
+              {{ m.name }}
+              <el-tag v-if="m.isDefault" size="small" type="warning" effect="dark">默认</el-tag>
+            </div>
+            <div class="p">{{ providerLabel(m.provider) }}</div>
+          </div>
+          <el-switch :model-value="m.enabled" @change="onToggle(m)" />
+        </div>
+
+        <div class="mc-rows">
+          <div class="row">
+            <span class="k">模型</span>
+            <span class="v mono" :title="m.model">{{ m.model }}</span>
+          </div>
+          <div class="row">
+            <span class="k">Key</span>
+            <span v-if="m.hasKey" class="v mono">{{ m.keyMasked }}</span>
+            <span v-else class="v none">未配置</span>
+          </div>
+          <div v-if="m.provider === 'CUSTOM'" class="row">
+            <span class="k">地址</span>
+            <span class="v mono ellip" :title="m.baseUrl">{{ m.baseUrl }}</span>
+          </div>
+        </div>
+
+        <div class="mc-actions">
+          <el-button size="small" @click="onTest(m)" :loading="testing === m.id">测试</el-button>
+          <el-button size="small" @click="openEdit(m)">编辑</el-button>
+          <el-button size="small" @click="onDefault(m)" :disabled="m.isDefault">设默认</el-button>
+          <el-button size="small" type="danger" plain @click="onDelete(m)">删除</el-button>
+        </div>
+      </div>
+    </div>
+
+    <el-empty v-if="!loading && !models.length"
+              description="还没有模型配置 —— 点右上角「新增模型」，填入平台 API Key 即可接入" />
+
+    <!-- 测试连接结果 -->
+    <div v-if="testResult" class="test-box">
+      <el-alert :type="testResult.ok ? 'success' : 'error'" :closable="false" show-icon>
+        <template #title>
+          {{ testResult.ok ? '连接成功' : '连接失败' }}
+          <template v-if="testResult.ok">
+            · 模型 <b>{{ testResult.model }}</b>
+            · 耗时 <b>{{ testResult.latencyMs }}ms</b>
+          </template>
+        </template>
+        <template v-if="testResult.reply">{{ testResult.reply }}</template>
+        <template v-else>{{ testResult.error }}</template>
+      </el-alert>
+    </div>
 
     <!-- 编辑弹窗：改 Key 只需重填一栏，其余字段不动即可 -->
     <el-dialog v-model="dialog" :title="form.id ? '编辑模型' : '新增模型'" width="560px">
@@ -285,24 +319,106 @@ onMounted(load)
 </template>
 
 <style scoped>
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-weight: 600;
+/* ===== 页头 ===== */
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.ph-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ph-icon {
+  width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 21px; color: #6366f1; background: rgba(99, 102, 241, .10);
 }
+html.dark .ph-icon { background: rgba(129, 140, 248, .20); color: #a5b4fc; }
+.ph-title { font-size: 18px; font-weight: 700; color: #0f172a; line-height: 1.3; }
+html.dark .ph-title { color: #f1f5f9; }
+.ph-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+/* ===== KPI（对照数据看板 kpi-card） ===== */
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.kpi-card {
+  position: relative; overflow: hidden;
+  background: #fff; border: 1px solid #eef2f7; border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+  transition: box-shadow .22s, transform .22s;
+}
+.kpi-card::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 3px;
+  background: linear-gradient(90deg, var(--k), transparent);
+}
+.kpi-card:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(16, 24, 40, .10); }
+html.dark .kpi-card { background: #17171f; border-color: #2a2a35; }
+html.dark .kpi-card:hover { box-shadow: 0 10px 24px rgba(0, 0, 0, .5); }
+.kpi-top { display: flex; align-items: center; gap: 12px; }
+.kpi-icon {
+  width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; color: var(--k); background: color-mix(in srgb, var(--k) 10%, transparent);
+}
+html.dark .kpi-icon { background: color-mix(in srgb, var(--k) 20%, transparent); }
+.kpi-label { font-size: 12px; color: #94a3b8; white-space: nowrap; }
+html.dark .kpi-label { color: #9aa0ad; }
+.kpi-value { font-size: 25px; font-weight: 700; line-height: 1.15; color: #0f172a; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+html.dark .kpi-value { color: #f1f5f9; }
+.kpi-value .unit { font-size: 13px; font-weight: 500; margin-left: 2px; color: #94a3b8; }
+
+/* ===== 模型卡片网格 ===== */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+.m-card {
+  background: #fff; border: 1px solid #eef2f7; border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+  transition: box-shadow .22s, transform .22s;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.m-card:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(16, 24, 40, .10); }
+.m-card.off { opacity: .68; }
+html.dark .m-card { background: #17171f; border-color: #2a2a35; }
+html.dark .m-card:hover { box-shadow: 0 10px 24px rgba(0, 0, 0, .5); }
+
+.mc-top { display: flex; align-items: center; gap: 12px; }
+.mc-logo {
+  width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .5px;
+  box-shadow: 0 4px 10px rgba(16, 24, 40, .16);
+}
+.mc-name { flex: 1; min-width: 0; }
+.mc-name .n { font-size: 15px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 6px; }
+html.dark .mc-name .n { color: #f1f5f9; }
+.mc-name .p { font-size: 12px; color: #94a3b8; margin-top: 1px; }
+
+.mc-rows {
+  background: #f8fafc; border: 1px solid #eef2f7; border-radius: 10px;
+  padding: 8px 12px; display: flex; flex-direction: column; gap: 5px;
+}
+html.dark .mc-rows { background: #1b1b24; border-color: #2a2a35; }
+.row { display: flex; align-items: baseline; gap: 10px; font-size: 12px; min-width: 0; }
+.row .k { color: #94a3b8; flex-shrink: 0; width: 30px; }
+.row .v { color: #334155; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.dark .row .v { color: #d5d7e0; }
+.row .v.none { color: #cbd5e1; font-weight: 400; }
+.row .v.ellip { max-width: 100%; }
+
+.mc-actions { display: flex; gap: 8px; margin-top: auto; }
+.mc-actions .el-button { margin-left: 0; flex: 1; }
+
+/* ===== 测试结果 / 弹窗提示 ===== */
+.test-box { margin-top: 14px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
-.muted { color: #909399; }
 .hint { color: #909399; font-size: 12px; line-height: 1.6; }
 .hint.inline { margin-left: 10px; }
-.test-box { margin-top: 14px; }
 
 /* 响应式（断点与全局一致：≤1024 平板 / ≤640 手机） */
 @media (max-width: 1024px) {
+  .cards { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
   .test-box { margin-top: 10px; }
 }
 
 @media (max-width: 640px) {
+  .page-head { flex-direction: column; align-items: stretch; }
+  .page-head .el-button { width: 100%; }
+  .kpi-row { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .cards { grid-template-columns: 1fr; }
   .hint { font-size: 11px; }
   .mono { font-size: 11px; }
 }
