@@ -642,12 +642,13 @@ function diagramTourSteps() {
   const kind = props.diagram
   const wrapSel = { mindmap: '.kb-mindmap-wrap', flowchart: '.kb-fc-wrap', sheet: '.kb-sheet-wrap' }[kind]
   const meta = {
-    mindmap: { name: '思维导图', ops: '进入编辑后：双击或 F2 改文字，Tab 加子主题、Enter 加同级；「+ 自由主题」可加互不相连的新主题；节点可自由拖拽。编辑期间其他人只读。' },
+    mindmap: { name: '思维导图', ops: '进入编辑后：双击节点或按 F2 改文字；Tab 建子主题（向右延伸）、Enter 建同级；选中根节点按 Enter 或点「+ 自由主题」＝互不相连的独立主题；节点可自由拖拽，Delete 删掉整个子树；工具条「?」随时可看操作说明。编辑期间其他人只读。' },
     flowchart: { name: '流程图', ops: '进入编辑后：左侧图形面板提供 12 种标准图形（矩形 / 菱形 / 椭圆 / 文档 / 数据库 / 子流程 等），点选即可添加、按住可拖到画布落点摆放；从图形右侧/底部圆点拖到另一图形左侧/顶部圆点连线；点连线可加「是/否」标签；工具条右下角「?」随时可看操作说明。编辑期间其他人只读。' },
     sheet: { name: '电子表格', ops: '进入编辑后：与 Excel 同款操作——单元格直接输公式（=SUM(...)）、拖动选区右下角填充、复制粘贴、合并冻结；顶部工具栏可设字体、填充色和数字格式（RMB / 百分比 / 日期等，选格式前先选中目标格子）。' },
   }[kind]
-  const editBtn = Array.from(document.querySelectorAll(wrapSel + ' button'))
-    .find((b) => b.textContent.trim().startsWith('编辑'))
+  const btns = Array.from(document.querySelectorAll(wrapSel + ' button'))
+  const editBtn = btns.find((b) => b.textContent.trim().startsWith('编辑'))
+  const helpBtn = btns.find((b) => b.classList.contains('help'))
   const steps = [
     { popover: { title: meta.name + ' · 专属文档', description: '这篇文档整页就是一张' + meta.name + '画布，右侧即为画布本体，无需插入操作。' } },
   ]
@@ -680,6 +681,16 @@ function diagramTourSteps() {
   } else {
     steps.push({ popover: { title: '怎么用', description: meta.ops } })
   }
+  // 「?」使用说明入口（图块内常驻按钮，随时可查快捷键与操作说明）
+  if (helpBtn) {
+    steps.push({
+      element: helpBtn,
+      popover: {
+        title: '操作说明入口',
+        description: '工具条上的「?」点开就是本画布的完整说明（快捷键、删除规则、保存方式等），不用记，随时查。',
+      },
+    })
+  }
   return steps
 }
 
@@ -695,7 +706,7 @@ function startTour() {
       { element: el('[data-tour="format"]'), popover: { title: '引用与代码', description: '引用块、代码块、分割线，写技术文档常用。' } },
       { element: el('[data-tour="list"]'), popover: { title: '列表与待办', description: '无序/有序列表，以及可勾选的待办清单。' } },
       { element: el('[data-tour="table"]'), popover: { title: '表格', description: '插入表格后可增删行列。' } },
-      { element: el('[data-tour="mindmap"]'), popover: { title: '思维导图 🆕', description: '在文档里直接画思维导图：插入后点「编辑导图」，Tab 加子节点、F2 编辑文字；编辑期间其他人只读。' } },
+      { element: el('[data-tour="mindmap"]'), popover: { title: '思维导图 🆕', description: '在文档里直接画思维导图：插入后点「编辑导图」，双击节点改文字，Tab 建子主题、Enter 建同级；节点可拖拽，Delete 删子树；工具条「?」可看详细操作。编辑期间其他人只读。' } },
       { element: el('[data-tour="flowchart"]'), popover: { title: '流程图 🆕', description: '在文档里画流程图：插入后点「编辑」，左侧图形面板点选或拖入图形（矩形 / 菱形 / 数据库 / 子流程 等 12 种），拖圆点连线，点连线加「是/否」标签；右下角「?」可看详细操作。编辑期间其他人只读。' } },
       { element: el('[data-tour="sheet"]'), popover: { title: '电子表格 🆕', description: '在文档里插入 Excel 式表格：单元格可输公式（=SUM(...)）、拖拽填充、复制粘贴、合并冻结；插入后点「编辑」，编辑期间其他人只读。' } },
       { element: el('[data-tour="snapshot"]'), popover: { title: '快照与版本', description: '手动保存快照；「版本」里可查看 / 回滚任意历史版本。' } },
@@ -1146,9 +1157,8 @@ html.dark .page-inner :deep(.kb-collab-body .selectedCell::after) { background: 
 .diagram-mode .kb-fc,
 .diagram-mode .kb-sheet { flex: 1; display: flex; flex-direction: column; min-height: 0; border: none; border-radius: 0; }
 .diagram-mode .page-inner .ProseMirror > p { display: none; margin: 0; height: 0; }
-/* 提示条在专属模式下隐藏（画布顶到视口底部）；流程图提示条已改为工具栏「?」按钮，不再常驻 */
-.diagram-mode .kb-sheet-hint,
-.diagram-mode .kb-mindmap-hint { display: none; }
+/* 提示条在专属模式下隐藏（画布顶到视口底部）：图块提示条已改为工具条「?」按钮，不再常驻 */
+.diagram-mode .kb-sheet-hint { display: none; }
 .diagram-mode .kb-mindmap-canvas,
 .diagram-mode .kb-fc-canvas,
 .diagram-mode .kb-sheet-canvas { flex: 1; min-height: 320px; height: auto; }

@@ -26,7 +26,31 @@
           >{{ lockExpired ? '强制接管' : '接管（' + lockRemainText + '）' }}</button>
           <button v-if="editing" class="kb-mm-btn primary" @click="finish">完成编辑</button>
           <button v-if="editing" class="kb-mm-btn" @click="cancel">取消</button>
+          <button
+            class="kb-mm-btn help"
+            :class="{ on: helpOpen }"
+            title="使用说明"
+            aria-label="使用说明"
+            @click="helpOpen = !helpOpen"
+          >?</button>
         </span>
+      </div>
+
+      <!-- 使用说明：常驻按钮触发，默认收起（与流程图同一套交互） -->
+      <div v-if="helpOpen" class="kb-mm-help" @click.stop>
+        <div class="fh-head">
+          <span>思维导图使用说明</span>
+          <button class="fh-close" @click="helpOpen = false">×</button>
+        </div>
+        <ul>
+          <li><b>改文字</b>：双击节点，或选中后按 F2</li>
+          <li><b>Tab</b>：保存当前主题并新建子主题（向右延伸）</li>
+          <li><b>Enter</b>：保存当前主题并新建同级；选中根节点按 Enter 或点「+ 自由主题」＝不连线的新主题</li>
+          <li><b>删除</b>：选中节点后按 Delete / Backspace，会连带删掉整个子树</li>
+          <li><b>摆放</b>：节点可直接拖拽；空白处按住拖动平移画布，滚轮缩放</li>
+          <li><b>视图</b>：点「适应视图」把全部内容收进画面</li>
+          <li><b>保存</b>：点「完成编辑」落盘；「取消」放弃本次改动</li>
+        </ul>
       </div>
       <div
         ref="mapEl"
@@ -75,8 +99,6 @@
           </template>
         </VueFlow>
       </div>
-      <div v-if="!editing" class="kb-mindmap-hint">点「编辑导图」后：Tab 加子节点 · Enter 加同级 · 「+ 自由主题」按钮加互不相连的新主题 · F2 / 双击编辑文字 · 节点可直接拖拽到任意位置</div>
-      <div v-else class="kb-mindmap-hint editing-hint">输入文字时：Tab＝保存并建子节点、Enter＝保存并建同级（免确认连建）· 选中根节点按 Enter 或点「+ 自由主题」＝不连线的新主题 · F2 / 双击改字 · Delete 删子树 · 节点可自由拖拽</div>
     </div>
   </NodeViewWrapper>
 </template>
@@ -109,6 +131,7 @@ const selectedId = ref(null)
 const editingId = ref(null)
 const editText = ref('')
 const dirty = ref(false)
+const helpOpen = ref(false)   // 使用说明面板：常驻按钮触发，默认收起
 let snapshot = ''   // 进入编辑时的数据快照，取消时回滚用
 let idc = 0         // 自增 id 计数器（新节点用 n{idc}）
 
@@ -550,6 +573,7 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
+  position: relative;
 }
 .kb-mindmap.editing { border-color: #6366f1; }
 .kb-mindmap-bar {
@@ -578,16 +602,39 @@ onBeforeUnmount(() => {
 }
 .kb-mm-btn.primary { background: #6366f1; border-color: #6366f1; color: #fff; }
 .kb-mm-btn:hover { opacity: 0.88; }
+.kb-mm-btn.help {
+  width: 24px; height: 24px; padding: 0; border-radius: 50%;
+  font-weight: 700; color: #64748b; line-height: 1;
+}
+.kb-mm-btn.help.on { background: #e0e7ff; border-color: #a5b4fc; color: #4f46e5; }
 .kb-mindmap-canvas { height: 420px; position: relative; outline: none; }
 .kb-mindmap-canvas.readonly { background:
   radial-gradient(circle, #eef2f7 1px, transparent 1px) 0 0 / 22px 22px; }
-.kb-mindmap-hint {
-  padding: 5px 12px;
-  font-size: 12px;
-  color: #94a3b8;
-  background: #fafbfc;
-  border-top: 1px dashed var(--border, #e5e7eb);
+
+/* 使用说明面板（按钮触发，默认收起） */
+.kb-mm-help {
+  position: absolute; right: 10px; top: 42px; z-index: 8;
+  width: 320px; max-width: calc(100% - 20px);
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .12);
+  padding: 10px 12px 8px;
+  font-size: 12px; color: #475569;
 }
+html.dark .kb-mm-help { background: #1b1b24; border-color: #2a2a35; color: #c7cad4; }
+.fh-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-weight: 600; color: #334155; margin-bottom: 6px;
+}
+html.dark .fh-head { color: #e7e7ee; }
+.fh-close {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 16px; line-height: 1; color: #94a3b8;
+}
+.fh-close:hover { color: #475569; }
+.kb-mm-help ul { margin: 0; padding-left: 16px; }
+.kb-mm-help li { line-height: 1.9; }
+.kb-mm-help b { color: #0f172a; font-weight: 600; }
+html.dark .kb-mm-help b { color: #f1f5f9; }
 .mm-flow { width: 100%; height: 100%; background: transparent; }
 
 /* 节点外观 */
