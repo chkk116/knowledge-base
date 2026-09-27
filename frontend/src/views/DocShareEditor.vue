@@ -33,8 +33,8 @@ const props = defineProps({
   // 旧版 HTML 内容，仅用于首次协同时把历史内容种入 Yjs 文档（一次性迁移）
   legacyContent: { type: String, default: '' },
   // 图块专属模式：'mindmap' | 'flowchart' | 'sheet'——整篇文档就是单个图块时，
-  // 右侧全屏渲染该组件（隐藏文字工具栏、去掉纸张版面、画布拉满）；
-  // 要文字混排可点「转为普通文档」。空串 = 普通文档。
+  // 右侧全屏渲染该组件（隐藏文字工具栏、去掉纸张版面、画布拉满）。
+  // 专属文档不再提供「转为普通文档」（转完图块数据会丢，且要混排可直接新建普通文档插图块）。空串 = 普通文档。
   diagram: { type: String, default: '' },
 })
 
@@ -234,22 +234,8 @@ async function saveSnapshot() {
 function safeName(s) {
   return (s || 'document').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'document'
 }
-// 图块专属模式 → 普通文档：在文末插入一个空段落（content 不再是"纯单图块"），
-// 工作区据此自动切回通用编辑器；立即落盘快照并通知工作区刷新
-const toNormalDoc = async () => {
-  if (!editor.value || !props.canWrite) return
-  // 先把正在编辑的图块数据从引擎内存落回节点属性，避免转换后拿到空 data 把内容弄丢
-  window.dispatchEvent(new CustomEvent('kb:flush-diagram'))
-  await new Promise((r) => setTimeout(r, 30))
-  editor.value.commands.insertContent({ type: 'paragraph' })
-  try {
-    await updateShareDoc(props.shareId, props.docId, { content: editor.value.getHTML() })
-    ElMessage.success('已转为普通文档，可插入文字与图块混排')
-    emit('reload-document')
-  } catch (e) {
-    ElMessage.error(errMsg(e, '转换失败'))
-  }
-}
+// （图块专属文档的「转为普通文档」已移除：专属文档整篇就是一个图块，转完内容会丢；
+//   需要文字混排时直接新建普通文档插入图块即可）
 
 function download(filename, content, mime) {
   const blob = new Blob([content], { type: mime + ';charset=utf-8' })
@@ -694,10 +680,6 @@ function diagramTourSteps() {
   } else {
     steps.push({ popover: { title: '怎么用', description: meta.ops } })
   }
-  const exitBtn = document.querySelector('.diagram-exit button')
-  if (exitBtn) {
-    steps.push({ element: exitBtn, popover: { title: '想加文字说明？', description: '点「转为普通文档」回到常规编辑器，即可文字与图块混排。' } })
-  }
   return steps
 }
 
@@ -858,12 +840,6 @@ watch(() => props.canWrite, (w) => {
           <span class="dot" />{{ statusText }}
         </span>
       </div>
-    </div>
-
-    <!-- 图块专属模式：画布占满右侧；想加文字混排则转回普通文档 -->
-    <div v-if="diagram" class="diagram-exit">
-      <button class="kb-fc-btn" @click="toNormalDoc">转为普通文档（文字与图块混排）</button>
-      <span class="diagram-exit-tip">当前为{{ diagram === 'mindmap' ? '思维导图' : diagram === 'flowchart' ? '流程图' : '电子表格' }}专属文档</span>
     </div>
 
     <!-- 灰色画布 + 居中纸张（飞书式版面） -->
@@ -1153,14 +1129,6 @@ html.dark .page-inner :deep(.kb-collab-body .selectedCell::after) { background: 
 <style>
 /* ========== 图块专属模式（非 scoped：需命中 NodeView 子组件内部元素） ==========
    整篇文档 = 单个导图/流程图/电子表格块时，画布经 flex 链精确撑满右侧剩余高度。 */
-.diagram-exit {
-  display: flex; align-items: center; gap: 10px;
-  padding: 5px 12px;
-  background: #fafbfc;
-  border-bottom: 1px dashed var(--border, #e5e7eb);
-  font-size: 12px;
-}
-.diagram-exit-tip { color: #94a3b8; }
 /* 去掉"居中纸张"感：画布铺满 */
 .diagram-mode .collab-canvas { display: flex; flex-direction: column; }
 .diagram-mode .page {
