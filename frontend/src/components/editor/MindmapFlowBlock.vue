@@ -78,6 +78,7 @@
           class="mm-flow"
           @node-click="onNodeClick"
           @pane-click="onPaneClick"
+          @node-drag="onNodeDrag"
           @node-drag-stop="onDragStop"
         >
           <template #node-mindNode="slotProps">
@@ -86,6 +87,18 @@
               :class="{ editing: editingId === slotProps.id }"
               @dblclick.stop="startEdit(slotProps.id)"
             >
+              <!-- 八向连接点：每个方向各有一个 source 和一个 target。
+                   父子相对位置决定从哪一侧出入，故四个方向都必须能「出」也能「入」。
+                   sourceHandle 只能指向 source 型 Handle、targetHandle 只能指向 target 型 Handle，
+                   否则在 ConnectionMode.Strict 下会静默丢线。 -->
+              <Handle type="source" :position="Position.Left" :id="HANDLE.leftSource" class="mm-handle mm-h-left" />
+              <Handle type="target" :position="Position.Left" :id="HANDLE.leftTarget" class="mm-handle mm-h-left" />
+              <Handle type="source" :position="Position.Top" :id="HANDLE.topSource" class="mm-handle mm-h-top" />
+              <Handle type="target" :position="Position.Top" :id="HANDLE.topTarget" class="mm-handle mm-h-top" />
+              <Handle type="source" :position="Position.Right" :id="HANDLE.rightSource" class="mm-handle mm-h-right" />
+              <Handle type="target" :position="Position.Right" :id="HANDLE.rightTarget" class="mm-handle mm-h-right" />
+              <Handle type="source" :position="Position.Bottom" :id="HANDLE.bottomSource" class="mm-handle mm-h-bottom" />
+              <Handle type="target" :position="Position.Bottom" :id="HANDLE.bottomTarget" class="mm-handle mm-h-bottom" />
               <input
                 v-if="editingId === slotProps.id"
                 ref="editInput"
@@ -106,7 +119,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
-import { VueFlow, useVueFlow, MarkerType } from '@vue-flow/core'
+import { VueFlow, useVueFlow, MarkerType, Handle, Position } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import { NodeSelection } from '@tiptap/pm/state'
@@ -149,9 +162,72 @@ function startHeartbeat() {
 function stopHeartbeat() { if (lockHeartbeat) { clearInterval(lockHeartbeat); lockHeartbeat = null } }
 
 const edgeOptions = {
+  // 保留圆角折线（与参考图一致）；真正决定观感的是连接点选边，不是线型
   type: 'smoothstep',
   style: { stroke: '#94a3b8', strokeWidth: 1.5 },
   markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
+}
+
+/** 八向连接点 id（模板与选边逻辑共用，避免字符串写歪）。
+ *  约定：ls/ts/rs/bs = 出线点（source），lt/tt/rt/bt = 入线点（target）。 */
+const HANDLE = {
+  leftSource: 'ls',
+  leftTarget: 'lt',
+  topSource: 'ts',
+  topTarget: 'tt',
+  rightSource: 'rs',
+  rightTarget: 'rt',
+  bottomSource: 'bs',
+  bottomTarget: 'bt',
+}
+
+/** 节点尺寸估算（仅用于「哪一侧更近」的判断，不影响真实 DOM 尺寸）。
+ *  TODO: 这是近似值；Vue Flow 布局后会把真实尺寸写在 node.dimensions，
+ *  换用真实尺寸可提升宽/高差异大的节点选边准确度。 */
+const NODE_W = 140
+const NODE_H = 36
+
+/**
+ * 按父子相对位置选连接方向 —— 这是「连线不再统一绕到底部」的关键。
+ * 做法：比较两个节点的中心点偏移，取主方向决定从哪一侧出入；拖动过程中实时重算。
+ * 返回 { sourceHandle, targetHandle }，写回边的对应字段（不改变 source/target 本身）。
+ */
+function pickHandles(parentPos, childPos) {
+  const dx = (childPos.x + NODE_W / 2) - (parentPos.x + NODE_W / 2)
+  const dy = (childPos.y + NODE_H / 2) - (parentPos.y + NODE_H / 2)
+  // 横向是主方向（脑图默认左→右）：|dx| 占优就走左右
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0
+      ? { sourceHandle: HANDLE.rightSource, targetHandle: HANDLE.leftTarget }    // 子在右：父右出 → 子左入
+      : { sourceHandle: HANDLE.leftSource, targetHandle: HANDLE.rightTarget }    // 子在左：父左出 → 子右入
+  }
+  return dy >= 0
+    ? { sourceHandle: HANDLE.bottomSource, targetHandle: HANDLE.topTarget }      // 子在下：父下出 → 子上入
+    : { sourceHandle: HANDLE.topSource, targetHandle: HANDLE.bottomTarget }      // 子在上：父上出 → 子下入
+}
+
+/**
+ * 重算全部连线的连接点。纯几何计算，不动坐标、不改父子关系，
+ * 因此不会覆盖用户手动摆放的位置。
+ */
+function refreshEdgeHandles() {
+  if (!edges.value.length) return
+  const changed = []
+  edges.value.forEach((e) => {
+    const s = findNode(e.source)
+    const t = findNode(e.target)
+    if (!s || !t) return
+    const h = pickHandles(s.position, t.position)
+    if (e.sourceHandle !== h.sourceHandle || e.targetHandle !== h.targetHandle) {
+      changed.push({ id: e.id, ...h })
+    }
+  })
+  if (changed.length) {
+    edges.value = edges.value.map((e) => {
+      const c = changed.find((x) => x.id === e.id)
+      return c ? { ...e, sourceHandle: c.sourceHandle, targetHandle: c.targetHandle } : e
+    })
+  }
 }
 
 const lockInfo = computed(() => {
@@ -222,7 +298,12 @@ function parseData() {
       position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
       data: { label: n.data?.label ?? '' },
     }))
-    const es = (raw.edges || []).map((e) => ({ id: e.id, source: e.source, target: e.target }))
+    const es = (raw.edges || []).map((e) => {
+      const o = { id: e.id, source: e.source, target: e.target }
+      if (e.sourceHandle) o.sourceHandle = e.sourceHandle
+      if (e.targetHandle) o.targetHandle = e.targetHandle
+      return o
+    })
     return { nodes: ns, edges: es }
   }
   if (raw && raw.data && typeof raw.data.text === 'string') {
@@ -246,7 +327,13 @@ function serialize() {
     position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
     data: { label: n.data?.label ?? '' },
   }))
-  const es = edges.value.map((e) => ({ id: e.id, source: e.source, target: e.target }))
+  const es = edges.value.map((e) => {
+    const o = { id: e.id, source: e.source, target: e.target }
+    // 连接点随位置变化，落盘保留可让重开后先按原方向渲染（随后仍会 refreshEdgeHandles 校准）
+    if (e.sourceHandle) o.sourceHandle = e.sourceHandle
+    if (e.targetHandle) o.targetHandle = e.targetHandle
+    return o
+  })
   return { nodes: ns, edges: es }
 }
 
@@ -267,6 +354,7 @@ function loadFromProps() {
   setNodes(parsed.nodes)
   setEdges(parsed.edges)
   selectedId.value = parsed.nodes.length ? parsed.nodes[0].id : null
+  nextTick(() => refreshEdgeHandles())   // 节点测量完成后按相对位置定连接点
 }
 
 function fit() {
@@ -323,6 +411,7 @@ function addChild(id) {
   addEdges({ id: 'e' + nid, source: id, target: nid })
   selectedId.value = nid
   dirty.value = true
+  refreshEdgeHandles()
   fit()
   startEdit(nid)
 }
@@ -362,6 +451,7 @@ function addSibling(id) {
   addEdges({ id: 'e' + nid, source: parentId, target: nid })
   selectedId.value = nid
   dirty.value = true
+  refreshEdgeHandles()
   fit()
   startEdit(nid)
 }
@@ -382,6 +472,7 @@ function deleteSelected(id) {
   removeNodes(Array.from(toRemove))   // 默认会连带删除相关连线
   selectedId.value = nodes.value.length ? nodes.value[0].id : null
   dirty.value = true
+  refreshEdgeHandles()
   fit()
 }
 
@@ -465,6 +556,16 @@ function onPaneClick() {
 }
 function onDragStop() {
   if (editing.value) dirty.value = true
+  refreshEdgeHandles()   // 位置变了 → 重新选边，连线跟着节点走
+}
+/** 拖动过程中实时重算连接点（节流：每帧最多一次，避免频繁触发重渲染） */
+let dragRaf = 0
+function onNodeDrag() {
+  if (dragRaf) return
+  dragRaf = requestAnimationFrame(() => {
+    dragRaf = 0
+    refreshEdgeHandles()
+  })
 }
 
 // ---------- 编辑锁生命周期 ----------
@@ -551,6 +652,7 @@ onMounted(() => {
   window.addEventListener('kb:flush-diagram', flushData)
 })
 onBeforeUnmount(() => {
+  if (dragRaf) { cancelAnimationFrame(dragRaf); dragRaf = 0 }
   clearInterval(tickTimer)
   window.removeEventListener('kb:flush-diagram', flushData)
   stopHeartbeat()
@@ -639,6 +741,7 @@ html.dark .kb-mm-help b { color: #f1f5f9; }
 
 /* 节点外观 */
 .mm-node {
+  position: relative;   /* 八向 Handle 的定位基准 */
   background: #6366f1;
   color: #fff;
   border: 1px solid rgba(0,0,0,.1);
@@ -659,6 +762,17 @@ html.dark .kb-mm-help b { color: #f1f5f9; }
   outline-offset: 2px;
 }
 .mm-node.editing { cursor: text; }
+/* 八向连接点：只作为连线锚点，视觉上隐藏（脑图不显示小圆点） */
+.mm-handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
 .mm-label { display: inline-block; white-space: pre-wrap; word-break: break-word; max-width: 220px; }
 .mm-edit {
   width: 140px;

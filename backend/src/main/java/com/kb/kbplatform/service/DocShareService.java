@@ -483,7 +483,12 @@ public class DocShareService {
     public void delete(Long shareId, Long userId, boolean sysAdmin) {
         DocShare s = shareRepo.findById(shareId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "共享空间不存在"));
         if (!sysAdmin && !s.getOwnerId().equals(userId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只有所有者或系统管理员可删除空间");
-        docRepo.deleteAll(docRepo.findByShareIdOrderByUpdatedAtDesc(shareId));
+        List<SharedDocument> docs = docRepo.findByShareIdOrderByUpdatedAtDesc(shareId);
+        // 版本历史按 sharedDocId 冗余关联，文档行删掉后仍会留下查不到的孤儿版本，需一并清理
+        if (!docs.isEmpty()) {
+            sharedDocVerRepo.deleteAllBySharedDocIdIn(docs.stream().map(SharedDocument::getId).collect(Collectors.toList()));
+        }
+        docRepo.deleteAll(docs);
         permRepo.deleteAll(permRepo.findByShareIdOrderByCreatedAtAsc(shareId));
         docPermRepo.deleteAllByShareId(shareId); // 清理空间下所有文档级权限
         shareRepo.delete(s);
@@ -657,6 +662,7 @@ public class DocShareService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间/文档管理员权限或文档所有者身份");
         docRepo.delete(d);
         docPermRepo.deleteAllByDocId(docId); // 清理文档级权限
+        sharedDocVerRepo.deleteAllBySharedDocId(docId); // 清理版本历史，避免孤儿版本行
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);
     }

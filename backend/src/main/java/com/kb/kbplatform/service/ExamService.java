@@ -206,6 +206,8 @@ public class ExamService {
         int total = 0;
         for (ExamPaperQuestion pq : pqs) {
             Question q = qMap.get(pq.getQuestionId());
+            // 题目在组卷后被删除（管理员清理题库）时不能让整次交卷 500，该题按 0 分跳过
+            if (q == null) continue;
             List<String> correct = new ArrayList<>();
             for (QuestionOption o : optMap.get(q.getId())) if (o.isCorrect()) correct.add(o.getLabel());
             List<String> userAns = ansMap.getOrDefault(q.getId(), List.of());
@@ -229,16 +231,16 @@ public class ExamService {
         rec.setSubmittedAt(LocalDateTime.now());
         rec.setDurationSec((int) Duration.between(rec.getStartedAt(), rec.getSubmittedAt()).getSeconds());
         ExamRecord saved = recordRepo.save(rec);
-        if (passed) {
+        // 只在「首次通过」时发分与颁证：补考/重考反复通过会无限刷考试积分（F15）。
+        // 补考（此前未通过）首次及格时 firstPass 仍为 true，不影响正常激励。
+        if (passed && firstPass) {
             authService.awardPoints(userId, AuthService.EXAM_PASS_POINTS, "EXAM",
                     "通过考试《" + (rec.getPaperTitle() != null ? rec.getPaperTitle() : "试卷") + "》");
-            // 首次通过且该试卷绑定的课程已学完章节 → 颁发结业证书并通知学员
-            if (firstPass) {
-                Course course = courseRepo.findByExamPaperId(rec.getPaperId()).stream().findFirst().orElse(null);
-                if (course != null && courseService.certificateOf(userId, course.getId()) != null) {
-                    notificationService.notifyCertificate(userId, "系统",
-                            "恭喜！您已完成课程《" + course.getTitle() + "》并获得结业证书，可在个人中心「学习档案 → 我的结业证书」中查看与下载");
-                }
+            // 该试卷绑定的课程已学完章节 → 颁发结业证书并通知学员
+            Course course = courseRepo.findByExamPaperId(rec.getPaperId()).stream().findFirst().orElse(null);
+            if (course != null && courseService.certificateOf(userId, course.getId()) != null) {
+                notificationService.notifyCertificate(userId, "系统",
+                        "恭喜！您已完成课程《" + course.getTitle() + "》并获得结业证书，可在个人中心「学习档案 → 我的结业证书」中查看与下载");
             }
         }
         return saved;
@@ -265,6 +267,8 @@ public class ExamService {
         List<Map<String, Object>> items = new ArrayList<>();
         for (ExamAnswer ea : eas) {
             Question q = qMap.get(ea.getQuestionId());
+            // 题目已被删除时跳过该条作答，避免整页成绩回顾 500（历史记录仍应可看）
+            if (q == null) continue;
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("questionId", q.getId());
             m.put("type", q.getType());

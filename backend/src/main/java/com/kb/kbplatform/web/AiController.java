@@ -56,7 +56,7 @@ public class AiController {
         }
         RagService svc = ragProvider.getIfAvailable();
         if (svc == null) {
-            log.warn("AI 问答未启用：RagService bean 不可用（请确认 kb.ai.enabled=true 且 KB_ZHIPU_API_KEY 已注入）");
+            log.warn("AI 问答未启用：RagService bean 不可用（请确认 kb.ai.enabled=true）");
             return Map.of("answer", "AI 问答暂不可用，请稍后再试或联系管理员。");
         }
         String question = body.get("question") == null ? "" : body.get("question").toString();

@@ -89,6 +89,9 @@ const text = reactive({})       // 填空/简答：questionId -> string
 const recordId = ref(null)
 const submitting = ref(false)
 const remain = ref(0)
+// 服务端固化的交卷截止时间（毫秒时间戳）：限时以它为准，不能每次进页面都按整场时长重算，
+// 否则刷新/重进就能把本地倒计时重置成满格，界面显示的时间远多于真实剩余时间（服务端仍会拒卷）
+const deadlineTs = ref(0)
 let timer = null
 
 const answered = computed(() => paper.value
@@ -112,7 +115,11 @@ const load = () => {
   getPaper(route.params.id).then(r => {
     paper.value = r.data || r
     if (paper.value.paper.durationMin) {
-      remain.value = paper.value.paper.durationMin * 60
+      if (timer) clearInterval(timer)   // 防止重复进入时叠出多个倒计时
+      // 有服务端截止时间就按它算剩余；缺失（旧记录/不限时）才退回按整场时长计时
+      remain.value = deadlineTs.value
+        ? Math.max(0, Math.round((deadlineTs.value - Date.now()) / 1000))
+        : paper.value.paper.durationMin * 60
       timer = setInterval(() => {
         remain.value--
         if (remain.value <= 0) { clearInterval(timer); submit() }
@@ -123,7 +130,10 @@ const load = () => {
 // 防泄题：必须先 start 成功（拿到 recordId）才拉题目；start 被前置校验拦截时绝不加载试卷
 const begin = () => startExam(route.params.id)
   .then(r => {
-    recordId.value = (r.data || r).id
+    const rec = r.data || r
+    recordId.value = rec.id
+    // 复用进行中的记录时，服务端会回传该记录真实的 deadlineAt
+    deadlineTs.value = rec.deadlineAt ? new Date(rec.deadlineAt).getTime() : 0
     load()
   })
   .catch(e => {
@@ -141,9 +151,10 @@ const buildItems = () => paper.value.questions.map(q => {
 
 const submit = () => {
   if (!recordId.value) { ElMessage.warning('考试未开始'); return }
+  if (submitting.value) return   // 倒计时归零自动交卷与手动点击可能同时触发，只放行一次
   submitting.value = true
   submitExam(route.params.id, recordId.value, buildItems())
-    .then(r => { clearInterval(timer); router.push('/exams/records/' + recordId.value) })
+    .then(() => { clearInterval(timer); router.push('/exams/records/' + recordId.value) })
     .catch(e => { submitting.value = false; ElMessage.error(errMsg(e, '交卷失败')) })
 }
 

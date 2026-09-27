@@ -25,10 +25,15 @@ backend/thumbs/
 
 # WorkBuddy 项目内部数据
 .workbuddy/
+.workbuddy-ai/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Windows 保留设备名误建出的文件（如 shell 重定向到 nul 产生，无法删除且非源码）
+nul
+*/nul
 
 # 移动端（Capacitor）同步产物（由 sync-web.js 从 desktop/web 生成）
 mobile/web-app/

@@ -30,9 +30,9 @@ kb:
     # 生产必须注入足够长的随机串；未注入时会启动失败（无默认值兜底，防止带弱密钥上线）
     token-secret: ${KB_TOKEN_SECRET}
   ai:
-    zhipu:
-      # 无默认值 → 缺环境变量即启动失败，避免生产带占位 Key 上线后 AI 静默不可用
-      api-key: ${KB_ZHIPU_API_KEY}
+    # AI 模型与 Key 由「AI 模型管理」页维护（加密落库），不再经环境变量注入。
+    # master-key 决定加密强度：生产必须注入稳定随机串，否则重启后已存 Key 无法解密。
+    master-key: ${KB_AI_MASTER_KEY}
   cors:
     # 前后端经 Nginx 同源反代时留空即可（不注册 CORS 规则，零开销）。
     # 若前端独立域名部署，填前端域名，多个用英文逗号分隔。

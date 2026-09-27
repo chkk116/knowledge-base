@@ -28,8 +28,7 @@ kb:
     # 测试环境允许弱占位值兜底（便于本地起服务），但仍建议注入真实随机串
     token-secret: ${KB_TOKEN_SECRET:test-change-me-long-random-string}
   ai:
-    zhipu:
-      api-key: ${KB_ZHIPU_API_KEY:}
+    # AI 模型与 Key 由「AI 模型管理」页维护（加密落库），无需在此配置
   cors:
     allowed-origins: ${KB_CORS_ORIGINS:}
     allow-credentials: ${KB_CORS_ALLOW_CREDENTIALS:false}

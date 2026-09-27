@@ -716,8 +716,7 @@ public class DocumentService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         Document d = get(id);
-        moveToRecycle(d);
-        promoteOrphanChildren(id);   // 父文档进回收站后，子文档不应从树视图消失（F12）
+        moveToRecycle(d);   // 内部统一负责提升子文档，避免两条删除路径行为不一致
     }
 
     public List<String> categories() {
@@ -862,8 +861,14 @@ public class DocumentService {
 
     // ---------- 回收站 / 软删除 ----------
 
-    /** 将文档移入回收站（软删除）：标记 deleted + 从 Meili 索引移除 */
+    /**
+     * 将文档移入回收站（软删除）：标记 deleted + 从 Meili 索引移除。
+     * 回收前先把直接子文档提升到根级——软删除的父文档会被 @SQLRestriction 从所有常规查询里排除，
+     * 文档树因此拿不到这个父节点，挂在它下面的已发布子文档会整棵从树视图消失（正文仍在，只是找不到入口）。
+     * 之前只有管理员 delete() 做了提升，作者自己删帖（deleteOwn）走的同一方法却漏了这一步（F16）。
+     */
     private void moveToRecycle(Document d) {
+        promoteOrphanChildren(d.getId());
         d.setDeleted(true);
         d.setDeletedAt(LocalDateTime.now());
         repo.save(d);
@@ -905,6 +910,8 @@ public class DocumentService {
             throw new ResponseStatusException(FORBIDDEN, "只能彻底删除自己移入回收站的文档");
         }
         String title = d.getTitle();
+        // 真删会留下指向不存在父节点的子文档（树视图里永久消失），删除前先提升到根级（F16）
+        promoteOrphanChildren(id);
         // 关联记录统一清理（部分为 @Modifying 批量删除，需事务包裹）
         commentRepo.deleteByDocId(id);
         likeRepo.deleteByDocId(id);

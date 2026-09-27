@@ -157,18 +157,20 @@ public class AuthService {
     }
 
     public void register(String username, String password, String role, String displayName) {
-        if (username == null || username.isBlank() || password == null || password.length() < 6) {
+        if (password == null || password.length() < 6) {
             throw new RuntimeException("用户名/密码不合法（密码至少 6 位）");
         }
-        if (userRepo.findByUsername(username.trim()).isPresent()) {
+        // 用户名含竖线会让令牌载荷分段错位 → 该账号每次请求都 401（永远登不进来），必须在建号时拦住
+        String name = com.kb.kbplatform.security.UsernamePolicy.normalize(username);
+        if (userRepo.findByUsername(name).isPresent()) {
             throw new RuntimeException("用户名已存在");
         }
         User u = new User();
-        u.setUsername(username.trim());
+        u.setUsername(name);
         u.setPassword(PasswordUtil.encode(password));
         // 安全：注册接口不允许自定角色，普通用户只能注册为 USER；管理员账号由管理员后台创建
         u.setRole("USER");
-        String dn = displayName == null || displayName.isBlank() ? username.trim() : displayName.trim();
+        String dn = displayName == null || displayName.isBlank() ? name : displayName.trim();
         u.setDisplayName(HtmlSanitizer.toText(dn).trim());  // 昵称按纯文本存储，防 XSS
         userRepo.save(u);
     }

@@ -12,7 +12,7 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   # 本地密钥文件（可选，已被 .gitignore 忽略）：放第三方 API Key，不进仓库。
-  # 缺失时不影响启动——AI 走「AI 模型管理」页配置，OCR 走 KB_ZHIPU_API_KEY 环境变量。
+  # 缺失时不影响启动——AI 与 OCR 均走「AI 模型管理」页配置。
   config:
     import: optional:classpath:application-secret.yml
   datasource:
@@ -49,21 +49,14 @@ kb:
     token-secret: ${KB_TOKEN_SECRET:}
     token-ttl: 86400000   # 令牌有效期(ms)，默认 24 小时
   ai:
-    # AI 总开关：false 时强制关闭 AI 问答与 OCR（模型改由管理页配置，无需改这里）
+    # AI 总开关：false 时强制关闭 AI 问答与 OCR（模型与 Key 均由「AI 模型管理」页配置，无需改这里）
     enabled: true
     # API Key 加密主密钥：生产环境通过环境变量 KB_AI_MASTER_KEY 注入。
     # 留空则回落开发默认密钥（启动会告警）；轮换该值后需管理员重新填写已保存的 API Key。
     master-key: ${KB_AI_MASTER_KEY:}
-    zhipu:
-      # 智谱 OpenAI 兼容端点（国内直连）。RagService 已改走统一模型层，此处仅 OcrService 仍使用；
-      # 新增/切换模型请在「AI 模型管理」页配置，保存后即时生效、无需重启。
-      base-url: https://open.bigmodel.cn/api/paas/v4
-      # 不在仓库里存任何真实 Key：优先读 application-secret.yml（本地、已 gitignore），
-      # 也可通过环境变量 KB_ZHIPU_API_KEY 注入；两者都无时 OCR / 该模型自动不可用。
-      api-key: ${KB_ZHIPU_API_KEY:}
-      model: glm-4.7-flash                              # 免费主力（200K 上下文，GLM-4.7 基座）；更强付费可选 glm-4.6 / glm-5
-      models: glm-4.7-flash,glm-4.5-flash,glm-4-flash   # 文本模型降级链：主力被挤爆(1305/429)时自动切下一个免费模型
-      vision-models: glm-4.6v-flash,glm-4.1v-thinking-flash   # OCR 视觉模型降级链：4.6V 挤爆(1305)自动切 4.1V-Thinking
+    # 注意：不再有 kb.ai.zhipu 之类的供应商配置段。
+    # 对话与 OCR 都从「AI 模型管理」页读取模型（端点 + Key + 模型名），保存后即时生效、无需重启。
+    # OCR 复用该页里**智谱平台**条目的 Key 与端点，因此只需配一条启用的智谱模型即可两者通用。
   # ---- 跨域白名单 ----
   # 留空 = 不注册任何 CORS 规则（Nginx 同源反代场景，零开销零攻击面）。
   # 前后端分离部署 / 独立子域联调时填入前端域名，多个用英文逗号分隔，例如：

@@ -5,6 +5,8 @@
 
 package com.kb.kbplatform.service;
 
+import com.kb.kbplatform.domain.AiModel;
+import com.kb.kbplatform.repository.AiModelRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,7 +17,7 @@ import org.springframework.web.client.RestClient;
 import java.util.*;
 
 /**
- * OCR 文字识别服务 —— 零依赖实现，走智谱免费视觉模型（云端），后端转发、Key 不出网。
+ * OCR 文字识别服务 —— 零依赖实现，走智谱视觉模型（云端），后端转发、Key 不出网。
  *
  * 模型降级链（2026-09-05 实测）：
  *   1) glm-4.6v-flash            —— 首选（128K，视觉推理），但免费档高峰经常 429/1305「访问量过大」
@@ -24,7 +26,10 @@ import java.util.*;
  *
  * 约束：识别失败抛 IllegalStateException（全局异常处理器映射为 400，响应体带中文 error），
  * 不做静默降级——导入场景用户必须知道识别没成功。
- * API Key 复用 KB_ZHIPU_API_KEY（kb.ai.zhipu.api-key）。
+ *
+ * Key 来源：不再有独立的 OCR 配置。复用管理员在「AI 模型管理」页配好的**智谱平台**条目——
+ * 取其 base-url 与解密后的 api-key，因此管理员只需配一条智谱模型，对话与 OCR 同时生效，
+ * 换 Key / 换端点即时生效、无需重启（每次识别时现取，不缓存 Key）。
  */
 @Service
 public class OcrService {
@@ -36,30 +41,47 @@ public class OcrService {
     /** 4.1V-Thinking 会把正式答案包在这对标记里，标记外是它的碎碎念，要剥 */
     private static final String BOX_BEGIN = "<|begin_of_box|>";
     private static final String BOX_END = "<|end_of_box|>";
+    /** 智谱默认端点（管理页未填 base-url 时兜底） */
+    private static final String ZHIPU_DEFAULT_BASE = "https://open.bigmodel.cn/api/paas/v4";
+    /** 视觉模型降级链：与文本模型不同，须显式指定（管理页配的 model 通常是文本模型） */
+    private static final List<String> VISION_MODELS = List.of("glm-4.6v-flash", "glm-4.1v-thinking-flash");
 
-    private final RestClient client;
     private final boolean enabled;
-    private final List<String> models;
+    private final AiModelRepository modelRepo;
+    private final AiKeyCipher cipher;
 
     public OcrService(@Value("${kb.ai.enabled:false}") boolean enabled,
-                      @Value("${kb.ai.zhipu.base-url:https://open.bigmodel.cn/api/paas/v4}") String baseUrl,
-                      @Value("${kb.ai.zhipu.api-key:}") String apiKey,
-                      @Value("${kb.ai.zhipu.vision-models:glm-4.6v-flash,glm-4.1v-thinking-flash}") String visionModels) {
-        this.enabled = enabled && apiKey != null && !apiKey.isBlank();
-        this.models = Arrays.stream(visionModels.split(","))
-                .map(String::trim).filter(s -> !s.isEmpty()).toList();
-        if (this.enabled) {
-            RestClient.Builder b = RestClient.builder().baseUrl(baseUrl.trim());
-            b = b.defaultHeader("Authorization", "Bearer " + apiKey.trim());
-            b = b.defaultHeader("Content-Type", "application/json");
-            this.client = b.build();
-        } else {
-            this.client = null;
-        }
+                      AiModelRepository modelRepo,
+                      AiKeyCipher cipher) {
+        this.enabled = enabled;
+        this.modelRepo = modelRepo;
+        this.cipher = cipher;
     }
 
+    /** 是否可用：受总开关约束，且管理页至少配了一条启用的智谱模型（取不到 Key 时视为不可用） */
     public boolean isEnabled() {
-        return enabled;
+        return enabled && zhipuConfig() != null;
+    }
+
+    /**
+     * 取一条可用的智谱配置（含解密后的 Key）。管理页可配多条，取排序最前的启用项。
+     * 没有智谱配置 / Key 解密失败 / Key 为空时返回 null。
+     * 注：AiKeyCipher.decrypt() 内部已吞掉异常并返回空串（主密钥轮换场景），故此处无需 try-catch。
+     */
+    private ZhipuConfig zhipuConfig() {
+        List<AiModel> all = modelRepo.findByEnabledTrueOrderBySortOrderAscIdAsc();
+        for (AiModel m : all) {
+            if (!AiModel.PROVIDER_ZHIPU.equalsIgnoreCase(m.getProvider())) continue;
+            String key = cipher.decrypt(m.getApiKey());
+            if (key == null || key.isBlank()) continue;
+            String base = m.getBaseUrl() == null || m.getBaseUrl().isBlank() ? ZHIPU_DEFAULT_BASE : m.getBaseUrl().trim();
+            return new ZhipuConfig(base, key.trim());
+        }
+        return null;
+    }
+
+    /** 一条智谱端点 + Key 的瞬时快照（不缓存，保证管理页改动即时生效） */
+    private record ZhipuConfig(String baseUrl, String apiKey) {
     }
 
     /** 校验上传的图片类型与大小，不合法抛 IllegalStateException */
@@ -78,9 +100,17 @@ public class OcrService {
      * @return 提取出的纯文本（保留换行）
      */
     public String recognize(byte[] imageBytes, String contentType) {
-        if (!enabled) {
-            throw new IllegalStateException("OCR 未启用：kb.ai.enabled=false 或未注入 KB_ZHIPU_API_KEY");
+        ZhipuConfig conf = enabled ? zhipuConfig() : null;
+        if (conf == null) {
+            throw new IllegalStateException(enabled
+                    ? "OCR 未启用：请在「AI 模型管理」中添加一条启用的智谱（ZHIPU）模型配置并填写 API Key"
+                    : "OCR 未启用：kb.ai.enabled=false，请先在配置中开启 AI 功能");
         }
+        RestClient client = RestClient.builder()
+                .baseUrl(conf.baseUrl())
+                .defaultHeader("Authorization", "Bearer " + conf.apiKey())
+                .defaultHeader("Content-Type", "application/json")
+                .build();
         String mime = contentType.toLowerCase().contains("jpg") ? "image/jpeg" : contentType.toLowerCase();
         String dataUrl = "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(imageBytes);
 
@@ -92,7 +122,7 @@ public class OcrService {
         Map<String, Object> userMsg = Map.of("role", "user", "content", List.of(textPart, imagePart));
 
         String lastErr = "识别服务暂不可用";
-        for (String model : models) {
+        for (String model : VISION_MODELS) {
             try {
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("model", model);

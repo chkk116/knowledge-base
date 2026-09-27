@@ -86,22 +86,21 @@ public class AdminService {
 
     @Transactional(rollbackFor = Exception.class)
     public User createUser(CreateReq r) {
-        if (r.username == null || r.username.isBlank()) {
-            throw new IllegalArgumentException("用户名不能为空");
-        }
         if (r.password == null || r.password.length() < 6) {
             throw new IllegalArgumentException("密码至少 6 位");
         }
-        if (userRepo.findByUsername(r.username.trim()).isPresent()) {
+        // 与注册同源校验：用户名含竖线会破坏令牌载荷分段，导致该账号永远无法登录（F17）
+        String username = com.kb.kbplatform.security.UsernamePolicy.normalize(r.username);
+        if (userRepo.findByUsername(username).isPresent()) {
             throw new IllegalArgumentException("用户名已存在");
         }
         User u = new User();
-        u.setUsername(r.username.trim());
+        u.setUsername(username);
         u.setPassword(PasswordUtil.encode(r.password));
         u.setRole(normalizeRole(r.role));
         u.setPermissions(normalizePerms(r.permissions));
         u.setDisplayName(r.displayName == null || r.displayName.isBlank()
-                ? r.username.trim() : r.displayName.trim());
+                ? username : r.displayName.trim());
         u.setEnabled(r.enabled == null || r.enabled);
         User saved = userRepo.save(u);
         // 新用户尚未登录、无旧 token；分配角色/部门不触发 tokenVersion 自增

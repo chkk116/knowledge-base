@@ -54,7 +54,8 @@
 
 ### 🤖 AI 问答
 - 智谱 GLM（OpenAI 兼容端点，国内直连）+ RAG 检索增强：Meili 命中 → 数据库可见性核对 → 注入模型上下文
-- API Key 仅经环境变量注入，**仓库零密钥**；未配置时 AI 模块自动降级，其余功能不受影响
+- **多模型管理**：管理员在后台自行添加 / 启停 / 设默认；API Key AES-GCM 加密落库、列表只回显脱敏值，**仓库零密钥**；未配置时 AI 模块自动降级，其余功能不受影响
+- OCR 图片识别复用同一处配置（取智谱条目的 Key 与端点），无独立密钥配置
 
 ### 🔐 安全
 - 滑动拼图验证码（服务端基准 + 容差 + 轨迹检测 + IP 限流）、HMAC-SHA256 自签令牌、salt+SHA-256 密码
@@ -132,35 +133,22 @@ IDEA 打开根目录（自动识别 Maven 聚合工程），运行预置配置 `
 cd backend && mvn spring-boot:run
 ```
 
-**启用 AI 问答**（可选，不配置不影响其他功能）——配置本质是 **OpenAI 兼容三件套**：`base-url`（端点）、`api-key`（密钥）、`model`（模型名）。任何 OpenAI 兼容服务都可用（智谱 / DeepSeek / 通义 / 本地 vLLM 网关等），仓库默认以智谱为例。
+**启用 AI 问答**（可选，不配置不影响其他功能）——**无需改配置文件、无需环境变量**，登录管理员后在「内容管理 → AI 模型管理」页添加模型即可，保存后即时生效、无需重启。
 
-三种注入 `api-key` 的方式任选其一：
+配置本质是 **OpenAI 兼容三件套**：`base-url`（端点）、`api-key`（密钥）、`model`（模型名）。任何 OpenAI 兼容服务都可用（智谱 / DeepSeek / 通义 / OpenAI / 本地 vLLM 网关等），添加时选择平台会自动填充端点与推荐模型版本。
 
-| 方式 | 操作 | 适合场景 |
-|---|---|---|
-| ① 环境变量（推荐） | 启动前注入 `KB_ZHIPU_API_KEY`（命令见下） | 生产部署 / 不想改文件 |
-| ② 改配置文件 | 打开 `backend/src/main/resources/application.yml` 的 `kb.ai.zhipu` 段，将 `api-key: ${KB_ZHIPU_API_KEY:}` 的冒号后填入你的 Key | 本地开发图省事 |
-| ③ 生产部署 | 填写 `deploy/env.prod` 文件里的 `KB_ZHIPU_API_KEY=` 一行 | nginx + env.prod 部署 |
+| 步骤 | 操作 |
+|---|---|
+| ① 登录管理员 | 用 `admin` 账号登录，进入「内容管理 → AI 模型管理」 |
+| ② 添加模型 | 选平台 → 端点自动填充 → 填 API Key → 选模型版本 → 保存 |
+| ③ 测试连接 | 点该条目的「测试连接」确认可用；可设为「默认模型」供对话页未选择时使用 |
+| ④ 开始使用 | 普通用户在 AI 问答页选模型提问，回答下方会显示实际模型名 / 耗时 / token 用量 |
 
-```bash
-# 方式① 示例
-set KB_ZHIPU_API_KEY=你的Key              # Windows CMD
-$env:KB_ZHIPU_API_KEY="你的Key"           # Windows PowerShell
-export KB_ZHIPU_API_KEY=你的Key           # Linux / macOS
-```
+**Key 存放**：API Key 以 AES-GCM 加密后落库（表 `kb_ai_model`），列表页只回显脱敏形式（如 `sk-s****3456`），明文仅服务端调用时使用；仓库内不存任何真实 Key。
 
-**换用其他供应商**（以 DeepSeek 为例）：同文件里改三行——
+> **OCR 图片识别**复用同一处配置：只要「AI 模型管理」里有一条启用的**智谱（ZHIPU）**模型，OCR 就自动可用（取其 Key 与端点）；没有则 OCR 自动不可用，其余功能不受影响。
+> **生产部署**需注入 `KB_AI_MASTER_KEY`（加密主密钥，取值须稳定，否则重启后已存 Key 无法解密），见 `deploy/env.prod`。
 
-```yaml
-kb:
-  ai:
-    zhipu:          # 段名沿用，本质是 OpenAI 兼容客户端
-      base-url: https://api.deepseek.com/v1
-      api-key: ${KB_ZHIPU_API_KEY:}
-      model: deepseek-chat
-```
-
-**Key 获取**：到你选用的大模型平台控制台创建（各家注册流程类似）。未配置时 AI 模块自动降级不可用，其余功能不受影响；仓库内不存任何真实 Key。
 
 ### 3. 启动前端
 
@@ -233,7 +221,7 @@ cd android && gradlew.bat assembleDebug
 ## 📦 生产部署
 
 `deploy/` 提供生产 / 测试两套环境文件（`env.prod` / `env.test`）与 nginx 模板（`nginx-example.conf`：HTTPS + 静态预压缩）。
-前端构建产物带 `.gz/.br` 预压缩；后端启动需 `KB_ZHIPU_API_KEY` 等环境变量（见 env 文件）。协同 ws 生产走 HTTPS 同源 `/collab/`。
+前端构建产物带 `.gz/.br` 预压缩；后端启动需 `KB_TOKEN_SECRET`、`KB_AI_MASTER_KEY` 等环境变量（见 env 文件），AI 模型与 Key 在「AI 模型管理」页配置。协同 ws 生产走 HTTPS 同源 `/collab/`。
 
 ## 🔏 鉴权与安全要点
 
