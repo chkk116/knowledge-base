@@ -36,39 +36,63 @@
         @dragover.prevent
         @drop="onCanvasDrop"
       >
-        <!-- 亿图式左侧图形面板：真实形状预览，点击添加 / 拖到画布落点 -->
+        <!-- 亿图式左侧图形面板：分组 + 真实形状预览，点击添加 / 拖到画布落点 -->
         <div v-if="editing" class="fc-palette">
-          <div
-            v-for="s in SHAPES"
-            :key="s.key"
-            class="fc-pal-item"
-            :title="'添加' + s.label + '（可拖到画布指定位置）'"
-            draggable="true"
-            @click="addShape(s.key)"
-            @dragstart="onPaletteDragStart(s.key, $event)"
-          >
-            <svg viewBox="0 0 40 26" width="36" height="24" aria-hidden="true">
-              <template v-if="s.key === 'rect'">
-                <rect x="4" y="4" width="32" height="18" rx="3" class="pv-rect" />
-              </template>
-              <template v-else-if="s.key === 'circle'">
-                <circle cx="20" cy="13" r="10" class="pv-circle" />
-              </template>
-              <template v-else-if="s.key === 'ellipse'">
-                <ellipse cx="20" cy="13" rx="15" ry="9.5" class="pv-ellipse" />
-              </template>
-              <template v-else-if="s.key === 'diamond'">
-                <polygon points="20,2.5 37,13 20,23.5 3,13" class="pv-diamond" />
-              </template>
-              <template v-else-if="s.key === 'document'">
-                <path d="M4 4 h32 v13 c-6 0 -6 5 -11 5 h-10 c-5 0 -5 -5 -11 -5 z" class="pv-document" />
-              </template>
-              <template v-else>
-                <polygon points="10,4 37,4 30,22 3,22" class="pv-step" />
-              </template>
-            </svg>
-            <span class="fc-pal-label">{{ s.label }}</span>
-          </div>
+          <template v-for="g in SHAPE_GROUPS" :key="g.label">
+            <div class="fc-pal-group">{{ g.label }}</div>
+            <div
+              v-for="s in g.items"
+              :key="s.key"
+              class="fc-pal-item"
+              :title="'添加' + s.label + '（可拖到画布指定位置）'"
+              draggable="true"
+              @click="addShape(s.key)"
+              @dragstart="onPaletteDragStart(s.key, $event)"
+            >
+              <svg viewBox="0 0 40 26" width="36" height="24" aria-hidden="true">
+                <template v-if="s.key === 'rect'">
+                  <rect x="4" y="4" width="32" height="18" rx="3" class="pv-rect" />
+                </template>
+                <template v-else-if="s.key === 'circle'">
+                  <circle cx="20" cy="13" r="10" class="pv-circle" />
+                </template>
+                <template v-else-if="s.key === 'ellipse'">
+                  <ellipse cx="20" cy="13" rx="15" ry="9.5" class="pv-ellipse" />
+                </template>
+                <template v-else-if="s.key === 'diamond'">
+                  <polygon points="20,2.5 37,13 20,23.5 3,13" class="pv-diamond" />
+                </template>
+                <template v-else-if="s.key === 'document'">
+                  <path d="M4 4 h32 v13 c-6 0 -6 5 -11 5 h-10 c-5 0 -5 -5 -11 -5 z" class="pv-document" />
+                </template>
+                <template v-else-if="s.key === 'step'">
+                  <polygon points="10,4 37,4 30,22 3,22" class="pv-step" />
+                </template>
+                <template v-else-if="s.key === 'data'">
+                  <polygon points="10,4 37,4 30,22 3,22" class="pv-data" />
+                </template>
+                <template v-else-if="s.key === 'database'">
+                  <path d="M6 7v12a14 4.5 0 0 0 28 0V7" class="pv-database" />
+                  <ellipse cx="20" cy="7" rx="14" ry="4.5" class="pv-database" />
+                </template>
+                <template v-else-if="s.key === 'preprocess'">
+                  <rect x="3" y="5" width="34" height="16" class="pv-preprocess" />
+                  <line x1="9" y1="5" x2="9" y2="21" class="pv-preprocess-line" />
+                  <line x1="31" y1="5" x2="31" y2="21" class="pv-preprocess-line" />
+                </template>
+                <template v-else-if="s.key === 'hexagon'">
+                  <polygon points="11,4 29,4 37,13 29,22 11,22 3,13" class="pv-hexagon" />
+                </template>
+                <template v-else-if="s.key === 'manual'">
+                  <polygon points="9,4 31,4 37,22 3,22" class="pv-manual" />
+                </template>
+                <template v-else>
+                  <path d="M4 5 h21 a8.5 8.5 0 0 1 0 16 H4 z" class="pv-delay" />
+                </template>
+              </svg>
+              <span class="fc-pal-label">{{ s.label }}</span>
+            </div>
+          </template>
         </div>
         <VueFlow
           :id="flowId"
@@ -198,6 +222,22 @@ const SHAPES = [
   { key: 'diamond', label: '菱形' },
   { key: 'document', label: '文档' },
   { key: 'step', label: '步骤' },
+]
+
+/* 面板分组（对照 Visio / 亿图的符号库思路：按用途分组，而不是一屏平铺）
+ *  - 常用：ISO 5807 基本流程图符号
+ *  - 数据 / 流程：数据输入输出、存储（数据库圆柱）、子流程、准备、手动操作、延迟
+ *  以后要 BPMN / 泳道 / ER 专用符号，再按同样方式加组即可 */
+const SHAPE_GROUPS = [
+  { label: '常用', items: SHAPES },
+  { label: '数据 · 流程', items: [
+    { key: 'data', label: '数据' },
+    { key: 'database', label: '数据库' },
+    { key: 'preprocess', label: '子流程' },
+    { key: 'hexagon', label: '准备' },
+    { key: 'manual', label: '手动' },
+    { key: 'delay', label: '延迟' },
+  ]},
 ]
 
 const mapEl = ref(null)
@@ -805,14 +845,59 @@ onBeforeUnmount(() => {
 }
 .shape-step { color: #075985; }
 
-/* 亿图式左侧图形面板（编辑态悬浮在画布左侧） */
+/* 数据 / 流程组（对照 Visio 标准符号：数据=平行四边形、存储=圆柱、子流程=双边矩形、
+   准备=六边形、手动=倒梯形、延迟=D 形半圆） */
+.shape-data .fc-shape { background: #16a34a; clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%); }
+.shape-data .fc-shape::before {
+  content: ''; position: absolute; inset: 1.5px; background: #dcfce7;
+  clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%);
+}
+.shape-data { color: #14532d; }
+.shape-database .fc-shape {
+  background: #e0e7ff; border: 1.5px solid #4f46e5;
+  border-radius: 50% / 16%;            /* 上下都内收的圆柱身 */
+}
+.shape-database { color: #312e81; min-height: 48px; }
+.shape-preprocess .fc-shape { background: #cffafe; border: 1.5px solid #0891b2; border-radius: 2px; }
+.shape-preprocess .fc-shape::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 6px; right: 6px;
+  border-left: 1.5px solid #0891b2; border-right: 1.5px solid #0891b2;
+}
+.shape-preprocess { color: #164e63; }
+.shape-hexagon .fc-shape { background: #ea580c; clip-path: polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%); }
+.shape-hexagon .fc-shape::before {
+  content: ''; position: absolute; inset: 1.5px; background: #ffedd5;
+  clip-path: polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%);
+}
+.shape-hexagon { color: #7c2d12; }
+.shape-manual .fc-shape { background: #db2777; clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%); }
+.shape-manual .fc-shape::before {
+  content: ''; position: absolute; inset: 1.5px; background: #fce7f3;
+  clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
+}
+.shape-manual { color: #831843; }
+.shape-delay .fc-shape {
+  background: #e2e8f0; border: 1.5px solid #64748b;
+  border-radius: 4px 999px 999px 4px;   /* 右侧全圆弧的 D 形 */
+}
+.shape-delay { color: #1e293b; }
+
+/* 亿图式左侧图形面板（编辑态悬浮在画布左侧，分组 + 可滚动） */
 .fc-palette {
   position: absolute; left: 10px; top: 10px; z-index: 5;
-  width: 58px;
+  width: 60px;
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
   background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
   box-shadow: 0 4px 14px rgba(15, 23, 42, .10);
   padding: 6px 5px;
   display: flex; flex-direction: column; gap: 2px;
+}
+.fc-palette::-webkit-scrollbar { width: 4px; }
+.fc-palette::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+.fc-pal-group {
+  font-size: 9px; color: #94a3b8; text-align: center;
+  padding: 3px 0 2px; letter-spacing: 1px; user-select: none;
 }
 .fc-pal-item {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
@@ -829,6 +914,13 @@ onBeforeUnmount(() => {
 .pv-diamond { fill: #fee2e2; stroke: #ef4444; stroke-width: 1.5; }
 .pv-document { fill: #f3e8ff; stroke: #a855f7; stroke-width: 1.5; }
 .pv-step { fill: #e0f2fe; stroke: #0ea5e9; stroke-width: 1.5; }
+.pv-data { fill: #dcfce7; stroke: #16a34a; stroke-width: 1.5; }
+.pv-database { fill: none; stroke: #4f46e5; stroke-width: 1.5; }
+.pv-preprocess { fill: #cffafe; stroke: #0891b2; stroke-width: 1.5; }
+.pv-preprocess-line { stroke: #0891b2; stroke-width: 1.2; }
+.pv-hexagon { fill: #ffedd5; stroke: #ea580c; stroke-width: 1.5; }
+.pv-manual { fill: #fce7f3; stroke: #db2777; stroke-width: 1.5; }
+.pv-delay { fill: #e2e8f0; stroke: #64748b; stroke-width: 1.5; }
 html.dark .fc-palette { background: #1b1b24; border-color: #2a2a35; }
 html.dark .fc-pal-item:hover { background: #26262f; border-color: #3a3a45; }
 html.dark .fc-pal-label { color: #9aa0ad; }
