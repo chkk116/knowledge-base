@@ -62,6 +62,17 @@ public class AiModelClient {
         return !repo.findByEnabledTrueOrderBySortOrderAscIdAsc().isEmpty();
     }
 
+    /**
+     * 预告本次请求将优先使用的模型显示名（人设文案用，如「底层由 XX 驱动」）。
+     * 若调用时降级到了其他模型，以回答下方展示的实际模型 meta 为准。
+     */
+    public String resolveModelLabel(Long modelId) {
+        List<AiModel> chain = candidates(modelId);
+        if (chain.isEmpty()) return "";
+        AiModel m = chain.get(0);
+        return m.getName() != null && !m.getName().isBlank() ? m.getName() : m.getModel();
+    }
+
     /** 管理员保存/删除/启停/换 Key 后调用，丢弃旧 RestClient（内含旧 Key） */
     public void invalidate() {
         clients.clear();

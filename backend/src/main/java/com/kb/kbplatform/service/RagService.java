@@ -93,23 +93,34 @@ public class RagService {
         List<Map<String, Object>> sources = general ? List.of() : retrieve(buildSearchQuery(question.trim(), history));
         boolean hasContext = !sources.isEmpty();
 
-        // 2. 组装 system prompt：身份 + 知识库概况 + 行为准则 + 对话条例 + 用户习惯
+        // 2. 组装 system prompt：身份 + （kb 模式）知识库概况 + 行为准则 + 对话条例 + 用户习惯
+        // 底层模型名动态取自「AI 模型管理」的配置显示名，不再写死厂商 —— 管理员换平台后自我介绍自动跟上
+        String modelLabel = aiModelClient.resolveModelLabel(modelId);
         StringBuilder system = new StringBuilder();
-        system.append("你是企业知识库平台的内置 AI 助手「知识库 AI」，底层由智谱 GLM 驱动，服务于企业内部员工。");
-        // 注入知识库概况，让「知识库里有多少篇文章 / 你能做什么」这类元问题可直接回答
-        try {
-            long published = repository.countByStatus("PUBLISHED");
-            system.append("本知识库当前共有 ").append(published).append(" 篇已发布文章，内容涵盖运维手册、IT 操作文档、演练记录等企业资料。");
-        } catch (Exception ignore) { /* 统计失败不影响问答 */ }
-        system.append("\n【行为准则】\n")
-                .append("1. 提供了【资料】时：优先且仅依据资料回答，操作步骤、命令、参数须如实引用，命令和代码一律放进 Markdown 代码块；资料与你的通用知识冲突时，以资料为准。\n")
-                .append("2. 资料只覆盖部分问题：先依据资料作答，再补充通用知识，补充部分须标注「以下为通用做法」。\n")
-                .append("3. 资料完全未覆盖：明确说「知识库中未找到相关内容」，可再给通用建议（同样标注为通用知识）；严禁编造不存在的文章、章节、数据或链接。\n")
-                .append("4. 关于知识库本身的问题（有多少文章、你能做什么、你是谁）：直接依据上述概况和身份回答，不要说「无法访问后台」。\n")
-                .append("5. 回答用简体中文，先结论后细节、要点分条、简洁专业；避免客套话和重复用户问题。\n")
-                .append("6. 不讨论政治敏感内容，不提供违法或破坏系统的指导。");
+        system.append("你是企业知识库平台的内置 AI 助手「知识库 AI」，服务于企业内部员工");
+        if (modelLabel != null && !modelLabel.isBlank()) {
+            system.append("，底层由 ").append(modelLabel).append(" 模型驱动");
+        }
+        system.append("。");
         if (general) {
-            system.append("\n7. 当前为「通用问答」模式：直接正常回答即可，不要提及知识库检索或资料。");
+            // 通用模式：不注入知识库概况，不谈检索与资料，就是普通聊天助手
+            system.append("\n【行为准则】\n")
+                    .append("1. 直接正常回答用户问题，不要提及知识库检索、资料、文章数量等平台内部信息。\n")
+                    .append("2. 回答用简体中文，先结论后细节、要点分条、简洁专业；避免客套话和重复用户问题。\n")
+                    .append("3. 不讨论政治敏感内容，不提供违法或破坏系统的指导。");
+        } else {
+            // 注入知识库概况，让「知识库里有多少篇文章 / 你能做什么」这类元问题可直接回答
+            try {
+                long published = repository.countByStatus("PUBLISHED");
+                system.append("本知识库当前共有 ").append(published).append(" 篇已发布文章，内容涵盖运维手册、IT 操作文档、演练记录等企业资料。");
+            } catch (Exception ignore) { /* 统计失败不影响问答 */ }
+            system.append("\n【行为准则】\n")
+                    .append("1. 提供了【资料】时：优先且仅依据资料回答，操作步骤、命令、参数须如实引用，命令和代码一律放进 Markdown 代码块；资料与你的通用知识冲突时，以资料为准。\n")
+                    .append("2. 资料只覆盖部分问题：先依据资料作答，再补充通用知识，补充部分须标注「以下为通用做法」。\n")
+                    .append("3. 资料完全未覆盖：明确说「知识库中未找到相关内容」，可再给通用建议（同样标注为通用知识）；严禁编造不存在的文章、章节、数据或链接。\n")
+                    .append("4. 关于知识库本身的问题（有多少文章、你能做什么、你是谁）：直接依据上述概况和身份回答，不要说「无法访问后台」。\n")
+                    .append("5. 回答用简体中文，先结论后细节、要点分条、简洁专业；避免客套话和重复用户问题。\n")
+                    .append("6. 不讨论政治敏感内容，不提供违法或破坏系统的指导。");
         }
 
         if (instructions != null && !instructions.isBlank()) {
