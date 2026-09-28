@@ -2,9 +2,9 @@
 
 <div align="center">
 
-**一站式企业内网知识库 · 文档 · 实时协同 · 考核培训 · AI 问答**
+**一站式企业知识枢纽 · 文档协同 · 培训考核 · AI 问答**
 
-[![License](https://img.shields.io/badge/License-AGPL--3.0-blue)](#-开源许可与商业授权)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue)](#开源许可与商业授权)
 [![Java](https://img.shields.io/badge/Java-21-orange)](https://openjdk.org)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.x-green)](https://spring.io/projects/spring-boot)
 [![Vue](https://img.shields.io/badge/Vue-3-brightgreen)](https://vuejs.org)
@@ -15,7 +15,47 @@
 
 ---
 
-## 🖼️ 界面预览
+## 还在用群文件管知识？团队协作的时代困局
+
+文档以 Word、Excel、PDF、思维导图、网页收藏的形态散落在微信群、网盘和每个人的电脑里——
+真正重要的经验，却总是在最需要的时候找不到。
+
+- **散**：资料散落在十几个群聊和网盘里，找一份文档要翻三处、问两人？
+- **乱**：「最终版_v3_改_真最终.docx」满天飞，哪版是准的、谁改了什么，没人说得清？
+- **难**：搜索形同虚设，标题对不上、正文搜不到，知识明明就在库里却「查无此文」？
+- **慢**：协作靠「发文件 → 改完 → 传回来」来回传版本，新人上手全靠口口相传？
+- **失**：老员工一离职经验就断档——沉淀不下来的知识，等于从来没有过。
+
+割裂的文件传输和静态网盘，已经成为团队吸收、协作与传承知识的枷锁。
+**你需要一个统一、安全、会思考的知识枢纽**：把任何形态的知识，变成可检索、可协同、可传承的「活资产」。
+
+## 知识库平台：团队的统一知识枢纽
+
+**文档 · 实时协同 · 培训考核 · AI 问答，一个平台全部搞定。**
+
+**核心优势 1：一个编辑器，装下所有知识形态！**
+富文本 / 思维导图 / 流程图 / 电子表格——整篇专属文档或文内嵌入皆可；基于 Tiptap + Yjs 的实时协同，
+多人同编、光标可见、离线恢复，编辑锁杜绝互相覆盖。
+
+**核心优势 2：AI 问答，答案有据可查！**
+RAG 检索增强——先检索知识库、核对可见性、再注入模型上下文，回答附带引用来源与思考过程；
+OpenAI 兼容三件套（端点 / Key / 模型名），DeepSeek、GLM、GPT、通义随意切换，管理页填 Key 即用、即时生效。
+
+**核心优势 3：毫秒级全文检索！**
+Meilisearch 毫秒级检索 + 数据库逐词兜底降级，检索结果与文档可见性双向核对——该看到的秒出，不该看到的一条不漏。
+
+**核心优势 4：企业级管控开箱即用！**
+细粒度权限码、操作审计与登录告警、滑动拼图验证码、全局水印、功能开关——纯内网部署也安全。
+
+**核心优势 5：不止是文档库！**
+题库与在线考试、课程学习与证书、资产借还、积分徽章排行榜、实时通知中心，培训考核一站式闭环。
+
+**核心优势 6：三端覆盖！**
+Web 全功能 + Electron 桌面客户端 + Capacitor Android，内网 / 公网 HTTPS 部署模板齐备。
+
+---
+
+## 界面预览
 
 <div align="center">
 
@@ -32,38 +72,46 @@
 
 ---
 
-## ✨ 功能一览
+## 功能一览
 
-### 📝 文档与知识
+### 文档与知识
 - **文章 / 文档**：CRUD、分类标签、附件、回收站、版本历史、DOCX 导入、导出
 - **全文搜索**：Meilisearch 毫秒级检索 + MySQL LIKE 自动降级，索引与数据库可见性双向核对
 - **实时协同编辑**：Tiptap + Yjs + Hocuspocus，多人同编、离线恢复；文档内嵌思维导图（mind-elixir，协同编辑锁）
 - **共享文档**：文档级细粒度权限（可读 / 可编 / 可管理）、团队空间、扩容审批
 
-### 👥 社区与互动
+### 社区与互动
 - 评论（敏感词过滤 + 词边界匹配）、点赞收藏订阅、积分、徽章穿戴、排行榜、签到
 - 个人主页 / 用户主页（自定义背景横幅）、通知中心（SSE 实时推送）、公告栏
 
-### 🎓 培训考核
+### 培训考核
 - 题库 + 在线考试（防泄题、并发提交约束）、课程学习、章节评论、证书
 
-### 🛠️ 管理后台
+### 管理后台
 - 用户 / 角色 / 权限码 / 部门管理，细粒度权限码集中管理（`Perm` 白名单）
 - 审核中心、资产管理（借用归还 / Excel 导出）、数据看板、审计与登录日志、公告管理
 - **系统外观**：站点 Logo / 资料页背景图自定义，登录页二维码、全局水印、功能开关（维护页 / 隐藏双模式）
 
-### 🤖 AI 问答
+### AI 问答
 - 智谱 GLM（OpenAI 兼容端点，国内直连）+ RAG 检索增强：Meili 命中 → 数据库可见性核对 → 注入模型上下文
 - **多模型管理**：管理员在后台自行添加 / 启停 / 设默认；API Key AES-GCM 加密落库、列表只回显脱敏值，**仓库零密钥**；未配置时 AI 模块自动降级，其余功能不受影响
 - OCR 图片识别复用同一处配置（取智谱条目的 Key 与端点），无独立密钥配置
 
-### 🔐 安全
+### 安全
 - 滑动拼图验证码（服务端基准 + 容差 + 轨迹检测 + IP 限流）、HMAC-SHA256 自签令牌、salt+SHA-256 密码
 - 管理员脚本登录实时告警（SSE 通知）、细粒度管理接口鉴权（过滤器 + 控制器双层）、安全响应头、路径穿越防护
 
 ---
 
-## 🧰 技术栈
+## 技术栈
+
+<div align="center">
+
+<a href="https://skillicons.dev">
+  <img src="https://skillicons.dev/icons?i=java,spring,postgres,vue,ts,vite,pinia,nodejs,electron,nginx,md&perline=11" alt="技术栈图标"/>
+</a>
+
+</div>
 
 | 层 | 技术 |
 |---|---|
@@ -77,7 +125,7 @@
 | 工程与质量 | HikariCP 连接池 · Hibernate 7 · Logback 滚动日志（ERROR 分离）· ESLint 9（前端）· Checkstyle + SpotBugs（后端） |
 | 部署 | `deploy/`：env.prod / env.test + nginx 模板，HTTPS + 静态预压缩（.gz / .br） |
 
-## 📂 目录结构
+## 目录结构
 
 ```
 knowledge-base/
@@ -107,7 +155,7 @@ knowledge-base/
 └── pom.xml                   # Maven 聚合工程
 ```
 
-## 🚀 快速开始（本地开发）
+## 快速开始（本地开发）
 
 ### 1. 数据库（唯一前置依赖）
 
@@ -186,7 +234,7 @@ ws 地址跟随页面协议：HTTPS 同源走 `/collab/`，HTTP 走 `ws://主机
 | `zhangsan` | `Zhang@123` | USER |
 | `lisi` | `Li@123` | USER |
 
-## 🖥️ 桌面客户端（Electron）——实验性预览
+## 桌面客户端（Electron）——实验性预览
 
 > ⚠️ **状态：初步可用，尚未完整验证**。核心流程（登录 / 文档浏览 / 协同）已跑通，仅做了简单试用，不建议作为生产主力端。
 
@@ -200,7 +248,7 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 - 设计特性：自绘深蓝紫标题栏、原生登录框 + 安全验证弹窗、单实例锁、系统托盘常驻
 - 后端地址默认 `http://localhost:8080`，环境变量 `KB_BACKEND_URL` / `KB_BACKEND_WS` 可覆盖
 
-## 📱 移动端（Capacitor / Android）——未验证
+## 移动端（Capacitor / Android）——未验证
 
 > ⚠️ **状态：仅完成工程搭建与构建链路，尚未实际使用验证**。构建产物仅供参考，功能完整性与兼容性待测。
 > 注意：`capacitor.settings.gradle`、`capacitor.build.gradle`、`capacitor-cordova-android-plugins/` 均为 `npx cap sync` 生成的产物（不入库）——**克隆后直接用 IDE 打开 `android/` 会缺少这些生成物**，gradle 已做守卫只会警告不报错，但必须先完整执行下方同步步骤才能出包。
@@ -218,12 +266,12 @@ cd android && gradlew.bat assembleDebug
 - 已放行明文 HTTP（`usesCleartextTraffic`），适配纯内网环境
 - 国内镜像：Gradle 走腾讯镜像、依赖走阿里云 Maven（`dl.google.com` 内网不可达）
 
-## 📦 生产部署
+## 生产部署
 
 `deploy/` 提供生产 / 测试两套环境文件（`env.prod` / `env.test`）与 nginx 模板（`nginx-example.conf`：HTTPS + 静态预压缩）。
 前端构建产物带 `.gz/.br` 预压缩；后端启动需 `KB_TOKEN_SECRET`、`KB_AI_MASTER_KEY` 等环境变量（见 env 文件），AI 模型与 Key 在「AI 模型管理」页配置。协同 ws 生产走 HTTPS 同源 `/collab/`。
 
-## 🔏 鉴权与安全要点
+## 鉴权与安全要点
 
 - **密码**：随机 salt(16B hex) + SHA-256，存储 `salt:sha256hex`；安全边界在 TLS + 服务端哈希 + 验证码限流
 - **令牌**：HMAC-SHA256 自签（零第三方依赖），`Authorization: Bearer <token>`，默认 24h，支持令牌版本号批量失效
@@ -232,7 +280,7 @@ cd android && gradlew.bat assembleDebug
 - **敏感词**：评论过滤，≤4 位纯 ASCII 词要求词边界匹配，命中返回 400 + 中文 error
 - **公开资源**：`/uploads`、`/api/thumb` 在 AuthFilter 白名单放行（ThumbController 内做穿越防护）
 
-## 🧹 代码质量工具
+## 代码质量工具
 
 | 层 | 工具 | 命令 |
 |---|---|---|
@@ -242,7 +290,7 @@ cd android && gradlew.bat assembleDebug
 
 > 存量代码告警全部为 warning（不阻塞构建），新增代码请逐步收紧。
 
-## 📄 开源许可与商业授权
+## 开源许可与商业授权
 
 本仓库**全部代码**基于 **GNU AGPL-3.0** 开源（完整文本见 [LICENSE](LICENSE)）：
 
@@ -256,7 +304,7 @@ cd android && gradlew.bat assembleDebug
 
 > 说明：项目处于快速迭代阶段，桌面端为实验性预览、移动端尚未验证，商业授权评估建议以 Web 端为基准。
 
-### 📮 联系作者
+### 联系作者
 
 商业授权、定制开发与私有化交付请联系（说明来意，会尽快回复）：
 
