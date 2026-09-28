@@ -97,18 +97,26 @@ public class RagService {
         // 底层模型名动态取自「AI 模型管理」的配置显示名，不再写死厂商 —— 管理员换平台后自我介绍自动跟上
         String modelLabel = aiModelClient.resolveModelLabel(modelId);
         StringBuilder system = new StringBuilder();
-        system.append("你是企业知识库平台的内置 AI 助手「知识库 AI」，服务于企业内部员工");
-        if (modelLabel != null && !modelLabel.isBlank()) {
-            system.append("，底层由 ").append(modelLabel).append(" 模型驱动");
-        }
-        system.append("。");
+        // 身份必须分模式下发：kb 模式才是「企业知识库平台的内置助手」，
+        // 通用模式若也这么写，模型会一边被要求别提知识库、一边又被告知自己是知识库平台的助手，
+        // 于是思考过程里反复纠结「这是不是知识库内容 / 要不要提平台」，用户感觉「选了通用还是基于知识库」。
+        // 实测：新建的空会话 + 通用模式，模型思考链首句就是「角色：企业知识库平台的内置 AI 助手」。
         if (general) {
             // 通用模式：不注入知识库概况，不谈检索与资料，就是普通聊天助手
+            system.append("你是一个通用 AI 助手，直接、准确地回答用户的问题。");
+            if (modelLabel != null && !modelLabel.isBlank()) {
+                system.append("底层由 ").append(modelLabel).append(" 模型驱动。");
+            }
             system.append("\n【行为准则】\n")
-                    .append("1. 直接正常回答用户问题，不要提及知识库检索、资料、文章数量等平台内部信息。\n")
+                    .append("1. 直接正常回答用户问题，不要提及知识库、检索、资料、文章数量等平台内部信息，也不要自称是企业知识库平台的助手。\n")
                     .append("2. 回答用简体中文，先结论后细节、要点分条、简洁专业；避免客套话和重复用户问题。\n")
                     .append("3. 不讨论政治敏感内容，不提供违法或破坏系统的指导。");
         } else {
+            system.append("你是企业知识库平台的内置 AI 助手「知识库 AI」，服务于企业内部员工");
+            if (modelLabel != null && !modelLabel.isBlank()) {
+                system.append("，底层由 ").append(modelLabel).append(" 模型驱动");
+            }
+            system.append("。");
             // 注入知识库概况，让「知识库里有多少篇文章 / 你能做什么」这类元问题可直接回答
             try {
                 long published = repository.countByStatus("PUBLISHED");

@@ -128,6 +128,36 @@ const suggestions = [
   '帮我总结一下知识库的常见用法',
 ]
 
+// 空状态文案必须跟着模式走：切到「通用」后如果还挂着「我是知识库 AI 助手 / 基于知识库检索作答」
+// 和一堆知识库相关的推荐问题，用户会以为模式没生效 —— 这正是「选了通用还感觉基于知识库」的来源之一。
+const generalSuggestions = [
+  '用三句话解释什么是向量数据库',
+  '帮我把这段话润色得更正式',
+  '推荐几本讲系统设计的好书',
+  '写一个 Python 读取 Excel 的例子',
+]
+const emptyCopy = computed(() => (mode.value === 'general'
+  ? {
+      title: '你好，我是通用 AI 助手',
+      tip: '不检索知识库，直接凭通用知识作答',
+      features: [
+        { icon: 'ChatDotRound', text: '自由问答' },
+        { icon: 'EditPen', text: '写作润色' },
+        { icon: 'Cpu', text: '编程协助' },
+      ],
+      sugs: generalSuggestions,
+    }
+  : {
+      title: '你好，我是知识库 AI 助手',
+      tip: '基于知识库检索作答，也能陪你日常聊聊',
+      features: [
+        { icon: 'Reading', text: '知识检索' },
+        { icon: 'EditPen', text: '总结写作' },
+        { icon: 'ChatDotRound', text: '日常问答' },
+      ],
+      sugs: suggestions,
+    }))
+
 const currentConversation = computed(() =>
   conversations.value.find((c) => c.id === currentId.value)
 )
@@ -509,7 +539,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
           </el-tooltip>
           <div class="ai-head-info">
             <div class="ai-title">{{ currentConversation?.title || 'AI 智能问答' }}</div>
-            <div class="ai-sub">基于知识库作答 · 库里没有也能通用问答</div>
+            <div class="ai-sub">{{ mode === 'general' ? '通用问答 · 不检索知识库' : '基于知识库作答 · 库里没有也能通用问答' }}</div>
           </div>
         </div>
         <div class="ai-head-right">
@@ -536,15 +566,15 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
               <path d="M12 2 C12 8 8 12 2 12 C8 12 12 16 12 22 C12 16 16 12 22 12 C16 12 12 8 12 2 Z" fill="#fff"/>
             </svg>
           </div>
-          <h2 class="ai-empty-title">你好，我是知识库 AI 助手</h2>
-          <p class="ai-empty-tip">基于知识库检索作答，也能陪你日常聊聊</p>
+          <h2 class="ai-empty-title">{{ emptyCopy.title }}</h2>
+          <p class="ai-empty-tip">{{ emptyCopy.tip }}</p>
           <div class="ai-features">
-            <span class="ai-feature"><el-icon><Reading /></el-icon>知识检索</span>
-            <span class="ai-feature"><el-icon><EditPen /></el-icon>总结写作</span>
-            <span class="ai-feature"><el-icon><ChatDotRound /></el-icon>日常问答</span>
+            <span v-for="f in emptyCopy.features" :key="f.text" class="ai-feature">
+              <el-icon><Reading v-if="f.icon === 'Reading'" /><EditPen v-else-if="f.icon === 'EditPen'" /><Cpu v-else-if="f.icon === 'Cpu'" /><ChatDotRound v-else /></el-icon>{{ f.text }}
+            </span>
           </div>
           <div class="ai-sugs">
-            <button v-for="s in suggestions" :key="s" class="ai-sug" type="button" @click="send(s)">{{ s }}</button>
+            <button v-for="s in emptyCopy.sugs" :key="s" class="ai-sug" type="button" @click="send(s)">{{ s }}</button>
           </div>
           <p class="ai-disclaimer">内容由 AI 生成，仅供参考</p>
         </div>
