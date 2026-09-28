@@ -93,7 +93,7 @@ Web 全功能 + Electron 桌面客户端 + Capacitor Android，内网 / 公网 H
 - **系统外观**：站点 Logo / 资料页背景图自定义，登录页二维码、全局水印、功能开关（维护页 / 隐藏双模式）
 
 ### AI 问答
-- 智谱 GLM（OpenAI 兼容端点，国内直连）+ RAG 检索增强：Meili 命中 → 数据库可见性核对 → 注入模型上下文
+- 标准 OpenAI 协议接入（管理页自定义端点 / Key / 模型名，DeepSeek、GLM、GPT、通义等皆可）+ RAG 检索增强：Meili 命中 → 数据库可见性核对 → 注入模型上下文
 - **多模型管理**：管理员在后台自行添加 / 启停 / 设默认；API Key AES-GCM 加密落库、列表只回显脱敏值，**仓库零密钥**；未配置时 AI 模块自动降级，其余功能不受影响
 - OCR 图片识别复用同一处配置（取智谱条目的 Key 与端点），无独立密钥配置
 
@@ -119,7 +119,7 @@ Web 全功能 + Electron 桌面客户端 + Capacitor Android，内网 / 公网 H
 | 后端 | Spring Boot 4（Java 21）模块化单体 · Spring Data JPA · **PostgreSQL 18**（兼容 MySQL 8，双驱动） |
 | 实时协同 | Tiptap + Yjs · Hocuspocus 中继（`collab-relay/`，Node + pg，与后端共用 PostgreSQL） |
 | 搜索 | Meilisearch（可选，`docker-compose.yml`）· MySQL LIKE 降级兜底 |
-| AI | 智谱 GLM（OpenAI 兼容 `/chat/completions`），RAG 检索增强 |
+| AI | 标准 OpenAI 协议（`/chat/completions`）+ 自定义模型配置，RAG 检索增强 |
 | 桌面端 | Electron 33：纯 Node 本地托管 + 反代后端，零框架改动套壳 |
 | 移动端 | Capacitor 8（Android），远端模式直连内网后端 |
 | 工程与质量 | HikariCP 连接池 · Hibernate 7 · Logback 滚动日志（ERROR 分离）· ESLint 9（前端）· Checkstyle + SpotBugs（后端） |
