@@ -157,10 +157,11 @@ public class AiConversationService {
                 modelId);
         String answer = rag.get("answer") == null ? "" : rag.get("answer").toString();
         Object sources = rag.get("sources");
-        // 调用可视化字段透传：模型名 / 耗时 / token 用量，前端在回答旁展示
+        // 调用可视化字段透传：模型名 / 耗时 / token 用量 / 思考过程，前端在回答旁展示
         Object modelName = rag.get("modelName");
         Object latencyMs = rag.get("latencyMs");
         Object usage = rag.get("usage");
+        Object reasoning = rag.get("reasoning");
 
         // 保存 AI 消息（引用来源一并落库为 JSON 快照，重开页面后仍能显示）
         AiMessage aiMsg = new AiMessage();
@@ -185,6 +186,9 @@ public class AiConversationService {
         if (modelName != null) result.put("modelName", modelName);
         if (latencyMs != null) result.put("latencyMs", latencyMs);
         if (usage != null) result.put("usage", usage);
+        // 思考过程（思考型模型才有）：仅本次响应返回给前端做折叠展示，不落库 ——
+        // 它体积可达数万字，且重开页面时没有「本次调用」的语义，存下来只会白白撑大消息表
+        if (reasoning != null) result.put("reasoning", reasoning);
         return result;
     }
 

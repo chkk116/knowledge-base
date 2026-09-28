@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound, Plus, Delete, EditPen, ChatLineRound, Document,
   Paperclip, Link, ArrowDown, CopyDocument, Refresh, Reading, Promotion,
-  Fold, Expand, VideoPause, Cpu
+  Fold, Expand, VideoPause, Cpu, Search
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
 import {
@@ -593,6 +593,12 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                     </button>
                   </div>
                 </div>
+                <!-- 检索未命中：明确告知「查过知识库但没找到」，把这种回答和「引用了资料」区分开。
+                     否则答案看上去和引用资料时一模一样，用户无法判断它到底有没有依据知识库。 -->
+                <div v-else-if="m.mode !== 'general'" class="ai-no-source">
+                  <el-icon><Search /></el-icon>
+                  <span>已检索知识库，未命中相关内容</span>
+                </div>
 
                 <!-- 调用可视化：本次实际用的模型、耗时、token 用量 -->
                 <div v-if="m.meta" class="ai-meta">
@@ -961,6 +967,14 @@ html.dark .ai-flat :deep(.md-code) { background: #0b0b1a; }
 /* 引用来源 */
 .ai-sources { margin-top: 4px; border-top: 1px solid #eef0f4; padding-top: 10px; }
 html.dark .ai-sources { border-top-color: #2b2c4d; }
+/* 检索未命中提示：低调、不抢答内容的视觉重心 */
+.ai-no-source {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 8px; font-size: 12px; color: #94a3b8;
+}
+.ai-no-source .el-icon { color: #cbd5e1; }
+html.dark .ai-no-source { color: #6d6f88; }
+html.dark .ai-no-source .el-icon { color: #4a4b6a; }
 .ai-sources-head { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px; }
 html.dark .ai-sources-head { color: #b7b8cd; }
 .ai-sources-head .el-icon { color: #6366f1; }
