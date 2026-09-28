@@ -168,6 +168,8 @@ public class RagService {
         result.put("modelName", call.modelName());
         result.put("latencyMs", call.latencyMs());
         result.put("usage", call.usage());
+        // 思考型模型（DeepSeek / GLM 思考版）的思考过程，前端折叠展示；非思考模型为 null
+        result.put("reasoning", call.reasoning());
         return result;
     }
 

@@ -112,8 +112,9 @@ public class AiModelClient {
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("model", m.getModel());
                 body.put("temperature", 0.3);
-                // 思考型模型（GLM-5.x、GPT-5.x）会把思考过程计入 max_tokens，给足上限避免答案被截断
-                body.put("max_tokens", 8192);
+                // 思考型模型（GLM-5.x、GPT-5.x、DeepSeek V4.1）会把思考过程计入 max_tokens，
+                // 实测一轮思考+回答可达 15K+ tokens，8192 会把答案截断，给足上限
+                body.put("max_tokens", 16384);
                 body.put("messages", messages);
 
                 Map<String, Object> resp = c.post()
@@ -131,7 +132,7 @@ public class AiModelClient {
                 }
                 Map<String, Object> usage = usageOf(resp);
                 recordUsage(m, source, true, usage, ms, null);
-                return new AiChatResult(text, m.getModel(), m.getName(), ms, usage);
+                return new AiChatResult(text, m.getModel(), m.getName(), ms, usage, extractReasoning(resp));
             } catch (org.springframework.web.client.RestClientResponseException re) {
                 int sc = re.getStatusCode().value();
                 log.warn("AI 模型调用失败(name={}, http={}): {}", m.getName(), sc, re.getMessage());
@@ -270,6 +271,20 @@ public class AiModelClient {
         return null;
     }
 
+    /** 思考型模型的思考过程（DeepSeek / GLM 都放在 message.reasoning_content），非思考模型无此字段返回 null */
+    private String extractReasoning(Map<String, Object> resp) {
+        if (resp == null) return null;
+        Object choices = resp.get("choices");
+        if (choices instanceof List<?> list && !list.isEmpty()) {
+            Object first = list.get(0);
+            if (first instanceof Map<?, ?> m && m.get("message") instanceof Map<?, ?> mm) {
+                Object r = mm.get("reasoning_content");
+                if (r instanceof String s && !s.isBlank()) return s.trim();
+            }
+        }
+        return null;
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> usageOf(Map<String, Object> resp) {
         if (resp == null) return Map.of();
@@ -278,12 +293,12 @@ public class AiModelClient {
         return Map.of();
     }
 
-    /** 一次调用的完整结果：文本 + 实际用的模型 + 耗时 + token 用量 */
+    /** 一次调用的完整结果：文本 + 实际用的模型 + 耗时 + token 用量 + 思考过程（思考型模型才有） */
     public record AiChatResult(String text, String model, String modelName, long latencyMs,
-                               Map<String, Object> usage) {
+                               Map<String, Object> usage, String reasoning) {
 
         static AiChatResult fail(String msg) {
-            return new AiChatResult(msg, "", "", 0, Map.of());
+            return new AiChatResult(msg, "", "", 0, Map.of(), null);
         }
 
         /** 成功 = 拿到了真实模型应答（model 非空）。失败文案也写在 text 里，所以不能用 text 判断 */

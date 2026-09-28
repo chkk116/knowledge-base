@@ -60,7 +60,8 @@ function buildMeta(data) {
   if (!data) return null
   const name = data.modelName || data.model || ''
   if (!name && data.latencyMs == null) return null
-  return { name, latencyMs: Number(data.latencyMs) || 0, usage: data.usage || null }
+  // reasoning：思考型模型（DeepSeek / GLM 思考版）的思考过程，前端折叠展示；不落历史，仅本次回答可见
+  return { name, latencyMs: Number(data.latencyMs) || 0, usage: data.usage || null, reasoning: data.reasoning || null }
 }
 function fmtMs(ms) {
   if (!ms) return ''
@@ -572,6 +573,11 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                   <span class="ai-name">知识库 AI</span>
                   <span class="ai-mode-chip">{{ m.mode === 'general' ? '通用问答' : '基于知识库' }}</span>
                 </div>
+                <!-- 思考过程：思考型模型才有，默认折叠（历史回答不保留） -->
+                <details v-if="m.meta && m.meta.reasoning" class="ai-reasoning">
+                  <summary>💭 思考过程（{{ m.meta.reasoning.length }} 字）</summary>
+                  <div class="ai-reasoning-body">{{ m.meta.reasoning }}</div>
+                </details>
                 <div class="ai-flat" v-html="renderMarkdown(m.content)"></div>
 
                 <div v-if="m.sources && m.sources.length" class="ai-sources">
@@ -781,6 +787,35 @@ html.dark .ai-model-select :deep(.el-select__placeholder) { color: #8b8ca4; }
 
 /* 调用元信息（模型 / 耗时 / token） */
 .ai-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+/* 思考过程折叠块 */
+.ai-reasoning {
+  margin: 2px 0 4px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+  overflow: hidden;
+}
+.ai-reasoning summary {
+  cursor: pointer;
+  padding: 5px 10px;
+  color: #64748b;
+  user-select: none;
+  font-weight: 600;
+}
+.ai-reasoning summary:hover { color: #475569; }
+.ai-reasoning-body {
+  padding: 0 10px 8px;
+  color: #94a3b8;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+html.dark .ai-reasoning { background: #1b1b35; border-color: #2b2c4d; }
+html.dark .ai-reasoning summary { color: #8b8ca4; }
+html.dark .ai-reasoning-body { color: #6d6f88; }
 .ai-meta-chip {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 11.5px; color: #64748b; background: #f8fafc;
