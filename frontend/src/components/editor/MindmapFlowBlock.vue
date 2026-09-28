@@ -17,6 +17,28 @@
         <span v-else-if="editing" class="kb-mindmap-status editing">你正在编辑</span>
         <span class="kb-mindmap-actions">
           <button class="kb-mm-btn" @click="fit">适应视图</button>
+          <span v-if="editing" class="kb-mm-import-wrap" @click.stop>
+            <button
+              class="kb-mm-btn"
+              :class="{ primary: importOpen }"
+              :disabled="importBusy"
+              @click="importOpen = !importOpen"
+            >{{ importBusy ? '导入中…' : '导入 ▾' }}</button>
+            <div v-if="importOpen" class="kb-mm-import-menu">
+              <button type="button" @click="pickFile('xmind')">
+                <b>Xmind 文件</b><span>.xmind</span>
+              </button>
+              <button type="button" @click="pickFile('md')">
+                <b>Markdown 文件</b><span>.md / .txt</span>
+              </button>
+              <button type="button" @click="pickFile('opml')">
+                <b>OPML 文件</b><span>.opml（幕布/知犀导出）</span>
+              </button>
+              <button type="button" @click="openPaste">
+                <b>粘贴文本</b><span>Markdown / 缩进大纲</span>
+              </button>
+            </div>
+          </span>
           <button v-if="editing" class="kb-mm-btn" @click="addFreeTopic">+ 自由主题</button>
           <button v-if="!editing && canAcquire" class="kb-mm-btn primary" @click="acquire">编辑导图</button>
           <button
@@ -36,6 +58,35 @@
         </span>
       </div>
 
+      <!-- 导入用的隐藏文件选择器（accept 由 pickFile 按类型设置） -->
+      <input ref="fileInput" type="file" hidden @change="onFilePicked" />
+
+      <!-- 粘贴导入弹窗 -->
+      <div v-if="pasteOpen" class="kb-mm-paste-mask" @click.self="pasteOpen = false">
+        <div class="kb-mm-paste" @click.stop>
+          <div class="fh-head">
+            <span>粘贴内容生成导图</span>
+            <button class="fh-close" @click="pasteOpen = false">×</button>
+          </div>
+          <p class="kb-mm-paste-tip">
+            支持 Markdown 标题（# ## ###）、无序/有序列表（含缩进嵌套）、以及纯缩进大纲。
+            每行一个主题，缩进或标题层级决定父子关系。
+          </p>
+          <textarea
+            v-model="pasteText"
+            class="kb-mm-paste-area"
+            rows="10"
+            placeholder="例如：&#10;# 运维手册&#10;## 部署&#10;### 前置依赖&#10;### 滚动发布&#10;## 监控"
+            @keydown.ctrl.enter="confirmPaste"
+          ></textarea>
+          <div class="kb-mm-paste-foot">
+            <span class="kb-mm-paste-hint">Ctrl + Enter 直接生成</span>
+            <button class="kb-mm-btn" @click="pasteOpen = false">取消</button>
+            <button class="kb-mm-btn primary" @click="confirmPaste">生成导图</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 使用说明：常驻按钮触发，默认收起（与流程图同一套交互） -->
       <div v-if="helpOpen" class="kb-mm-help" @click.stop>
         <div class="fh-head">
@@ -43,6 +94,7 @@
           <button class="fh-close" @click="helpOpen = false">×</button>
         </div>
         <ul>
+          <li><b>导入</b>：编辑态点「导入」可读入 <b>Xmind(.xmind)</b>、<b>Markdown(.md/.txt)</b>、<b>OPML(.opml)</b>，或直接粘贴大纲文本，自动排版成导图</li>
           <li><b>改文字</b>：双击节点，或选中后按 F2</li>
           <li><b>Tab</b>：保存当前主题并新建子主题（向右延伸）</li>
           <li><b>Enter</b>：保存当前主题并新建同级；选中根节点按 Enter 或点「+ 自由主题」＝不连线的新主题</li>
@@ -128,6 +180,10 @@ import '@vue-flow/core/dist/theme-default.css'
 import { NodeSelection } from '@tiptap/pm/state'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../store/auth'
+import {
+  parseXmind, parseMarkdown, parseOpml, parseIndentedText,
+  layoutTree, countTree, treeDepth,
+} from '../../utils/mindmapImport'
 
 const props = defineProps(nodeViewProps)
 const auth = useAuthStore()
@@ -772,6 +828,119 @@ function cancel() {
   dirty.value = false
 }
 
+// ---------- 导入（Xmind / Markdown / OPML / 缩进文本）----------
+
+const importOpen = ref(false)          // 下拉菜单展开
+const importBusy = ref(false)          // 解析中（大文件解压/布局可能耗时）
+const pasteOpen = ref(false)           // 粘贴弹窗
+const pasteText = ref('')
+const fileInput = ref(null)
+let importKind = 'md'                  // 当前要导入的文件类别，决定如何解析
+
+function pickFile(kind) {
+  importKind = kind
+  importOpen.value = false
+  const inp = fileInput.value
+  if (!inp) return
+  inp.value = ''   // 允许连续导入同一个文件
+  inp.accept = kind === 'xmind' ? '.xmind'
+    : kind === 'opml' ? '.opml,.xml'
+    : '.md,.markdown,.txt,.text'
+  inp.click()
+}
+
+async function onFilePicked(e) {
+  const file = e.target.files && e.target.files[0]
+  if (!file) return
+  importBusy.value = true
+  try {
+    let tree
+    const name = file.name || ''
+    if (importKind === 'xmind') {
+      tree = await parseXmind(file)
+    } else {
+      const text = await readText(file)
+      tree = parseByText(text, name)
+    }
+    applyTree(tree, name)
+  } catch (err) {
+    ElMessage.error(errMsg(err, '导入失败'))
+  } finally {
+    importBusy.value = false
+  }
+}
+
+/** 按文件名/内容特征选解析器：OPML 优先看后缀或 <?xml+outline>，其余当 Markdown */
+function parseByText(text, name) {
+  const lower = (name || '').toLowerCase()
+  if (lower.endsWith('.opml') || (/<opml[\s>]/i.test(text) && /<outline/i.test(text))) {
+    return parseOpml(text)
+  }
+  // Markdown / 纯文本缩进：含 # 或 - * 1. 之类层级标记就走 Markdown，否则按缩进
+  if (/(^|\n)\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s)/.test(text)) return parseMarkdown(text)
+  return parseIndentedText(text)
+}
+
+function readText(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => resolve(String(fr.result || ''))
+    fr.onerror = () => reject(new Error('读取文件失败'))
+    fr.readAsText(file, 'UTF-8')
+  })
+}
+
+function openPaste() {
+  importOpen.value = false
+  pasteText.value = ''
+  pasteOpen.value = true
+  nextTick(() => {
+    const el = document.querySelector('.kb-mm-paste-area')
+    if (el) el.focus()
+  })
+}
+
+function confirmPaste() {
+  const t = pasteText.value.trim()
+  if (!t) { ElMessage.warning('请先粘贴内容'); return }
+  try {
+    applyTree(parseByText(t, ''), '')
+    pasteOpen.value = false
+  } catch (err) {
+    ElMessage.error(errMsg(err, '解析失败'))
+  }
+}
+
+/** 把解析出的树落到画布：布局 → setNodes/setEdges → 标脏 */
+function applyTree(tree, fileName) {
+  const n = countTree(tree)
+  if (!n) { ElMessage.warning('没有解析出任何节点'); return }
+  const { nodes: ns, edges: es } = layoutTree(tree)
+  idc = maxIdc(ns)
+  setNodes(ns)
+  setEdges(es)
+  selectedId.value = ns.length ? ns[0].id : null
+  editingId.value = null
+  dirty.value = true
+  nextTick(() => {
+    refreshEdgeHandles()
+    fit()
+  })
+  const d = treeDepth(tree)
+  const src = fileName ? `「${fileName}」` : ''
+  // 大图给个更实用的提示（导入后是「已标脏但未落盘」状态）
+  if (n > 200 || d > 6) {
+    ElMessage.warning(`${src}已导入 ${n} 个节点 / ${d} 层，规模较大，请点「完成编辑」保存`)
+  } else {
+    ElMessage.success(`${src}已导入 ${n} 个节点 / ${d} 层`)
+  }
+}
+
+function errMsg(e, fallback) {
+  const m = e && e.message ? String(e.message) : ''
+  return m || fallback
+}
+
 // 数据/锁/编辑态变化：非编辑态时同步渲染最新数据（含协作者的改动）
 watch(
   [() => props.node.attrs.data, () => props.node.attrs.locked, editing],
@@ -871,6 +1040,56 @@ onBeforeUnmount(() => {
   font-weight: 700; color: #64748b; line-height: 1;
 }
 .kb-mm-btn.help.on { background: #e0e7ff; border-color: #a5b4fc; color: #4f46e5; }
+.kb-mm-btn:disabled { opacity: .55; cursor: default; }
+
+/* 导入下拉 */
+.kb-mm-import-wrap { position: relative; display: inline-block; }
+.kb-mm-import-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
+  min-width: 208px; padding: 4px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .14);
+  display: flex; flex-direction: column; gap: 1px;
+}
+html.dark .kb-mm-import-menu { background: #1b1b24; border-color: #2a2a35; }
+.kb-mm-import-menu button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  width: 100%; padding: 6px 9px; border: none; border-radius: 7px;
+  background: transparent; cursor: pointer; text-align: left;
+}
+.kb-mm-import-menu button:hover { background: #eef2ff; }
+html.dark .kb-mm-import-menu button:hover { background: #26263a; }
+.kb-mm-import-menu button b { font-size: 12px; font-weight: 600; color: #334155; }
+.kb-mm-import-menu button span { font-size: 11px; color: #94a3b8; }
+html.dark .kb-mm-import-menu button b { color: #e7e7ee; }
+
+/* 粘贴导入弹窗 */
+.kb-mm-paste-mask {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(15, 23, 42, .38);
+  display: flex; align-items: center; justify-content: center;
+}
+.kb-mm-paste {
+  width: 560px; max-width: calc(100vw - 32px);
+  background: #fff; border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, .26);
+}
+html.dark .kb-mm-paste { background: #1b1b24; }
+.kb-mm-paste-tip { margin: 0 0 8px; font-size: 12px; line-height: 1.7; color: #64748b; }
+.kb-mm-paste-area {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  border: 1px solid var(--border, #e5e7eb); border-radius: 8px;
+  padding: 9px 10px; font-size: 13px; line-height: 1.7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #1f2937; background: #fff; outline: none;
+}
+html.dark .kb-mm-paste-area { background: #16161d; color: #e7e7ee; border-color: #2a2a35; }
+.kb-mm-paste-area:focus { border-color: #6366f1; }
+.kb-mm-paste-foot {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; justify-content: flex-end;
+}
+.kb-mm-paste-hint { margin-right: auto; font-size: 11px; color: #94a3b8; }
 .kb-mindmap-canvas { height: 420px; position: relative; outline: none; }
 .kb-mindmap-canvas.readonly { background:
   radial-gradient(circle, #eef2f7 1px, transparent 1px) 0 0 / 22px 22px; }
