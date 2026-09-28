@@ -33,6 +33,15 @@ public class AiMessage {
     @Column(columnDefinition = "text")
     private String sources;
 
+    /**
+     * 本条回答用的模式：kb=基于知识库检索 / general=通用问答。
+     * 必须逐条落库，否则重开会话时前端只能按「会话当前选中的模式」猜 ——
+     * 同一会话里混用过两种模式时，历史消息的标签会全部显示错误。
+     * 历史数据为 null，读取时按 kb 兜底（改动前默认就是 kb）。
+     */
+    @Column(length = 16)
+    private String mode;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     public Long getId() { return id; }
@@ -49,6 +58,9 @@ public class AiMessage {
 
     public String getSources() { return sources; }
     public void setSources(String sources) { this.sources = sources; }
+
+    public String getMode() { return mode; }
+    public void setMode(String mode) { this.mode = mode; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

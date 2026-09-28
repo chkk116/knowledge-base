@@ -95,6 +95,9 @@ public class AiConversationService {
             mm.put("id", m.getId());
             mm.put("role", m.getRole());
             mm.put("content", m.getContent());
+            // 逐条回传本条消息的模式：同一会话里可能混用过 kb/general，
+            // 前端若按「会话当前选中模式」统一渲染，历史标签会全错。null（旧数据）按 kb 兜底。
+            mm.put("mode", m.getMode() == null ? "kb" : m.getMode());
             Object src = parseSources(m.getSources());
             if (src != null) mm.put("sources", src);
             mm.put("createdAt", m.getCreatedAt());
@@ -128,11 +131,15 @@ public class AiConversationService {
             }
         }
 
+        // 模式：kb（默认，走知识库检索）/ general（纯通用问答，不检索）
+        boolean general = "general".equalsIgnoreCase(mode);
+
         // 保存用户消息
         AiMessage userMsg = new AiMessage();
         userMsg.setConversationId(c.getId());
         userMsg.setRole("user");
         userMsg.setContent(question);
+        userMsg.setMode(mode);
         msgRepo.save(userMsg);
 
         // 构建历史上下文（不含当前问题，最多最近 MAX_HISTORY 轮）
@@ -141,6 +148,11 @@ public class AiConversationService {
         int start = Math.max(0, all.size() - 1 - MAX_HISTORY);
         for (int i = start; i < all.size() - 1; i++) {
             AiMessage m = all.get(i);
+            // 切到「通用」时，只带通用模式产生的历史。
+            // 不隔离的话，模型会看到上一轮「知识库中未找到…」这类答案，一边被要求别提知识库、
+            // 一边又在回答里顺着知识库语境走，思考过程会明显纠结（实测 confirmed）。
+            // mode 为 null 的是本次改动前的历史数据，按 kb 处理。
+            if (general && !"general".equals(m.getMode())) continue;
             history.add(Map.of("role", m.getRole(), "content", m.getContent()));
         }
 
@@ -168,6 +180,7 @@ public class AiConversationService {
         aiMsg.setConversationId(c.getId());
         aiMsg.setRole("ai");
         aiMsg.setContent(answer);
+        aiMsg.setMode(mode);
         if (sources instanceof List && !((List<?>) sources).isEmpty()) {
             try {
                 aiMsg.setSources(tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(sources));
