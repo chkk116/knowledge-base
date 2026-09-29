@@ -16,7 +16,22 @@ import pg from 'pg'
 import crypto from 'node:crypto'
 
 const PORT = Number(process.env.COLLAB_PORT || 1234)
-const SECRET = process.env.KB_TOKEN_SECRET || 'kb-dev-secret-please-change-this-long-string-2026'
+
+// 令牌签名密钥：必须与后端同值。**缺失或仍是历史上随仓库外泄的弱默认串 → 直接退出**，
+// 不再静默兜底 —— 兜底的话中继会用公开可见的密钥校验令牌，任何人都能伪造任意 userId
+// 连入所有共享文档（Java 侧 TokenSecretProvider 已是同样的 fail-fast 语义，这里对齐）。
+const LEAKED_DEFAULT_SECRET = 'kb-dev-secret-please-change-this-long-string-2026'
+const SECRET = (process.env.KB_TOKEN_SECRET || '').trim()
+if (!SECRET) {
+  console.error('[relay][致命] 未配置 KB_TOKEN_SECRET，拒绝启动。'
+    + '内嵌模式由后端自动注入；独立部署请显式设置与后端同值的 KB_TOKEN_SECRET。')
+  process.exit(1)
+}
+if (SECRET === LEAKED_DEFAULT_SECRET) {
+  console.error('[relay][致命] KB_TOKEN_SECRET 是已随仓库外泄的默认值，拒绝启动。'
+    + '请更换为不少于 32 位的随机串（与后端 KB_TOKEN_SECRET 保持一致）。')
+  process.exit(1)
+}
 // C: 缩小丢失窗口，默认从 15s 降到 5s；可通过环境变量覆盖
 const SAVE_INTERVAL_MS = Number(process.env.COLLAB_SAVE_INTERVAL || 5000)
 // A: 操作日志开关；默认开启
