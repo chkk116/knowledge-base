@@ -1219,6 +1219,9 @@ html.dark .page-inner :deep(.kb-collab-body .selectedCell::after) { background: 
 .diagram-mode .page-inner .ProseMirror > p { display: none; margin: 0; height: 0; }
 /* 提示条在专属模式下隐藏（画布顶到视口底部）：图块提示条已改为工具条「?」按钮，不再常驻 */
 .diagram-mode .kb-sheet-hint { display: none; }
+/* 表格块的 canvas 外多了一层 .kb-sheet-stage（放远端光标高亮层）——它也必须进 flex 链，
+   否则链条断在这里，canvas 掉回 min-height:320px，下面留一大片空白（「表格只有一截」）。 */
+.diagram-mode .kb-sheet-stage { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .diagram-mode .kb-mindmap-canvas,
 .diagram-mode .kb-fc-canvas,
 .diagram-mode .kb-sheet-canvas { flex: 1; min-height: 320px; height: auto; }

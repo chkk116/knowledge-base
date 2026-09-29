@@ -286,7 +286,8 @@ let moveThrottle = 0
 function onStageMove(e) {
   if (!awareness) return
   const now = Date.now()
-  if (now - moveThrottle < 180) return
+  // 60ms（≈16 次/秒）：之前 180ms 节流 + 120ms 过渡叠加起来跟随明显发飘（用户反馈「有延迟」）
+  if (now - moveThrottle < 60) return
   moveThrottle = now
   const el = e.currentTarget
   if (!el) return
@@ -715,7 +716,7 @@ onBeforeUnmount(() => {
 .kb-sheet-remote {
   position: absolute; box-sizing: border-box;
   border: 2px solid #10b981; border-radius: 2px;
-  transition: left .12s ease, top .12s ease, width .12s ease, height .12s ease;
+  transition: left .06s linear, top .06s linear, width .06s linear, height .06s linear;
 }
 .kb-sheet-remote-name {
   position: absolute; left: -2px; top: -17px;
