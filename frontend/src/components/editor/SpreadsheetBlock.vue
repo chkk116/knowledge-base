@@ -254,11 +254,20 @@ function cellAtPoint(mx, my) {
     if (!d || !d.cols || !d.rows) return null
     const fw = d.cols.indexWidth
     const fh = d.rows.height
+    const off = canvasOriginOffset()
+    // 相对表格 canvas 的坐标（列头/行头占左上角，内容区从 (fw,fh) 起）
+    const lx = mx - off.x
+    const ly = my - off.y
+    const vw = d.viewWidth ? d.viewWidth() : 0
+    const vh = d.viewHeight ? d.viewHeight() : 0
+    // 列头 / 行头 / 画布之外都不算命中（否则表格下方的空白条会广播出屏幕外的格子）
+    if (lx < fw || ly < fh) return null
+    if (vw && lx >= vw) return null
+    if (vh && ly >= vh) return null
     const sx = (d.scroll && d.scroll.x) || 0
     const sy = (d.scroll && d.scroll.y) || 0
-    const px = mx - fw + sx
-    const py = my - fh + sy
-    if (px < 0 || py < 0) return null
+    const px = lx - fw + sx
+    const py = ly - fh + sy
     let ci = -1; let acc = 0
     for (let i = 0; i < d.cols.len; i++) { acc += d.cols.getWidth(i); if (px < acc) { ci = i; break } }
     let ri = -1; acc = 0
@@ -309,9 +318,30 @@ function syncPeers() {
 
 /**
  * 远端协作者的高亮框（在 canvas 上叠 DOM 层绘制）。
- * 坐标换算依引擎绘制逻辑：内容区原点在 (cols.indexWidth, rows.height)，再减去滚动偏移。
+ * 坐标换算依引擎绘制逻辑：内容区原点在 canvas 内的 (cols.indexWidth, rows.height)，再减滚动偏移；
+ * canvas 本身又位于工具栏下方，故还要叠加 canvasOriginOffset()。
  */
-/** 单元格 → 相对表格容器（含行头/列头）的像素矩形；引擎未就绪时返回 null */
+/**
+ * 表格 canvas 相对 .kb-sheet-canvas（= overlay 原点）的偏移。
+ * 引擎把工具栏画在 canvas 上方（可写态 40px + 1px border），只加 indexWidth/rows.height
+ * 会漏掉这段竖直偏移 → 高亮框整体偏上、鼠标反查格子也偏。这里动态量取，读写态都正确。
+ * overlay 与 canvas 同原点（.kb-sheet-stage 无内边距）。
+ */
+function canvasOriginOffset() {
+  try {
+    const root = sheetEl.value
+    if (!root) return { x: 0, y: 0 }
+    const cv = root.querySelector('.x-spreadsheet-table')
+    if (!cv) return { x: 0, y: 0 }
+    const rr = root.getBoundingClientRect()
+    const cr = cv.getBoundingClientRect()
+    return { x: cr.left - rr.left, y: cr.top - rr.top }
+  } catch {
+    return { x: 0, y: 0 }
+  }
+}
+
+/** 单元格 → 相对表格容器（含行头/列头 + 工具栏）的像素矩形；引擎未就绪时返回 null */
 function cellScreenRect(ri, ci) {
   try {
     const d = sheet?.sheet?.data
@@ -321,7 +351,8 @@ function cellScreenRect(ri, ci) {
     const sx = (d.scroll && d.scroll.x) || 0
     const sy = (d.scroll && d.scroll.y) || 0
     const r = d.cellRect(ri, ci)
-    return { x: fw + r.left - sx, y: fh + r.top - sy, w: r.width, h: r.height }
+    const off = canvasOriginOffset()
+    return { x: off.x + fw + r.left - sx, y: off.y + fh + r.top - sy, w: r.width, h: r.height }
   } catch {
     return null
   }
@@ -522,6 +553,8 @@ onMounted(() => {
       remoteBoxes: () => remoteBoxes.value,
       currentCell: () => currentCell(),
       cellScreenRect: (ri, ci) => cellScreenRect(ri, ci),
+      /** 屏幕坐标（相对 .kb-sheet-stage）→ 格子；供自动化校验鼠标反查 */
+      cellAtPoint: (mx, my) => cellAtPoint(mx, my),
       /** 节点属性快照（排查 sid/data 持久化） */
       attrs: () => {
         const raw = props.node.attrs.data || ''
