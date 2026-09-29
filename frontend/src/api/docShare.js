@@ -85,6 +85,9 @@ export const listShareDocVersions = (shareId, docId) =>
 // 恢复到指定版本（写回 title/content/yjs_state，协同端重连后生效）
 export const restoreShareDocVersion = (shareId, docId, vid) =>
   api.post('/doc-shares/' + pid(shareId, 'shareId') + '/docs/' + pid(docId, 'docId') + '/versions/' + pid(vid, 'vid') + '/restore')
+// 删除某个历史版本（只移除快照，不影响文档当前内容）
+export const deleteShareDocVersion = (shareId, docId, vid) =>
+  api.delete('/doc-shares/' + pid(shareId, 'shareId') + '/docs/' + pid(docId, 'docId') + '/versions/' + pid(vid, 'vid'))
 
 // 共享空间扩容申请（空间 OWNER/ADMIN 提交；审批在后台由完全管理员处理）
 // requestedCapacity：字节，0 = 不限

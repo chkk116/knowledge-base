@@ -578,7 +578,8 @@ watch(() => route.query.doc, async (want) => {
         <div class="title-bar">
           <input v-model="editorTitle" class="title-input" placeholder="无标题文档" :disabled="!canWrite" @change="saveTitle" />
         </div>
-        <DocShareEditor :key="activeDoc.id" :share-id="shareId" :doc-id="activeDoc.id"
+        <DocShareEditor :key="activeDoc.id + ':' + (activeDoc.yjsRev || 0)" :share-id="shareId" :doc-id="activeDoc.id"
+                        :revision="activeDoc.yjsRev || 0"
                         :can-write="docCanWrite" :legacy-content="activeDoc.content"
                         :diagram="diagramKind" @reload-document="onDocReload" />
       </main>

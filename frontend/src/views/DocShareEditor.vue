@@ -17,7 +17,7 @@ import 'driver.js/dist/driver.css'
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { updateShareDoc, saveShareDocVersion, listShareDocVersions, restoreShareDocVersion } from '../api/docShare'
+import { updateShareDoc, saveShareDocVersion, listShareDocVersions, restoreShareDocVersion, deleteShareDocVersion } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import MindmapNode from '../extensions/MindmapNode'
 import FlowchartNode from '../extensions/FlowchartNode'
@@ -103,18 +103,37 @@ function colorFor(seed) {
   return CURSOR_COLORS[h % CURSOR_COLORS.length]
 }
 
-// 创建 Yjs 文档与 Hocuspocus 中继连接（documentName = shareId:docId）
+// 创建 Yjs 文档与 Hocuspocus 中继连接。
+// documentName 规则（与 collab-relay/index.js#parseName 严格对齐）：
+//   revision = 0 → `${shareId}:${docId}`（**必须省略第三段**，中继正则第三段是 [1-9]\d*，
+//                  写成 `:0` 会被判 invalid document 直接拒连）
+//   revision > 0 → `${shareId}:${docId}:${revision}`
+// revision 由后端 yjs_rev 提供；回滚历史版本时后端把它自增，旧 revision 的房间会被中继
+// 按 yjs_rev 比对判为「document revision changed」拒连，从而强制以新 revision 重新加载恢复后的内容。
+// 此前这里写死 `${shareId}:${docId}`，回滚后（yjs_rev 已 >0）还是连旧房间 → 页面内容不变。
+const docName = (rev) => {
+  const r = Number(rev) || 0
+  return r > 0 ? `${props.shareId}:${props.docId}:${r}` : `${props.shareId}:${props.docId}`
+}
 const ydoc = new Y.Doc()
 const provider = authExpired ? null : new HocuspocusProvider({
   url: WS_URL,
-  name: `${props.shareId}:${props.docId}`,
+  name: docName(props.revision),
   token,
   document: ydoc,
   onStatus: (e) => {
     status.value = e.status
-    // 只读端每次（重）连接后都清空本地 awareness，确保本地光标/选区不被广播
+    // 只读端每次（重）连接后重建 awareness：只写 user（供表格块显示在线状态与他人看到的
+    // 「正在查看」位置），不广播文本光标/选区，避免造成「别人能移动你的光标」的错觉。
     if (e.status === 'connected' && !props.canWrite) {
-      try { provider.awareness.setLocalState(null) } catch (err) { /* ignore */ }
+      try {
+        provider.awareness.setLocalState(null)
+        provider.awareness.setLocalStateField('user', {
+          name: meName.value,
+          color: colorFor(meName.value),
+          avatar: auth.user?.avatar || '',
+        })
+      } catch (err) { /* ignore */ }
     }
     // 断线后兜底重连（后台标签页 WS 被冻结后切回前台不会自动恢复）
     if (e.status === 'disconnected') scheduleReconnect()
@@ -171,6 +190,22 @@ const editor = useEditor({
   onUpdate: () => {
     const text = editor.value?.getText() || ''
     wordCount.value = text.replace(/\s/g, '').length
+  },
+  // 把 provider 暴露给 NodeView：表格块需要 awareness 来画远端光标与在线状态。
+  // 不能只依赖 CollaborationCursor —— 它仅在 canWrite 时挂载，只读端会完全拿不到 awareness。
+  onCreate: ({ editor: ed }) => {
+    try {
+      ed.storage.kbCollab = { provider }
+      // 只读端不挂 CollaborationCursor（避免广播文本光标），但表格块的远端光标依赖 awareness，
+      // 因此这里单独写入 user，让只读端也能被别人看到「正在查看哪个格子」。
+      if (provider && !props.canWrite) {
+        provider.awareness.setLocalStateField('user', {
+          name: meName.value,
+          color: colorFor(meName.value),
+          avatar: auth.user?.avatar || '',
+        })
+      }
+    } catch (e) { /* ignore */ }
   },
 })
 
@@ -608,18 +643,38 @@ async function saveCurrentVersion() {
 }
 async function restoreVersion(v) {
   try {
-    await ElMessageBox.confirm('回滚到该版本？当前内容会先自动存为一份快照，便于随时再退回来。', '回滚版本', { type: 'warning' })
+    await ElMessageBox.confirm(
+      '将把文档内容替换为该历史版本。注意：回滚不会自动备份当前内容，如需保留请先点「保存当前版本」。',
+      '回滚版本', { type: 'warning' })
   } catch { return }
   try {
+    // 后端会写回版本内容并把 yjs_rev 自增。
     await restoreShareDocVersion(props.shareId, props.docId, v.id)
     ElMessage.success('已恢复，正在重新加载文档…')
     versionDrawer.value = false
-    // 后端把版本 yjs_state 写回 kb_shared_document，中继在客户端（重）连接时按最新状态重新下发；
-    // 先断开再连接以触发 onLoadDocument，把恢复的内容应用到编辑器。
-    try { provider.disconnect() } catch (e) { /* ignore */ }
-    setTimeout(() => { try { provider.connect() } catch (e) { /* ignore */ } }, 250)
+    // 通知父组件重拉文档：父组件的 :key 含 yjsRev，revision 变化会整体重建本组件
+    // （新 Y.Doc + 新 provider + documentName 带新 revision），从而真正加载到恢复后的协同内容。
+    // 不能只做 provider.disconnect()/connect()：那样 documentName 仍是旧 revision 的房间，
+    // 中继按 yjs_rev 比对会判 document revision changed 拒连 → 页面内容不变。
+    emit('reload-document', props.docId)
   } catch (e) {
     ElMessage.error(errMsg(e, '恢复失败'))
+  }
+}
+/** 删除某个历史版本（只移除快照，不影响文档当前内容） */
+async function removeVersion(v) {
+  if (!props.canWrite) { ElMessage.warning('只读模式不可删除版本'); return }
+  try {
+    await ElMessageBox.confirm(
+      `确定删除版本 #${v.id}（${v.title || '无标题'}）？该快照将被永久移除，不影响文档当前内容。`,
+      '删除版本', { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' })
+  } catch { return }
+  try {
+    await deleteShareDocVersion(props.shareId, props.docId, v.id)
+    ElMessage.success('已删除该版本')
+    await loadVersions()
+  } catch (e) {
+    ElMessage.error(errMsg(e, '删除失败'))
   }
 }
 const versionSnippet = (html) => {
@@ -866,7 +921,7 @@ watch(() => props.canWrite, (w) => {
         <el-button size="small" type="primary" :loading="savingVersion" :disabled="!canWrite" @click="saveCurrentVersion">
           保存当前版本
         </el-button>
-        <span class="ver-tip">每次保存编辑会自动留档；可回滚到任意历史版本。</span>
+        <span class="ver-tip">「保存当前版本」手动留档；回滚会替换当前内容（不会自动备份），可删除不需要的版本。</span>
       </div>
       <div v-loading="versionLoading" class="ver-list">
         <el-empty v-if="!versions.length" description="暂无版本（编辑保存后会自动生成）" :image-size="90" />
@@ -880,7 +935,10 @@ watch(() => props.canWrite, (w) => {
             </div>
             <div class="ver-snip" v-if="versionSnippet(v.content)">{{ versionSnippet(v.content) }}</div>
           </div>
-          <el-button size="small" type="warning" @click="restoreVersion(v)">回滚</el-button>
+          <div class="ver-acts">
+            <el-button size="small" type="warning" @click="restoreVersion(v)">回滚</el-button>
+            <el-button size="small" type="danger" plain :disabled="!canWrite" @click="removeVersion(v)">删除</el-button>
+          </div>
         </div>
       </div>
     </el-drawer>
@@ -904,6 +962,8 @@ watch(() => props.canWrite, (w) => {
 .ver-tip { color: #94a3b8; font-size: 12px; }
 .ver-list { display: flex; flex-direction: column; gap: 10px; }
 .ver-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid #eef2f7; border-radius: 10px; }
+.ver-acts { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.ver-acts :deep(.el-button + .el-button) { margin-left: 0; }
 .ver-info { min-width: 0; flex: 1; }
 .ver-t { font-weight: 600; color: #1e293b; font-size: 14px; }
 .ver-meta { color: #94a3b8; font-size: 12px; margin-top: 3px; }

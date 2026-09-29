@@ -217,6 +217,11 @@ async function persistAll() {
 
 const server = Server.configure({
   port: PORT,
+  // 监听地址（Hocuspocus 的配置项名是 address，**不是** listen() 的 host；后者会被忽略）。
+  // 默认 0.0.0.0 只收 IPv4：Windows 上浏览器访问 http://localhost:5173 常把 localhost 解析成 ::1，
+  // 此时前端 ws://localhost:1234 会连不上、表现为协同「一直连接中」。
+  // 绑 '::' 走双栈同时接受 IPv6 与 IPv4。可用 COLLAB_HOST 覆盖（如仅内网某网卡填具体 IP）。
+  address: process.env.COLLAB_HOST || '::',
   name: 'collab',
   extensions: [{
     afterUnloadDocument({ documentName, instance }) {
@@ -385,9 +390,10 @@ async function shutdown() {
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 
-server.listen({ port: PORT, host: '0.0.0.0' })
+// 监听地址由上方 Server.configure 的 address 决定（Hocuspocus 只认 address，不认 listen 的 host）。
+server.listen({ port: PORT })
   .then(() => {
-    console.log(`[relay] 共享文档协同中继已启动：ws://0.0.0.0:${PORT}`)
+    console.log(`[relay] 共享文档协同中继已启动：ws://${process.env.COLLAB_HOST || '::'}:${PORT}（双栈）`)
     console.log(`[relay] 令牌密钥 = ${SECRET === 'kb-dev-secret-please-change-this-long-string-2026' ? '默认值(与后端默认一致)' : '已通过环境变量注入'}`)
     console.log(`[relay] 数据库 = ${process.env.COLLAB_DB_HOST || 'localhost'}:${process.env.COLLAB_DB_PORT || 5432}/${process.env.COLLAB_DB_NAME || 'kb'}`)
   })

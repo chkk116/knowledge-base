@@ -115,9 +115,25 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
             // 预检端口：已被监听 = 大概率已有中继在跑（如强杀后端留下的孤儿进程）。
             // 前端只连 ws://host:1234，谁拉起的中继无所谓——直接复用，避免 EADDRINUSE 反复崩溃。
             // （本地密钥已持久化到用户目录，复用旧中继的令牌校验依然有效。）
+            //
+            // 【重要】不可在此 return 退出守护循环：孤儿中继随时可能死掉，一旦它退出而守护已放弃，
+            // 前端就会永久卡在“连接中”。正确做法是继续轮询端口，占用期间按 idle 观察，
+            // 等端口释放后自动接管拉起（下轮循环 startRelay）。
             if (portOccupied()) {
-                log.info("[relay] 端口 {} 已被监听，判定已有协同中继在运行——直接复用，不再自启", port);
-                return;
+                log.info("[relay] 端口 {} 已被监听，暂复用已有协同中继；守护继续观察，待其释放后自动接管", port);
+                // 持续观察：每 RESTART_DELAY_MS 探一次，端口空出即跳出接管；此处不计入 restarts
+                try {
+                    while (!stopping && portOccupied()) {
+                        Thread.sleep(RESTART_DELAY_MS);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                if (stopping) return;
+                log.warn("[relay] 端口 {} 已释放，本机自动接管启动协同中继…", port);
+                // 接管成功后重新计数，避免历史失败次数累计导致误放弃
+                restarts = 0;
             }
             Process p = startRelay(relayDir);
             if (p == null) {

@@ -269,6 +269,16 @@ public class DocShareController {
         return d;
     }
 
+    /** 删除某个历史版本（只移除快照，不影响文档当前内容） */
+    @DeleteMapping("/{id}/docs/{docId}/versions/{vid}")
+    public Map<String, Object> deleteDocVersion(@RequestAttribute("kbUser") TokenClaims c,
+                                               @PathVariable Long id, @PathVariable Long docId, @PathVariable Long vid) {
+        svc.deleteSharedDocVersion(id, docId, vid, resolveUserId(c), isSysAdmin(c));
+        audit.log(c.userId(), c.username(), "UPDATE_SHARE_DOC", "SHARE_DOC", docId, null,
+                "删除共享文档历史版本 #" + vid);
+        return Map.of("ok", true);
+    }
+
     // ---- 文档级权限（在空间权限之上对单篇文档单独收窄/提升） ----
 
     /** 列出某文档的权限成员：空间成员 + 各自有效权限（含是否单独设置） */

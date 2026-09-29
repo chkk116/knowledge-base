@@ -1,6 +1,6 @@
 <template>
   <NodeViewWrapper class="kb-sheet-wrap" data-type="sheet-block" @mousedown.capture="onWrapMouseDown">
-    <div class="kb-sheet" :class="{ editing }">
+    <div class="kb-sheet" :class="{ editable: canEdit }">
       <div class="kb-sheet-bar">
         <span class="kb-sheet-title">
           <svg class="kb-sheet-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
@@ -9,30 +9,49 @@
           </svg>
           {{ node.attrs.title || '电子表格' }}
         </span>
-        <span v-if="lockInfo && !isMine" class="kb-sheet-status locked">
-          🔒 {{ lockInfo.uname }} 正在编辑 · {{ lockRemainText }}后可接管
+        <span v-if="!canEdit" class="kb-sheet-status readonly">🔒 只读</span>
+        <span v-else-if="activePeer" class="kb-sheet-status editing" :style="{ color: activePeer.color }">
+          {{ activePeer.ro ? '👁' : '✎' }} {{ activePeer.name }}{{ activePeer.ro ? ' 正在查看' : ' 正在编辑' }}{{ activePeer.cell ? ' ' + activePeer.cell : '' }}
         </span>
-        <span v-else-if="editing" class="kb-sheet-status editing">你正在编辑</span>
+        <span v-else class="kb-sheet-status editing">多人可同时编辑</span>
+        <span v-if="peers.length" class="kb-sheet-peers">
+          <span
+            v-for="p in peers.slice(0, 4)"
+            :key="p.clientId"
+            class="kb-sheet-avatar"
+            :style="{ background: p.color }"
+            :title="p.name"
+          >{{ (p.name || '?').slice(0, 1) }}</span>
+          <span class="kb-sheet-peer-n">{{ peers.length }} 人在线</span>
+        </span>
         <span class="kb-sheet-actions">
-          <button v-if="!editing && canAcquire" class="kb-st-btn primary" @click="acquire">编辑</button>
-          <button
-            v-if="!editing && lockInfo && !isMine"
-            class="kb-st-btn"
-            @click="acquire"
-          >{{ lockExpired ? '强制接管' : '接管（' + lockRemainText + '）' }}</button>
-          <button v-if="editing" class="kb-st-btn primary" @click="finish">完成编辑</button>
-          <button v-if="editing" class="kb-st-btn" @click="cancel">取消</button>
+          <span class="kb-sheet-tip">点单元格直接输入 · 公式 / 填充 / 合并同 Excel</span>
         </span>
       </div>
-      <div
-        ref="sheetEl"
-        class="kb-sheet-canvas"
-        :class="{ readonly: !editing }"
-        tabindex="0"
-        @mousedown="onMouseDown"
-      ></div>
-      <div v-if="editing" class="kb-sheet-hint editing-hint">Excel 式操作：单元格输入 =SUM(A1:A10) 等公式 · 拖动选区右下角自动填充 · Ctrl+C/V 复制粘贴 · 拖行列边线调宽高 · 工具栏可合并 / 冻结 / 加边框 · 编辑期间其他人只读</div>
-      <div v-else class="kb-sheet-hint">点「编辑」后：单元格输入公式（=SUM(...)）、拖拽填充、复制粘贴、合并冻结——与 Excel 同款操作；编辑期间其他人只读</div>
+      <div class="kb-sheet-stage" @mousemove="onStageMove">
+        <div
+          ref="sheetEl"
+          class="kb-sheet-canvas"
+          :class="{ readonly: !canEdit }"
+          tabindex="0"
+          @mousedown="onMouseDown"
+        ></div>
+        <!-- 远端协作者高亮层：表格是 canvas 渲染，无法承载 DOM 光标，故在其上叠一层彩色框。
+             必须放在 sheetEl 之外——mountSheet() 会清空该容器的 innerHTML。 -->
+        <div v-if="remoteBoxes.length" class="kb-sheet-overlay">
+          <div
+            v-for="b in remoteBoxes"
+            :key="b.clientId"
+            class="kb-sheet-remote"
+            :style="{ left: b.x + 'px', top: b.y + 'px', width: b.w + 'px', height: b.h + 'px', borderColor: b.color }"
+          >
+            <span class="kb-sheet-remote-name" :style="{ background: b.color }">{{ b.name }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="kb-sheet-hint">
+        单元格改动会实时同步给协作者（含公式自动重算）；合并 / 冻结 / 行列增删等结构调整建议单人操作，避免同时改动。
+      </div>
     </div>
   </NodeViewWrapper>
 </template>
@@ -47,53 +66,283 @@ import { ElMessage } from 'element-plus'
 // CSS 是静态资源无 interop 问题，继续用 dist。代价：工具栏为英文（locale 文件也是 UMD，同理放弃）。
 import Spreadsheet from 'x-data-spreadsheet'
 import 'x-data-spreadsheet/dist/xspreadsheet.css'
-import { useAuthStore } from '../../store/auth'
+import { createSheetCollab, sheetMapName, genSheetId, structSignature } from '../../utils/sheetCollab'
 
 const props = defineProps(nodeViewProps)
-const auth = useAuthStore()
-const uid = String(auth.user?.id ?? auth.user?.username ?? 'me')
-const uname = auth.user?.displayName || auth.user?.username || '我'
+
+// 可编辑 = 文档级写权限（不再有「编辑锁」：单元格文本走 Y.Map 单元格级协同）
+const canEdit = computed(() => !!props.editor?.isEditable)
 
 const sheetEl = ref(null)
-// 编辑态从锁属性派生（而非组件内存）：Collaboration 下属性更新可能重建 NodeView，
-// 内存 ref 会被冲掉（实测：点「编辑」后 updateAttributes(locked) 导致重建，editing 丢回 false，
-// 用户一打字 PM 就把块当 NodeSelection 替换掉——表格消失的根因）。派生后重建即自愈。
-// 编辑态用本地 ref：acquire/finish 显式置位；下面的 locked watch 负责在
-// NodeView 被 Collaboration 重建后恢复状态（immediate，锁是我的即恢复编辑态）
-const editing = ref(false)
-const dirty = ref(false)
-let sheet = null        // Spreadsheet 实例
-const LOCK_TIMEOUT = 120000
+let sheet = null            // x-data-spreadsheet 实例
+let ro = null               // 尺寸观察
+let lastH = 0
 
-// ---------- 锁状态 ----------
-const lockInfo = computed(() => {
+// ---------- 协同 ----------
+let ydoc = null             // Tiptap Collaboration 的 Y.Doc（无协同环境为 null）
+let sid = ''                // 本块的稳定标识（Y.Map 的 key 前缀）
+let collab = null           // 协同驱动实例
+let localStructSig = ''     // 本地刚提交的结构签名（用于忽略自己触发的 data watch）
+let structTimer = null      // 他人结构变更后的重建防抖
+
+function resolveYdoc() {
   try {
-    return props.node.attrs.locked ? JSON.parse(props.node.attrs.locked) : null
+    const ext = props.editor?.extensionManager?.extensions?.find((e) => e.name === 'collaboration')
+    return ext?.options?.document || null
   } catch {
     return null
   }
-})
-const isMine = computed(() => !!lockInfo.value && String(lockInfo.value.uid) === uid)
-const lockExpired = computed(
-  () => !!lockInfo.value && Date.now() - Number(lockInfo.value.ts) > LOCK_TIMEOUT
-)
+}
 
-// 锁剩余时间倒计时（每秒 tick；持有者心跳刷新 ts，倒计时随之重置）
-const nowTick = ref(Date.now())
-let tickTimer = null
-const lockRemainSec = computed(() => {
-  const li = lockInfo.value
-  if (!li) return 0
-  return Math.max(0, Math.ceil((LOCK_TIMEOUT - (nowTick.value - Number(li.ts))) / 1000))
+/**
+ * 把 sid 附进工作簿数据。**始终存对象（第 1 张表），不存数组** ——
+ * 实测 getData() 返回的数组经节点属性往返后会被 Yjs 变成 {"0":{...}}，
+ * 导致 firstSheet() 取不到 rows（结构/样式丢失）。本块只支持单表，故存对象即可。
+ * 引擎会忽略未知的 sid 字段。
+ */
+function withSid(data) {
+  const wb = Array.isArray(data) ? (data[0] || {}) : (data || {})
+  return { ...wb, sid }
+}
+
+/**
+ * 确定本块标识。
+ * 优先节点属性；但属性可能因协同内容重建而丢失（例如编辑器用 HTML 快照 setContent 重建节点时），
+ * 所以再用 **data JSON 里的 sid** 兜底 —— data 已验证能可靠持久化（刷新后仍在）。
+ * 两者都没有才新生成，并把 sid 同时写进属性与 data，避免刷新后再丢（否则会分裂成两个 Y.Map）。
+ */
+function ensureSid() {
+  let s = props.node.attrs.sid || ''
+  if (!s) {
+    const d = parseData()
+    if (d && typeof d.sid === 'string') s = d.sid
+  }
+  if (!s) s = genSheetId()
+  return s
+}
+
+/**
+ * 把 sid 写回节点属性（同时写进 data，双保险）。
+ * **必须等 NodeView 位置稳定后再调用** —— 在 onMounted 里直接调 updateAttributes 会因
+ * getPos() 尚未就绪而**静默失败**（不抛异常、属性不变），导致 sid 无法持久化，
+ * 刷新后再生成新 sid、数据分裂到两个 Y.Map（实测踩坑）。
+ */
+function persistSid() {
+  if (!canEdit.value || !sid) return
+  if (props.node.attrs.sid === sid && parseData().sid === sid) return
+  try {
+    props.updateAttributes({ sid, data: JSON.stringify({ ...parseData(), sid }) })
+  } catch (e) {
+    if (import.meta.env.DEV) window.__kbSheetErr = 'persistSid: ' + String((e && e.message) || e)
+  }
+}
+
+/** 建立协同驱动（ydoc 缺失时降级为纯本地） */
+function initCollab(mapSid) {
+  collab?.destroy()
+  collab = null
+  ydoc = resolveYdoc()
+  sid = mapSid || ensureSid()
+  if (!ydoc || !sid) return
+  const ymap = ydoc.getMap(sheetMapName(sid))
+  collab = createSheetCollab({
+    ymap,
+    engine: {
+      // 注意：sheet 可能被重建，这里必须动态读取当前实例
+      cellText: (r, c, t) => { try { sheet?.cellText(r, c, t) } catch { /* 忽略 */ } },
+      reRender: () => { try { sheet?.reRender() } catch { /* 忽略 */ } overlayTick.value++ },
+    },
+    getData: () => sheetData(),
+    onStructChange: (full) => {
+      // 结构 / 样式变更：整表快照写回节点属性（LWW）。记下签名避免自己触发重建。
+      // 写回时带上 sid，保证 data 里始终有标识（见 ensureSid 的说明）。
+      localStructSig = structSignature(full)
+      try { props.updateAttributes({ data: JSON.stringify(withSid(full)) }) } catch { /* 忽略 */ }
+    },
+  })
+}
+
+/** sid 被其他端改写（老文档首次协同的竞态）：迁移数据并重建驱动 */
+function migrateSid(newSid) {
+  if (!ydoc || !newSid || newSid === sid) return
+  try {
+    const oldMap = ydoc.getMap(sheetMapName(sid))
+    const newMap = ydoc.getMap(sheetMapName(newSid))
+    if (newMap.size === 0 && oldMap.size > 0) {
+      ydoc.transact(() => { oldMap.forEach((v, k) => newMap.set(k, v)) })
+    }
+  } catch { /* 忽略 */ }
+  initCollab(newSid)
+  nextTick(() => mountSheet())
+}
+
+// ---------- 在线协作者（Yjs awareness） ----------
+// 单元格文本走 Y.Map 后不再有「编辑锁」，但用户仍需要看到「谁在线 / 谁在改这张表」，
+// 因此用 awareness：①列出在线用户头像；②广播自己是否正在本表里（含所处单元格）。
+const peers = ref([])          // 其它在线用户 [{clientId, name, color, here, ri, ci}]
+const activePeer = ref(null)   // 正在编辑本表的协作者 {name, color, ri, ci, cell}
+const overlayTick = ref(0)     // 引擎重绘 / 滚动后自增，驱动高亮层重算（sheet 实例非响应式）
+let awareness = null
+let awarenessHandler = null
+let overlayTimer = null
+
+function resolveAwareness() {
+  try {
+    // 1) 优先：宿主（DocShareEditor）注入的 provider —— 只读端也能拿到
+    //    （CollaborationCursor 只在 canWrite 时挂载，只读端从扩展里取不到）
+    const injected = props.editor?.storage?.kbCollab?.provider
+    if (injected && injected.awareness) return injected.awareness
+    // 2) 兜底：CollaborationCursor 扩展持有的 provider
+    const ext = props.editor?.extensionManager?.extensions?.find((e) => e.name === 'collaborationCursor')
+    return ext?.options?.provider?.awareness || null
+  } catch {
+    return null
+  }
+}
+
+/** 0→A, 25→Z, 26→AA */
+function colLabel(ci) {
+  let s = ''
+  let n = ci
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1 } while (n >= 0)
+  return s
+}
+
+/** 当前选中的格子（如 C3）；取不到返回空 */
+function currentCellLabel() {
+  try {
+    const sel = sheet?.sheet?.data?.selector
+    if (!sel || sel.ri == null || sel.ci == null) return ''
+    return colLabel(sel.ci) + (sel.ri + 1)
+  } catch {
+    return ''
+  }
+}
+
+/** 当前选中格的行列号；取不到返回 null */
+function currentCell() {
+  try {
+    const sel = sheet?.sheet?.data?.selector
+    if (!sel || sel.ri == null || sel.ci == null) return null
+    return { ri: sel.ri, ci: sel.ci }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 广播「我在本表的哪个格子」（供他人画出高亮框）。
+ * 传 null 表示离开本表。注意广播的是**行列号**而非标签，便于对方换算成像素位置。
+ */
+function setFocus(arg) {
+  if (!awareness) return
+  try {
+    if (arg === null) { awareness.setLocalStateField('sheetFocus', null); return }
+    const c = arg && typeof arg.ri === 'number' ? arg : currentCell()
+    // 只读端也广播（ro 标记）—— 让可写端能看到「某人正在查看 C3」。
+    awareness.setLocalStateField('sheetFocus', c ? { sid, ri: c.ri, ci: c.ci, ro: !canEdit.value } : null)
+  } catch { /* ignore */ }
+}
+
+/**
+ * 屏幕坐标（相对表格容器）→ 单元格。只读端的 canvas 是 pointer-events:none 点不到，
+ * 只能靠 mousemove 反推位置，因此需要这个换算（引擎只提供正向的 cellRect）。
+ */
+function cellAtPoint(mx, my) {
+  try {
+    const d = sheet?.sheet?.data
+    if (!d || !d.cols || !d.rows) return null
+    const fw = d.cols.indexWidth
+    const fh = d.rows.height
+    const sx = (d.scroll && d.scroll.x) || 0
+    const sy = (d.scroll && d.scroll.y) || 0
+    const px = mx - fw + sx
+    const py = my - fh + sy
+    if (px < 0 || py < 0) return null
+    let ci = -1; let acc = 0
+    for (let i = 0; i < d.cols.len; i++) { acc += d.cols.getWidth(i); if (px < acc) { ci = i; break } }
+    let ri = -1; acc = 0
+    for (let i = 0; i < d.rows.len; i++) { acc += d.rows.getHeight(i); if (py < acc) { ri = i; break } }
+    return (ri >= 0 && ci >= 0) ? { ri, ci } : null
+  } catch {
+    return null
+  }
+}
+
+let moveThrottle = 0
+/** 鼠标在表格区域移动 → 广播所在格子（节流）。可写/只读端都走这条路，比只在点击时广播灵敏得多。 */
+function onStageMove(e) {
+  if (!awareness) return
+  const now = Date.now()
+  if (now - moveThrottle < 180) return
+  moveThrottle = now
+  const el = e.currentTarget
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  const c = cellAtPoint(e.clientX - r.left, e.clientY - r.top)
+  if (c) setFocus(c)
+}
+
+/** 读取在线用户，并判断谁正在编辑本表 */
+function syncPeers() {
+  if (!awareness) return
+  const states = awareness.getStates?.() || new Map()
+  const me = awareness.clientID
+  const list = []
+  let act = null
+  states.forEach((st, cid) => {
+    const u = st && st.user
+    if (!u || cid === me) return
+    const name = u.name || '协作者'
+    const color = u.color || '#10b981'
+    const f = st.sheetFocus
+    // here = 该协作者此刻正位于**本表格块**内
+    const here = !!(f && f.sid === sid && typeof f.ri === 'number' && typeof f.ci === 'number')
+    const ro = !!(f && f.ro)
+    list.push({ clientId: cid, name, color, here, ro, ri: here ? f.ri : null, ci: here ? f.ci : null })
+    if (here) act = { clientId: cid, name, color, ro, ri: f.ri, ci: f.ci, cell: colLabel(f.ci) + (f.ri + 1) }
+  })
+  peers.value = list
+  activePeer.value = act
+  overlayTick.value++
+}
+
+/**
+ * 远端协作者的高亮框（在 canvas 上叠 DOM 层绘制）。
+ * 坐标换算依引擎绘制逻辑：内容区原点在 (cols.indexWidth, rows.height)，再减去滚动偏移。
+ */
+/** 单元格 → 相对表格容器（含行头/列头）的像素矩形；引擎未就绪时返回 null */
+function cellScreenRect(ri, ci) {
+  try {
+    const d = sheet?.sheet?.data
+    if (!d || !d.cols || !d.rows) return null
+    const fw = d.cols.indexWidth
+    const fh = d.rows.height
+    const sx = (d.scroll && d.scroll.x) || 0
+    const sy = (d.scroll && d.scroll.y) || 0
+    const r = d.cellRect(ri, ci)
+    return { x: fw + r.left - sx, y: fh + r.top - sy, w: r.width, h: r.height }
+  } catch {
+    return null
+  }
+}
+
+/** 远端协作者高亮框（超出容器的部分由 overlay 的 overflow:hidden 裁掉） */
+function computeRemoteBoxes() {
+  const out = []
+  if (!sheet || !peers.value.length) return out
+  peers.value.forEach((p) => {
+    if (!p.here || p.ri == null || p.ci == null) return
+    const b = cellScreenRect(p.ri, p.ci)
+    if (b) out.push({ clientId: p.clientId, name: p.name, color: p.color, ...b })
+  })
+  return out
+}
+const remoteBoxes = computed(() => {
+  // 依赖 overlayTick 以便滚动/重绘后重算（sheet 实例不是响应式的）
+  void overlayTick.value
+  return computeRemoteBoxes()
 })
-const lockRemainText = computed(() => {
-  const sec = lockRemainSec.value
-  if (sec <= 0) return '可接管'
-  const m = Math.floor(sec / 60), ss = sec % 60
-  return (m > 0 ? m + '分' : '') + ss + '秒'
-})
-const canAcquire = computed(() => props.editor.isEditable && !editing.value &&
-  (!lockInfo.value || isMine.value || lockExpired.value))
 
 // ---------- 数据解析 ----------
 function parseData() {
@@ -103,12 +352,11 @@ function parseData() {
     return {}
   }
 }
+function sheetData() {
+  try { return sheet ? sheet.getData() : parseData() } catch { return parseData() }
+}
 
 // ---------- 引擎挂载 / 重建 ----------
-// 编辑态与只读态的构造选项不同（工具栏/右键菜单），切态即重建实例；
-// 只读态用 CSS pointer-events:none 禁交互（canvas 预览，内容照常渲染）。
-let ro = null            // 容器尺寸观察：初始布局延迟/窗口变化时以实际尺寸重建引擎
-let lastH = 0
 function mountSheet() {
   if (sheet) { try { sheet.destroy?.() } catch { /* 无 destroy 则随 innerHTML 清理 */ } }
   sheet = null
@@ -117,19 +365,18 @@ function mountSheet() {
   el.innerHTML = ''
   sheet = new Spreadsheet(el, {
     mode: 'edit',
-    showToolbar: editing.value,
+    showToolbar: canEdit.value,
     showGrid: true,
-    showContextmenu: editing.value,
+    showContextmenu: canEdit.value,
     // 高度取容器实际值（flex 链分配后的剩余高度），引擎内部按此绘制
     view: { height: () => (el.clientHeight || 420), width: () => (el.clientWidth || 800) },
     row: { len: 100, height: 25 },
     col: { len: 26, width: 100, indexWidth: 60, minWidth: 60 },
   })
-    .loadData(parseData())
-    .change(() => {
-      if (!editing.value) return   // 只读端绝不写回
-      dirty.value = true
-    })
+  // 协同环境下以 Y.Map 为准（含他人已填的单元格），否则用节点数据
+  sheet.loadData(collab ? collab.buildData(parseData()) : parseData())
+  sheet.change(onEngineChange)
+
   // 尺寸观察：mount 那一刻 flex 布局可能尚未稳定（读取高度偏差 → 底部空隙），
   // 尺寸变化超过阈值时按新尺寸重建一次（防抖）
   if (ro) ro.disconnect()
@@ -144,11 +391,19 @@ function mountSheet() {
   ro.observe(el)
 }
 
+/** 引擎数据变化（本地编辑）→ 交给驱动：文本写 Y.Map、结构样式写回节点属性 */
+function onEngineChange() {
+  if (!canEdit.value) return
+  try { collab?.onLocalChange() } catch { /* 忽略 */ }
+  // 本地编辑即视为「在本表活跃」，并把所处格子广播出去（供他人看到「xx 正在编辑 C3」）
+  setFocus()
+}
+
 // ---------- 事件拦截（防 ProseMirror 抢焦点 / 吃键盘） ----------
 // 只读态：块区域 pointer-events:none 会让点击穿透到 PM 产生 NodeSelection，
 // 随后任意打字都会删块——在 wrapper 捕获层直接吞掉点击
 function onWrapMouseDown(e) {
-  if (!editing.value) { e.stopPropagation(); e.preventDefault() }
+  if (!canEdit.value) { e.stopPropagation(); e.preventDefault() }
 }
 function onMouseDown(e) {
   e.stopPropagation()
@@ -156,16 +411,18 @@ function onMouseDown(e) {
   if (active && active !== document.body && active.closest?.('.ProseMirror')) {
     try { active.blur() } catch { /* ignore */ }
   }
-  if (editing.value && sheetEl.value) sheetEl.value.focus({ preventScroll: true })
+  if (canEdit.value && sheetEl.value) sheetEl.value.focus({ preventScroll: true })
+  // 广播「我在本表」+ 所处格子（等引擎更新完选区再读）
+  if (canEdit.value) setTimeout(() => setFocus(), 0)
 }
 
-// 键盘统一在 document 捕获阶段拦截（编辑态）：
+// 键盘统一在 document 捕获阶段拦截（可编辑态）：
 //  - 焦点在 ProseMirror 时打字，PM 会用字符「替换」被 NodeSelection 选中的本块 → 表格消失（真实环境实测复现）
 //  - x-data-spreadsheet 的键盘监听绑在 window 上；PM 根是 target 时容器冒泡层拦不到，必须在 document capture 层处理
+let roTipTs = 0   // 只读提示节流
 const docKeyDownCapture = (e) => {
-  // 只读态保护：焦点在 PM 且 NodeSelection 选中的是本块时，打字会把块替换成文本（删块）——
-  // 拦截并提示去点「编辑」。普通模式下的正文打字不受影响（选中的不是本块就不拦）。
-  if (!editing.value) {
+  // 只读态保护：焦点在 PM 且 NodeSelection 选中的是本块时，打字会把块替换成文本（删块）——拦截并提示。
+  if (!canEdit.value) {
     const ae = document.activeElement
     if (ae && ae.closest && ae.closest('.ProseMirror')) {
       try {
@@ -175,7 +432,7 @@ const docKeyDownCapture = (e) => {
           e.preventDefault()
           if (Date.now() - roTipTs > 3000) {
             roTipTs = Date.now()
-            ElMessage.warning('当前为只读预览，点击右上「编辑」后即可修改')
+            ElMessage.warning('当前为只读，无编辑权限')
           }
         }
       } catch { /* ignore */ }
@@ -200,108 +457,116 @@ const docKeyDownCapture = (e) => {
   }
 }
 
-// ---------- 编辑锁生命周期 ----------
-// 锁心跳：编辑中每 60s 续一次 locked.ts，避免 2 分钟超时把派生编辑态踢出
-let lockHeartbeat = null
-let roTipTs = 0   // 只读提示节流
-function startHeartbeat() {
-  stopHeartbeat()
-  lockHeartbeat = setInterval(() => {
-    if (!editing.value) return stopHeartbeat()
-    try {
-      props.updateAttributes({ locked: JSON.stringify({ uid, uname, ts: Date.now() }) })
-    } catch { /* ignore */ }
-  }, 60000)
-}
-function stopHeartbeat() {
-  if (lockHeartbeat) { clearInterval(lockHeartbeat); lockHeartbeat = null }
-}
-function acquire() {
-  if (lockInfo.value && !isMine.value && !lockExpired.value) {
-    ElMessage.warning('「' + lockInfo.value.uname + '」正在编辑，约 ' + lockRemainText.value + ' 后可接管（对方关闭页面或掉线会提前释放）')
-    return
-  }
-  dirty.value = false
-  editing.value = true   // 本地立即生效；locked 属性随后经 Yjs 同步（watch 同步态，重建也恢复）
-  // 写锁 → 属性经 Yjs 同步，其他端看到「xxx 正在编辑」
-  props.updateAttributes({
-    locked: JSON.stringify({ uid, uname, ts: Date.now() }),
-  })
-  startHeartbeat()
-  nextTick(() => mountSheet())   // 重建为带工具栏的编辑态
-}
-function sheetData() {
-  try { return sheet ? sheet.getData() : parseData() } catch { return parseData() }
-}
-function finish() {
-  if (dirty.value) {
-    props.updateAttributes({
-      data: JSON.stringify(sheetData()),
-      locked: '',
-    })
-  } else {
-    props.updateAttributes({ locked: '' })
-  }
-  dirty.value = false
-  stopHeartbeat()
-  // 锁清空 → editing 派生为 false，watch 以只读态重建实例（渲染最新数据）
-}
-function cancel() {
-  // 释放锁即可：data 从未落盘，locked 清空后 watch 触发只读重建即回滚
-  props.updateAttributes({ locked: '' })
-  dirty.value = false
-  stopHeartbeat()
-}
-
-// 数据/锁/编辑态变化：非编辑态时重建渲染最新数据（含协作者的改动）
+// 节点数据变化：结构 / 样式被**他人**改动（合并、冻结、行高、格式）→ 重建引擎以反映。
+// 自己刚提交的变更通过签名比对跳过，避免打断正在编辑的单元格。
 watch(
-  [() => props.node.attrs.data, () => props.node.attrs.locked, editing],
+  () => props.node.attrs.data,
   () => {
-    if (editing.value) return   // 编辑中不被外部刷新打断
-    nextTick(() => mountSheet())
-  },
-  { immediate: false }
-)
-
-// 锁属性变化 → 同步编辑态（含 NodeView 重建后的恢复：immediate 时锁是我的即回到编辑态）
-watch(
-  () => props.node.attrs.locked,
-  (v) => {
-    try {
-      const li = v ? JSON.parse(v) : null
-      editing.value = !!li && String(li.uid) === uid
-    } catch {
-      editing.value = false
-    }
-  },
-  { immediate: true }
-)
-
-// 把编辑中数据从引擎内存落回节点属性（『转为普通文档』前由编辑器派发事件触发，
-// 防转换时拿到空 data 导致表格/图块内容丢失）
-function flushData() {
-  if (editing.value && dirty.value) {
-    try { props.updateAttributes({ data: JSON.stringify(sheetData()) }) } catch { /* ignore */ }
+    if (!sheet) return
+    const sig = structSignature(parseData())
+    if (sig === localStructSig) return
+    clearTimeout(structTimer)
+    structTimer = setTimeout(() => nextTick(() => mountSheet()), 250)
   }
+)
+
+// 块标识变化：
+//  ① 被其他端写入 / 改写 → 迁移并重建驱动；
+//  ② 被外部重建清空 → 补写。典型场景：编辑器 onSynced 时用 HTML 快照 setContent 重建节点，
+//     会把刚写入的 sid 冲掉；不补写则每次刷新都生成新 sid，数据分裂到多个 Y.Map（实测踩到）。
+watch(
+  () => props.node.attrs.sid,
+  (v) => {
+    if (v) {
+      if (v !== sid) migrateSid(v)
+      return
+    }
+    if (sid && canEdit.value) {
+      try { props.updateAttributes({ sid }) } catch { /* 只读或卸载晚期忽略 */ }
+    }
+  }
+)
+
+// 把当前数据（含最新单元格文本）落回节点属性（『转为普通文档』前由编辑器派发事件触发，
+// 防转换时拿到空 data 导致表格内容丢失）
+function flushData() {
+  if (!canEdit.value) return
+  try { props.updateAttributes({ data: JSON.stringify(withSid(sheetData())) }) } catch { /* ignore */ }
 }
 
 onMounted(() => {
-  tickTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
   document.addEventListener('keydown', docKeyDownCapture, true)
-  nextTick(() => mountSheet())
   window.addEventListener('kb:flush-diagram', flushData)
+  initCollab()
+  // 在线协作者：awareness 由 CollaborationCursor 扩展持有（NodeView 只能这样拿到 provider）
+  awareness = resolveAwareness()
+  if (awareness) {
+    awarenessHandler = () => syncPeers()
+    try { awareness.on('change', awarenessHandler) } catch { /* ignore */ }
+    syncPeers()
+  }
+  // 引擎的滚动由它内部管理（不触发 DOM scroll 事件），用轻量定时器跟随重算高亮位置
+  overlayTimer = setInterval(() => {
+    if (peers.value.some((p) => p.here)) overlayTick.value++
+  }, 400)
+  // 开发态调试钩子：供自动化测试直接驱动引擎（走 setCellText(...,'input')，
+  // 与用户输入同样会触发引擎 change，因此能真实覆盖「本地 → Y.Map」同步链路）。
+  // import.meta.env.DEV 在生产构建中为 false，整块会被 tree-shake 掉。
+  if (import.meta.env.DEV) {
+    window.__kbSheetDebug = {
+      sid: () => sid,
+      canEdit: () => canEdit.value,
+      getData: () => sheetData(),
+      peers: () => peers.value,
+      activePeer: () => activePeer.value,
+      remoteBoxes: () => remoteBoxes.value,
+      currentCell: () => currentCell(),
+      cellScreenRect: (ri, ci) => cellScreenRect(ri, ci),
+      /** 节点属性快照（排查 sid/data 持久化） */
+      attrs: () => {
+        const raw = props.node.attrs.data || ''
+        let dataSid = null
+        try { dataSid = JSON.parse(raw || '{}').sid || null } catch { /* ignore */ }
+        return { sid: props.node.attrs.sid || '', dataLen: raw.length, dataSid, dataHead: raw.slice(0, 160) }
+      },
+      /** 模拟用户在某格输入（触发 change → 协同同步） */
+      typeCell: (r, c, text) => {
+        try { sheet?.sheet?.data?.setCellText(r, c, text, 'input'); return true } catch { return false }
+      },
+      /** 当前 Y.Map 快照（若在协同环境） */
+      ymapSnapshot: () => {
+        try {
+          const m = ydoc?.getMap(sheetMapName(sid))
+          const o = {}
+          m?.forEach((v, k) => { o[k] = String(v) })
+          return o
+        } catch { return null }
+      },
+    }
+  }
+  nextTick(() => {
+    // 写回 sid（必须等 NodeView 位置稳定，见 persistSid 说明）
+    persistSid()
+    // 首次进入协同：把本地文本播种进 Y.Map 并开始监听远程变更
+    try { collab?.bootstrap(parseData()) } catch { /* 忽略 */ }
+    mountSheet()
+  })
 })
+
 onBeforeUnmount(() => {
-  clearInterval(tickTimer)
+  clearTimeout(structTimer)
   window.removeEventListener('kb:flush-diagram', flushData)
   document.removeEventListener('keydown', docKeyDownCapture, true)
-  stopHeartbeat()
-  // 编辑中直接卸载：尽量把已做的改动落盘（锁会随落盘/超时释放）
-  if (editing.value && dirty.value) {
-    try {
-      props.updateAttributes({ data: JSON.stringify(sheetData()), locked: '' })
-    } catch { /* 卸载晚期属性更新可能失败 */ }
+  setFocus(null)   // 离开本表：撤销 awareness 里的「正在编辑」标记
+  if (awareness && awarenessHandler) {
+    try { awareness.off('change', awarenessHandler) } catch { /* ignore */ }
   }
+  awarenessHandler = null
+  awareness = null
+  if (overlayTimer) { clearInterval(overlayTimer); overlayTimer = null }
+  collab?.destroy()
+  collab = null
+  if (ro) { ro.disconnect(); ro = null }
   if (sheet) { try { sheet.destroy?.() } catch { /* ignore */ } }
   sheet = null
 })
@@ -315,7 +580,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: #fff;
 }
-.kb-sheet.editing { border-color: #10b981; }
+.kb-sheet.editable { border-color: #10b981; }
 .kb-sheet-bar {
   display: flex;
   align-items: center;
@@ -328,9 +593,20 @@ onBeforeUnmount(() => {
 .kb-sheet-title { font-weight: 600; color: #334155; display: inline-flex; align-items: center; gap: 6px; }
 .kb-sheet-ico { flex: none; }
 .kb-sheet-status { font-size: 12px; }
-.kb-sheet-status.locked { color: #d97706; }
+.kb-sheet-status.readonly { color: #94a3b8; }
 .kb-sheet-status.editing { color: #10b981; }
-.kb-sheet-actions { margin-left: auto; display: flex; gap: 8px; }
+/* 在线协作者头像 */
+.kb-sheet-peers { display: inline-flex; align-items: center; gap: 4px; }
+.kb-sheet-avatar {
+  width: 20px; height: 20px; border-radius: 50%;
+  color: #fff; font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(15, 23, 42, .06);
+  user-select: none;
+}
+.kb-sheet-peer-n { font-size: 12px; color: #94a3b8; margin-left: 2px; }
+.kb-sheet-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.kb-sheet-tip { font-size: 12px; color: #94a3b8; }
 .kb-st-btn {
   border: 1px solid var(--border, #e5e7eb);
   background: #fff;
@@ -342,8 +618,21 @@ onBeforeUnmount(() => {
 }
 .kb-st-btn.primary { background: #10b981; border-color: #10b981; color: #fff; }
 .kb-st-btn:hover { opacity: 0.88; }
+.kb-sheet-stage { position: relative; }
 .kb-sheet-canvas { height: 420px; position: relative; }
 .kb-sheet-canvas.readonly { pointer-events: none; }
+/* 远端协作者高亮层（叠在 canvas 之上，不拦交互） */
+.kb-sheet-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 3; }
+.kb-sheet-remote {
+  position: absolute; box-sizing: border-box;
+  border: 2px solid #10b981; border-radius: 2px;
+  transition: left .12s ease, top .12s ease, width .12s ease, height .12s ease;
+}
+.kb-sheet-remote-name {
+  position: absolute; left: -2px; top: -17px;
+  padding: 0 5px; border-radius: 3px 3px 3px 0;
+  color: #fff; font-size: 11px; line-height: 16px; white-space: nowrap; font-weight: 600;
+}
 .kb-sheet-canvas .x-spreadsheet { width: 100%; }
 .kb-sheet-hint {
   padding: 5px 12px;

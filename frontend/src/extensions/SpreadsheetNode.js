@@ -1,8 +1,10 @@
-// 电子表格块：Tiptap 原子节点，数据为 x-data-spreadsheet 引擎的工作簿 JSON 字符串
-// （getData() 的同构对象：{styles,merges,rows,cols,...}）。
-// 支持单元格公式（=SUM(A1:A10) 等）、自动填充、复制粘贴、行列拖拽、合并、冻结、数据校验——
-// 外观与手感对齐 Excel。协同策略同思维导图/流程图：节点属性经 Yjs 自动同步；编辑走「编辑锁」
-// （锁 = 节点属性 locked，内容 {uid, uname, ts}），其他人只读实时渲染（canvas 预览禁交互）。
+// 电子表格块：Tiptap 原子节点。
+// 数据分两层：
+//   1) data —— x-data-spreadsheet 引擎的工作簿 JSON 字符串（样式 / 合并 / 冻结 / 行列结构），
+//      经节点属性由 Yjs 同步（整表粒度，LWW）。
+//   2) 单元格文本 —— 由 utils/sheetCollab.js 驱动写入 Y.Map（key "r:c"），**单元格级**协同，
+//      支持多人同时编辑不同格子；公式由各端本地按同步后的数据重算，结果自然一致。
+// sid 为该块在 Y.Doc 中的稳定标识（Y.Map 的 key 前缀），首次挂载时生成并写回属性。
 import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import SpreadsheetBlock from '../components/editor/SpreadsheetBlock.vue'
@@ -16,8 +18,10 @@ export default Node.create({
 
   addAttributes() {
     return {
-      data: { default: '' },   // 工作簿 JSON 字符串（见上）
-      locked: { default: '' }, // 编辑锁：{uid, uname, ts} JSON 字符串，空 = 无人编辑
+      data: { default: '' },   // 工作簿 JSON 字符串（样式 / 结构 / 兼容快照）
+      sid: { default: '' },    // 协同标识：Y.Map('kb-sheet:'+sid) 存单元格文本
+      // 已废弃：早期用编辑锁（一次一人）实现协同，现改为单元格级协同。保留定义以兼容老文档。
+      locked: { default: '' },
       title: { default: '电子表格' },
     }
   },

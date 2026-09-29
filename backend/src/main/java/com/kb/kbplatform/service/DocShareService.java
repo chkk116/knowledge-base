@@ -716,7 +716,10 @@ public class DocShareService {
         return sharedDocVerRepo.findBySharedDocIdOrderByCreatedAtDesc(docId);
     }
 
-    /** 恢复到指定版本：写回 title/content/yjs_state；协同端下次加载（重连）即生效。恢复前自动留一份当前快照 */
+    /** 恢复到指定版本：写回 title/content/yjs_state；协同端下次加载（重连）即生效。
+     *  **不再自动生成快照**：早期实现在回滚前无条件调用 snapshotSharedDoc，
+     *  导致「每回滚一次就多出一条版本记录」，版本列表被回滚动作本身污染（用户反馈）。
+     *  如需保留回滚前的内容，请先显式调用 {@link #snapshotSharedDoc}（前端「保存当前版本」按钮）。 */
     @Transactional(rollbackFor = Exception.class)
     public SharedDocument restoreSharedDocVersion(Long shareId, Long docId, Long vid, Long editorId, boolean sysAdmin) {
         SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
@@ -726,7 +729,6 @@ public class DocShareService {
         if (!v.getSharedDocId().equals(docId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该版本不属于此文档");
         if (!canAdminDoc(shareId, docId, editorId, sysAdmin) && !d.getOwnerId().equals(editorId))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间/文档管理员权限或文档所有者身份");
-        snapshotSharedDoc(shareId, docId, editorId, sysAdmin);   // 恢复前先存当前快照，便于回退
         d.setTitle(v.getTitle());
         d.setContent(v.getContent());
         d.setYjsState(v.getYjsState());   // 写回 Yjs 状态；协同端重连后 onLoadDocument 会加载此状态
@@ -739,6 +741,20 @@ public class DocShareService {
         if (s != null) { s.setUpdatedAt(LocalDateTime.now()); shareRepo.save(s); }
         fillDocOwnerName(saved);
         return saved;
+    }
+
+    /** 删除某个历史版本。版本只是快照，删除**不影响文档当前内容**，仅从版本列表移除。
+     *  权限与回滚一致：需空间/文档管理员，或文档所有者。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteSharedDocVersion(Long shareId, Long docId, Long vid, Long editorId, boolean sysAdmin) {
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        SharedDocVersion v = sharedDocVerRepo.findById(vid)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "版本不存在"));
+        if (!v.getSharedDocId().equals(docId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该版本不属于此文档");
+        if (!canAdminDoc(shareId, docId, editorId, sysAdmin) && !d.getOwnerId().equals(editorId))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间/文档管理员权限或文档所有者身份");
+        sharedDocVerRepo.delete(v);
     }
 
     /** 字节数转人类可读（用于配额报错文案），如 1.2 GB */

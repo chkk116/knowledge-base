@@ -259,13 +259,13 @@ function roundPolyline(pts, r) {
 
 /**
  * 自定义连线：
- *   · 横向连接（左右出入）→ 先水平离开、再垂直拐半程、再水平收进目标。
- *     只要两个节点高度不一致，就必须有一次垂直位移；把它放在「两端各半」的对称位置，
- *     视觉上就是一条居中的水平干线（而不是 smoothstep 那条贴着一端的 Z 形台阶），
- *     用户不用再手动对齐节点。
+ *   · 横向连接（左右出入）→ **默认一个弯**：「水平离开 → 竖直一次走完高差 → 水平收进」，
+ *     竖直段放在目标节点前一点（nub），与 Xmind 等同侧连线的观感一致。
+ *     （早期版本取两端 y 中点会产生两个弯的 Z 形台阶，用户明确要求改掉。）
+ *     仅当一个弯放不下（水平间距过窄）或被路上节点挡住时，才退化成
+ *     「出→竖直→水平干线→竖直→进」两个弯并绕障。
  *   · 纵向连接（上下出入）→ 同理，改成「竖直—水平—竖直」。
- *   · 另外把「路上的节点」当作障碍绕开，避免视线穿模。
- * 所有拐角统一走 roundPolyline，绝不会自相交。
+ *   · 所有拐角统一走 roundPolyline，绝不会自相交。
  */
 const MindEdge = defineComponent({
   name: 'MindEdge',
@@ -292,38 +292,64 @@ const MindEdge = defineComponent({
       const obstacles = horizontal ? siblingRects(p.source, p.target) : []
 
       if (horizontal) {
-        const b = Math.sign(p2[0] - p1[0]) || 1      // 水平行进方向
-        const u = Math.sign(p2[1] - p1[1]) || 0      // 纵向偏离方向（0 = 同高）
+        const b = Math.sign(p2[0] - p1[0]) || 1      // 水平行进方向（+1 向右 / -1 向左）
         const dx = Math.abs(p2[0] - p1[0])
-        // 口子留多宽：太窄则圆角吃满，观感变差
-        const nub = Math.max(6, Math.min(12, dx / 4))
-        const pts = [p1]
         const dy = Math.abs(p2[1] - p1[1])
-        // 同高时默认向上绕（脑图里向下绕更容易撞上下一行）
-        const up = u !== 0 ? u < 0 : true
-        // 中间干线的 y：先取两端中线（视觉上最"平"）
-        let yMid = p1[1] + u * dy / 2
-        const xLo = Math.min(p1[0], p2[0]), xHi = Math.max(p1[0], p2[0])
-        let blocked = false
-        for (const r of obstacles) {
-          if (r.x1 <= xLo || r.x0 >= xHi) continue          // 不在本段水平区间内
-          if (r.y1 + MARGIN <= yMid || r.y0 - MARGIN >= yMid) continue   // 没挡住干线
-          const above = r.y0 - MARGIN      // 从障碍上方走的候选高度
-          const below = r.y1 + MARGIN      // 从障碍下方走的候选高度
-          // 同高时 yMid 就压在障碍上，没有"半程高度"可依，必须真让位；
-          // 有高差时只允许朝行进方向让（避免来回折返）。
-          if (up) yMid = Math.min(yMid, above)
-          else yMid = Math.max(yMid, below)
-          blocked = true
-        }
-        if (!blocked && dy < 2) {
-          // 两端基本同高（含拖拽后的亚像素抖动）且无遮挡：一条直线最干净，
-          // 不要为了 0.x px 的高度差画出一段肉眼看不见的微弯。
-          pts.push([p2[0], p1[1]])
+        const pts = [p1]
+
+        // 同高（含拖拽后的亚像素抖动）：一条直线最干净
+        if (dy < 2) {
+          pts.push(p2)
           return simple(pts)
         }
-        pts.push([p1[0] + b * nub, p1[1]], [p1[0] + b * nub, yMid])
-        pts.push([p2[0] - b * nub, yMid], [p2[0] - b * nub, p2[1]], p2)
+
+        // 默认走「一个弯」：出 → 水平 → 竖直一次走完全部高差 → 水平进。
+        // 竖直段放在目标节点前 nub 处（不要贴死节点，留一点水平收尾）。
+        // 注意：一个弯只有一个中间竖直段，因此无法绕障——绕障需要额外的水平段（见下方退化分支）。
+        const nub = Math.min(14, Math.max(4, dx / 4))
+        const xTurn = p2[0] - b * nub
+        const canSingleTurn = (b > 0 && xTurn > p1[0] + 1) || (b < 0 && xTurn < p1[0] - 1)
+
+        // 绕障检查：一个弯方案里，竖直段是一条位于 x=xTurn 的竖线（从 p1[1] 到 p2[1]）。
+        // 只有当它**真的穿过**某个障碍矩形内部时才判为被挡。
+        // 注意不能用宽 MARGIN 去撞——目标节点正下方/正上方的兄弟节点常紧贴 xTurn，
+        // 用 14px 余量会把这些"看似邻近但并未相交"的节点误判成障碍，
+        // 导致本该一个弯的连线被迫退化成两个弯（用户截图那个问题就是这么来的）。
+        const TURN_PAD = 4
+        let blocked = false
+        if (canSingleTurn && obstacles.length) {
+          const yTop = Math.min(p1[1], p2[1])
+          const yBot = Math.max(p1[1], p2[1])
+          for (const r of obstacles) {
+            // 竖线 x 是否落在障碍的横向范围内（留 4px 余量）
+            if (xTurn < r.x0 - TURN_PAD || xTurn > r.x1 + TURN_PAD) continue
+            // 障碍的纵向范围是否与竖直段重叠（留 4px 余量）
+            if (r.y1 + TURN_PAD <= yTop || r.y0 - TURN_PAD >= yBot) continue
+            blocked = true
+            break
+          }
+        }
+
+        if (canSingleTurn && !blocked) {
+          pts.push([xTurn, p1[1]], [xTurn, p2[1]], p2)
+          return simple(pts)
+        }
+
+        // 退化：一个弯放不下或被挡 → 「出 → 竖直 → 水平干线 → 竖直 → 进」（两个弯），
+        // 干线取两端 y 中点，必要时上/下让位以绕开路上的节点。
+        const u = Math.sign(p2[1] - p1[1]) || 0
+        const up = u !== 0 ? u < 0 : true      // 同高时默认向上绕（向下更容易撞下一行）
+        let yMid = p1[1] + u * dy / 2
+        const xLo = Math.min(p1[0], p2[0]), xHi = Math.max(p1[0], p2[0])
+        for (const r of obstacles) {
+          if (r.x1 <= xLo || r.x0 >= xHi) continue                        // 不在本段水平区间内
+          if (r.y1 + MARGIN <= yMid || r.y0 - MARGIN >= yMid) continue    // 没挡住干线
+          if (up) yMid = Math.min(yMid, r.y0 - MARGIN)
+          else yMid = Math.max(yMid, r.y1 + MARGIN)
+        }
+        const nub2 = Math.max(6, Math.min(12, dx / 4))
+        pts.push([p1[0] + b * nub2, p1[1]], [p1[0] + b * nub2, yMid])
+        pts.push([p2[0] - b * nub2, yMid], [p2[0] - b * nub2, p2[1]], p2)
         return simple(pts)
       }
 
