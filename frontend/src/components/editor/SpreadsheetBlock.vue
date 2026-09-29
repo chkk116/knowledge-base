@@ -289,25 +289,24 @@ function cellAtPoint(mx, my) {
   }
 }
 
-let moveRaf = 0
+let moveTs = 0
 let focusBroadcasts = 0   // 仅用于开发态统计：真正发出的 sheetFocus 广播次数（验证去重效果）
 /**
  * 鼠标在表格区域移动 → 广播所在格子。
- * 用 rAF 节流（每帧最多一次）而不是时间节流：实测端到端延迟只有 ~10-35ms，
- * 瓶颈本来就在节流上（曾用 180ms 时间节流 + 120ms CSS 过渡，跟随明显发飘）。
+ * 用 30ms 时间节流（**不要用 requestAnimationFrame**：后台/被遮挡窗口里 rAF 会被浏览器
+ * 节流甚至完全不触发，发送端就一条都发不出去 → 对方看不到光标）。
+ * 真正省流靠 setFocus 的「按格去重」：同格内移动即使每秒调 60 次也不会多发一条。
  */
 function onStageMove(e) {
   if (!awareness) return
+  const now = Date.now()
+  if (now - moveTs < 30) return
+  moveTs = now
   const el = e.currentTarget
   if (!el) return
-  const cx = e.clientX; const cy = e.clientY
-  if (moveRaf) return
-  moveRaf = requestAnimationFrame(() => {
-    moveRaf = 0
-    const r = el.getBoundingClientRect()
-    // 传 null 会清除广播：鼠标移出表格（工具栏 / 下方标签栏 / 行头左侧）时不再残留上一个格子
-    setFocus(cellAtPoint(cx - r.left, cy - r.top))
-  })
+  const r = el.getBoundingClientRect()
+  // 传 null 会清除广播：鼠标移出表格（工具栏 / 下方标签栏 / 行头左侧）时不再残留上一个格子
+  setFocus(cellAtPoint(e.clientX - r.left, e.clientY - r.top))
 }
 
 /** 读取在线用户，并判断谁正在编辑本表 */
@@ -660,7 +659,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(structTimer)
-  if (moveRaf) { cancelAnimationFrame(moveRaf); moveRaf = 0 }
   window.removeEventListener('kb:flush-diagram', flushData)
   document.removeEventListener('keydown', docKeyDownCapture, true)
   setFocus(null)   // 离开本表：撤销 awareness 里的「正在编辑」标记
