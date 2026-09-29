@@ -38,7 +38,7 @@
         ></div>
         <!-- 远端协作者高亮层：表格是 canvas 渲染，无法承载 DOM 光标，故在其上叠一层彩色框。
              必须放在 sheetEl 之外——mountSheet() 会清空该容器的 innerHTML。 -->
-        <div v-if="remoteBoxes.length" class="kb-sheet-overlay">
+        <div v-if="remoteBoxes.length" class="kb-sheet-overlay" :style="{ clipPath: overlayClip }">
           <div
             v-for="b in remoteBoxes"
             :key="b.clientId"
@@ -258,12 +258,15 @@ function cellAtPoint(mx, my) {
     // 相对表格 canvas 的坐标（列头/行头占左上角，内容区从 (fw,fh) 起）
     const lx = mx - off.x
     const ly = my - off.y
-    const vw = d.viewWidth ? d.viewWidth() : 0
-    const vh = d.viewHeight ? d.viewHeight() : 0
-    // 列头 / 行头 / 画布之外都不算命中（否则表格下方的空白条会广播出屏幕外的格子）
+    // 边界必须用「表格 canvas 元素的实际尺寸」。不能用 viewWidth/viewHeight()：
+    // 后者 = 容器高 - 工具栏 - 底部标签栏，实测与 canvas 高度对不齐（会把表格下方空白条算进来），
+    // 导致鼠标划到表格外面时仍广播出屏幕外的行（高亮框被画到表格外）。
+    const cv = sheetEl.value ? sheetEl.value.querySelector('.x-spreadsheet-table') : null
+    const cw = cv ? cv.clientWidth : 0
+    const ch = cv ? cv.clientHeight : 0
     if (lx < fw || ly < fh) return null
-    if (vw && lx >= vw) return null
-    if (vh && ly >= vh) return null
+    if (cw && lx >= cw) return null
+    if (ch && ly >= ch) return null
     const sx = (d.scroll && d.scroll.x) || 0
     const sy = (d.scroll && d.scroll.y) || 0
     const px = lx - fw + sx
@@ -289,7 +292,8 @@ function onStageMove(e) {
   if (!el) return
   const r = el.getBoundingClientRect()
   const c = cellAtPoint(e.clientX - r.left, e.clientY - r.top)
-  if (c) setFocus(c)
+  // 传 null 会清除广播：鼠标移出表格（工具栏 / 下方标签栏 / 行头左侧）时不再残留上一个格子
+  setFocus(c)
 }
 
 /** 读取在线用户，并判断谁正在编辑本表 */
@@ -373,6 +377,23 @@ const remoteBoxes = computed(() => {
   // 依赖 overlayTick 以便滚动/重绘后重算（sheet 实例不是响应式的）
   void overlayTick.value
   return computeRemoteBoxes()
+})
+
+/**
+ * 把高亮层裁到「表格 canvas」范围内。
+ * overlay 铺满整个 .kb-sheet-stage（含上方工具栏、下方 sheet 标签栏），不裁的话——
+ * 当对方处于我这边屏幕外的行（或鼠标划过表格外的空白条）时，高亮框会被画到表格外面去。
+ * clip-path 的 inset(top right bottom left) 相对 overlay 自身盒子（= stage）计算。
+ */
+const overlayClip = computed(() => {
+  void overlayTick.value
+  const stage = sheetEl.value
+  const cv = stage ? stage.querySelector('.x-spreadsheet-table') : null
+  if (!stage || !cv) return 'none'
+  const off = canvasOriginOffset()
+  const right = Math.max(0, stage.clientWidth - off.x - cv.clientWidth)
+  const bottom = Math.max(0, stage.clientHeight - off.y - cv.clientHeight)
+  return `inset(${off.y}px ${right}px ${bottom}px ${off.x}px)`
 })
 
 // ---------- 数据解析 ----------
