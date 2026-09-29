@@ -30,7 +30,8 @@ class OcrKeySourceTest {
     @BeforeEach
     void setUp() {
         repo = Mockito.mock(AiModelRepository.class);
-        cipher = new AiKeyCipher(MASTER);
+        // 无激活 profile 的 Environment = 非 prod，走「开发兜底密钥」分支（构造器新增了 prod fail-fast）
+        cipher = new AiKeyCipher(MASTER, new org.springframework.core.env.StandardEnvironment());
     }
 
     private AiModel model(String provider, String baseUrl, String rawKey) {

@@ -16,13 +16,19 @@ import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 /**
  * AI 平台 API Key 的加密存储与脱敏。
  *
  * - 落库：Base64(iv || AES-GCM(plaintext))，解密失败可识别（主密钥轮换后旧数据不可解）；
- * - 主密钥：由环境变量 KB_AI_MASTER_KEY 提供（未设置时回落到开发默认并在启动时告警）；
+ * - 主密钥：由环境变量 KB_AI_MASTER_KEY 提供。
+ *   生产侧已由配置层兜底——application-prod.yml 写的是**无默认值**的 {@code ${KB_AI_MASTER_KEY}}，
+ *   未注入时占位符解析就会失败（设计如此，防止带弱密钥上线）。本类再补第二道闸：
+ *   prod 下主密钥为空、或**被显式写成仓库里公开可见的开发默认值**时直接抛异常拒绝启动；
+ *   本地开发未设置时回落到开发默认并告警。
  *   轮换该变量即失效全部已存 Key，管理员需重新填写，避免「偷换密钥静默解出旧 Key」。
  * - 对外只回显脱敏形式（首尾保留、中间打码），明文仅在服务端调用时使用。
  *
@@ -39,13 +45,25 @@ public class AiKeyCipher {
 
     private final SecretKeySpec key;
 
-    public AiKeyCipher(@Value("${kb.ai.master-key:${KB_AI_MASTER_KEY:}}") String masterKey) {
-        String mk = masterKey == null || masterKey.isBlank()
-                ? "kb-dev-master-key-change-me-in-production"
-                : masterKey.trim();
-        if (masterKey == null || masterKey.isBlank()) {
+    /** 开发环境兜底主密钥：生产环境「未配置」或「显式写成它」都一律拒绝启动 */
+    private static final String DEV_FALLBACK_KEY = "kb-dev-master-key-change-me-in-production";
+
+    public AiKeyCipher(@Value("${kb.ai.master-key:${KB_AI_MASTER_KEY:}}") String masterKey, Environment env) {
+        String raw = masterKey == null ? "" : masterKey.trim();
+        boolean missing = raw.isEmpty();
+        // 第二道闸（第一道是 prod 配置里无默认值的占位符）：prod 下主密钥为空、或被人
+        // 显式写成仓库里公开可见的开发默认值，都不该启动 —— 否则所有人的 API Key
+        // 都会用这个人人可见的密钥加密，等于明文落库。
+        if (env.acceptsProfiles(Profiles.of("prod")) && (missing || DEV_FALLBACK_KEY.equals(raw))) {
+            throw new IllegalStateException(
+                    "生产环境必须通过环境变量 KB_AI_MASTER_KEY 注入 AI Key 加密主密钥（不少于 32 位的随机串），拒绝启动。");
+        }
+        String mk = missing ? DEV_FALLBACK_KEY : raw;
+        if (missing) {
             log.warn("未检测到 KB_AI_MASTER_KEY，AI 模型 API Key 使用开发默认密钥加密；"
                     + "生产环境请设置该环境变量（换值后需重新填写 API Key）");
+        } else if (raw.length() < 32) {
+            log.warn("[安全] KB_AI_MASTER_KEY 长度不足 32 位，建议更换为更长的随机串。");
         }
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(mk.getBytes(StandardCharsets.UTF_8));
