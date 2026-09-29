@@ -13,6 +13,8 @@ dist/
 dist-v*/
 dist-*/
 .vite/
+# npm 本地缓存（曾误提交进仓库，历史包袱；.gitignore 对已跟踪文件无效，需 git rm --cached）
+.npmcache/
 
 # 前端换色/构建备份（本地 tar.gz，非源码）
 src-backup-*.tar.gz
