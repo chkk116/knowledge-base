@@ -555,6 +555,41 @@ onMounted(() => {
       cellScreenRect: (ri, ci) => cellScreenRect(ri, ci),
       /** 屏幕坐标（相对 .kb-sheet-stage）→ 格子；供自动化校验鼠标反查 */
       cellAtPoint: (mx, my) => cellAtPoint(mx, my),
+      /** 本端当前广播出去的格子（awareness.sheetFocus） */
+      localFocus: () => {
+        try { return awareness?.getLocalState?.()?.sheetFocus || null } catch { return null }
+      },
+      /** 逐格探针：引擎 scroll / cellRect / 我方换算 / 引擎选区 inline 偏移 */
+      probe: (ri, ci) => {
+        const d = sheet?.sheet?.data
+        const q = (s) => document.querySelector(s)
+        const rr = (el) => { if (!el) return null; const b = el.getBoundingClientRect(); return { x: +b.x.toFixed(2), y: +b.y.toFixed(2), w: +b.width.toFixed(2), h: +b.height.toFixed(2) } }
+        const sel = q('.kb-sheet-canvas .x-spreadsheet-selector-area')
+        return {
+          scroll: d?.scroll ? { x: d.scroll.x, y: d.scroll.y } : null,
+          cellRect: d?.cellRect ? d.cellRect(ri, ci) : null,
+          mine: cellScreenRect(ri, ci),
+          selInline: sel ? { left: sel.style.left, top: sel.style.top } : null,
+          selRect: rr(sel),
+          sheet: rr(q('.kb-sheet-canvas .x-spreadsheet-sheet')),
+          overlayer: rr(q('.kb-sheet-canvas .x-spreadsheet-overlayer')),
+          overlayerContent: rr(q('.kb-sheet-canvas .x-spreadsheet-overlayer-content')),
+          tableCanvas: rr(q('.kb-sheet-canvas .x-spreadsheet-table')),
+          offset: canvasOriginOffset(),
+        }
+      },
+      /** 几何量测：stage / canvas 容器 / 表格 canvas / 工具栏 的相对关系 */
+      geom: () => {
+        const q = (s) => document.querySelector(s)
+        const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect(); return { x: +b.x.toFixed(2), y: +b.y.toFixed(2), w: +b.width.toFixed(2), h: +b.height.toFixed(2) } }
+        return {
+          stage: r(q('.kb-sheet-stage')),
+          canvasBox: r(q('.kb-sheet-canvas')),
+          tableCanvas: r(q('.kb-sheet-canvas .x-spreadsheet-table')),
+          toolbar: r(q('.kb-sheet-canvas .x-spreadsheet-toolbar')),
+          offset: canvasOriginOffset(),
+        }
+      },
       /** 节点属性快照（排查 sid/data 持久化） */
       attrs: () => {
         const raw = props.node.attrs.data || ''
