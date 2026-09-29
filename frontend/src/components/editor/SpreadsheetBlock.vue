@@ -237,10 +237,18 @@ function currentCell() {
 function setFocus(arg) {
   if (!awareness) return
   try {
-    if (arg === null) { awareness.setLocalStateField('sheetFocus', null); return }
-    const c = arg && typeof arg.ri === 'number' ? arg : currentCell()
-    // 只读端也广播（ro 标记）—— 让可写端能看到「某人正在查看 C3」。
-    awareness.setLocalStateField('sheetFocus', c ? { sid, ri: c.ri, ci: c.ci, ro: !canEdit.value } : null)
+    // 只读端也广播（ro 标记）—— 让可写端能看到「某人正在查看 C3」
+    const c = arg === null ? null : (arg && typeof arg.ri === 'number' ? arg : currentCell())
+    const want = c ? { sid, ri: c.ri, ci: c.ci, ro: !canEdit.value } : null
+    // **去重（并发关键）**：鼠标在同一格内移动时广播内容完全一样，跳过不发。
+    // awareness 是 O(N²) 扇出（每人每条要转发给同文档其余所有人），
+    // 去重把速率从「每帧一条（~60/s）」压到「每跨一格一条」，多人同时在线时是量级差别。
+    const cur = awareness.getLocalState ? awareness.getLocalState()?.sheetFocus || null : undefined
+    const same = cur !== undefined && ((want === null && cur === null) ||
+      (!!want && !!cur && want.sid === cur.sid && want.ri === cur.ri && want.ci === cur.ci && !!want.ro === !!cur.ro))
+    if (same) return
+    focusBroadcasts++
+    awareness.setLocalStateField('sheetFocus', want)
   } catch { /* ignore */ }
 }
 
@@ -282,6 +290,7 @@ function cellAtPoint(mx, my) {
 }
 
 let moveRaf = 0
+let focusBroadcasts = 0   // 仅用于开发态统计：真正发出的 sheetFocus 广播次数（验证去重效果）
 /**
  * 鼠标在表格区域移动 → 广播所在格子。
  * 用 rAF 节流（每帧最多一次）而不是时间节流：实测端到端延迟只有 ~10-35ms，
@@ -581,6 +590,8 @@ onMounted(() => {
       cellScreenRect: (ri, ci) => cellScreenRect(ri, ci),
       /** 屏幕坐标（相对 .kb-sheet-stage）→ 格子；供自动化校验鼠标反查 */
       cellAtPoint: (mx, my) => cellAtPoint(mx, my),
+      /** 开发态统计：真正发出的 sheetFocus 广播次数（验证「同格去重」效果） */
+      focusBroadcasts: () => focusBroadcasts,
       /** 本端当前广播出去的格子（awareness.sheetFocus） */
       localFocus: () => {
         try { return awareness?.getLocalState?.()?.sheetFocus || null } catch { return null }
