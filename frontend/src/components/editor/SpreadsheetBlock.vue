@@ -281,20 +281,24 @@ function cellAtPoint(mx, my) {
   }
 }
 
-let moveThrottle = 0
-/** 鼠标在表格区域移动 → 广播所在格子（节流）。可写/只读端都走这条路，比只在点击时广播灵敏得多。 */
+let moveRaf = 0
+/**
+ * 鼠标在表格区域移动 → 广播所在格子。
+ * 用 rAF 节流（每帧最多一次）而不是时间节流：实测端到端延迟只有 ~10-35ms，
+ * 瓶颈本来就在节流上（曾用 180ms 时间节流 + 120ms CSS 过渡，跟随明显发飘）。
+ */
 function onStageMove(e) {
   if (!awareness) return
-  const now = Date.now()
-  // 60ms（≈16 次/秒）：之前 180ms 节流 + 120ms 过渡叠加起来跟随明显发飘（用户反馈「有延迟」）
-  if (now - moveThrottle < 60) return
-  moveThrottle = now
   const el = e.currentTarget
   if (!el) return
-  const r = el.getBoundingClientRect()
-  const c = cellAtPoint(e.clientX - r.left, e.clientY - r.top)
-  // 传 null 会清除广播：鼠标移出表格（工具栏 / 下方标签栏 / 行头左侧）时不再残留上一个格子
-  setFocus(c)
+  const cx = e.clientX; const cy = e.clientY
+  if (moveRaf) return
+  moveRaf = requestAnimationFrame(() => {
+    moveRaf = 0
+    const r = el.getBoundingClientRect()
+    // 传 null 会清除广播：鼠标移出表格（工具栏 / 下方标签栏 / 行头左侧）时不再残留上一个格子
+    setFocus(cellAtPoint(cx - r.left, cy - r.top))
+  })
 }
 
 /** 读取在线用户，并判断谁正在编辑本表 */
@@ -645,6 +649,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(structTimer)
+  if (moveRaf) { cancelAnimationFrame(moveRaf); moveRaf = 0 }
   window.removeEventListener('kb:flush-diagram', flushData)
   document.removeEventListener('keydown', docKeyDownCapture, true)
   setFocus(null)   // 离开本表：撤销 awareness 里的「正在编辑」标记
@@ -716,7 +721,7 @@ onBeforeUnmount(() => {
 .kb-sheet-remote {
   position: absolute; box-sizing: border-box;
   border: 2px solid #10b981; border-radius: 2px;
-  transition: left .06s linear, top .06s linear, width .06s linear, height .06s linear;
+  /* 不加过渡：每帧广播已经很平滑，过渡只会额外引入延迟 */
 }
 .kb-sheet-remote-name {
   position: absolute; left: -2px; top: -17px;
