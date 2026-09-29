@@ -127,11 +127,14 @@ const provider = authExpired ? null : new HocuspocusProvider({
     // 「正在查看」位置），不广播文本光标/选区，避免造成「别人能移动你的光标」的错觉。
     if (e.status === 'connected' && !props.canWrite) {
       try {
-        provider.awareness.setLocalState(null)
-        provider.awareness.setLocalStateField('user', {
-          name: meName.value,
-          color: colorFor(meName.value),
-          avatar: auth.user?.avatar || '',
+        // 注意 y-protocols 语义：setLocalState(null) 清空后 setLocalStateField 是 no-op
+        // （getLocalState()===null 直接 return），必须一次性写入，否则 user 永远广播不出去
+        provider.awareness.setLocalState({
+          user: {
+            name: meName.value,
+            color: colorFor(meName.value),
+            avatar: auth.user?.avatar || '',
+          },
         })
       } catch (err) { /* ignore */ }
     }

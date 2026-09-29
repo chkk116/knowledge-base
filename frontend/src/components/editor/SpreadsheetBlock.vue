@@ -131,7 +131,9 @@ function persistSid() {
   if (!canEdit.value || !sid) return
   if (props.node.attrs.sid === sid && parseData().sid === sid) return
   try {
-    props.updateAttributes({ sid, data: JSON.stringify({ ...parseData(), sid }) })
+    // 必须走 withSid：parseData() 可能返回数组形态，直接 {...展开} 会写成 {"0":{...},sid}，
+    // firstSheet() 取不到 rows → 整表内容在挂载瞬间丢失（同文件其他落盘点均已归一化）
+    props.updateAttributes({ sid, data: JSON.stringify(withSid(parseData())) })
   } catch (e) {
     if (import.meta.env.DEV) window.__kbSheetErr = 'persistSid: ' + String((e && e.message) || e)
   }
@@ -173,7 +175,13 @@ function migrateSid(newSid) {
     }
   } catch { /* 忽略 */ }
   initCollab(newSid)
-  nextTick(() => mountSheet())
+  nextTick(() => {
+    // 与挂载流程同款三步：缺 bootstrap 则 ymap.observe 未注册，该端此后收不到任何远端变更；
+    // 缺 localStructSig 同步会让自己的 persistSid 触发一次多余的引擎重建
+    try { collab?.bootstrap(parseData()) } catch { /* 忽略 */ }
+    localStructSig = structSignature(parseData())
+    mountSheet()
+  })
 }
 
 // ---------- 在线协作者（Yjs awareness） ----------
