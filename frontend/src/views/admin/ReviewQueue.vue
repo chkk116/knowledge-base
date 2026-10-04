@@ -118,7 +118,7 @@ onMounted(loadDocs)
           <template #label>
             <span class="tab-label"><el-icon><Document /></el-icon> 帖子审核</span>
           </template>
-          <el-table :data="items" v-loading="loading" empty-text="没有待审核的帖子 🎉">
+          <el-table v-stack-table :data="items" v-loading="loading" empty-text="没有待审核的帖子 🎉">
             <el-table-column prop="id" label="ID" width="70" />
             <el-table-column label="标题" min-width="260">
               <template #default="{ row }">

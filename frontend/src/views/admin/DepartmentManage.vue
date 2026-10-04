@@ -228,7 +228,7 @@ onMounted(load)
             </div>
           </div>
 
-          <el-table :data="membersOf(selectedDept.id)" class="member-table" empty-text="该部门还没有成员">
+          <el-table v-stack-table :data="membersOf(selectedDept.id)" class="member-table" empty-text="该部门还没有成员">
             <el-table-column label="成员" min-width="200">
               <template #default="{ row }">
                 <div class="member-cell">

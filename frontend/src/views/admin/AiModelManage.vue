@@ -462,7 +462,7 @@ onUnmounted(() => {
         <div v-show="usage && usage.summary.requests > 0" ref="usageChartEl" class="u-chart"></div>
       </div>
 
-      <el-table v-if="usage && usage.models.length" :data="usage.models" border stripe size="small"
+      <el-table v-if="usage && usage.models.length" v-stack-table :data="usage.models" border stripe size="small"
                 style="margin-top: 12px;">
         <el-table-column label="模型" min-width="200">
           <template #default="{ row }">

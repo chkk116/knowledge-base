@@ -113,4 +113,42 @@ defineExpose({ insertHtml })
 /* 文章编辑区内插入的贴吧表情：限制高度，避免按原图尺寸把整行撑高导致文字溢出 */
 .w-editor :deep(img.kb-emoji) { height: 20px; vertical-align: middle; margin: 0 1px; }
 .w-editor :deep(img) { max-width: 100%; }
+
+/* ============================================================
+   移动端适配（断点沿用全站约定：≤1024 平板 / ≤640 手机）
+   ------------------------------------------------------------
+   编辑器高度改为按视口计算，避免固定 460px 在手机上占掉大半个屏幕，
+   并让工具栏在窄屏可横向滚动而不是换行成 3~4 行吃掉编辑区高度。
+   ============================================================ */
+@media (max-width: 1024px) {
+  .w-editor { height: 380px; }
+  /* 工具栏：单行横向滚动，不换行堆高。
+     注意：wangEditor 自带的 .w-e-toolbar{flex-wrap:wrap} 与本规则特异性相同，
+     且其样式表注入在后，故必须用 !important 才能压住（否则手机上工具栏仍会堆成 4 行）。 */
+  .w-bar :deep(.w-e-toolbar) {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;          /* Firefox 隐藏滚动条 */
+  }
+  .w-bar :deep(.w-e-toolbar)::-webkit-scrollbar { display: none; }
+  .w-bar :deep(.w-e-bar-item) { flex: 0 0 auto; }   /* 不压缩，靠滚动查看 */
+}
+
+@media (max-width: 640px) {
+  /* 高度按视口算：整屏减去顶栏/工具栏/底部余量，键盘弹出时 dwvh 会自适应 */
+  .w-editor { height: calc(100dvh - 300px); min-height: 260px; }
+  /* 工具栏按钮略小，一屏能多放几个；触控目标仍保持 ≥36px 可点 */
+  .w-bar :deep(.w-e-bar-item) { height: 36px; padding: 2px; }
+  .w-bar :deep(.w-e-bar-item button) { min-width: 30px; }
+  .w-bar :deep(.w-e-bar-divider) { margin: 0 2px; }
+}
+
+/* 兜底：不支持 dvh 的旧 WebView / 浏览器回退到 vh */
+@supports not (height: 100dvh) {
+  @media (max-width: 640px) {
+    .w-editor { height: calc(100vh - 300px); }
+  }
+}
 </style>

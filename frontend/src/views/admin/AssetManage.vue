@@ -84,7 +84,7 @@
     </div>
 
     <!-- 台账表 -->
-    <el-table ref="tableRef" :data="rows" v-loading="loading" stripe border style="width:100%"
+    <el-table ref="tableRef" v-stack-table :data="rows" v-loading="loading" stripe border style="width:100%"
               @selection-change="onSelectionChange">
       <el-table-column type="selection" width="46" />
       <el-table-column prop="code" label="编号" width="120" />

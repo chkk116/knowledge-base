@@ -300,9 +300,15 @@
   .el-table.is-stacked .el-table__cell.stack-hide,
   .el-table.is-stacked .el-table__cell[data-stack-hide="1"] { display: none !important; }
 
-  /* 展开行 / 合计行等 colspan 单元格不套字段名 */
-  .el-table.is-stacked .el-table__body td[colspan] { display: block !important; }
-  .el-table.is-stacked .el-table__body td[colspan]::before { display: none; }
+  /* 空值字段：内容为空 / — / N/A 等在卡片里只是一行孤立占位，直接隐藏
+     （由 src/utils/stackTable.js 的 isBlankCell 标记 data-stack-empty） */
+  .el-table.is-stacked .el-table__cell[data-stack-empty="1"] { display: none !important; }
+
+  /* 展开行 / 合计行等 colspan 单元格不套字段名
+     注意：Element Plus 给普通单元格也渲染 colspan="1"，故只能用 [colspan="2"] 起
+     （值选择器无法表达「>1」，用 not([colspan="1"]) 排除普通格） */
+  .el-table.is-stacked .el-table__body td[colspan]:not([colspan="1"]) { display: block !important; }
+  .el-table.is-stacked .el-table__body td[colspan]:not([colspan="1"])::before { display: none; }
 }
 
 /* 长文屏外块跳过布局/绘制：老机滚动不卡、保留的显示列表内存骤降。

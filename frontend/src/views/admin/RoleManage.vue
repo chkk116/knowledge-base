@@ -112,7 +112,7 @@ onMounted(async () => { await load(); await loadMembers() })
     </div>
 
     <el-card shadow="never" class="panel">
-      <el-table :data="roles" v-loading="loading" class="role-table">
+      <el-table v-stack-table :data="roles" v-loading="loading" class="role-table">
         <el-table-column prop="name" label="角色名称" min-width="140">
           <template #default="{ row }">
             <span class="role-name">{{ row.name }}</span>
