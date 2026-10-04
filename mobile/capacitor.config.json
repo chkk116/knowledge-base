@@ -3,9 +3,7 @@
   "appName": "知识库",
   "webDir": "web-app",
   "server": {
-    "url": "http://YOUR_BACKEND_IP:8080",
-    "cleartext": true,
-    "allowNavigation": ["YOUR_BACKEND_IP"]
+    "androidScheme": "http"
   },
   "android": {
     "allowMixedContent": true
