@@ -13,7 +13,7 @@ const restore = computed(() => (route.query.restore || '').toString().replace('T
  * 返回上一跳页面。
  * 维护模式下前进/后退的落点也可能被守卫拦回本页，所以只在「上一跳不是维护页/敬请期待页」
  * 时才走浏览器后退；否则（例如直接粘地址打开、或上一跳同样被关闭）退回一个稳妥落点：
- * 有核心维护权限的回到「核心维护」，其他人回登录页。
+ * 有核心维护权限的回到「功能开关」，其他人回登录页。
  */
 function goBack() {
   const prev = window.history.state && window.history.state.back

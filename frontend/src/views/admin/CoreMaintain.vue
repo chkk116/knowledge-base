@@ -135,7 +135,7 @@ onMounted(load)
   <div class="maintain">
     <div class="head">
       <div>
-        <h2>核心维护 · 功能开关</h2>
+        <h2>功能开关</h2>
         <p class="sub">逐功能管理对外开放状态与维护信息。关闭后入口隐藏并跳转「敬请期待」，可随时重新开启或编辑维护公告。</p>
       </div>
       <el-tag type="info" effect="plain">已开启 {{ enabledCount }} / {{ items.length }}</el-tag>

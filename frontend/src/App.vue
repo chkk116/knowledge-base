@@ -141,7 +141,7 @@ function toggleTheme() {
 
 // 菜单项：按角色个性化
 //  - 所有登录用户：写文章、我的帖子
-//  - 管理类按细粒度权限归入「用户与权限」「内容管理」两个二级分组（ADMIN 隐式拥有全部，可见全部分组）
+//  - 管理类按细粒度权限归入「用户与权限」「内容管理」「站点设置」三个二级分组（ADMIN 隐式拥有全部，可见全部分组）
 const menus = computed(() => {
   const base = [{ index: '/', title: '知识库首页', icon: 'HomeFilled' }]
   if (auth.loggedIn) {
@@ -178,6 +178,7 @@ const menus = computed(() => {
 
   // 二级分组：内容管理（帖子 / 分类标签 / 公告 / 附件 / 数据看板）
   // 原「数据中心」单独成组已并入此处，避免「仅一项」的空壳分组；内容资源 + 内容数据聚同一域
+  // 站点级配置（功能开关 / 水印 / 登录二维码 / 外观）已移至下方「站点设置」组
   const contentMgmt = []
   if (auth.hasPerm('DOC_REVIEW')) contentMgmt.push({ index: '/admin/review', title: '文章审核', icon: 'Finished' })
   if (auth.hasPerm('POST_MANAGE')) contentMgmt.push({ index: '/admin/docs', title: '帖子管理', icon: 'Document' })
@@ -190,15 +191,20 @@ const menus = computed(() => {
   if (auth.hasPerm('EXAM_MANAGE')) contentMgmt.push({ index: '/admin/exams', title: '题库与试卷', icon: 'Trophy' })
   if (auth.hasPerm('SHARE_VIEW')) contentMgmt.push({ index: '/admin/doc-shares', title: '共享文档管理', icon: 'DocumentCopy' })
   if (auth.hasPerm('ASSET_MANAGE')) contentMgmt.push({ index: '/admin/assets', title: '资产管理', icon: 'Box' })
-  if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/maintain', title: '核心维护', icon: 'Setting' })
-  if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/watermark', title: '水印设置', icon: 'Tools' })
-  if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
-  if (auth.hasPerm('CORE_MAINTAIN')) contentMgmt.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
   // 检索测试：管理员诊断搜索质量（搜得到 / 搜得准）
   if (auth.isAdmin) contentMgmt.push({ index: '/admin/search-test', title: '检索测试', icon: 'Search' })
   // AI 模型含第三方 API Key：仅系统管理员
   if (auth.isAdmin) contentMgmt.push({ index: '/admin/ai-models', title: 'AI 模型管理', icon: 'Cpu' })
   if (contentMgmt.length) base.push({ index: 'g-content', title: '内容管理', icon: 'Document', children: contentMgmt })
+
+  // 二级分组：站点设置（功能开关 / 水印 / 登录页二维码 / 外观）
+  // 站点级配置，与「内容资源」分离：调的是整站的开关与呈现，不涉及具体条目
+  const siteConfig = []
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/maintain', title: '功能开关', icon: 'Setting' })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/watermark', title: '水印设置', icon: 'Tools' })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
+  if (siteConfig.length) base.push({ index: 'g-site', title: '站点设置', icon: 'Setting', children: siteConfig })
 
   if (auth.loggedIn) {
     // 个人资料放在最底部，符合常见布局习惯
