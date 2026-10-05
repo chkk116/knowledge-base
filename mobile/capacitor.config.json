@@ -3,7 +3,9 @@
   "appName": "知识库",
   "webDir": "web-app",
   "server": {
-    "androidScheme": "http"
+    "url": "https://www.chkk116.cloud/m/home",
+    "androidScheme": "https",
+    "cleartext": true
   },
   "android": {
     "allowMixedContent": true

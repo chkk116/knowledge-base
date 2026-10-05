@@ -1,0 +1,327 @@
+/* ============================================================
+   移动端专属样式（只在 mobile.html / main-mobile.js 中引入）
+
+   与网页端的设计差别（不是缩放，是另一套视觉语言）：
+     - 底层用 iOS / 主流 App 的中性灰底 + 白色圆角卡片
+     - 大圆角（16~20px）、轻阴影、无明显描边
+     - 字号阶梯更少但层级更明显：大标题 20 / 正文 15 / 说明 12.5
+     - 触控目标 ≥ 44px，点击态用 background 变化而非 hover
+     - 所有固定元素（TabBar / 底栏按钮）都带 safe-area-inset
+   ============================================================ */
+
+/* ---------- 基础重置 ---------- */
+/* Element Plus 会给原生 button 注入 1px 边框 + width:auto + 白底，
+   移动端大量用 <button> 当列表行/卡片（.m-row/.m-sheet-item/.quick/.m-btn 等），
+   若不重置就会出现「黑框 + 不撑满 + 卡片右侧露黑边」。
+   这里在移动端根容器上统一打底，各组件只需声明自身想要的视觉。 */
+.kb-mobile-body button {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+/* ⚠️ 上面这条 `.kb-mobile-body button` 优先级 (0,1,1) 高于 `.m-btn` (0,1,0)，
+   会把主按钮的紫色背景覆盖成透明（曾导致「登录」按钮变成无背景纯文字）。
+   这里把带自身配色的按钮类重新提权，保证主按钮视觉不被重置吃掉。 */
+.kb-mobile-body .m-btn {
+  background: var(--m-primary);
+  color: #fff;
+  text-align: center;
+}
+.kb-mobile-body .m-btn.ghost { background: var(--m-card); color: var(--m-text); }
+.kb-mobile-body .m-btn.danger { background: var(--m-danger); color: #fff; }
+.kb-mobile-body .m-btn:disabled { opacity: .45; }
+
+/* ---------- 设计变量 ---------- */
+:root {
+  --m-primary: #4f46e5;
+  --m-primary-soft: #eef2ff;
+  --m-bg: #f4f5f9;
+  --m-card: #ffffff;
+  --m-card-2: #fafbfe;
+  --m-text: #101828;
+  --m-text-sub: #475467;
+  --m-text-dim: #98a2b3;
+  --m-border: #eceef3;
+  --m-danger: #ef4444;
+  --m-success: #10b981;
+  --m-warn: #f59e0b;
+  --m-radius: 16px;
+  --m-radius-lg: 20px;
+  --m-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 14px rgba(16, 24, 40, .05);
+  --m-tabbar-bg: rgba(255, 255, 255, .94);
+  --m-mask: rgba(16, 24, 40, .45);
+}
+
+html.dark {
+  --m-primary: #818cf8;
+  --m-primary-soft: #23234a;
+  --m-bg: #0f0f1e;
+  --m-card: #1a1a2e;
+  --m-card-2: #20203a;
+  --m-text: #ececf4;
+  --m-text-sub: #b7b8cd;
+  --m-text-dim: #7b7c93;
+  --m-border: #26264a;
+  --m-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .28);
+  --m-tabbar-bg: rgba(26, 26, 46, .94);
+  --m-mask: rgba(0, 0, 0, .6);
+}
+
+/* ---------- 基础 ---------- */
+html, body { margin: 0; padding: 0; }
+body.kb-mobile-body {
+  background: var(--m-bg);
+  color: var(--m-text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+               "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  /* 禁掉长按选中 / 点击高亮，贴近原生 App 手感（输入框内单独放开） */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+body.kb-mobile-body input,
+body.kb-mobile-body textarea,
+body.kb-mobile-body .selectable { -webkit-user-select: text; user-select: text; }
+
+/* 移动端全局禁止横向滚动 */
+body.kb-mobile-body { overflow-x: hidden; }
+
+/* ---------- 页面通用骨架 ---------- */
+
+/* 顶部标题栏（每个 Tab 页自绘，故做成通用类） */
+.m-header {
+  position: sticky; top: 0; z-index: 30;
+  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+  background: var(--m-bg);
+  display: flex; align-items: center; gap: 10px;
+}
+.m-header.solid {
+  background: var(--m-card);
+  border-bottom: 1px solid var(--m-border);
+}
+.m-title { font-size: 20px; font-weight: 700; letter-spacing: -.2px; flex: 1 1 auto; min-width: 0; }
+.m-title.sm { font-size: 17px; }
+.m-sub { font-size: 12.5px; color: var(--m-text-dim); font-weight: 400; margin-top: 1px; }
+.m-header-act {
+  flex: none; width: 36px; height: 36px; border-radius: 50%;
+  border: none; background: transparent; color: var(--m-text-sub);
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background-color .15s;
+}
+.m-header-act:active { background: var(--m-border); }
+
+/* 内容容器 */
+.m-body { padding: 0 16px 16px; }
+.m-body.flush { padding-left: 0; padding-right: 0; }
+
+/* 卡片 */
+.m-card {
+  background: var(--m-card);
+  border-radius: var(--m-radius);
+  box-shadow: var(--m-shadow);
+  overflow: hidden;
+}
+.m-card + .m-card { margin-top: 10px; }
+
+/* 分组标题 */
+.m-sec-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: var(--m-text-sub);
+  margin: 20px 0 8px;
+}
+.m-sec-title .more {
+  margin-left: auto; font-size: 12.5px; font-weight: 400;
+  color: var(--m-primary); background: none; border: none; padding: 2px 0; cursor: pointer;
+}
+
+/* 列表行（常以 <button> 承载 → 必须彻底重置 UA / Element Plus 的 button 默认样式，
+   否则会出现 1px 边框 + width:auto 不撑满，卡片右侧露出黑边） */
+.m-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 14px;
+  min-height: 52px;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit; font-size: inherit; line-height: inherit;
+  color: inherit;
+  text-align: left;
+  appearance: none; -webkit-appearance: none;
+  cursor: pointer;
+  transition: background-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.m-row:active { background: var(--m-card-2); }
+.m-row + .m-row { border-top: 1px solid var(--m-border); }
+.m-row-body { flex: 1 1 auto; min-width: 0; }
+/* 标题与说明常用 <span> 承载（在 <button> 内），span 默认 inline 会并排挤在一行 */
+.m-row-title,
+.m-row-desc { display: block; }
+.m-row-title {
+  font-size: 15px; color: var(--m-text); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.m-row-desc {
+  font-size: 12.5px; color: var(--m-text-dim); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.m-row-extra { flex: none; font-size: 12.5px; color: var(--m-text-dim); display: flex; align-items: center; gap: 4px; }
+
+/* 圆形图标底（列表左侧） */
+.m-ico {
+  flex: none; width: 38px; height: 38px; border-radius: 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--m-primary-soft); color: var(--m-primary);
+}
+.m-ico.gray { background: #f2f4f7; color: #667085; }
+.m-ico.green { background: #ecfdf5; color: #059669; }
+.m-ico.orange { background: #fff7ed; color: #ea580c; }
+.m-ico.red { background: #fef2f2; color: #dc2626; }
+.m-ico.blue { background: #eff8ff; color: #1570ef; }
+html.dark .m-ico.gray { background: #2a2a42; color: #9aa0ae; }
+html.dark .m-ico.green { background: #0e2e26; color: #34d399; }
+html.dark .m-ico.orange { background: #3a2411; color: #fb923c; }
+html.dark .m-ico.red { background: #3d1a1a; color: #f87171; }
+html.dark .m-ico.blue { background: #12253d; color: #60a5fa; }
+
+/* 主按钮（大、圆角、拇指易点） */
+.m-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 48px; padding: 0 20px;
+  border: none; border-radius: 14px;
+  background: var(--m-primary); color: #fff;
+  font-size: 15.5px; font-weight: 600;
+  cursor: pointer; width: 100%;
+  transition: transform .12s, opacity .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.m-btn:active { transform: scale(.98); }
+.m-btn:disabled { opacity: .45; }
+.m-btn.ghost { background: var(--m-card); color: var(--m-text); box-shadow: var(--m-shadow); }
+.m-btn.danger { background: var(--m-danger); }
+.m-btn.sm { height: 38px; font-size: 14px; border-radius: 11px; padding: 0 14px; width: auto; }
+
+/* 标签 */
+.m-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 22px; padding: 0 8px; border-radius: 7px;
+  font-size: 11.5px; font-weight: 500;
+  background: var(--m-primary-soft); color: var(--m-primary);
+}
+.m-chip.gray { background: #f2f4f7; color: #667085; }
+.m-chip.green { background: #ecfdf5; color: #059669; }
+.m-chip.orange { background: #fff7ed; color: #ea580c; }
+.m-chip.red { background: #fef2f2; color: #dc2626; }
+html.dark .m-chip.gray { background: #2a2a42; color: #9aa0ae; }
+html.dark .m-chip.green { background: #0e2e26; color: #34d399; }
+html.dark .m-chip.orange { background: #3a2411; color: #fb923c; }
+html.dark .m-chip.red { background: #3d1a1a; color: #f87171; }
+
+/* 空状态 */
+.m-empty {
+  padding: 60px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  color: var(--m-text-dim); font-size: 13.5px; text-align: center;
+}
+.m-empty .ico { width: 64px; height: 64px; border-radius: 20px; background: var(--m-card);
+  display: inline-flex; align-items: center; justify-content: center; color: var(--m-text-dim); }
+
+/* 底部固定操作条（编辑页 / 选择页用） */
+.m-actionbar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--m-tabbar-bg);
+  border-top: 1px solid var(--m-border);
+  backdrop-filter: saturate(180%) blur(14px);
+  z-index: 45;
+  display: flex; gap: 10px;
+}
+
+/* 底部弹层（选项列表） */
+.m-sheet-mask {
+  position: fixed; inset: 0; background: var(--m-mask); z-index: 2000;
+}
+.m-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2001;
+  background: var(--m-card);
+  border-radius: 20px 20px 0 0;
+  padding: 6px 0 calc(env(safe-area-inset-bottom) + 6px);
+  max-height: 76vh; overflow-y: auto;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .16);
+}
+.m-sheet-grip { width: 38px; height: 4px; border-radius: 2px; background: var(--m-border); margin: 8px auto 6px; }
+.m-sheet-title { font-size: 15px; font-weight: 600; text-align: center; padding: 4px 16px 10px; }
+.m-sheet-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px; font-size: 15px; cursor: pointer;
+  width: 100%; margin: 0; border: 0; border-radius: 0;
+  background: transparent; font-family: inherit; line-height: inherit; color: inherit;
+  text-align: left; appearance: none; -webkit-appearance: none;
+  transition: background-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.m-sheet-item:active { background: var(--m-card-2); }
+.m-sheet-item.danger { color: var(--m-danger); }
+.m-sheet-item.cancel { justify-content: center; color: var(--m-text-sub); font-weight: 500; border-top: 1px solid var(--m-border); margin-top: 4px; }
+
+/* 上下滑动动效 */
+.sheet-up-enter-active, .sheet-up-leave-active { transition: transform .24s cubic-bezier(.32, .72, 0, 1), opacity .2s; }
+.sheet-up-enter-from, .sheet-up-leave-to { transform: translateY(100%); opacity: .6; }
+
+/* 骨架 */
+.m-skel {
+  background: linear-gradient(90deg, var(--m-border) 25%, var(--m-card-2) 37%, var(--m-border) 63%);
+  background-size: 400% 100%;
+  animation: kb-skel 1.3s ease infinite;
+  border-radius: 8px;
+}
+@keyframes kb-skel { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* 富文本阅读区（文档详情用） */
+.m-prose { font-size: 15.5px; line-height: 1.78; color: var(--m-text); word-break: break-word; }
+.m-prose h1 { font-size: 21px; margin: 20px 0 10px; }
+.m-prose h2 { font-size: 18px; margin: 18px 0 9px; }
+.m-prose h3 { font-size: 16.5px; margin: 16px 0 8px; }
+.m-prose p { margin: 10px 0; }
+.m-prose img { max-width: 100%; height: auto; border-radius: 12px; display: block; margin: 12px 0; }
+.m-prose ul, .m-prose ol { padding-left: 22px; margin: 10px 0; }
+.m-prose blockquote {
+  margin: 12px 0; padding: 8px 14px;
+  border-left: 3px solid var(--m-primary);
+  background: var(--m-card-2); border-radius: 0 10px 10px 0; color: var(--m-text-sub);
+}
+.m-prose pre {
+  background: #0f172a; color: #e2e8f0;
+  padding: 12px 14px; border-radius: 12px; overflow-x: auto;
+  font-size: 13px; line-height: 1.6;
+}
+.m-prose code { background: var(--m-card-2); padding: 1px 5px; border-radius: 5px; font-size: .92em; }
+.m-prose pre code { background: transparent; padding: 0; }
+.m-prose table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 12px 0; }
+.m-prose th, .m-prose td { border: 1px solid var(--m-border); padding: 7px 9px; text-align: left; }
+.m-prose th { background: var(--m-card-2); font-weight: 600; }
+.m-prose a { color: var(--m-primary); text-decoration: none; word-break: break-all; }
+
+/* Element Plus 在移动端的统一收口 */
+body.kb-mobile-body .el-dialog {
+  --el-dialog-border-radius: 18px;
+  max-width: 90vw;
+}
+body.kb-mobile-body .el-message-box { max-width: 88vw; border-radius: 18px; }
+body.kb-mobile-body .el-overlay-dialog { display: flex; align-items: center; justify-content: center; }
+body.kb-mobile-body .el-message { min-width: 0; max-width: 88vw; }
+
+/* 隐藏滚动条（移动端滚动条突兀） */
+body.kb-mobile-body ::-webkit-scrollbar { width: 0; height: 0; }
