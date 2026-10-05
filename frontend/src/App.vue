@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore, permLabel } from './store/auth'
 import { useWatermarkStore, buildContent } from './store/watermark'
+import { useSiteInfoStore } from './store/siteInfo'
 import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import SiteFooter from './components/SiteFooter.vue'
 import { useNotificationStore } from './store/notification'
@@ -18,6 +19,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const notification = useNotificationStore()
 const wm = useWatermarkStore()
+const siteInfo = useSiteInfoStore()
 
 // 核心维护：功能开关状态（featureKey → { enabled, closeMode, maintenanceMsg, expectedRestoreAt }）
 const featureFlags = ref({})
@@ -51,6 +53,8 @@ const wmGap = computed(() => wm.gap)
 onMounted(async () => {
   await auth.fetchMe()
   wm.dark = isDark.value   // 初始化水印主题状态（与当前页面主题一致）
+  // 页脚配置走公开接口，**登录前也要拉**（登录页底部同样要展示备案信息）
+  siteInfo.load()
   // 水印配置与 client-info 都要求登录态（匿名访问会 401），仅登录后拉取；
   // 匿名用户本就不显示水印，无需请求。等 fetchMe 恢复登录态/令牌后再调，避免 401 噪音。
   if (auth.loggedIn) wm.load()
@@ -206,6 +210,7 @@ const menus = computed(() => {
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/watermark', title: '水印设置', icon: 'Tools' })
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Document' })
   if (siteConfig.length) base.push({ index: 'g-site', title: '站点设置', icon: 'Setting', children: siteConfig })
 
   if (auth.loggedIn) {

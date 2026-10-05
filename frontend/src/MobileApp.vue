@@ -11,11 +11,13 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './store/auth'
 import { useNotificationStore } from './store/notification'
+import { useSiteInfoStore } from './store/siteInfo'
 import { syncOnReconnect, pendingCount } from './utils/offlineStore'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const siteInfo = useSiteInfoStore()
 const notification = useNotificationStore()
 
 const online = ref(navigator.onLine)
@@ -66,6 +68,8 @@ function onPendingChange() { refreshPending() }
 onMounted(async () => {
   await auth.fetchMe()
   if (auth.loggedIn) notification.connect()
+  // 页脚配置走公开接口，登录前也要拉（移动端登录页底部要展示备案信息）
+  siteInfo.load()
   refreshPending()
   if (navigator.onLine) doSync()
   window.addEventListener('online', onOnline)

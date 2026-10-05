@@ -63,4 +63,38 @@ public class PublicConfigController {
                 .matcher(json);
         return m.find() ? m.group(1) : null;
     }
+
+    /**
+     * 站点页脚信息：GET /api/public/site-info
+     *
+     * 登录页在未认证状态下也要展示备案号等内容，故与 login-config 一样公开下发。
+     * 数据源是 SysSetting 的 site_info 键（JSON 字符串），由后台「页脚设置」维护。
+     *
+     * 默认**全部为空**：这样本地开发环境（库里没这条配置）页脚不渲染任何内容，
+     * 只有线上后台填过之后才显示 —— 避免把某个部署环境的备案号硬编码进仓库。
+     * 版本号不在这里下发：它由构建期从 package.json 注入（__APP_VERSION__），属代码产物。
+     */
+    @GetMapping("/site-info")
+    public Map<String, String> siteInfo() {
+        Map<String, String> r = new java.util.LinkedHashMap<>();
+        String raw = null;
+        SysSetting s = settingRepo.findByKey("site_info").orElse(null);
+        if (s != null && s.getValue() != null && !s.getValue().isBlank()) raw = s.getValue();
+        r.put("enabled", raw == null ? "false" : boolOf(raw));
+        r.put("icpNo", raw == null ? "" : nvl(extractJsonString(raw, "icpNo")));
+        r.put("policeNo", raw == null ? "" : nvl(extractJsonString(raw, "policeNo")));
+        r.put("giteeUrl", raw == null ? "" : nvl(extractJsonString(raw, "giteeUrl")));
+        r.put("copyright", raw == null ? "" : nvl(extractJsonString(raw, "copyright")));
+        return r;
+    }
+
+    private static String nvl(String v) { return v == null ? "" : v; }
+
+    /** 提取布尔字段（形如 "enabled":true），缺省 false */
+    private static String boolOf(String json) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"enabled\"\\s*:\\s*(true|false)")
+                .matcher(json);
+        return m.find() ? m.group(1) : "false";
+    }
 }
