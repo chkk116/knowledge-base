@@ -29,7 +29,9 @@ public final class HtmlSanitizer {
             if (val == null) return super.isSafeAttribute(tagName, el, attr);
             // 放行本站上传的图片 / 站内表情包相对路径，避免被净化剥离导致裂图；
             // audio（语音条）的 src 同样是 /uploads/ 相对路径，一并放行
-            if (("img".equals(tagName) || "audio".equals(tagName)) && "src".equals(key)
+            // img / audio / video / source 的 src 都可能是本站上传的相对路径，一并放行
+            if (("img".equals(tagName) || "audio".equals(tagName) || "video".equals(tagName) || "source".equals(tagName))
+                    && ("src".equals(key) || ("video".equals(tagName) && "poster".equals(key)))
                     && (val.startsWith("/uploads/") || val.startsWith("/emojis/"))) {
                 return true;
             }
@@ -58,6 +60,14 @@ public final class HtmlSanitizer {
             .addTags("audio")
             .addAttributes("audio", "src", "controls", "style", "preload")
             .addProtocols("audio", "src", "http", "https")
+            // 视频 <video controls src poster>：科普/培训文档会插入讲解视频。
+            // src 为本站 /uploads 相对路径时由上方覆写放行；poster 走 http(s) 协议白名单。
+            .addTags("video")
+            .addTags("source")
+            .addAttributes("video", "src", "controls", "style", "preload", "poster", "width", "height", "muted", "loop")
+            .addAttributes("source", "src", "type")
+            .addProtocols("video", "src", "http", "https")
+            .addProtocols("video", "poster", "http", "https")
             .addProtocols("img", "src", "data", "http", "https")  // 允许 data:/http(s): 以及经上方覆写放行的 /uploads 相对路径
             .preserveRelativeLinks(true);
 

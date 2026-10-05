@@ -1,9 +1,11 @@
 <script setup>
 /**
- * 站点页脚：备案信息 + 开源仓库 + 版权 + 版本
+ * 站点页脚：备案信息 + 自定义展示内容 + 版本
  *
  * 内容全部来自后台「页脚设置」（store/siteInfo），**默认空**：
  * 本地开发环境未配置时不渲染任何内容，线上由管理员填写后显示。
+ * 备案号是固定项（链接与图标由代码生成，满足合规）；其余内容来自 items ——
+ * 管理员可自由增删，填了链接就是可点链接，没填就只显示文字。
  * 版本号例外——由构建期从 package.json 注入（__APP_VERSION__），始终随代码走。
  *
  * 合规要点（别删）：
@@ -17,14 +19,16 @@ import { useSiteInfoStore, ICP_URL, policeUrl } from '../store/siteInfo'
 
 defineProps({
   /** 移动端紧凑样式：字号更小、无上边框 */
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  /** 无边框极简变体：登录页等自带分隔线的页面用（显式 prop 优于父级覆盖子组件样式） */
+  plain: { type: Boolean, default: false }
 })
 
 const siteInfo = useSiteInfoStore()
 </script>
 
 <template>
-  <footer v-if="siteInfo.visible" class="site-footer" :class="{ compact }">
+  <footer v-if="siteInfo.visible" class="site-footer" :class="{ compact, plain }">
     <div v-if="siteInfo.icpNo || siteInfo.policeNo" class="sf-line">
       <a v-if="siteInfo.icpNo" class="sf-link" :href="ICP_URL" target="_blank" rel="noopener noreferrer">{{ siteInfo.icpNo }}</a>
       <span v-if="siteInfo.icpNo && siteInfo.policeNo" class="sf-sep">|</span>
@@ -37,13 +41,10 @@ const siteInfo = useSiteInfoStore()
 
     <div class="sf-line">
       <span>{{ APP_NAME }} v{{ APP_VERSION }}</span>
-      <template v-if="siteInfo.giteeUrl">
+      <template v-for="(it, i) in siteInfo.items" :key="i">
         <span class="sf-sep">|</span>
-        <a class="sf-link" :href="siteInfo.giteeUrl" target="_blank" rel="noopener noreferrer">开源仓库</a>
-      </template>
-      <template v-if="siteInfo.copyright">
-        <span class="sf-sep">|</span>
-        <span>{{ siteInfo.copyright }}</span>
+        <a v-if="it.url" class="sf-link" :href="it.url" target="_blank" rel="noopener noreferrer">{{ it.name }}</a>
+        <span v-else>{{ it.name }}</span>
       </template>
     </div>
   </footer>
@@ -69,6 +70,13 @@ const siteInfo = useSiteInfoStore()
 .sf-link:hover { color: var(--el-color-primary, #4f46e5); }
 .sf-police { display: inline-flex; align-items: center; gap: 4px; }
 .sf-police-ico { width: 15px; height: 16px; display: block; }
+
+/* 无边框极简变体：登录页等自带分隔线的页面 */
+.site-footer.plain {
+  margin-top: 18px;
+  padding: 0;
+  border-top: none;
+}
 
 /* 移动端紧凑版：更小字号、无上边框（避免与 TabBar 视觉打架） */
 .site-footer.compact {

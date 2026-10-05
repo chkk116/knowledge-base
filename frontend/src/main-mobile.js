@@ -38,7 +38,8 @@ import {
   Check, ArrowLeft, MoreFilled, Delete, EditPen, Search, Refresh, Bell,
   Loading, CircleCheckFilled, WarningFilled, InfoFilled, Star, Clock,
   Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
-  Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading
+  Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading,
+  MagicStick   // AI 问答入口图标
 } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -71,7 +72,8 @@ const icons = {
   Check, ArrowLeft, MoreFilled, Delete, EditPen, Search, Refresh, Bell,
   Loading, CircleCheckFilled, WarningFilled, InfoFilled, Star, Clock,
   Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
-  Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading
+  Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading,
+  MagicStick   // AI 问答入口图标
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)

@@ -83,12 +83,47 @@ public class PublicConfigController {
         r.put("enabled", raw == null ? "false" : boolOf(raw));
         r.put("icpNo", raw == null ? "" : nvl(extractJsonString(raw, "icpNo")));
         r.put("policeNo", raw == null ? "" : nvl(extractJsonString(raw, "policeNo")));
+        // 自定义展示内容：整段数组原样下发，前端 JSON.parse 后渲染
+        String items = raw == null ? null : extractJsonArray(raw, "items");
+        r.put("items", items == null ? "[]" : items);
+        // 以下两个是早期版本的固定字段，保留下发仅供前端做一次性迁移（新配置不再写入）
         r.put("giteeUrl", raw == null ? "" : nvl(extractJsonString(raw, "giteeUrl")));
         r.put("copyright", raw == null ? "" : nvl(extractJsonString(raw, "copyright")));
         return r;
     }
 
     private static String nvl(String v) { return v == null ? "" : v; }
+
+    /**
+     * 提取 JSON 数组字段的原始文本（形如 "items":[...]）。
+     * 用括号深度扫描而非贪婪正则：条目文字里可能出现 ] 或 [，正则会截错。
+     * 找不到或不成对时返回 null（调用方退化为 []）。
+     */
+    private static String extractJsonArray(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*\\[")
+                .matcher(json);
+        if (!m.find()) return null;
+        int start = m.end() - 1;          // 指向 '['
+        int depth = 0;
+        boolean inStr = false, esc = false;
+        for (int i = start; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (inStr) {
+                if (esc) esc = false;
+                else if (c == '\\') esc = true;
+                else if (c == '"') inStr = false;
+                continue;
+            }
+            if (c == '"') { inStr = true; continue; }
+            if (c == '[') depth++;
+            else if (c == ']') {
+                depth--;
+                if (depth == 0) return json.substring(start, i + 1);
+            }
+        }
+        return null;
+    }
 
     /** 提取布尔字段（形如 "enabled":true），缺省 false */
     private static String boolOf(String json) {

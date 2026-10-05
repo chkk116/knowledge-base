@@ -419,7 +419,13 @@ function openHelp() { helpVisible.value = true }
           <span>当前为<strong>演示账户</strong>：可浏览全部页面，但不能保存、删除或发布数据。如需操作请使用正式账号登录。</span>
         </div>
         <router-view :key="$route.fullPath" />
-        <!-- 站点页脚：备案信息（合规要求网站底部必须可见）+ 仓库 + 版本。
+        <!-- 站点页脚：备案信息（合规要求网站底部必须可见）+ 自定义内容 + 版本。
+             放在内容流末尾（跟随内容滚动）：不占固定高度，页面可用高度最大化。
+             ⚠️ 两种「看起来更整齐」的做法都别用，实测各有代价：
+               ① .main{display:flex} + 页脚 margin-top:auto
+                  → 页面根元素普遍带 height:100%，成为 flex item 后百分比高度以容器为基准，整页被压扁；
+               ② 把页脚挪到 el-main 外面常驻底部
+                  → 内容区可用高度被砍掉约 90px，短页面下方留白、长页面可视区变矮，观感也像"压缩"。
              /login 走 barePage 分支不经过 el-main，其页脚由 Login.vue 自行渲染 -->
         <SiteFooter />
       </el-main>
@@ -524,6 +530,9 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
   box-shadow: 0 0 0 1px #cbd5e1; vertical-align: middle;
 }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* ⚠️ 别把 .main 改成 flex/grid：页面根元素普遍带 height:100%，
+   一旦成为 flex item，百分比高度会以 flex 容器为基准解析，卡片/表格会被压扁。
+   页脚跟随内容排在末尾即可，不要为了「贴底」动这里。 */
 .main { padding: 20px; }
 
 /* 演示账号横幅：全局只读提示，粘在内容区顶部 */

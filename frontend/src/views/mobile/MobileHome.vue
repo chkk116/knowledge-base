@@ -102,11 +102,17 @@ onMounted(load)
         </button>
       </div>
 
-      <!-- 搜索条：点进独立搜索页（首屏不放真实输入框，避免键盘顶起布局） -->
-      <button class="searchbar" type="button" @click="router.push('/search')">
-        <el-icon><Search /></el-icon>
-        <span>搜索文档、标签、内容</span>
-      </button>
+      <!-- 搜索条 + AI 入口：首屏不放真实输入框（避免键盘顶起布局），点进独立搜索页；
+           右侧单独给 AI 问答一个按钮——它是高频功能，不该埋在二级页里 -->
+      <div class="hero-search">
+        <button class="searchbar" type="button" @click="router.push('/search')">
+          <el-icon><Search /></el-icon>
+          <span>搜索文档、标签、内容</span>
+        </button>
+        <button class="ai-btn" type="button" title="AI 问答" @click="router.push('/embed/ai')">
+          <el-icon :size="20"><MagicStick /></el-icon>
+        </button>
+      </div>
     </header>
 
     <!-- 离线草稿提示 -->
@@ -132,9 +138,9 @@ onMounted(load)
           <span class="q-ico blue"><el-icon :size="23"><FolderOpened /></el-icon></span>
           <span class="q-txt">我的文档</span>
         </button>
-        <button class="quick" type="button" @click="router.push('/messages')">
-          <span class="q-ico orange"><el-icon :size="23"><Bell /></el-icon></span>
-          <span class="q-txt">消息</span>
+        <button class="quick" type="button" @click="router.push('/embed/ai')">
+          <span class="q-ico purple"><el-icon :size="23"><MagicStick /></el-icon></span>
+          <span class="q-txt">AI 问答</span>
         </button>
         <button class="quick" type="button" @click="router.push('/search')">
           <span class="q-ico green"><el-icon :size="23"><Search /></el-icon></span>
@@ -228,8 +234,9 @@ html.dark .hero { background: linear-gradient(150deg, #312e81 0%, #3730a3 50%, #
 }
 .hero-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
+.hero-search { margin-top: 14px; display: flex; align-items: center; gap: 8px; }
 .searchbar {
-  margin-top: 14px; width: 100%; height: 42px;
+  flex: 1 1 auto; min-width: 0; height: 42px;
   border: none; border-radius: 12px;
   background: rgba(255, 255, 255, .2);
   color: rgba(255, 255, 255, .88);
@@ -238,6 +245,16 @@ html.dark .hero { background: linear-gradient(150deg, #312e81 0%, #3730a3 50%, #
   backdrop-filter: blur(6px);
 }
 .searchbar:active { background: rgba(255, 255, 255, .28); }
+/* AI 问答：与搜索条同高的方形按钮，半透明白底衬托在渐变头上 */
+.ai-btn {
+  flex: none; width: 42px; height: 42px; padding: 0;
+  border: none; border-radius: 12px;
+  background: rgba(255, 255, 255, .2);
+  color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; backdrop-filter: blur(6px);
+}
+.ai-btn:active { background: rgba(255, 255, 255, .34); }
 
 /* ---------- 离线卡片 ---------- */
 .offline-card {
@@ -274,9 +291,11 @@ html.dark .offline-card { background: #3b2411; color: #fdba74; }
 .q-ico.blue { background: #eff8ff; color: #1570ef; }
 .q-ico.orange { background: #fff7ed; color: #ea580c; }
 .q-ico.green { background: #ecfdf5; color: #059669; }
+.q-ico.purple { background: #f5f3ff; color: #7c3aed; }
 html.dark .q-ico.blue { background: #12253d; color: #60a5fa; }
 html.dark .q-ico.orange { background: #3a2411; color: #fb923c; }
 html.dark .q-ico.green { background: #0e2e26; color: #34d399; }
+html.dark .q-ico.purple { background: #2a1f4d; color: #c4b5fd; }
 .q-txt { font-size: 12px; color: var(--m-text-sub); line-height: 1.2; }
 
 /* ---------- 横向卡片 ---------- */

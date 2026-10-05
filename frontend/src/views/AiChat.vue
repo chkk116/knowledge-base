@@ -12,7 +12,10 @@ import {
   deleteConversation, listMessages
 } from '../api/ai'
 import MarkdownIt from 'markdown-it'
-import Prism from 'prismjs'
+// ⚠️ 必须走 utils/prism 这一层包装，不能直接 `import Prism from 'prismjs'`：
+// prismjs 是 CJS，构建后 `global` 不存在，语言组件又直接读写全局 Prism，
+// 运行时会抛 "ReferenceError: Prism is not defined"。原因与顺序要求见 utils/prism.js。
+import Prism from '../utils/prism'
 import 'prismjs/components/prism-javascript'
 import 'prismjs/components/prism-typescript'
 import 'prismjs/components/prism-json'

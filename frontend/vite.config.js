@@ -70,7 +70,44 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version)
   },
-  plugins: [vue(), precompressPlugin()],
+  plugins: [
+    vue(),
+    precompressPlugin(),
+    // App 离线包：Capacitor 本地服务器会把 <script type="module" crossorigin> 按 CORS 规则拒掉
+    // （历史上「内置资源 → 白屏」的根因）。构建时统一摘掉 crossorigin：
+    // 网页端是同源加载，有没有该属性行为一致；App 内置包则必需。
+    {
+      name: 'strip-crossorigin',
+      transformIndexHtml(html) {
+        return html.replace(/\s+crossorigin(?:="[^"]*")?/g, '')
+      }
+    },
+    // ⚠️ prismjs 语言组件（components/prism-*.js）在模块顶层直接读写全局 Prism，
+    // 而 Rolldown 会把 prismjs 主包（CJS）惰性化成 `var fr = t(...)` 工厂 ——
+    // 结果：语言组件先执行，核心后执行 → `ReferenceError: Prism is not defined`，
+    // 且抛在模块求值阶段，会把整个懒加载 chunk（如 AiChat）干掉 → 页面空白。
+    // 在组件文件里声明局部绑定 Prism 并强制核心先求值，彻底摆脱执行顺序依赖。
+    // （曾试过在业务模块里 `window.Prism = Prism`：它所在的 chunk 评估晚于语言组件，无效。）
+    {
+      name: 'prism-global-shim',
+      enforce: 'pre',
+      transform(code, id) {
+        const norm = id.replace(/\\/g, '/')
+        if (!norm.includes('/node_modules/prismjs/components/')) return null
+        // 只注入语言组件（prism-*.js）：index.js 是 CJS 辅助文件（内部 require components.json），
+        // prism-core 是本体本体无需注入——混入 ESM import 会导致 require is not defined
+        if (!/\/prismjs\/components\/prism-[^/]+\.js$/.test(norm)) return null
+        if (/(^|[\s;])(?:var|let|const)\s+Prism\b/.test(code)) return null
+        return {
+          code:
+            "import __prismCore from 'prismjs';\n" +
+            "var Prism = typeof window !== 'undefined' ? (window.Prism = __prismCore) : __prismCore;\n" +
+            code,
+          map: null
+        }
+      }
+    }
+  ],
   server: {
     port: 5173,
     proxy: {

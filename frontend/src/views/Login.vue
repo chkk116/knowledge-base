@@ -442,7 +442,7 @@ function startParticles() {
       </div>
 
       <!-- 登录页也需展示备案信息（合规要求：网站底部可见） -->
-      <SiteFooter class="login-footer" />
+      <SiteFooter plain class="login-footer" />
     </main>
 
     <!-- 点登录后弹出的滑块验证码 -->
@@ -550,6 +550,9 @@ function startParticles() {
 .lang-trigger:hover { border-color: #c7d0e3; background: #f7f9fd; }
 
 .login-card-wrap {
+  /* 上下 auto 外边距把剩余空间均分：卡片视觉居中，
+     卡片下方的 auto 空间同时把页脚顶到栏底（内容不足一屏时页脚贴底） */
+  margin-top: auto; margin-bottom: auto;
   width: 360px; max-width: 100%; min-width: 0;
   padding: 32px 32px 28px;
   background: #fff; border-radius: 12px;

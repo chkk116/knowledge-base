@@ -36,11 +36,13 @@ public class FileService {
 
     private static final Logger log = LoggerFactory.getLogger(FileService.class);
 
-    // 允许常见位图（svg 可能被用于 XSS 故不放行）与常见音频（用于文章内插入语音条）
+    // 允许常见位图（svg 可能被用于 XSS 故不放行）、常见音频（文章内插入语音条）
+    // 与常见视频（科普/培训文档插入讲解视频；视频不含脚本，XSS 面由 HtmlSanitizer 白名单控制）
     private static final Set<String> ALLOWED = Set.of(
             "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
             "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg",
-            "audio/webm", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/flac"
+            "audio/webm", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/flac",
+            "video/mp4", "video/webm", "video/ogg", "video/quicktime"
     );
 
     private static final long MAX_SIZE = 50L * 1024 * 1024; // 50MB
