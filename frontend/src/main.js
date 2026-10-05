@@ -14,7 +14,8 @@ import {
   ElPopover, ElProgress, ElRadio, ElRadioButton, ElRadioGroup, ElRow, ElSelect,
   ElSkeleton, ElSlider, ElSubMenu, ElSwitch, ElTabPane, ElTable, ElTableColumn,
   ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip, ElTree, ElTreeSelect,
-  ElDescriptions, ElDescriptionsItem, ElUpload, ElWatermark, ElConfigProvider, ElLoadingDirective
+  ElDescriptions, ElDescriptionsItem, ElUpload, ElWatermark, ElConfigProvider, ElLoadingDirective,
+  ElMessage
 } from 'element-plus'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 // —— 按需样式：56 个组件 + message/message-box/loading（命令式 API/指令）——
@@ -134,6 +135,25 @@ for (const [key, component] of Object.entries(icons)) {
 
 // 全局指令：窄屏把 el-table 转成卡片堆叠列表（详见 utils/stackTable.js）
 app.directive('stack-table', stackTable)
+
+// 演示账号只读拦截（全局、捕获阶段）：
+// 演示账号（auth.isDemo）点击「保存/新建/删除/发布…」等写操作按钮时，直接弹出统一提示并阻止事件继续，
+// 无需逐页改造。真实的兜底仍在服务端（403 + {demo:true}）。
+// 注意：本文件不直接依赖 pinia 实例，演示状态通过 window.__kbIsDemo 由 store 侧同步（见 store/auth.js）。
+const DEMO_WRITE_BTN = /保存|提交|确认|确定|新建|新增|添加|创建|删除|移除|编辑|修改|发布|通过|驳回|导入|上传|重命名|停用|启用|重置|恢复|清空|审批|发放|调整|设默认|绑定|解绑|同意|拒绝/
+document.addEventListener('click', (e) => {
+  if (typeof window.__kbIsDemo !== 'function' || !window.__kbIsDemo()) return
+  const t = e.target
+  const btn = t && t.closest && t.closest('button, .el-button, [role="button"]')
+  if (!btn) return
+  if (btn.disabled || btn.classList.contains('is-disabled')) return
+  const text = (btn.innerText || btn.textContent || '').trim()
+  if (!text || !DEMO_WRITE_BTN.test(text)) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.stopImmediatePropagation) e.stopImmediatePropagation()
+  ElMessage.warning('演示账户不能执行写操作（' + text.replace(/\s+/g, '') + '），请使用正式账号')
+}, true)
 
 // 全局错误兜底：把未捕获异常显示成页面底部浮条（避免 Vite 红色浮层反复闪屏）
 function reportError(msg) {

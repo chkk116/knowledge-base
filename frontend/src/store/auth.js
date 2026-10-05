@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { login as apiLogin, me as apiMe } from '../api/auth'
 
 // 权限码 → 中文名（后台菜单、用户管理、头像下拉统一复用，避免各页面各自维护漂移）
@@ -23,6 +24,8 @@ export const PERM_LABELS = {
   DOC_SHARE: '共享文档管理（旧权限，已拆分）',
   ASSET_MANAGE: '资产管理',
   AVATAR_REVIEW: '头像审核',
+  ADMIN_VIEW: '后台只读浏览（审计/日志/附件等）',
+  DEMO_MODE: '演示权限（只读，禁止改动数据）',
 }
 
 /** 将权限码转为中文名；未知码原样返回 */
@@ -32,7 +35,13 @@ export function permLabel(code) {
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('kb_token') || '')
-  const user = ref(null)
+  // 首屏先用本地缓存的用户信息渲染（离线冷启动时拿不到接口，否则会一片空白）
+  const user = ref((() => {
+    try {
+      const raw = localStorage.getItem('kb_user_cache')
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
+  })())
   const loggedIn = ref(!!token.value)
   const isAdmin = computed(() => user.value?.role === 'ADMIN')
   // 细粒度权限码数组（如 ['USER_MANAGE','DOC_REVIEW']）；ADMIN 角色隐式拥有全部
@@ -52,6 +61,27 @@ export const useAuthStore = defineStore('auth', () => {
     if (code && code.startsWith('SHARE_') && perms.includes('DOC_SHARE')) return true
     return false
   }
+
+  /**
+   * 是否演示账号（携带 DEMO_MODE 只读约束标记）。
+   * 演示账号：后台各页面照常可打开查看，但所有保存/删除/发布等写操作被服务端拒绝，
+   * 前端据此把编辑入口降级为只读并把点击转成「演示账户不能…」提示。
+   * 真实 ADMIN 即便带标记也不受影响（ADMIN 隐式全权优先）。
+   */
+  const isDemo = computed(() => {
+    if (isAdmin.value) return false
+    return permissions.value.includes('DEMO_MODE')
+  })
+
+  /** 统一的演示拦截提示；返回 true 表示已拦截（调用处直接 return） */
+  function demoBlock(action) {
+    const what = action ? `不能${action}` : '不能执行该操作'
+    ElMessage.warning(`演示账户${what}，请使用正式账号`)
+    return true
+  }
+
+  // 把演示状态同步到 window，供 main.js 的全局点击拦截（无法直接访问 pinia）判断
+  watch(isDemo, (v) => { window.__kbIsDemo = () => !!v }, { immediate: true })
 
   function applyToken(t) {
     token.value = t || ''
@@ -104,15 +134,49 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchMe() {
-    if (!token.value) return
+    if (!token.value) {
+      // 离线冷启动兜底：token 可能来自本地缓存，user 从缓存恢复
+      restoreCachedUser()
+      return
+    }
     try {
       const { data } = await apiMe()
       user.value = toUser(data)
       loggedIn.value = true
+      cacheUser(user.value)
     } catch (e) {
-      applyToken('')
-      user.value = null
+      // 关键区分：
+      //  - 401/403：token 真的失效 → 清空登录态
+      //  - 网络错误（离线/超时）：**不能**清 token，否则断网一刷新就被登出，
+      //    离线写文档的能力也没了。此时回退到本地缓存的用户信息。
+      const status = e && (e.status || (e.response && e.response.status))
+      if (status === 401 || status === 403) {
+        applyToken('')
+        user.value = null
+        clearCachedUser()
+      } else {
+        restoreCachedUser()
+        if (!user.value) loggedIn.value = !!token.value
+      }
     }
+  }
+
+  /** 缓存用户信息（供离线时恢复界面） */
+  function cacheUser(u) {
+    try { localStorage.setItem('kb_user_cache', JSON.stringify(u)) } catch { /* 忽略 */ }
+  }
+  function restoreCachedUser() {
+    if (user.value) return
+    try {
+      const raw = localStorage.getItem('kb_user_cache')
+      if (!raw) return
+      user.value = JSON.parse(raw)
+      // 只有确实持有 token 才算登录态：否则多标签页登出/残留缓存会渲染成假登录，所有请求 401
+      loggedIn.value = !!token.value
+    } catch { /* 忽略 */ }
+  }
+  function clearCachedUser() {
+    try { localStorage.removeItem('kb_user_cache') } catch { /* 忽略 */ }
   }
 
   /** 更新个人资料（昵称 / 头像 / 邮箱 / 简介 / 性别 / 隐藏性别）后同步到本地状态 */
@@ -123,7 +187,8 @@ export const useAuthStore = defineStore('auth', () => {
   function logout() {
     applyToken('')
     user.value = null
+    clearCachedUser()
   }
 
-  return { token, user, loggedIn, isAdmin, permissions, hasPerm, login, fetchMe, setProfile, logout }
+  return { token, user, loggedIn, isAdmin, isDemo, permissions, hasPerm, demoBlock, login, fetchMe, setProfile, logout }
 })

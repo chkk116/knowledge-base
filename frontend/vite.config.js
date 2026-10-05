@@ -3,6 +3,9 @@ import vue from '@vitejs/plugin-vue'
 import { gzipSync, brotliCompressSync, constants } from 'node:zlib'
 import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join, extname, relative, isAbsolute, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 // 零依赖预压缩插件：构建结束后用 Node 内置 zlib 为每个文本资源生成 .gz / .br
 // （沙箱无法 npm install 第三方压缩插件，故用原生 zlib；.gz/.br 可被 nginx / 静态托管直接命中）
@@ -77,6 +80,13 @@ export default defineConfig({
     // 分包：把体积大且变动少的第三方库拆成独立长缓存 chunk，主包因此显著变小
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
+      // 多页入口：桌面端 index.html（/）+ 移动端 mobile.html（/m/）。
+      // 两者共用同一份依赖与样式变量，但各自注册的 Element Plus 组件不同，
+      // 移动端入口因此不会被桌面端的菜单/表格等重组件拖大。
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        mobile: resolve(__dirname, 'mobile.html')
+      },
       output: {
         // Vite 8 底层是 Rolldown（产物里有 rolldown-runtime）。
         // manualChunks 只是兼容层，Rolldown 会按自己的共享模块算法重新归并，

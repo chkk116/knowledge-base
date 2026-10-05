@@ -1,0 +1,140 @@
+/**
+ * 移动端独立入口（/m/*）
+ *
+ * 与桌面端 main.js 的区别：
+ *  - 只注册移动端用到的少量 Element Plus 组件（弹窗、下拉、上传、消息提示等），
+ *    不引入侧边栏 / 菜单 / 表格等桌面重组件，首屏体积显著小于桌面端。
+ *  - 独立路由表 router/mobile.js，页面全部在 views/mobile/ 下，与桌面页面零复用（除了 API 与 store）。
+ *  - 全局样式走 mobile.css：安全区、点击态、底部 TabBar、滚动动效都按 App 习惯重写。
+ */
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import {
+  ElButton, ElDialog, ElDrawer, ElInput, ElIcon, ElLoadingDirective,
+  ElMessage, ElMessageBox, ElEmpty, ElSkeleton, ElSwitch, ElProgress, ElTag,
+  ElDropdown, ElDropdownItem, ElDropdownMenu, ElAvatar, ElConfigProvider
+} from 'element-plus'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/drawer/style/css'
+import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/icon/style/css'
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
+import 'element-plus/es/components/loading/style/css'
+import 'element-plus/es/components/empty/style/css'
+import 'element-plus/es/components/skeleton/style/css'
+import 'element-plus/es/components/switch/style/css'
+import 'element-plus/es/components/progress/style/css'
+import 'element-plus/es/components/tag/style/css'
+import 'element-plus/es/components/dropdown/style/css'
+import 'element-plus/es/components/dropdown-item/style/css'
+import 'element-plus/es/components/dropdown-menu/style/css'
+import 'element-plus/es/components/avatar/style/css'
+import 'element-plus/es/components/config-provider/style/css'
+import {
+  Plus, HomeFilled, Document, ChatDotRound, User, Camera, Picture, Close,
+  Check, ArrowLeft, MoreFilled, Delete, EditPen, Search, Refresh, Bell,
+  Loading, CircleCheckFilled, WarningFilled, InfoFilled, Star, Clock,
+  Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
+  Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading
+} from '@element-plus/icons-vue'
+import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
+
+import MobileApp from './MobileApp.vue'
+import mobileRouter from './router/mobile'
+import './responsive.css'
+import './mobile.css'
+
+// 主题：与桌面端共用 localStorage('kb_theme')，手机 / 电脑切换保持一致
+const savedTheme = localStorage.getItem('kb_theme')
+const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+if (savedTheme === 'dark' || (savedTheme === null && prefersDark)) {
+  document.documentElement.classList.add('dark')
+}
+
+const app = createApp(MobileApp)
+
+const EP_COMPONENTS = {
+  ElButton, ElDialog, ElDrawer, ElInput, ElIcon, ElEmpty, ElSkeleton,
+  ElSwitch, ElProgress, ElTag, ElDropdown, ElDropdownItem, ElDropdownMenu,
+  ElAvatar, ElConfigProvider
+}
+for (const [key, component] of Object.entries(EP_COMPONENTS)) {
+  app.component(key, component)
+}
+app.directive('loading', ElLoadingDirective)
+
+const icons = {
+  Plus, HomeFilled, Document, ChatDotRound, User, Camera, Picture, Close,
+  Check, ArrowLeft, MoreFilled, Delete, EditPen, Search, Refresh, Bell,
+  Loading, CircleCheckFilled, WarningFilled, InfoFilled, Star, Clock,
+  Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
+  Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading
+}
+for (const [key, component] of Object.entries(icons)) {
+  app.component(key, component)
+}
+
+// 命令式 API 独立挂到 window，便于在工具函数中直接用（不依赖组件实例）
+window.__kbMsg = ElMessage
+window.__kbMsgBox = ElMessageBox
+
+// 全局错误兜底：移动端不放红条（挡视线），改控制台 + 一次性 toast
+let errShown = 0
+function reportError(msg) {
+  console.error(msg)
+  if (errShown++ < 3) ElMessage.error('页面出现问题，请下拉刷新重试')
+}
+window.__kbError = reportError
+app.config.errorHandler = (err, _vm, info) => reportError((err && err.stack) || String(err) + '\n' + info)
+window.addEventListener('error', (e) => {
+  const m = e.message || (e.error && e.error.message) || ''
+  if (m.includes('ResizeObserver loop')) { e.preventDefault(); return }
+  if (m.includes('reportAllChanges') || m.includes("reading 'startTime'") || m.includes('reading "startTime"')) {
+    e.preventDefault(); return
+  }
+  reportError((e.error && e.error.stack) || e.message)
+})
+window.addEventListener('unhandledrejection', (e) => {
+  reportError('Promise: ' + ((e.reason && e.reason.stack) || e.reason))
+})
+
+app.use(createPinia()).use(mobileRouter).use({ install: () => {} }).mount('#app')
+
+/**
+ * 注册 Service Worker：让移动端在断网时也能冷启动打开界面。
+ * - 生产环境才注册（开发环境 SW 会缓存 dev 资源，干扰 HMR）
+ * - **App 端跳过**：Capacitor 套壳时页面由 WebView 从本地文件加载，
+ *   资源本就随 APK 一起分发，不存在「断网打不开」，注册 /sw.js 反而会 404 报错。
+ * - 失败不影响主流程（如 iOS 无痕模式不支持 SW）
+ */
+const inNativeApp = (() => {
+  try {
+    return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform())
+  } catch (e) { return false }
+})()
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator && !inNativeApp) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
+      // 有新版本就立刻激活，避免用户长期停留在旧外壳
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing
+        if (!sw) return
+        sw.addEventListener('statechange', () => {
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+            sw.postMessage('SKIP_WAITING')
+          }
+        })
+      })
+    }).catch((e) => {
+      // 不弹错误：离线能力属于增强，注册失败不应影响使用
+      console.warn('[kb] Service Worker 注册失败：', e && e.message)
+    })
+  })
+}
+
+// zhCn 供 MobileApp 内 el-config-provider 使用（此处仅保留引用，避免 tree-shake 掉）
+export { zhCn }

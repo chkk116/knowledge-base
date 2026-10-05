@@ -6,6 +6,7 @@
 package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.domain.LoginLog;
+import com.kb.kbplatform.security.Perm;
 import com.kb.kbplatform.repository.LoginLogRepository;
 import com.kb.kbplatform.security.TokenClaims;
 import org.springframework.data.domain.Page;
@@ -38,7 +39,8 @@ public class LoginLogController {
                                @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
                                @RequestParam(required = false, defaultValue = "0") int page,
                                @RequestParam(required = false, defaultValue = "20") int size) {
-        if (c == null || !c.isAdmin()) {   // 与 AuthFilter 门统一语义：真实 ADMIN 或权限覆盖全集（2026-09-21 统一）
+        // 只读列表：ADMIN 或持有 ADMIN_VIEW（后台只读浏览权限，供演示账号查看）
+        if (c == null || (!c.isAdmin() && !c.hasPerm(Perm.ADMIN_VIEW))) {
             throw new org.springframework.web.server.ResponseStatusException(FORBIDDEN, "需要管理员权限");
         }
         if (page < 0) page = 0;

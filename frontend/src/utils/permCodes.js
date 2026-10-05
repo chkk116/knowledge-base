@@ -39,11 +39,24 @@ export const PERM_GROUPS = [
       { value: 'BLACKLIST_MANAGE', label: '黑名单管理' },
       { value: 'CORE_MAINTAIN', label: '功能开关与站点设置' }
     ]
+  },
+  {
+    title: '演示与约束',
+    perms: [
+      { value: 'ADMIN_VIEW', label: '后台只读浏览' },
+      { value: 'DEMO_MODE', label: '演示权限（只读，禁止改动数据）' }
+    ]
   }
 ]
 
-/** 摊平的全量权限码（顺序 = 分组呈现顺序） */
-export const PERM_OPTIONS = PERM_GROUPS.flatMap((g) => g.perms)
+// 演示权限（DEMO_MODE）：不是「能力」，而是「只读约束」标记。
+// 给账号/角色勾上后，后台一切页面照常可看，但保存/删除/发布等写操作会被服务端拒绝并提示「演示账户不能…」。
+// ADMIN_VIEW 是真实权限码（可查看审计/登录日志/附件/检索测试等原本仅管理员可见的只读页面）。
+export const DEMO_PERM = { value: 'DEMO_MODE', label: '演示权限（只读，禁止改动数据）' }
+
+/** 摊平的真实权限码（顺序 = 分组呈现顺序；**不含 DEMO_MODE**——它是只读约束标记而非能力，
+ *  故「覆盖全集 = 完全管理员」判定不应把它算进去） */
+export const PERM_OPTIONS = PERM_GROUPS.flatMap((g) => g.perms).filter((o) => o.value !== 'DEMO_MODE')
 
 /** 判定一组权限码是否覆盖全部管理员权限码（完全管理员判定，忽略大小写/空格） */
 export function isFullAdminPerms(perms) {

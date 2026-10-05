@@ -135,8 +135,9 @@ router.beforeEach(async (to) => {
   if (to.meta.admin && to.meta.perm && !auth.hasPerm(to.meta.perm)) {
     return { path: '/' }
   }
-  // 仅管理员可见的页（操作审计 / 附件管理）
-  if (to.meta.adminOnly && !auth.isAdmin) {
+  // 仅管理员可见的页（操作审计 / 附件管理 / 检索测试）：真实管理员，或持有「后台只读浏览」权限
+  // （ADMIN_VIEW，演示账号用）也可打开查看；写操作另有后端把守。
+  if (to.meta.adminOnly && !auth.isAdmin && !auth.hasPerm('ADMIN_VIEW')) {
     return { path: '/' }
   }
   // 核心维护：功能开关关闭时按关闭模式处理

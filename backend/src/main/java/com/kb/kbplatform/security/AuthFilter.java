@@ -96,8 +96,20 @@ public class AuthFilter implements Filter {
                 }
             }
         }
+        // 演示账号（DEMO_MODE）：放行一切读取，但拦截所有会改动数据的写操作。
+        // 判定放在权限校验之后，保证「没权限的接口」仍按 403 处理，演示提示只针对本可执行却被只读约束拦下的操作。
+        if (!publicRequest && claims != null && claims.isDemo() && isWriteMethod(method)
+                && !Perm.demoWriteAllowed(path)) {
+            sendDemo403(res);
+            return;
+        }
         if (claims != null) req.setAttribute("kbUser", claims);   // 供控制器读取当前用户
         chain.doFilter(request, response);
+    }
+
+    /** 是否为会改动数据的写方法（GET/HEAD/OPTIONS 放行） */
+    private boolean isWriteMethod(String method) {
+        return "POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method) || "DELETE".equals(method);
     }
 
     /** 公开（免登录）的接口 */
@@ -134,6 +146,10 @@ public class AuthFilter implements Filter {
      *  共享文档管理拆分：查看 SHARE_VIEW / 删除 SHARE_DELETE / 容量 SHARE_CAPACITY */
     private String adminPermRequired(String path, String method) {
         if (path.startsWith("/api/admin/users")) return "USER_MANAGE";
+        // 角色/部门管理与用户管理同域（控制器内 requirePerm 也是 USER_MANAGE）：
+        // 显式映射后，持有 DEMO_MODE 的演示账号（isAdmin()=false）也能打开这两个页面查看。
+        if (path.startsWith("/api/admin/roles")) return "USER_MANAGE";
+        if (path.startsWith("/api/admin/departments")) return "USER_MANAGE";
         if (path.startsWith("/api/admin/assets")) return "ASSET_MANAGE";
         if (path.startsWith("/api/admin/docs")) {
             // 拆分：文章审核（待审核队列 + 通过/驳回）= DOC_REVIEW；其余帖子管理操作 = POST_MANAGE
@@ -165,7 +181,17 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/admin/banned-words")) return "BANNED_WORDS_MANAGE";
         // AI 模型与 API Key 属敏感凭证：仅完全管理员（ADMIN 角色）可增删改
         if (path.startsWith("/api/admin/ai")) return null;
-        return null;   // 其他管理接口（如黑名单）仍仅 ADMIN 可访问
+        // 原本仅 ADMIN 可访问的**只读**管理接口：映射到 ADMIN_VIEW，使演示账号（isAdmin()=false）
+        // 也能打开查看。写操作仍由各控制器内的 isAdmin() 把守（且 AuthFilter 会拦演示号的写请求），
+        // 因此这里只需在 GET 时放行。
+        if ("GET".equals(method)) {
+            if (path.startsWith("/api/admin/audit")) return Perm.ADMIN_VIEW;
+            if (path.startsWith("/api/admin/login-logs")) return Perm.ADMIN_VIEW;
+            if (path.startsWith("/api/admin/files")) return Perm.ADMIN_VIEW;
+            if (path.startsWith("/api/admin/search")) return Perm.ADMIN_VIEW;
+            if (path.startsWith("/api/admin/blacklist")) return Perm.ADMIN_VIEW;
+        }
+        return null;   // 其他管理接口仍仅 ADMIN 可访问
     }
 
     private void send401(HttpServletResponse res) throws IOException {
@@ -178,5 +204,12 @@ public class AuthFilter implements Filter {
         res.setStatus(HttpStatus.FORBIDDEN.value());
         res.setContentType("application/json;charset=UTF-8");
         res.getWriter().write("{\"error\":\"需要管理员权限\"}");
+    }
+
+    /** 演示账号写操作拒绝：403 + demo 标记，前端据此弹出「演示账户不能…」提示而非普通无权提示 */
+    private void sendDemo403(HttpServletResponse res) throws IOException {
+        res.setStatus(HttpStatus.FORBIDDEN.value());
+        res.setContentType("application/json;charset=UTF-8");
+        res.getWriter().write("{\"error\":\"演示账户不能执行该操作\",\"demo\":true}");
     }
 }

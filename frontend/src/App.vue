@@ -169,8 +169,9 @@ const menus = computed(() => {
   if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/users', title: '用户管理', icon: 'User' })
   if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/roles', title: '角色管理', icon: 'Suitcase' })
   if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/departments', title: '部门管理', icon: 'OfficeBuilding' })
-  if (auth.isAdmin) {
-    userMgmt.push({ index: '/admin/blacklist', title: '黑名单', icon: 'CircleClose' })
+  if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW')) {
+    // 黑名单：无对应后端接口，仅 ADMIN 角色可见
+    if (auth.isAdmin) userMgmt.push({ index: '/admin/blacklist', title: '黑名单', icon: 'CircleClose' })
     userMgmt.push({ index: '/admin/audit', title: '操作审计', icon: 'Clock' })
     userMgmt.push({ index: '/admin/login-logs', title: '登录日志', icon: 'Key' })
   }
@@ -185,14 +186,14 @@ const menus = computed(() => {
   if (auth.hasPerm('TAXONOMY_MANAGE')) contentMgmt.push({ index: '/admin/taxonomy', title: '分类标签', icon: 'Collection' })
   if (auth.hasPerm('ANNOUNCEMENT_MANAGE')) contentMgmt.push({ index: '/admin/announcements', title: '公告管理', icon: 'Notification' })
   if (auth.hasPerm('BANNED_WORDS_MANAGE')) contentMgmt.push({ index: '/admin/banned-words', title: '违禁词管理', icon: 'Warning' })
-  if (auth.isAdmin) contentMgmt.push({ index: '/admin/files', title: '附件管理', icon: 'Folder' })
+  if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW')) contentMgmt.push({ index: '/admin/files', title: '附件管理', icon: 'Folder' })
   if (auth.hasPerm('STATS_VIEW')) contentMgmt.push({ index: '/admin/stats', title: '数据看板', icon: 'DataLine' })
   if (auth.hasPerm('COURSE_MANAGE')) contentMgmt.push({ index: '/admin/courses', title: '培训管理', icon: 'Notebook' })
   if (auth.hasPerm('EXAM_MANAGE')) contentMgmt.push({ index: '/admin/exams', title: '题库与试卷', icon: 'Trophy' })
   if (auth.hasPerm('SHARE_VIEW')) contentMgmt.push({ index: '/admin/doc-shares', title: '共享文档管理', icon: 'DocumentCopy' })
   if (auth.hasPerm('ASSET_MANAGE')) contentMgmt.push({ index: '/admin/assets', title: '资产管理', icon: 'Box' })
-  // 检索测试：管理员诊断搜索质量（搜得到 / 搜得准）
-  if (auth.isAdmin) contentMgmt.push({ index: '/admin/search-test', title: '检索测试', icon: 'Search' })
+  // 检索测试：管理员诊断搜索质量（搜得到 / 搜得准）；演示账号（ADMIN_VIEW）也可只读探测
+  if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW')) contentMgmt.push({ index: '/admin/search-test', title: '检索测试', icon: 'Search' })
   // AI 模型含第三方 API Key：仅系统管理员
   if (auth.isAdmin) contentMgmt.push({ index: '/admin/ai-models', title: 'AI 模型管理', icon: 'Cpu' })
   if (contentMgmt.length) base.push({ index: 'g-content', title: '内容管理', icon: 'Document', children: contentMgmt })
@@ -406,6 +407,11 @@ function openHelp() { helpVisible.value = true }
       </el-header>
 
       <el-main class="main">
+        <!-- 演示账号横幅：全局提示当前处于「只读演示」状态，写操作会被拒绝 -->
+        <div v-if="auth.isDemo" class="demo-banner">
+          <el-icon><InfoFilled /></el-icon>
+          <span>当前为<strong>演示账户</strong>：可浏览全部页面，但不能保存、删除或发布数据。如需操作请使用正式账号登录。</span>
+        </div>
         <router-view :key="$route.fullPath" />
       </el-main>
     </el-container>
@@ -510,6 +516,18 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
 }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .main { padding: 20px; }
+
+/* 演示账号横幅：全局只读提示，粘在内容区顶部 */
+.demo-banner {
+  display: flex; align-items: center; gap: 8px;
+  margin: -6px 0 16px; padding: 10px 14px;
+  border-radius: 10px; font-size: 13px; line-height: 1.5;
+  color: #9a6b00; background: #fff8e6; border: 1px solid #ffe1a6;
+}
+.demo-banner strong { color: #b45309; }
+.demo-banner .el-icon { flex-shrink: 0; font-size: 16px; color: #d97706; }
+html.dark .demo-banner { color: #f0c469; background: #2c2410; border-color: #5c4a1a; }
+html.dark .demo-banner strong { color: #fbbf24; }
 
 /* 通知铃铛 */
 .bell { padding: 7px; color: #6366f1; }

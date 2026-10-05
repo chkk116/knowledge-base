@@ -8,6 +8,8 @@ export const useNotificationStore = defineStore('notification', () => {
   const unread = ref(0)
   const version = ref(0)
   let es = null
+  let retryTimer = null
+  let retryDelay = 1000          // 指数退避：1s → 2s → 4s … 上限 30s，避免后端异常时疯狂重连
 
   function connect(t) {
     const token = t || localStorage.getItem('kb_token') || ''
@@ -17,6 +19,10 @@ export const useNotificationStore = defineStore('notification', () => {
     notificationUnread().then(({ data }) => { unread.value = data.count || 0 }).catch(() => {})
     const url = `/api/notifications/stream?token=${encodeURIComponent(token)}`
     es = new EventSource(url)
+    es.onopen = () => {
+      // 连接成功：重置退避（后端若重启，恢复正常节奏）
+      retryDelay = 1000
+    }
     es.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data)
@@ -27,10 +33,22 @@ export const useNotificationStore = defineStore('notification', () => {
       }
       version.value++
     }
-    // EventSource 在连接断开后会自动重连，无需手动处理
+    // 连接出错：关闭当前实例并自行按指数退避重连。
+    // 不能依赖 EventSource 的原生自动重连——它在服务端 4xx/5xx 时会以极短间隔反复重试
+    // （nginx/后端异常时表现为每 2-3 秒一次的长连接风暴，拖慢页面并刷爆日志）。
+    es.onerror = () => {
+      if (es) { es.close(); es = null }
+      if (retryTimer) return
+      retryTimer = setTimeout(() => {
+        retryTimer = null
+        retryDelay = Math.min(retryDelay * 2, 30000)
+        if (localStorage.getItem('kb_token')) connect()
+      }, retryDelay)
+    }
   }
 
   function disconnect() {
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
     if (es) { es.close(); es = null }
   }
 

@@ -12,16 +12,36 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * SSE 长连接注册表：按 userId 维护每个登录用户（可能多标签页）的 SseEmitter。
  * 有新通知时由 NotificationService 调用 push，向该用户所有连接推送未读变更。
+ *
+ * 心跳：每个连接注册一个 25s 定时任务发送注释事件（": ping"），
+ * 防止空闲连接被 nginx proxy_read_timeout（默认 120s）等中间层掐断，
+ * 从而避免前端 EventSource 陷入「断开-重连」循环并触发全局错误提示。
  */
 @Service
 public class SseSessionRegistry {
 
+    /** 心跳间隔：25s（小于 nginx 的 proxy_read_timeout，留足余量） */
+    private static final long HEARTBEAT_SECONDS = 25L;
+
     // userId -> 该用户的全部 emitter（多标签页 / 多设备）
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> clients = new ConcurrentHashMap<>();
+
+    // emitter -> 心跳任务句柄（连接结束时取消）
+    private final Map<SseEmitter, ScheduledFuture<?>> beats = new ConcurrentHashMap<>();
+
+    private final ScheduledExecutorService heartbeat = Executors.newScheduledThreadPool(1, r -> {
+        Thread t = new Thread(r, "sse-heartbeat");
+        t.setDaemon(true);
+        return t;
+    });
 
     /** 注册一个长连接，连接完成 / 超时后自动清理，避免内存堆积 */
     public SseEmitter register(Long userId, long timeoutMs) {
@@ -29,10 +49,20 @@ public class SseSessionRegistry {
         CopyOnWriteArrayList<SseEmitter> list =
                 clients.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>());
         list.add(emitter);
-        emitter.onCompletion(() -> remove(userId, emitter));
-        emitter.onTimeout(() -> { emitter.complete(); remove(userId, emitter); });
+
         // 心跳：每 25s 发一个注释事件，保活代理 / 浏览器连接（timeout 通常更长）
-        emitter.onError(e -> remove(userId, emitter));
+        ScheduledFuture<?> beat = heartbeat.scheduleAtFixedRate(() -> {
+            try {
+                emitter.send(SseEmitter.event().comment("ping"));
+            } catch (Exception ex) {
+                cleanup(userId, emitter);
+            }
+        }, HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
+        beats.put(emitter, beat);
+
+        emitter.onCompletion(() -> cleanup(userId, emitter));
+        emitter.onTimeout(() -> { emitter.complete(); cleanup(userId, emitter); });
+        emitter.onError(e -> cleanup(userId, emitter));
         return emitter;
     }
 
@@ -46,7 +76,7 @@ public class SseSessionRegistry {
                         .name("notification")
                         .data(Map.of("type", "notification", "unread", payload)));
             } catch (Exception ex) {
-                remove(userId, e);
+                cleanup(userId, e);
             }
         }
     }
@@ -56,7 +86,10 @@ public class SseSessionRegistry {
         push(userId, unread);
     }
 
-    private void remove(Long userId, SseEmitter e) {
+    /** 连接结束（完成 / 超时 / 出错）：取消心跳并移除 emitter */
+    private void cleanup(Long userId, SseEmitter e) {
+        ScheduledFuture<?> beat = beats.remove(e);
+        if (beat != null) beat.cancel(false);
         List<SseEmitter> list = clients.get(userId);
         if (list != null) list.remove(e);
     }

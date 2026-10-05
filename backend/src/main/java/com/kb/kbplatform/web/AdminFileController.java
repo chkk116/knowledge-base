@@ -6,6 +6,7 @@
 package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.repository.DocumentRepository;
+import com.kb.kbplatform.security.Perm;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.FileService;
@@ -46,7 +47,7 @@ public class AdminFileController {
                                        @RequestParam(defaultValue = "20") int size,
                                        @RequestParam(defaultValue = "all") String kind,
                                        @RequestParam(required = false) String q) {
-        requireAdmin(c);
+        requireAdminView(c);
         Set<String> avatars = new HashSet<>(userRepo.findAllUploadAvatars());
         avatars.addAll(userRepo.findAllPendingUploadAvatars());   // 待审头像同样占用上传目录，避免被当孤儿清掉
         List<Map<String, Object>> all = fileSvc.findOrphans(docRepo.findAllContents(), avatars);
@@ -100,6 +101,13 @@ public class AdminFileController {
 
     private void requireAdmin(TokenClaims c) {
         if (c == null || !c.isAdmin()) {
+            throw new ResponseStatusException(FORBIDDEN, "需要管理员权限");
+        }
+    }
+
+    /** 只读浏览：ADMIN 或持有 ADMIN_VIEW（后台只读浏览权限，供演示账号查看） */
+    private void requireAdminView(TokenClaims c) {
+        if (c == null || (!c.isAdmin() && !c.hasPerm(Perm.ADMIN_VIEW))) {
             throw new ResponseStatusException(FORBIDDEN, "需要管理员权限");
         }
     }

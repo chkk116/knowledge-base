@@ -6,6 +6,7 @@
 package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.security.TokenClaims;
+import com.kb.kbplatform.security.Perm;
 import com.kb.kbplatform.service.DocumentService;
 import com.kb.kbplatform.service.MeiliSearchClient;
 import com.kb.kbplatform.service.SearchService;
@@ -50,7 +51,8 @@ public class SearchAdminController {
     public Map<String, Object> test(@RequestAttribute("kbUser") TokenClaims c,
                                     @RequestParam("q") String q,
                                     @RequestParam(value = "category", required = false) String category) {
-        if (c == null || !c.isAdmin()) {   // 与 reindex 同一语义：仅 ADMIN 角色
+        // 只读探测：ADMIN 或持有 ADMIN_VIEW（后台只读浏览权限，供演示账号查看）
+        if (c == null || (!c.isAdmin() && !c.hasPerm(Perm.ADMIN_VIEW))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要管理员权限");
         }
         return searchSvc.probe(q, category);

@@ -53,3 +53,11 @@ backend/src/main/resources/application-secret.yml
 
 # Capacitor 本地配置备份（.bak 仅为本地临时回滚用）
 mobile/capacitor.config.json.bak
+
+# APK 签名密钥（含私钥，绝不入库；仅保留在本地/CI Secret）
+mobile/android/keystore/
+*.jks
+*.keystore
+
+# 前端构建产物打包（dist-vNNN.tar.gz，仅本地留存）
+dist-v*.tar.gz

@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "build:prod": "vite build --mode production --outDir dist-prod",
-    "build:test": "vite build --mode test --outDir dist-test",
+    "build": "vite build && node build-inject-sw.cjs dist",
+    "build:prod": "vite build --mode production --outDir dist-prod && node build-inject-sw.cjs dist-prod",
+    "build:test": "vite build --mode test --outDir dist-test && node build-inject-sw.cjs dist-test",
+    "build:sw": "node build-inject-sw.cjs",
     "preview": "vite preview",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix"

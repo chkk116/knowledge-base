@@ -37,11 +37,22 @@ public record TokenClaims(long userId, String username, String role, String perm
     }
 
     /**
-     * 完全管理员判定（覆盖语义）：role=ADMIN，或权限码覆盖 Perm.WHITELIST 全集。
+     * 完全管理员判定（覆盖语义）：role=ADMIN，或权限码覆盖**管理员权限全集**（Perm.ADMIN_PERM_SET）。
+     * 注意全集已剔除 DEMO_MODE 这类「只读约束标记」。**但演示账号是个例外**：
+     * 演示角色通常勾满全部真实权限，若这里不先把 DEMO_MODE 排除，演示号会被判成 ADMIN 而绕过只读约束。
+     * 这违反直觉（role 仍是 USER），因此 isAdmin() 对演示号恒为 false。
      * 供各控制器统一使用；注意 AdminUserController 里「操作 ADMIN 账号本身」的保护
      * 刻意不用本方法——把人提升为/降级出 ADMIN、停用管理员账号，只允许真实 ADMIN。
      */
     public boolean isAdmin() {
-        return "ADMIN".equals(role) || hasAllPerms(com.kb.kbplatform.security.Perm.WHITELIST);
+        if (isDemo()) return false;   // 演示账号永不算管理员（否则只读约束失效）
+        return "ADMIN".equals(role) || hasAllPerms(com.kb.kbplatform.security.Perm.ADMIN_PERM_SET);
+    }
+
+    /** 是否演示账号（携带 DEMO_MODE 只读约束标记）；所有写操作将被服务端拒绝。
+     *  注意：只看权限串，不看 isAdmin()——真 ADMIN 若被误加 DEMO_MODE 也应按演示处理更安全，
+     *  但实践上 ADMIN 的 permissions 段通常为空，不会带该标记。 */
+    public boolean isDemo() {
+        return com.kb.kbplatform.security.Perm.isDemo(permissions);
     }
 }
