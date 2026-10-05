@@ -5,6 +5,7 @@ import { Medal, User, UserFilled, Search, Lock, Message } from '@element-plus/ic
 import { listUsers, createUser, updateUser, deleteUser, toggleUser, adjustPoints, resetPassword, adminUserStorage, getUserDetail, listRoles, listDepartments } from '../../api/admin'
 import PageBar from '../../components/PageBar.vue'
 import { errMsg } from '../../utils/errMsg'
+import { isFullAdminPerms, unionRolePerms } from '../../utils/permCodes'
 
 // 角色/状态筛选 Tab（胶囊按钮）
 const TABS = [

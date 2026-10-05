@@ -11,12 +11,14 @@ const dialog = ref(false)
 const editing = ref(null)
 const saving = ref(false)
 const form = ref({ name: '', code: '', description: '', permissions: [], sortOrder: 0 })
-// 权限码清单已抽到 utils/permCodes.js（与后端 Perm.WHITELIST 同步，含 BLACKLIST_MANAGE）
+// 权限码清单已抽到 utils/permCodes.js（与后端 Perm.WHITELIST 同步，含 BLACKLIST_MANAGE 与演示权限 DEMO_MODE）
 import { PERM_GROUPS, PERM_OPTIONS, isFullAdminPerms } from '../../utils/permCodes'
 import { errMsg } from '../../utils/errMsg'
-const permLabel = (v) => (PERM_OPTIONS.find(o => o.value === v)?.label || v)
+const permLabel = (v) => (PERM_OPTIONS.find(o => o.value === v)?.label || (v === 'DEMO_MODE' ? '演示权限（只读）' : v))
 // 完全管理员判定（语义=覆盖）：角色权限码覆盖全量白名单 → 持有者视同 ADMIN
 const isFullAdmin = computed(() => isFullAdminPerms(form.value.permissions))
+// 是否含演示权限：该角色持有者将只能查看、不能改动数据
+const isDemoRole = computed(() => form.value.permissions.includes('DEMO_MODE'))
 
 // 角色成员统计：roleId -> 人数（仅展示已加载页内的用户，粗略计数）
 const memberCount = ref({})
@@ -82,6 +84,15 @@ const save = async () => {
     saving.value = false
   }
 }
+// 「一键演示权限」模板：勾上全部真实管理权限 + 演示只读标记。
+// 效果 = 后台所有页面都能打开查看，但任何保存/删除/发布操作都会被服务端拒绝。
+const selectAllPerms = () => {
+  form.value.permissions = PERM_OPTIONS.map(o => o.value)
+}
+const selectDemoTemplate = () => {
+  // 全量真实权限 + DEMO_MODE（只读约束）
+  form.value.permissions = [...PERM_OPTIONS.map(o => o.value), 'DEMO_MODE']
+}
 const remove = async (r) => {
   try {
     await ElMessageBox.confirm('确定删除角色「' + r.name + '」？仍有用户使用的角色无法删除。', '删除角色', { type: 'warning' })
@@ -139,7 +150,7 @@ onMounted(async () => { await load(); await loadMembers() })
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialog" :title="editing ? '编辑角色' : '新建角色'" width="560px" class="role-dialog">
+    <el-dialog v-model="dialog" :title="editing ? '编辑角色' : '新建角色'" width="660px" class="role-dialog" :style="{ maxWidth: 'calc(100vw - 32px)' }">
       <el-form label-width="80px">
         <el-form-item label="角色名称">
           <el-input v-model="form.name" placeholder="如：内容审核员" />
@@ -161,6 +172,13 @@ onMounted(async () => { await load(); await loadMembers() })
           </div>
           <el-alert v-if="isFullAdmin" type="warning" :closable="false" show-icon style="margin-top: 8px"
             title="该角色已覆盖全部管理员权限：持有此角色的用户将视同完全管理员（ADMIN），包括仅管理员可用的接口" />
+          <el-alert v-if="isDemoRole" type="info" :closable="false" show-icon style="margin-top: 8px"
+            title="已勾选「演示权限」：持有此角色的用户可查看后台各页面，但所有保存/删除/发布等改动数据的操作都会被拒绝并提示「演示账户不能…」" />
+          <div class="perm-hint">
+            <el-button text type="primary" size="small" @click="selectAllPerms">全选管理员权限</el-button>
+            <el-button text size="small" @click="selectDemoTemplate">一键「演示权限」模板</el-button>
+            <el-button text size="small" @click="form.permissions = []">清空</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="form.sortOrder" :min="0" :max="999" :step="1" />
@@ -188,15 +206,19 @@ onMounted(async () => { await load(); await loadMembers() })
 .perm-tag { margin: 2px 4px 2px 0; }
 .muted { color: var(--el-text-color-secondary); font-size: 13px; }
 .panel { border-radius: 14px; }
-/* 权限勾选：按业务域分组，同组内的勾选共享同一个 checkbox-group（v-model 相同） */
-.pgroups { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; align-items: start; }
-.pgroup { border: 1px solid var(--el-border-color-lighter); border-radius: 10px; padding: 10px 12px 12px; background: var(--el-fill-color-extra-light, #fafbfd); }
+/* 权限勾选：按业务域分组，同组内的勾选共享同一个 checkbox-group（v-model 相同）。
+   ⚠️ 必须用 minmax(0,1fr) 而非 1fr —— 1fr 等价 minmax(auto,1fr)，网格项默认 min-width:auto
+   会被内部 checkbox 标签的固有内容宽度撑开，两列一起膨胀溢出弹窗（2026-10-05 实测溢出 52px）。 */
+.pgroups { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 18px; align-items: start; }
+.pgroup { min-width: 0; overflow: hidden; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; padding: 10px 12px 12px; background: var(--el-fill-color-extra-light, #fafbfd); }
 .pgroup-title { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--el-text-color-primary); margin-bottom: 8px; }
 .pgroup-title::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--el-color-primary); }
 .pgroup-count { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--el-text-color-secondary); }
-.perm-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-.perm-grid :deep(.el-checkbox.is-bordered) { margin-right: 0; }
+.perm-grid { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.perm-grid :deep(.el-checkbox.is-bordered) { margin-right: 0; max-width: 100%; }
+.perm-grid :deep(.el-checkbox__label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perm-hint { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
 html.dark .pgroup { border-color: #2a3858; background: #131c33; }
 /* 窄屏分组单列 */
-@media (max-width: 1024px) { .pgroups { grid-template-columns: 1fr; } }
+@media (max-width: 1024px) { .pgroups { grid-template-columns: minmax(0, 1fr); } }
 </style>
