@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore, permLabel } from './store/auth'
 import { useWatermarkStore, buildContent } from './store/watermark'
 import WornBadgeStrip from './components/WornBadgeStrip.vue'
+import SiteFooter from './components/SiteFooter.vue'
 import { useNotificationStore } from './store/notification'
 import { reader, closeReader, startDrag, startResize, clampToViewport } from './store/reader'
 import { featureMap } from './api/features'
@@ -413,6 +414,9 @@ function openHelp() { helpVisible.value = true }
           <span>当前为<strong>演示账户</strong>：可浏览全部页面，但不能保存、删除或发布数据。如需操作请使用正式账号登录。</span>
         </div>
         <router-view :key="$route.fullPath" />
+        <!-- 站点页脚：备案信息（合规要求网站底部必须可见）+ 仓库 + 版本。
+             /login 走 barePage 分支不经过 el-main，其页脚由 Login.vue 自行渲染 -->
+        <SiteFooter />
       </el-main>
     </el-container>
 

@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { User, Lock, ChatDotRound, ChatLineRound, Promotion } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
 import SlideCaptcha from '../components/SlideCaptcha.vue'
+import SiteFooter from '../components/SiteFooter.vue'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -439,6 +440,9 @@ function startParticles() {
           <span @click="onForgot">忘记密码？</span>
         </div>
       </div>
+
+      <!-- 登录页也需展示备案信息（合规要求：网站底部可见） -->
+      <SiteFooter class="login-footer" />
     </main>
 
     <!-- 点登录后弹出的滑块验证码 -->
@@ -524,7 +528,8 @@ function startParticles() {
 /* ---- 右栏：登录卡 ---- */
 .login-main {
   flex: 1; min-width: 0; position: relative; z-index: 2;
-  display: flex; align-items: center; justify-content: center;
+  /* 纵向排列：登录卡片在上，备案页脚在下（原为横向 flex，页脚会被挤到卡片右侧） */
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
   /* 右侧不再纯白：两团极淡的冷色光斑 + 微渐变，与左栏呼应（F：登录页右侧太白） */
   background:
     radial-gradient(46% 38% at 86% 12%, rgba(210,226,255,.5), rgba(210,226,255,0) 70%),
@@ -532,6 +537,8 @@ function startParticles() {
     linear-gradient(180deg, #fdfeff 0%, #f6f9ff 100%);
   padding: 40px;
 }
+/* 登录页页脚：与卡片同宽、视觉弱化 */
+.login-footer { width: 360px; max-width: 100%; margin-top: 18px; border-top: none; padding: 0; }
 .lang-switch { position: absolute; top: 22px; right: 26px; }
 .lang-trigger {
   display: inline-flex; align-items: center; gap: 6px;
