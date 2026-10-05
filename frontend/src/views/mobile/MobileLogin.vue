@@ -20,6 +20,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import SlideCaptcha from '../../components/SlideCaptcha.vue'
+import SiteFooter from '../../components/SiteFooter.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -275,6 +276,9 @@ onUnmounted(() => { if (particleCleanup) particleCleanup() })
 
       <div class="page-tip">账号由管理员开通，忘记密码请联系管理员</div>
     </div>
+
+    <!-- 备案信息（合规要求：网站底部必须可见且可跳转） -->
+    <SiteFooter compact />
 
     <!-- 滑动验证码弹层 -->
     <transition name="sheet-up">

@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
+// 版本号单一来源：package.json 的 version，构建期注入 __APP_VERSION__，
+// 页脚直接引用，避免手写版本号与发布脱节。
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+
 // 零依赖预压缩插件：构建结束后用 Node 内置 zlib 为每个文本资源生成 .gz / .br
 // （沙箱无法 npm install 第三方压缩插件，故用原生 zlib；.gz/.br 可被 nginx / 静态托管直接命中）
 const COMPRESSIBLE = new Set([
@@ -62,6 +66,10 @@ export default defineConfig({
   // 缓存目录挪到系统临时目录：node_modules/.vite 里的 deps_temp_* 批量清理
   // 会触发 safe-delete 钩子（>50 文件要求确认，fail-closed 直接崩进程）
   cacheDir: 'C:/Users/Administrator/AppData/Local/Temp/kb-vite-cache',
+  // 构建期常量：版本号来自 package.json（页脚展示用）
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version)
+  },
   plugins: [vue(), precompressPlugin()],
   server: {
     port: 5173,

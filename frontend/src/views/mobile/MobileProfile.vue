@@ -15,6 +15,7 @@ import { listMyShares, getStorage } from '../../api/docShare'
 import { pendingCount } from '../../utils/offlineStore'
 import { applyTheme } from '../../utils/theme'
 import { resolveUrl } from '../../utils/runtimeBase'
+import SiteFooter from '../../components/SiteFooter.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -165,7 +166,8 @@ const groups = [
       </button>
     </div>
 
-    <div class="ver">知识库 · 移动端</div>
+    <!-- 备案信息 + 仓库 + 版本（合规要求底部可见） -->
+    <SiteFooter compact />
     <div style="height:16px"></div>
   </div>
 </template>
