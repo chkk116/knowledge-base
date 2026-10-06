@@ -8,7 +8,8 @@
  *  - 底部固定「编辑」按钮（有权限时），拇指可达
  *  - 离线可读：优先用本地缓存，无网且无缓存给明确提示
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { enhanceVideos, bindImgLightbox } from '../../utils/mediaEnhance'
 import { useRoute, useRouter } from 'vue-router'
 import { getShareDoc } from '../../api/docShare'
 import { getCachedDoc, cacheDoc } from '../../utils/offlineStore'
@@ -25,6 +26,9 @@ const fromCache = ref(false)
 const scrolled = ref(false)
 
 const html = computed(() => doc.value?.content || '')
+
+// 图片灯箱：点正文图片全屏看原图
+const lightboxSrc = ref('')
 
 onMounted(async () => {
   try {
@@ -44,6 +48,16 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+// 正文渲染后：图片点开放大 + 视频增强（16:9 占位防跳变、倍速/全屏/画中画控制条）
+const proseRef = ref(null)
+watch(html, async () => {
+  await nextTick()
+  const el = proseRef.value
+  if (!el) return
+  enhanceVideos(el)
+  bindImgLightbox(el, (src) => { if (src) lightboxSrc.value = src })
+}, { immediate: true })
 
 function onScroll(e) {
   scrolled.value = e.target.scrollTop > 32
@@ -86,7 +100,7 @@ function fmtDate(s) {
           </div>
         </div>
         <div class="body">
-          <div class="m-prose" v-html="html || '<p style=\'color:var(--m-text-dim)\'>（空文档）</p>'"></div>
+          <div ref="proseRef" class="m-prose" v-html="html || '<p style=\'color:var(--m-text-dim)\'>（空文档）</p>'"></div>
         </div>
         <div style="height:90px"></div>
       </template>
@@ -103,6 +117,12 @@ function fmtDate(s) {
       <button class="m-btn" @click="router.push(`/doc/${spaceId}/${docId}/edit`)">
         <el-icon><EditPen /></el-icon> 编辑这篇文档
       </button>
+    </div>
+
+    <!-- 图片灯箱：点正文图片全屏预览，点任意处关闭 -->
+    <div v-if="lightboxSrc" class="kb-lightbox" @click="lightboxSrc = ''">
+      <img :src="lightboxSrc" alt="" @click.stop />
+      <button class="lb-x" type="button" @click="lightboxSrc = ''">×</button>
     </div>
   </div>
 </template>
@@ -130,4 +150,17 @@ function fmtDate(s) {
 .dv-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .dv-h1 { font-size: 23px; line-height: 1.35; margin: 4px 0 8px; letter-spacing: -.4px; }
 .dv-meta { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--m-text-dim); margin-bottom: 18px; }
+
+/* 图片灯箱（.kb-video-bar 样式在全局 responsive.css，v-html 动态节点吃不到 scoped） */
+.kb-lightbox {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0, 0, 0, .92);
+  display: grid; place-items: center;
+}
+.kb-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.kb-lightbox .lb-x {
+  position: absolute; top: calc(env(safe-area-inset-top) + 12px); right: 14px;
+  width: 38px; height: 38px; border-radius: 50%; border: none;
+  background: rgba(255, 255, 255, .16); color: #fff; font-size: 20px;
+}
 </style>

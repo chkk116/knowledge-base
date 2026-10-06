@@ -110,22 +110,42 @@ const wxQrSvg = ref('')
 const supportQrSvg = ref('')
 const wxImage = ref('')
 const supportImage = ref('')
+// 个性化二维码列表（2026-10-06）：后台「登录页二维码」可配任意数量，
+// 每项 {label 下方文字, content 扫码内容(链接/任意文本), image 可选现成图片}
+const qrItems = ref([])
 onMounted(async () => {
   startParticles()
   let wxUrl = 'https://www.example.com/wx-miniapp'
   let supportUrl = 'https://www.example.com/support'
+  let items = null
   try {
     const { data } = await fetch('/api/public/login-config').then(r => r.json()).then(d => ({ data: d }))
     if (data?.wxUrl) wxUrl = data.wxUrl
     if (data?.supportUrl) supportUrl = data.supportUrl
     if (data?.wxImage) wxImage.value = data.wxImage
     if (data?.supportImage) supportImage.value = data.supportImage
+    if (data?.items) { try { items = JSON.parse(data.items) } catch (e) { items = null } }
   } catch (e) { /* 拉不到配置就用默认地址，不阻塞登录 */ }
   const opt = { type: 'svg', margin: 1, width: 96, errorCorrectionLevel: 'H', color: { dark: '#1e2a3f', light: '#ffffff' } }
   try {
     wxQrSvg.value = await QRCode.toString(wxUrl, opt)
     supportQrSvg.value = await QRCode.toString(supportUrl, opt)
   } catch (e) { console.warn('qrcode gen failed', e) }
+
+  // 组装渲染列表：items 优先；无 items 时从旧字段迁移，保证向后兼容
+  const list = Array.isArray(items) && items.length
+    ? items.map((it) => ({ label: String(it.label ?? '').trim(), content: String(it.content ?? '').trim(), image: String(it.image ?? '').trim() }))
+    : [
+        { label: '微信扫码体验移动版', content: wxUrl, image: wxImage.value },
+        { label: '技术支持', content: supportUrl, image: supportImage.value },
+      ]
+  for (const it of list) {
+    if (!it.label && !it.content && !it.image) continue
+    if (!it.image && it.content) {
+      try { it.svg = await QRCode.toString(it.content, opt) } catch (e2) { it.svg = '' }
+    }
+    qrItems.value.push(it)
+  }
 })
 
 // 语言切换（当前仅简体中文，预留 UI）
@@ -375,25 +395,16 @@ function startParticles() {
         </svg>
       </div>
 
-      <!-- 底部双二维码区 -->
+      <!-- 底部二维码区：后台「登录页二维码」可个性化配置（数量/文案/内容/图片） -->
       <div class="hero-qr">
-        <div class="qr-item">
+        <div v-for="(it, i) in qrItems" :key="i" class="qr-item">
           <div class="qr-box">
-            <img v-if="wxImage" :src="wxImage" class="qr-img" alt="微信二维码" />
-            <div v-else class="qr-real" v-html="wxQrSvg"></div>
-            <div class="qr-badge wx">微</div>
+            <img v-if="it.image" :src="it.image" class="qr-img" alt="" />
+            <div v-else-if="it.svg" class="qr-real" v-html="it.svg"></div>
+            <div v-else class="qr-empty">未配置</div>
+            <div class="qr-badge" :class="i % 2 ? 'sup' : 'wx'">{{ (it.label || '?').charAt(0) }}</div>
           </div>
-          <div class="qr-cap">微信扫码体验移动版</div>
-        </div>
-        <div class="qr-item">
-          <div class="qr-box">
-            <img v-if="supportImage" :src="supportImage" class="qr-img" alt="技术支持二维码" />
-            <div v-else class="qr-real" v-html="supportQrSvg"></div>
-            <div class="qr-badge sup">
-              <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 12l5 5L20 6" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-          </div>
-          <div class="qr-cap">技术支持</div>
+          <div class="qr-cap">{{ it.label || '扫码' }}</div>
         </div>
       </div>
     </aside>
@@ -529,6 +540,7 @@ function startParticles() {
 }
 .qr-badge.wx  { background: #22c55e; }
 .qr-badge.sup { background: #3b82f6; }
+.qr-empty { height: 100%; display: grid; place-items: center; color: #94a3b8; font-size: 12px; background: #f8fafc; border-radius: 4px; }
 .qr-cap { font-size: 12px; color: #6b7a99; }
 
 /* ---- 右栏：登录卡 ---- */

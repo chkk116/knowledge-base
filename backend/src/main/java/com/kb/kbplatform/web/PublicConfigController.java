@@ -33,12 +33,14 @@ public class PublicConfigController {
     }
 
     /** 登录页二维码地址：GET /api/public/login-config
-     *  wxUrl/supportUrl 为链接生成模式；wxImage/supportImage 为后台直接上传的二维码图片（/uploads/...），存在时优先显示 */
+     *  items 为可个性化二维码列表（2026-10-06）：[{label, content, image}]，label=下方文字，
+     *  content=生成二维码的链接或文本，image=直接上传的二维码图片（/uploads/...，存在时优先显示）。
+     *  wxUrl/supportUrl 为旧字段，仅作无 items 时的向后兼容回退。 */
     @GetMapping("/login-config")
-    public Map<String, String> loginConfig() {
+    public Map<String, Object> loginConfig() {
         String wx = DEF_WX;
         String support = DEF_SUPPORT;
-        Map<String, String> r = new java.util.LinkedHashMap<>();
+        Map<String, Object> r = new java.util.LinkedHashMap<>();
         SysSetting s = settingRepo.findByKey("login_qrcodes").orElse(null);
         if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
             // 仅字符串字段，用正则提取即可（Boot 4 默认 Jackson 3 = tools.jackson，避免引入旧包依赖）
@@ -50,6 +52,9 @@ public class PublicConfigController {
             if (wxImg != null && !wxImg.isBlank()) r.put("wxImage", wxImg);
             String supImg = extractJsonString(s.getValue(), "supportImage");
             if (supImg != null && !supImg.isBlank()) r.put("supportImage", supImg);
+            // 个性化二维码列表：原样下发 JSON 数组字符串，由前端解析（内容含任意文本，不做转义处理）
+            String items = extractJsonArray(s.getValue(), "items");
+            if (items != null && !items.isBlank()) r.put("items", items);
         }
         r.put("wxUrl", wx);
         r.put("supportUrl", support);

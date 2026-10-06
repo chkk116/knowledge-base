@@ -43,9 +43,15 @@ public final class Perm {
 
     /**
      * 演示账号允许的写操作白名单：改密码/退出这类不涉及业务数据变更的操作必须放行，
-     *  否则演示号连自己密码都改不了。 */
+     *  否则演示号连自己密码都改不了。
+     *  2026-10-06 起放开「AI 问答」：提问（/ai/ask）、建/删自己的会话（/ai/conversations）、
+     *  改个人偏好（/ai/preferences）——这些只产生演示者个人的新数据，不触碰任何现有业务数据；
+     *  其余写操作依旧全部拦截。 */
     public static final Set<String> DEMO_WRITE_ALLOW = Set.of(
-            "/api/auth/change-password"
+            "/api/auth/change-password",
+            "/api/ai/ask",
+            "/api/ai/conversations",
+            "/api/ai/preferences"
     );
 
     /** isAdmin() 判定用的「管理员权限全集」：= WHITELIST 去掉 DEMO_MODE 这类约束标记。

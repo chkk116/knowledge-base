@@ -9,6 +9,7 @@ import { getDoc, getComments, addComment, deleteComment, myCommentLikes, toggleC
 import { approveDoc, rejectDoc } from '../api/admin'
 import { fromNow, fmtDateTime } from '../utils/time'
 import { getLevel } from '../utils/level'
+import { enhanceVideos } from '../utils/mediaEnhance'
 import EmojiPanel from '../components/EmojiPanel.vue'
 import TocNode from '../components/TocNode.vue'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
@@ -293,6 +294,8 @@ const decorateContent = async () => {
     if (!img.dataset.full) img.dataset.full = srcAttr
     img.addEventListener('click', () => { lightboxSrc.value = img.dataset.full || srcAttr })
   })
+  // 视频增强：16:9 占位防跳变 + 倍速/全屏/画中画控制条（utils/mediaEnhance.js）
+  enhanceVideos(el)
 }
 // 把树压平成有序数组（用于滚动时高亮当前章节）
 const tocFlat = computed(() => {
