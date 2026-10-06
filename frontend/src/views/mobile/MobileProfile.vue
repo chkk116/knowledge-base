@@ -114,8 +114,19 @@ const ADMIN_ITEMS = [
   { label: '考试管理', icon: 'DocumentCopy', color: 'orange', perm: 'EXAM_MANAGE', to: '/embed/adminexams' },
   { label: '分类标签', icon: 'CollectionTag', color: 'gray', perm: 'TAXONOMY_MANAGE', to: '/embed/admintaxonomy' },
   { label: '公告管理', icon: 'Bell', color: 'red', perm: 'ANNOUNCEMENT_MANAGE', to: '/embed/adminannounce' },
+  { label: '黑名单', icon: 'CircleCloseFilled', color: 'red', perm: 'BLACKLIST_MANAGE', to: '/embed/adminblacklist' },
+  { label: '资产管理', icon: 'Picture', color: 'orange', perm: 'ASSET_MANAGE', to: '/embed/adminassets' },
+  { label: '违禁词管理', icon: 'WarningFilled', color: 'red', perm: 'BANNED_WORDS_MANAGE', to: '/embed/adminbanned' },
+  { label: '共享文档管理', icon: 'DocumentCopy', color: 'blue', perm: 'SHARE_VIEW', to: '/embed/admindocshares' },
+  { label: '操作审计', icon: 'View', color: 'gray', perm: 'ADMIN_VIEW', to: '/embed/adminaudit' },
+  { label: '登录日志', icon: 'Clock', color: 'gray', perm: 'ADMIN_VIEW', to: '/embed/adminloginlogs' },
+  { label: '附件管理', icon: 'FolderOpened', color: 'blue', perm: 'ADMIN_VIEW', to: '/embed/adminfiles' },
+  { label: '检索测试', icon: 'Search', color: 'gray', perm: 'ADMIN_VIEW', to: '/embed/adminsearch' },
   { label: '页脚设置', icon: 'Document', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminfooter' },
   { label: '功能开关', icon: 'Setting', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminmaintain' },
+  { label: '水印设置', icon: 'EditPen', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminwatermark' },
+  { label: '外观设置', icon: 'Brush', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminappearance' },
+  { label: '登录页二维码', icon: 'Camera', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminloginqr' },
   { label: 'AI 模型管理', icon: 'MagicStick', color: 'green', perm: 'AI_MANAGE', to: '/embed/adminai' }
 ]
 const adminOpen = ref(false)

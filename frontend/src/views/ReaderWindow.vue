@@ -1,12 +1,22 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getDoc } from '../api/kb'
+import { enhanceVideos, bindImgLightbox } from '../utils/mediaEnhance'
 
 const route = useRoute()
 const doc = ref(null)
 const loading = ref(true)
 const error = ref('')
+const rwRef = ref(null)
+const lightboxSrc = ref('')
+
+function decorate() {
+  const el = rwRef.value
+  if (!el) return
+  enhanceVideos(el)
+  bindImgLightbox(el, (src) => { if (src) lightboxSrc.value = src })
+}
 
 onMounted(async () => {
   // 继承主窗口的暗色偏好（同域 localStorage 共享）
@@ -23,6 +33,8 @@ onMounted(async () => {
   }
 })
 
+watch(() => doc.value?.content, async () => { await nextTick(); decorate() })
+
 // 关闭这个独立窗口（OS 窗口）
 function closeWin() { window.close() }
 </script>
@@ -36,7 +48,13 @@ function closeWin() { window.close() }
     <div class="rw-body">
       <div v-if="loading" class="rw-tip">加载中…</div>
       <div v-else-if="error" class="rw-tip rw-err">{{ error }}</div>
-      <div v-else class="reader-win content" v-html="doc.content"></div>
+      <div v-else ref="rwRef" class="reader-win content" v-html="doc.content"></div>
+    </div>
+
+    <!-- 图片灯箱 -->
+    <div v-if="lightboxSrc" class="kb-lightbox" @click="lightboxSrc = ''">
+      <img :src="lightboxSrc" alt="" @click.stop />
+      <button class="lb-x" type="button" @click="lightboxSrc = ''">×</button>
     </div>
   </div>
 </template>

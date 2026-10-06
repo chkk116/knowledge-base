@@ -36,6 +36,17 @@ const CONF = {
   adminannounce: { title: '公告管理', path: '/admin/announcements' },
   adminfooter: { title: '页脚设置', path: '/admin/site-footer' },
   adminmaintain: { title: '功能开关', path: '/admin/maintain' },
+  adminwatermark: { title: '水印设置', path: '/admin/watermark' },
+  adminappearance: { title: '外观设置', path: '/admin/appearance' },
+  adminloginqr: { title: '登录页二维码', path: '/admin/login-qr' },
+  adminblacklist: { title: '黑名单', path: '/admin/blacklist' },
+  adminassets: { title: '资产管理', path: '/admin/assets' },
+  adminbanned: { title: '违禁词管理', path: '/admin/banned-words' },
+  admindocshares: { title: '共享文档管理', path: '/admin/doc-shares' },
+  adminaudit: { title: '操作审计', path: '/admin/audit' },
+  adminloginlogs: { title: '登录日志', path: '/admin/login-logs' },
+  adminfiles: { title: '附件管理', path: '/admin/files' },
+  adminsearch: { title: '检索测试', path: '/admin/search-test' },
   adminai: { title: 'AI 模型管理', path: '/admin/ai-models' }
 }
 const conf = computed(() => CONF[route.params.kind] || { title: '页面', path: '/' })

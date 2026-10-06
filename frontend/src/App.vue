@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore, permLabel } from './store/auth'
@@ -9,6 +9,7 @@ import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import SiteFooter from './components/SiteFooter.vue'
 import { useNotificationStore } from './store/notification'
 import { reader, closeReader, startDrag, startResize, clampToViewport } from './store/reader'
+import { enhanceVideos, bindImgLightbox } from './utils/mediaEnhance'
 import { featureMap } from './api/features'
 import { appearanceLogo as siteLogo, loadAppearance, resetAppearance } from './utils/appearance'
 import { applyTheme } from './utils/theme'
@@ -131,6 +132,16 @@ function toggleMenu() {
 }
 // 窄屏下点菜单跳转后自动收起抽屉（否则菜单挡住内容）
 watch(() => route.fullPath, () => { drawerOpen.value = false })
+
+// 小窗阅读：图片点开放大 + 视频增强（16:9 占位/倍速/全屏/画中画），样式在全局 responsive.css
+const rfRef = ref(null)
+const readerLightbox = ref('')
+watch(() => reader.content, async () => {
+  await nextTick()
+  if (!reader.open || !rfRef.value) return
+  enhanceVideos(rfRef.value)
+  bindImgLightbox(rfRef.value, (src) => { if (src) readerLightbox.value = src })
+})
 
 // 夜间模式切换（B站风格：月亮/太阳 + 旋转淡入 + 过渡）
 const isDark = ref(document.documentElement.classList.contains('dark'))
@@ -433,8 +444,14 @@ function openHelp() { helpVisible.value = true }
         <span class="rf-title">{{ reader.title }}</span>
         <button class="rf-close" type="button" @click="closeReader" @mousedown.stop title="关闭">×</button>
       </div>
-      <div class="rf-body content" v-html="reader.content"></div>
+      <div ref="rfRef" class="rf-body content" v-html="reader.content"></div>
       <div class="rf-resize" @mousedown.stop.prevent="startResize" title="拖动右下角缩放"></div>
+    </div>
+
+    <!-- 小窗阅读里的图片灯箱（点正文图片全屏看原图） -->
+    <div v-if="readerLightbox" class="kb-lightbox" @click="readerLightbox = ''">
+      <img :src="readerLightbox" alt="" @click.stop />
+      <button class="lb-x" type="button" @click="readerLightbox = ''">×</button>
     </div>
 
     <!-- 帮助中心：操作手册与规范 -->
