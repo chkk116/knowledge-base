@@ -65,8 +65,8 @@ const routes = [
   { path: '/admin/taxonomy', component: () => import('../views/admin/TaxonomyManage.vue'), meta: { admin: true, perm: 'TAXONOMY_MANAGE', title: '分类标签' } },
   { path: '/admin/announcements', component: () => import('../views/admin/AnnouncementManage.vue'), meta: { admin: true, perm: 'ANNOUNCEMENT_MANAGE', title: '公告管理' } },
   { path: '/admin/blacklist', component: () => import('../views/admin/Blacklist.vue'), meta: { admin: true, perm: 'BLACKLIST_MANAGE', title: '黑名单' } },
-  { path: '/admin/audit', component: () => import('../views/admin/AuditLog.vue'), meta: { adminOnly: true, title: '操作审计' } },
-  { path: '/admin/login-logs', component: () => import('../views/admin/LoginLog.vue'), meta: { adminOnly: true, title: '登录日志' } },
+  { path: '/admin/audit', component: () => import('../views/admin/AuditLog.vue'), meta: { adminOnly: true, anyPerm: ['AUDIT_VIEW', 'ADMIN_VIEW'], title: '操作审计' } },
+  { path: '/admin/login-logs', component: () => import('../views/admin/LoginLog.vue'), meta: { adminOnly: true, anyPerm: ['LOGIN_LOG_VIEW', 'ADMIN_VIEW'], title: '登录日志' } },
   { path: '/admin/files', component: () => import('../views/admin/AttachmentManage.vue'), meta: { adminOnly: true, title: '附件管理' } },
   { path: '/admin/courses', component: () => import('../views/admin/CourseManage.vue'), meta: { admin: true, perm: 'COURSE_MANAGE', title: '培训管理' } },
   { path: '/admin/exams', component: () => import('../views/admin/ExamManage.vue'), meta: { admin: true, perm: 'EXAM_MANAGE', title: '考试管理' } },
@@ -137,10 +137,14 @@ router.beforeEach(async (to) => {
   if (to.meta.admin && to.meta.perm && !auth.hasPerm(to.meta.perm)) {
     return { path: '/' }
   }
-  // 仅管理员可见的页（操作审计 / 附件管理 / 检索测试）：真实管理员，或持有「后台只读浏览」权限
-  // （ADMIN_VIEW，演示账号用）也可打开查看；写操作另有后端把守。
-  if (to.meta.adminOnly && !auth.isAdmin && !auth.hasPerm('ADMIN_VIEW')) {
-    return { path: '/' }
+  // 仅管理员可见的页（操作审计 / 登录日志 / 附件管理 / 检索测试）：
+  // 真实管理员，或持有 anyPerm 里的专用只读码（AUDIT_VIEW / LOGIN_LOG_VIEW），
+  // 或旧码 ADMIN_VIEW（后台只读浏览，演示账号用）也可打开查看；写操作另有后端把守。
+  if (to.meta.adminOnly) {
+    const anyOk = (to.meta.anyPerm || []).some((p) => auth.hasPerm(p))
+    if (!auth.isAdmin && !anyOk && !auth.hasPerm('ADMIN_VIEW')) {
+      return { path: '/' }
+    }
   }
   // 核心维护：功能开关关闭时按关闭模式处理
   if (to.meta.maintenance) {

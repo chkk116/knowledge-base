@@ -89,7 +89,9 @@ public class AuthFilter implements Filter {
                 String need = adminPermRequired(path, method);
                 // 全权限覆盖视同 ADMIN，包括没有细粒度权限码的仅管理员接口。
                 boolean roleOk = claims.isAdmin();
-                boolean permOk = need != null && claims.hasPerm(need);
+                // need 支持「A|B」形式（任一命中即通过）：用于新旧权限码兼容过渡
+                boolean permOk = need != null
+                        && java.util.Arrays.stream(need.split("\\|")).anyMatch(claims::hasPerm);
                 if (!roleOk && !permOk) {
                     send403(res);
                     return;
@@ -191,8 +193,10 @@ public class AuthFilter implements Filter {
         // 也能打开查看。写操作仍由各控制器内的 isAdmin() 把守（且 AuthFilter 会拦演示号的写请求），
         // 因此这里只需在 GET 时放行。
         if ("GET".equals(method)) {
-            if (path.startsWith("/api/admin/audit")) return Perm.ADMIN_VIEW;
-            if (path.startsWith("/api/admin/login-logs")) return Perm.ADMIN_VIEW;
+            // 操作审计 / 登录日志：独立只读权限码（2026-10-06 从 ADMIN_VIEW 拆出，便于按需授予）；
+            // 用「新码|ADMIN_VIEW」兼容只勾了 ADMIN_VIEW 的旧角色
+            if (path.startsWith("/api/admin/audit")) return "AUDIT_VIEW|" + Perm.ADMIN_VIEW;
+            if (path.startsWith("/api/admin/login-logs")) return "LOGIN_LOG_VIEW|" + Perm.ADMIN_VIEW;
             if (path.startsWith("/api/admin/files")) return Perm.ADMIN_VIEW;
             if (path.startsWith("/api/admin/search")) return Perm.ADMIN_VIEW;
             if (path.startsWith("/api/admin/blacklist")) return Perm.ADMIN_VIEW;

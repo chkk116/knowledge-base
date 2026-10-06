@@ -39,8 +39,8 @@ public class AuditLogController {
                                @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
                                @RequestParam(required = false, defaultValue = "0") int page,
                                @RequestParam(required = false, defaultValue = "20") int size) {
-        // 只读列表：ADMIN 或持有 ADMIN_VIEW（后台只读浏览权限，供演示账号查看）
-        if (!c.isAdmin() && !c.hasPerm(Perm.ADMIN_VIEW)) {
+        // 只读列表：ADMIN / AUDIT_VIEW（操作审计独立权限）/ ADMIN_VIEW（旧码兼容）
+        if (!c.isAdmin() && !c.hasPerm(Perm.AUDIT_VIEW) && !c.hasPerm(Perm.ADMIN_VIEW)) {
             throw new org.springframework.web.server.ResponseStatusException(FORBIDDEN, "需要管理员权限");
         }
         if (page < 0) page = 0;

@@ -19,6 +19,7 @@ public final class Perm {
             "ANNOUNCEMENT_MANAGE", "COURSE_MANAGE", "EXAM_MANAGE", "AI_MANAGE",
             "SHARE_CREATE", "SHARE_VIEW", "SHARE_DELETE", "SHARE_CAPACITY", "CORE_MAINTAIN",
             "DOC_EXPORT", "BANNED_WORDS_MANAGE", "ASSET_MANAGE", "AVATAR_REVIEW",
+            "AUDIT_VIEW", "LOGIN_LOG_VIEW",   // 操作审计 / 登录日志：独立只读权限（2026-10-06 从 ADMIN_VIEW 拆出）
             "ADMIN_VIEW", "DEMO_MODE"
     );
 
@@ -40,6 +41,14 @@ public final class Perm {
      * 不会因为持有 ADMIN_VIEW 而获得任何改动数据的能力。
      */
     public static final String ADMIN_VIEW = "ADMIN_VIEW";
+
+    /**
+     * 操作审计 / 登录日志的独立只读权限码（2026-10-06）。
+     * 从 ADMIN_VIEW 里拆出来，便于在「角色管理 → 系统与运营」里按需单独授予；
+     * 旧角色只勾了 ADMIN_VIEW 也仍然可看（映射处用 `新码|ADMIN_VIEW` 兼容）。
+     */
+    public static final String AUDIT_VIEW = "AUDIT_VIEW";
+    public static final String LOGIN_LOG_VIEW = "LOGIN_LOG_VIEW";
 
     /**
      * 演示账号允许的写操作白名单：改密码/退出这类不涉及业务数据变更的操作必须放行，

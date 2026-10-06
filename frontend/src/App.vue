@@ -185,11 +185,16 @@ const menus = computed(() => {
   if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/users', title: '用户管理', icon: 'User' })
   if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/roles', title: '角色管理', icon: 'Suitcase' })
   if (auth.hasPerm('USER_MANAGE')) userMgmt.push({ index: '/admin/departments', title: '部门管理', icon: 'OfficeBuilding' })
-  if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW')) {
+  if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW') || auth.hasPerm('AUDIT_VIEW') || auth.hasPerm('LOGIN_LOG_VIEW')) {
     // 黑名单：无对应后端接口，仅 ADMIN 角色可见
     if (auth.isAdmin) userMgmt.push({ index: '/admin/blacklist', title: '黑名单', icon: 'CircleClose' })
-    userMgmt.push({ index: '/admin/audit', title: '操作审计', icon: 'Clock' })
-    userMgmt.push({ index: '/admin/login-logs', title: '登录日志', icon: 'Key' })
+    // 操作审计 / 登录日志：各自独立权限码（ADMIN_VIEW 作为旧码兼容仍可看）
+    if (auth.isAdmin || auth.hasPerm('AUDIT_VIEW') || auth.hasPerm('ADMIN_VIEW')) {
+      userMgmt.push({ index: '/admin/audit', title: '操作审计', icon: 'Clock' })
+    }
+    if (auth.isAdmin || auth.hasPerm('LOGIN_LOG_VIEW') || auth.hasPerm('ADMIN_VIEW')) {
+      userMgmt.push({ index: '/admin/login-logs', title: '登录日志', icon: 'Key' })
+    }
   }
   if (userMgmt.length) base.push({ index: 'g-user', title: '用户与权限', icon: 'User', children: userMgmt })
 

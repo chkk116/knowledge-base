@@ -25,6 +25,8 @@ export const PERM_LABELS = {
   ASSET_MANAGE: '资产管理',
   AVATAR_REVIEW: '头像审核',
   AI_MANAGE: 'AI 模型管理',
+  AUDIT_VIEW: '操作审计',
+  LOGIN_LOG_VIEW: '登录日志',
   ADMIN_VIEW: '后台只读浏览（审计/日志/附件等）',
   DEMO_MODE: '演示权限（只读，禁止改动数据）',
 }

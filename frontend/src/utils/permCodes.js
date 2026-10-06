@@ -38,7 +38,9 @@ export const PERM_GROUPS = [
       { value: 'ASSET_MANAGE', label: '资产管理' },
       { value: 'BLACKLIST_MANAGE', label: '黑名单管理' },
       { value: 'CORE_MAINTAIN', label: '功能开关与站点设置' },
-      { value: 'AI_MANAGE', label: 'AI 模型管理' }
+      { value: 'AI_MANAGE', label: 'AI 模型管理' },
+      { value: 'AUDIT_VIEW', label: '操作审计' },
+      { value: 'LOGIN_LOG_VIEW', label: '登录日志' }
     ]
   },
   {
