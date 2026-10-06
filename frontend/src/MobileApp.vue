@@ -108,7 +108,7 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
         <el-icon class="net-ico" :class="{ spin: syncing }">
           <component :is="!online ? 'WarningFilled' : (syncing ? 'Loading' : 'Upload')" />
         </el-icon>
-        <span v-if="!online">当前离线，内容会先存在本机，联网后自动同步</span>
+        <span v-if="!online">当前离线：显示已缓存内容；新建/编辑会先存本机，联网后自动同步</span>
         <span v-else>{{ syncing ? '正在同步…' : `有 ${pending} 篇文档待同步` }}</span>
         <button v-if="online && !syncing" class="net-act" @click="doSync">立即同步</button>
       </div>

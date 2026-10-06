@@ -8,12 +8,13 @@
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { listMyShares, getStorage } from '../../api/docShare'
-import { listQueuedDocs } from '../../utils/offlineStore'
+import { listQueuedDocs, listCachedDocs } from '../../utils/offlineStore'
 
 const router = useRouter()
 const loading = ref(true)
 const spaces = ref([])
 const offlineDocs = ref([])
+const cachedDocs = ref([])   // 本地缓存过的文档（离线可读）
 const storage = ref(null)
 const online = ref(navigator.onLine)
 
@@ -33,12 +34,14 @@ const usedPct = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const [s, q] = await Promise.all([
+    const [s, q, c] = await Promise.all([
       listMyShares().then((r) => (Array.isArray(r.data) ? r.data : [])).catch(() => []),
-      listQueuedDocs().catch(() => [])
+      listQueuedDocs().catch(() => []),
+      listCachedDocs().catch(() => [])
     ])
     spaces.value = s
     offlineDocs.value = q
+    cachedDocs.value = c   // 离线时仍可打开（详情页会读同一份缓存）
     getStorage().then((r) => { storage.value = r.data }).catch(() => {})
   } finally {
     loading.value = false
@@ -78,6 +81,25 @@ function openDraft(id) { router.push(`/draft/${id}`) }
       <div class="store">
         <div class="store-bar"><i :style="{ width: usedPct + '%' }" :class="{ warn: usedPct > 85 }"></i></div>
         <div class="store-txt">个人存储已用 {{ usedPct }}%</div>
+      </div>
+    </div>
+
+    <!-- 离线缓存：离线也能打开的文档（进入详情页读同一份 IndexedDB 缓存） -->
+    <div v-if="cachedDocs.length" class="body">
+      <div class="m-sec-title">
+        离线缓存
+        <span class="m-chip gray" style="margin-left:6px">{{ cachedDocs.length }}</span>
+      </div>
+      <div class="m-card">
+        <button v-for="d in cachedDocs" :key="d.spaceId + ':' + d.docId" class="m-row" type="button"
+                @click="router.push(`/doc/${d.spaceId}/${d.docId}`)">
+          <span class="m-ico blue"><el-icon><Document /></el-icon></span>
+          <span class="m-row-body">
+            <span class="m-row-title">{{ d.title || '未命名文档' }}</span>
+            <span class="m-row-desc">{{ online ? '已缓存，可离线阅读' : '离线可读（本地缓存）' }}</span>
+          </span>
+          <el-icon class="m-row-extra"><Right /></el-icon>
+        </button>
       </div>
     </div>
 

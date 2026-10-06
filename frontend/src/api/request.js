@@ -40,6 +40,13 @@ api.interceptors.response.use(
     // 服务器异常（5xx）或网络故障（无 status）：全局兜底提示，
     // 避免部分接口失败时静默无反馈。4xx 通常由各调用处自行处理，这里不重复弹。
     const status = err.response && err.response.status
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+    if (!status && offline) {
+      // 离线：不弹「服务器异常」——顶部已有离线提示条，页面会走本地缓存；
+      // 否则每个请求都弹一次，离线时直接刷屏（2026-10-06 用户反馈）
+      err.offline = true
+      return Promise.reject(err)
+    }
     if (!status || status >= 500) {
       if (!err.__silent && !err.config?.silent) ElMessage.error('服务器异常，请稍后重试')
     }

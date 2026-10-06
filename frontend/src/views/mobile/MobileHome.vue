@@ -9,11 +9,11 @@
  *   4. 「文档库」纵向列表（最近更新）
  *   5. 离线草稿区块（有本地未同步内容时置顶提示）
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import { listMyShares, listShareDocs } from '../../api/docShare'
-import { listQueuedDocs } from '../../utils/offlineStore'
+import { listQueuedDocs, listCachedDocs } from '../../utils/offlineStore'
 import { resolveDefaultSpaceId, mySpaces } from '../../utils/spaceResolver'
 import { resolveUrl } from '../../utils/runtimeBase'
 
@@ -24,6 +24,7 @@ const loading = ref(true)
 const recent = ref([])          // [{ spaceId, spaceName, doc }]
 const spaces = ref([])
 const offlineDocs = ref([])
+const fromCache = ref(false)   // 最近文档是否来自本地缓存（离线提示用）
 const spaceId = ref(null)
 
 const greet = computed(() => {
@@ -73,6 +74,18 @@ async function load() {
       .flat()
       .sort((a, b) => new Date(b.doc.updatedAt || b.doc.createdAt || 0) - new Date(a.doc.updatedAt || a.doc.createdAt || 0))
       .slice(0, 6)
+
+    // 离线（或接口拿不到数据）时回退到本地缓存，保证首页不是空的
+    if (!recent.value.length) {
+      const cached = await listCachedDocs().catch(() => [])
+      recent.value = cached.slice(0, 6).map((c) => ({
+        spaceId: c.spaceId, spaceName: c.spaceName || '离线缓存',
+        doc: { id: c.docId, title: c.title, updatedAt: c.cachedAt }
+      }))
+      fromCache.value = recent.value.length > 0
+    } else {
+      fromCache.value = false
+    }
   } finally {
     loading.value = false
   }
@@ -84,7 +97,13 @@ function openDoc(item) {
 function openSpace(id) { router.push(`/space/${id}`) }
 function openDraft(localId) { router.push(`/draft/${localId}`) }
 
-onMounted(load)
+function onBackOnline() { load() }
+onMounted(() => {
+  load()
+  // 联网后自动刷新一次（离线期间读的是缓存，恢复网络要及时拉最新）
+  window.addEventListener('online', onBackOnline)
+})
+onUnmounted(() => window.removeEventListener('online', onBackOnline))
 </script>
 
 <template>
