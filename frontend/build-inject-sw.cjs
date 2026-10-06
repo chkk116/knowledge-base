@@ -12,6 +12,7 @@ const fs = require('fs')
 const path = require('path')
 
 const dist = process.argv[2] || 'dist'
+const pkgVersion = require('./package.json').version || '0.0.0'
 const root = path.resolve(dist)
 
 if (!fs.existsSync(root)) { console.error('dist 不存在: ' + root); process.exit(1) }
@@ -64,5 +65,6 @@ let sw = fs.readFileSync(swPath, 'utf8')
 const marker = /const PRECACHE_ASSETS = \[[\s\S]*?\];/
 if (!marker.test(sw)) { console.error('sw.js 中未找到 PRECACHE_ASSETS 占位'); process.exit(1) }
 sw = sw.replace(marker, 'const PRECACHE_ASSETS = ' + JSON.stringify(list, null, 2) + ';')
+  .replace("const VERSION = 'kb-mobile-v1'", "const VERSION = 'kb-mobile-v" + pkgVersion + "'")
 fs.writeFileSync(swPath, sw, 'utf8')
 console.log('已注入 ' + swPath + ' (' + fs.statSync(swPath).size + ' 字节)')

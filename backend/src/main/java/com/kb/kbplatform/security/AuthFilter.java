@@ -42,6 +42,14 @@ public class AuthFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) request;
         HttpServletResponse res = (HttpServletResponse) response;
         String path = req.getRequestURI();
+        // 路径规范化止血：Spring MVC 路由匹配时会百分号解码并忽略 ; 矩阵参数，而本过滤器
+        // 依赖原始字符串前缀判断——/api/%61dmin/ai/models、/api;x=1/admin/ai/models 可绕过
+        // 管理接口鉴权（2026-10-06 外部安全审查）。含这些特征的原始 URI 直接 400。
+        if (path.contains("%") || path.contains(";") || path.contains("//")
+                || path.contains("/./") || path.contains("/..")) {
+            res.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
         String method = req.getMethod();
 
         boolean publicRequest = isPublic(path, method);

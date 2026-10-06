@@ -49,6 +49,40 @@ public class AdminSettingsController {
         return Map.of("key", key, "value", value);
     }
 
+    /**
+     * 站点页脚安全约束：items 的链接只允许 http/https 绝对地址——登录页对所有访客渲染这些链接，
+     * 允许 javascript: 即构成对全部访客的 XSS（2026-10-06 外部安全审查）。
+     * 顺带限条数与单条长度，防配置被写爆。
+     */
+    private static void sanitizeSiteInfo(String value) {
+        if (value == null) return;
+        if (value.length() > 20000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "site_info 过长");
+        }
+        // 逐个扫描 "url":"..." 字段值：只允许 http/https 绝对地址。
+        // 不用 JSON 库的原因：Spring Boot 4 的 Jackson 3 坐标是 tools.jackson.*，本工程未直接依赖；
+        // 且此处的 value 由前端 JSON.stringify 生成、格式规整，正则提取足够（与 PublicConfigController 同风格）。
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"url\"\\s*:\\s*\"([^\"]*)\"")
+                .matcher(value);
+        int n = 0;
+        while (m.find()) {
+            if (++n > 20) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚自定义内容最多 20 条");
+            }
+            String url = m.group(1).trim();
+            if (url.length() > 500) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚链接过长（≤500）");
+            }
+            if (!url.isEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚链接只允许 http/https 绝对地址");
+            }
+        }
+        if (value.length() > 4000 && value.split("\"name\"", -1).length - 1 > 20) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚自定义内容最多 20 条");
+        }
+    }
+
     /** 写入 / 覆盖某个设置项（请求体 { value }） */
     @PutMapping("/{key}")
     public Map<String, Object> put(@RequestAttribute("kbUser") TokenClaims c,
@@ -57,6 +91,7 @@ public class AdminSettingsController {
         requirePerm(c);
         String value = body == null ? null : body.get("value");
         if (value == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "value 不能为空");
+        if ("site_info".equals(key)) sanitizeSiteInfo(value);
         SysSetting s = settingRepo.findByKey(key).orElse(new SysSetting(key, value));
         s.setValue(value);
         s.setUpdatedAt(LocalDateTime.now());

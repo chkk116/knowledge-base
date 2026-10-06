@@ -32,13 +32,14 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // 密钥库与口令齐备 → 用 release 签名；任一缺失则回退 debug 签名
-            // （保证 CI / 新环境 assembleRelease 不被阻塞）。
-            // ⚠️ 原先写成 `if (!exists || !pass) { signingConfig debug }` —— 只覆盖了回退分支，
-            //    密钥库存在时反而完全不设 signingConfig，产出 app-release-unsigned.apk 装不上真机。
-            // ⚠️ 三元表达式必须整体加括号：`signingConfig (cond) ? a : b` 会被 Groovy 解析成
-            //    先调用 signingConfig(cond) 再把布尔赋给属性，报 Boolean cannot be cast to SigningConfig。
-            signingConfig((file(ksPath).exists() && ksPass) ? signingConfigs.release : signingConfigs.debug)
+            // 缺密钥/口令默认构建失败：防止 CI 静默发出 debug 签名的"正式包"（2026-10-06 外部安全审查）。
+            // 本地联调确需无签名构建时，设环境变量 KB_ALLOW_UNSIGNED_RELEASE=1 才回退 debug 签名。
+            def ksOk = file(ksPath).exists() && ksPass
+            if (!ksOk && System.getenv('KB_ALLOW_UNSIGNED_RELEASE') != '1') {
+                throw new GradleException('release 构建缺少签名密钥（keystore 或 KB_KS_PASS）；' +
+                    '本地联调可设 KB_ALLOW_UNSIGNED_RELEASE=1 回退 debug 签名')
+            }
+            signingConfig(ksOk ? signingConfigs.release : signingConfigs.debug)
         }
     }
 }

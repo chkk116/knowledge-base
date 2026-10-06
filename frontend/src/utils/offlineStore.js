@@ -69,10 +69,19 @@ function genId() {
 
 // ---------------------------------------------------------------- 队列
 
+/** 当前登录用户 id（离线数据按用户隔离：换号登录后旧草稿/缓存不得跟随新账号，2026-10-06 外部安全审查） */
+function currentUserId() {
+  try {
+    const u = JSON.parse(localStorage.getItem('kb_user_cache') || 'null')
+    return u && u.id != null ? String(u.id) : null
+  } catch { return null }
+}
+
 /** 新增一条待同步文档，返回 localId */
 export async function enqueueDoc({ spaceId = null, title = '', content = '', images = [] }) {
   const item = {
     localId: genId(),
+    userId: currentUserId(),          // 串号防护：同步阶段只提交与当前登录账号一致的条目
     spaceId,
     title: title || '未命名文档',
     content: content || '',
@@ -98,6 +107,16 @@ export async function updateQueuedDoc(localId, patch) {
 
 export async function getQueuedDoc(localId) {
   return tx(STORE_QUEUE, 'readonly', (s) => wrap(s.get(localId)))
+}
+
+/** 登出时清空离线队列与文档缓存：防止下一位登录者读到/提交前任的草稿与缓存文档 */
+export async function clearOfflineDataForLogout() {
+  try {
+    const items = await listQueuedDocs()
+    for (const it of items) await removeQueuedDoc(it.localId)
+    await tx(STORE_CACHE, 'readwrite', (s) => wrap(s.clear()))
+    notify()
+  } catch { /* 忽略 */ }
 }
 
 export async function removeQueuedDoc(localId) {
@@ -176,6 +195,8 @@ export async function syncOnReconnect() {
     const { resolveDefaultSpaceId } = await import('./spaceResolver')
     const items = await listQueuedDocs()
     for (const it of items) {
+      // 串号防护：换号登录后不同步前任账号的草稿（署名错误 / 写入无权空间）
+      if (it.userId && it.userId !== currentUserId()) continue
       if (it.tries >= MAX_TRIES) continue
       try {
         const spaceId = it.spaceId || await resolveDefaultSpaceId()

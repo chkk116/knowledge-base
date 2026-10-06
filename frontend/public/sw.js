@@ -16,6 +16,7 @@
  * 注意：不缓存 /api，避免出现「离线读到过期登录态/文档」这类更难排查的问题。
  */
 
+// VERSION 由构建后脚本 build-inject-sw.cjs 按 package.json 版本注入（发版即变，旧哈希缓存随激活清理）
 const VERSION = 'kb-mobile-v1'
 const SHELL_CACHE = `${VERSION}-shell`
 const ASSET_CACHE = `${VERSION}-assets`
@@ -97,9 +98,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       try {
         const fresh = await fetch(req)
-        // 成功时顺手更新外壳缓存
-        const cache = await caches.open(SHELL_CACHE)
-        cache.put(url.pathname.startsWith('/m/') || url.pathname === '/mobile.html' ? '/mobile.html' : '/index.html', fresh.clone()).catch(() => {})
+        // 只把正常响应写进外壳缓存：一次 502 不能把坏页面缓存成"离线外壳"（2026-10-06 外部安全审查）
+        if (fresh && fresh.ok) {
+          const cache = await caches.open(SHELL_CACHE)
+          cache.put(url.pathname.startsWith('/m/') || url.pathname === '/mobile.html' ? '/mobile.html' : '/index.html', fresh.clone()).catch(() => {})
+        }
         return fresh
       } catch {
         const cache = await caches.open(SHELL_CACHE)

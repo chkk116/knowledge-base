@@ -81,9 +81,10 @@ public class AdminBootstrap implements ApplicationRunner {
             return;
         }
         boolean changed = false;
-        if (!"ADMIN".equals(u.getRole())) { u.setRole("ADMIN"); changed = true; }
-        if (!u.isEnabled()) { u.setEnabled(true); changed = true; }
-        if (changed) userRepo.save(u);
-        log.info("[引导] 管理员「{}」已存在，仅确保其角色为 ADMIN 且已启用（不覆盖已有密码）。", adminUsername);
+        // 已存在账号绝不提升角色/重新启用：开放注册场景下攻击者可抢注引导名（如 admin），
+        // 若此处把既有账号提升为 ADMIN，运维一次重启即完成提权（2026-10-06 外部安全审查）。
+        // 引导语义收敛为「只创建不存在的管理员」；改名/停用/降级走「用户管理」的正常流程。
+        log.warn("[引导] 管理员用户名「{}」已被占用（非本次创建），不做任何变更；"
+                + "如确需提权或恢复启用，请在「用户管理」中手动处理。", adminUsername);
     }
 }

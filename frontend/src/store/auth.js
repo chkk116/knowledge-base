@@ -191,6 +191,8 @@ export const useAuthStore = defineStore('auth', () => {
     applyToken('')
     user.value = null
     clearCachedUser()
+    // 离线队列与文档缓存按用户隔离，登出即清空（防换号后草稿串号/读到前任缓存）
+    import('../utils/offlineStore').then((m) => m.clearOfflineDataForLogout()).catch(() => {})
   }
 
   return { token, user, loggedIn, isAdmin, isDemo, permissions, hasPerm, demoBlock, login, fetchMe, setProfile, logout }

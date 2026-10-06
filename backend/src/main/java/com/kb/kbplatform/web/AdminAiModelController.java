@@ -133,6 +133,14 @@ public class AdminAiModelController {
      * 汇总 + 日趋势 + 按模型分组，数据源是 kb_ai_usage_log 调用流水。
      * 参数：days=统计天数（默认 30，上限 180），modelId=可选按配置过滤。
      */
+    /** 写操作仅完全管理员：历史上一度依赖过滤器 admin 兜底，AI_MANAGE 放宽 + 路径绕过双重教训，
+     * 控制器层必须自查（纵深防御）。 */
+    private static void requireAdmin(TokenClaims c) {
+        if (c == null || !c.isAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "AI 模型配置的写操作仅完全管理员可用");
+        }
+    }
+
     @GetMapping("/usage")
     public Map<String, Object> usage(@RequestAttribute("kbUser") TokenClaims c,
                                      @RequestParam(value = "days", defaultValue = "30") int days,
@@ -246,7 +254,8 @@ public class AdminAiModelController {
     /** 新增或更新：id 为空表示新增 */
     @Transactional
     @PostMapping
-    public Map<String, Object> save(@RequestBody Map<String, Object> body) {
+    public Map<String, Object> save(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
+        requireAdmin(c);
         Long id = toLong(body.get("id"));
         AiModel m;
         if (id == null) {
@@ -287,7 +296,8 @@ public class AdminAiModelController {
 
     @Transactional
     @DeleteMapping("/{id}")
-    public Map<String, Object> remove(@PathVariable Long id) {
+    public Map<String, Object> remove(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requireAdmin(c);
         if (!repo.existsById(id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "配置不存在");
         }
@@ -298,8 +308,9 @@ public class AdminAiModelController {
 
     @Transactional
     @PostMapping("/{id}/toggle")
-    public Map<String, Object> toggle(@PathVariable Long id,
+    public Map<String, Object> toggle(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
                                       @RequestBody(required = false) Map<String, Object> body) {
+        requireAdmin(c);
         AiModel m = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "配置不存在"));
         boolean v = body != null && body.get("enabled") != null
@@ -313,7 +324,8 @@ public class AdminAiModelController {
 
     @Transactional
     @PostMapping("/{id}/default")
-    public Map<String, Object> setDefault(@PathVariable Long id) {
+    public Map<String, Object> setDefault(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requireAdmin(c);
         AiModel m = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "配置不存在"));
         for (AiModel other : repo.findByDefaultModelTrue()) {
@@ -327,7 +339,8 @@ public class AdminAiModelController {
 
     /** 测试连接：发一条极短请求验证 API Key 与端点是否可用（会真实消耗少量 token） */
     @PostMapping("/{id}/test")
-    public Map<String, Object> test(@PathVariable Long id) {
+    public Map<String, Object> test(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requireAdmin(c);
         AiModel m = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "配置不存在"));
         if (cipher.decrypt(m.getApiKey()).isBlank()) {

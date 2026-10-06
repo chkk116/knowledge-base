@@ -56,9 +56,10 @@ public final class Perm {
      *  否则演示号连自己密码都改不了。
      *  2026-10-06 起放开「AI 问答」：提问（/ai/ask）、建/删自己的会话（/ai/conversations）、
      *  改个人偏好（/ai/preferences）——这些只产生演示者个人的新数据，不触碰任何现有业务数据；
-     *  其余写操作依旧全部拦截。 */
+     *  其余写操作依旧全部拦截。
+     *  ⚠️ /api/auth/change-password 已于 2026-10-06 移出：公开演示号的密码若可被任何访客修改，
+     *  等于把演示账号拱手交给第一个改它的人（外部安全审查）。 */
     public static final Set<String> DEMO_WRITE_ALLOW = Set.of(
-            "/api/auth/change-password",
             "/api/ai/ask",
             "/api/ai/conversations",
             "/api/ai/preferences"
