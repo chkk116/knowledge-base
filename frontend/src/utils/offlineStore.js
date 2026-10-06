@@ -105,8 +105,18 @@ export async function updateQueuedDoc(localId, patch) {
   return next
 }
 
+/** 只返回属于当前登录账号的条目：换号/退出后不把上一位用户的数据露出来。
+ *  无 userId 的老条目（早期版本遗留）视为「归属不明」，任何账号都不返回。 */
+function mine(list) {
+  const uid = currentUserId()
+  return (list || []).filter((it) => it && it.userId && it.userId === uid)
+}
+
 export async function getQueuedDoc(localId) {
-  return tx(STORE_QUEUE, 'readonly', (s) => wrap(s.get(localId)))
+  const item = await tx(STORE_QUEUE, 'readonly', (s) => wrap(s.get(localId)))
+  // 隔离缺口修复（外部复审）：详情页也要按归属校验，否则换号后可直接打开他人草稿
+  if (item && item.userId !== currentUserId()) return null
+  return item || null
 }
 
 /**
@@ -128,13 +138,15 @@ export async function removeQueuedDoc(localId) {
 /** 全部待同步项，按创建时间倒序 */
 export async function listQueuedDocs() {
   const all = await tx(STORE_QUEUE, 'readonly', (s) => wrap(s.getAll()))
-  return (all || []).sort((a, b) => b.createdAt - a.createdAt)
+  // 隔离缺口修复（外部复审）：草稿列表此前不过滤归属
+  return mine(all).sort((a, b) => b.createdAt - a.createdAt)
 }
 
 export async function pendingCount() {
   try {
-    const all = await tx(STORE_QUEUE, 'readonly', (s) => wrap(s.count()))
-    return all || 0
+    const all = await tx(STORE_QUEUE, 'readonly', (s) => wrap(s.getAll()))
+    // 隔离缺口修复（外部复审）：此前用 count() 统计全库，会把他人的待同步数算进来
+    return mine(all).length
   } catch { return 0 }
 }
 
@@ -164,7 +176,7 @@ export async function getCachedDoc(spaceId, docId) {
 /** 离线时的文档列表兜底：返回本空间已缓存的文档，按缓存时间倒序 */
 export async function listCachedDocs(spaceId) {
   const all = await tx(STORE_CACHE, 'readonly', (s) => wrap(s.getAll()))
-  return (all || [])
+  return mine(all)
     .filter((d) => spaceId == null || d.spaceId === spaceId)
     .sort((a, b) => b.cachedAt - a.cachedAt)
 }
@@ -175,8 +187,8 @@ export async function clearCache() {
 
 export async function cachedCount() {
   try {
-    const n = await tx(STORE_CACHE, 'readonly', (s) => wrap(s.count()))
-    return n || 0
+    const all = await tx(STORE_CACHE, 'readonly', (s) => wrap(s.getAll()))
+    return mine(all).length   // 按当前账号统计，避免显示他人缓存数
   } catch { return 0 }
 }
 

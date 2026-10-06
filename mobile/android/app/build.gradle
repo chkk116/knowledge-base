@@ -32,19 +32,22 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // 缺密钥/口令默认构建失败：防止 CI 静默发出 debug 签名的"正式包"（2026-10-06 外部安全审查）。
-            // 本地联调确需无签名构建时，设环境变量 KB_ALLOW_UNSIGNED_RELEASE=1 才回退 debug 签名。
+            // 缺密钥/口令时正式包必须失败，防止静默产出 debug 签名的「正式包」（2026-10-06 外部安全审查）。
+            // 但**不能在配置阶段 throw**：buildTypes 闭包在配置期执行，任何 build/sync 都会连带失败
+            // （外部复审指出「会误伤所有构建」——IDE 同步、assembleDebug、clean 全挂）。
+            // 正确做法：配置期只决定用哪个签名（优雅回退），把「缺密钥」的硬失败挂到
+            // release 打包任务执行前（doFirst），只有真的要出 release 包时才报错。
             def ksOk = file(ksPath).exists() && ksPass
-            // 关键：buildTypes 闭包在**配置阶段**就执行，无条件 throw 会连带 IDE 同步 /
-            // assembleDebug / clean 一起失败（外部复审指出）。只在命令行确实要打 release 包时检查。
-            def releaseRequested = gradle.startParameter.taskNames.any {
-                it.toLowerCase().contains('release')
-            }
-            if (releaseRequested && !ksOk && System.getenv('KB_ALLOW_UNSIGNED_RELEASE') != '1') {
-                throw new GradleException('release 构建缺少签名密钥（keystore 或 KB_KS_PASS）；' +
-                    '本地联调可设 KB_ALLOW_UNSIGNED_RELEASE=1 回退 debug 签名')
-            }
             signingConfig(ksOk ? signingConfigs.release : signingConfigs.debug)
+            tasks.matching { it.name in ['packageRelease', 'bundleRelease', 'assembleRelease', 'installRelease'] }
+                 .configureEach {
+                     doFirst {
+                         if (!ksOk && System.getenv('KB_ALLOW_UNSIGNED_RELEASE') != '1') {
+                             throw new GradleException('release 构建缺少签名密钥（keystore 或 KB_KS_PASS）；' +
+                                 '本地联调可设 KB_ALLOW_UNSIGNED_RELEASE=1 回退 debug 签名')
+                         }
+                     }
+                 }
         }
     }
 }
