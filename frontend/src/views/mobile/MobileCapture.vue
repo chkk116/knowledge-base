@@ -19,6 +19,8 @@
 import { computed, onMounted, onUnmounted, ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { createShareDoc, ocrImportShareDoc } from '../../api/docShare'
+import { prepareImage, buildPdfBlob, revokePages } from '../../utils/scanPdf'
+import { uploadFile } from '../../api/file'
 import { enqueueDoc } from '../../utils/offlineStore'
 import { mySpaces, resolveDefaultSpaceId, rememberSpace, personalSpace } from '../../utils/spaceResolver'
 import { recognizeLocal, warmupLocalOcr } from '../../utils/localOcr'
@@ -28,7 +30,12 @@ const router = useRouter()
 const fileInput = ref(null)
 const cameraInput = ref(null)
 
-const stage = ref('pick')        // pick | preview | review
+const stage = ref('pick')        // pick | preview | review | scan
+// ---- 多页扫描（导出 PDF）----
+const scanPages = ref([])        // [{ file, url, w, h, bytes }]
+const scanCamera = ref(null)
+const scanAlbum = ref(null)
+const exporting = ref(false)
 const file = ref(null)
 const previewUrl = ref('')
 const busy = ref(false)
@@ -70,6 +77,8 @@ onUnmounted(() => {
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  // 整个扫描流程的对象 URL 一起回收（长期驻留的 WebView 里反复拍照会累积内存）
+  revokePages(scanPages.value)
 })
 
 function pickCamera() { cameraInput.value?.click() }
@@ -102,6 +111,105 @@ function back() {
 }
 
 /** 开始识别 */
+/* ---------- 多页扫描：拍照/选图 → 列表 → 导出 PDF ---------- */
+function openScan() {
+  stage.value = 'scan'
+  if (!scanPages.value.length) scanAlbum.value?.click()
+}
+function pickScanCamera() { scanCamera.value?.click() }
+function pickScanAlbum() { scanAlbum.value?.click() }
+
+async function onScanFiles(e) {
+  const files = Array.from(e.target.files || [])
+  e.target.value = ''
+  if (!files.length) return
+  busy.value = true
+  statusText.value = `正在处理 ${files.length} 张…`
+  try {
+    for (const f of files) {
+      if (!/^image\//i.test(f.type)) continue
+      const page = await prepareImage(f)
+      page.file = f
+      scanPages.value.push(page)
+    }
+  } catch (err) {
+    window.__kbMsg?.error(err.message || '图片处理失败')
+  } finally {
+    busy.value = false
+    statusText.value = ''
+  }
+}
+
+function removePage(i) {
+  const [p] = scanPages.value.splice(i, 1)
+  if (p?.url) URL.revokeObjectURL(p.url)
+}
+function movePage(i, d) {
+  const j = i + d
+  if (j < 0 || j >= scanPages.value.length) return
+  const arr = scanPages.value
+  ;[arr[i], arr[j]] = [arr[j], arr[i]]
+}
+
+/** 生成 PDF → 上传取链接（App 内 blob 下载不便，走链接可直接用系统浏览器打开/分享） */
+async function exportPdf() {
+  if (!scanPages.value.length || exporting.value) return
+  exporting.value = true
+  statusText.value = '正在生成 PDF…'
+  try {
+    const blob = buildPdfBlob(scanPages.value)
+    statusText.value = '正在上传…'
+    const f = new File([blob], `scan-${Date.now()}.pdf`, { type: 'application/pdf' })
+    const { data } = await uploadFile(f)
+    if (data?.errno !== 0 || !data?.data?.url) throw new Error(data?.message || '上传失败')
+    const url = data.data.url
+    // 优先系统分享（手机可发微信/存文件），否则新窗口打开
+    const abs = url.startsWith('http') ? url : location.origin + url
+    if (navigator.share) {
+      try { await navigator.share({ title: '扫描件', url: abs }); return } catch (e) { /* 用户取消则继续兜底 */ }
+    }
+    window.open(abs, '_blank')
+    window.__kbMsg?.success('PDF 已生成')
+  } catch (err) {
+    window.__kbMsg?.error(err?.response?.data?.error || err.message || '导出失败')
+  } finally {
+    exporting.value = false
+    statusText.value = ''
+  }
+}
+
+/** 逐页识别后合成一篇文档（走 review 阶段让用户确认） */
+async function recognizeAll() {
+  if (!scanPages.value.length || busy.value) return
+  busy.value = true
+  try {
+    const parts = []
+    for (let i = 0; i < scanPages.value.length; i++) {
+      statusText.value = `识别中 ${i + 1}/${scanPages.value.length}…`
+      progress.value = Math.round(((i) / scanPages.value.length) * 100)
+      try {
+        if (engine.value === 'local') {
+          const t = await recognizeLocal(scanPages.value[i].file, (p) => { progress.value = p })
+          parts.push(t || '')
+        } else {
+          const { data } = await ocrImportShareDoc(targetSpace.value, scanPages.value[i].file)
+          parts.push(data?.content || '')
+        }
+      } catch (e) {
+        parts.push('')
+      }
+    }
+    const text = parts.filter(Boolean).join('\n\n——————\n\n')
+    content.value = textToHtml(text)
+    title.value = `扫描件 ${fmtNow()}`
+    stage.value = 'review'
+  } finally {
+    busy.value = false
+    statusText.value = ''
+    progress.value = 0
+  }
+}
+
 async function startRecognize() {
   if (!file.value || busy.value) return
   busy.value = true
@@ -240,12 +348,14 @@ onMounted(prewarm)
     <!-- 顶部栏 -->
     <header class="cap-head">
       <button class="m-header-act" @click="back"><el-icon :size="20"><ArrowLeft /></el-icon></button>
-      <div class="cap-title">{{ stage === 'pick' ? '拍照建文档' : (stage === 'preview' ? '识别' : '确认内容') }}</div>
+      <div class="cap-title">{{ stage === 'pick' ? '拍照建文档' : (stage === 'scan' ? '多页扫描' : (stage === 'preview' ? '识别' : '确认内容')) }}</div>
       <button class="m-header-act" style="visibility:hidden"><el-icon><Close /></el-icon></button>
     </header>
 
     <input ref="cameraInput" type="file" accept="image/*" capture="environment" hidden @change="onFile" />
     <input ref="fileInput" type="file" accept="image/*" hidden @change="onFile" />
+    <input ref="scanCamera" type="file" accept="image/*" capture="environment" hidden @change="onScanFiles" />
+    <input ref="scanAlbum" type="file" accept="image/*" multiple hidden @change="onScanFiles" />
 
     <!-- 阶段 1：选择来源 -->
     <div v-if="stage === 'pick'" class="stage">
@@ -264,6 +374,11 @@ onMounted(prewarm)
           <span class="pb-ico gray"><el-icon :size="30"><Picture /></el-icon></span>
           <span class="pb-txt">从相册选择</span>
           <span class="pb-desc">选一张已有的图片</span>
+        </button>
+        <button class="pick-btn" @click="openScan">
+          <span class="pb-ico orange"><el-icon :size="30"><Files /></el-icon></span>
+          <span class="pb-txt">多页扫描</span>
+          <span class="pb-desc">连拍多页 · 导出 PDF</span>
         </button>
       </div>
 
@@ -292,6 +407,46 @@ onMounted(prewarm)
           <el-icon><InfoFilled /></el-icon>
           <span>推荐先用「本地识别」实测效果；不够准再换云端。</span>
         </div>
+      </div>
+    </div>
+
+    <!-- 阶段：多页扫描（导出 PDF / 批量识别） -->
+    <div v-if="stage === 'scan'" class="stage">
+      <div class="pick-hint">
+        <div class="ph-title">已添加 {{ scanPages.length }} 页</div>
+        <div class="ph-sub">可继续拍照或从相册追加；导出 PDF 会按当前顺序合成</div>
+      </div>
+
+      <div class="scan-grid">
+        <div v-for="(p, i) in scanPages" :key="i" class="scan-item">
+          <img :src="p.url" alt="" />
+          <span class="scan-idx">{{ i + 1 }}</span>
+          <div class="scan-ops">
+            <button type="button" :disabled="i === 0" @click="movePage(i, -1)">↑</button>
+            <button type="button" :disabled="i === scanPages.length - 1" @click="movePage(i, 1)">↓</button>
+            <button type="button" class="del" @click="removePage(i)">×</button>
+          </div>
+        </div>
+        <button class="scan-add" type="button" @click="pickScanCamera">
+          <el-icon :size="22"><Camera /></el-icon><span>拍一张</span>
+        </button>
+        <button class="scan-add" type="button" @click="pickScanAlbum">
+          <el-icon :size="22"><Picture /></el-icon><span>相册</span>
+        </button>
+      </div>
+
+      <div v-if="busy" class="scan-status">
+        <el-icon class="rot"><Loading /></el-icon><span>{{ statusText || '处理中…' }}</span>
+      </div>
+
+      <div class="scan-actions">
+        <button class="m-btn" :disabled="!scanPages.length || exporting || busy" @click="exportPdf">
+          <el-icon><Document /></el-icon>{{ exporting ? '导出中…' : '导出 PDF' }}
+        </button>
+        <button class="m-btn ghost" :disabled="!scanPages.length || busy" @click="recognizeAll">
+          <el-icon><EditPen /></el-icon>识别全部并入库
+        </button>
+        <button class="m-btn ghost" :disabled="busy" @click="stage = 'pick'">返回</button>
       </div>
     </div>
 
@@ -394,6 +549,43 @@ onMounted(prewarm)
 </template>
 
 <style scoped>
+/* ---------- 多页扫描 ---------- */
+.scan-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px; padding: 12px 16px 4px;
+}
+.scan-item {
+  position: relative; border-radius: 10px; overflow: hidden;
+  background: var(--m-card-2); box-shadow: var(--m-shadow);
+}
+.scan-item img { width: 100%; height: 128px; object-fit: cover; display: block; }
+.scan-idx {
+  position: absolute; left: 6px; top: 6px;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: rgba(0,0,0,.55); color: #fff; font-size: 11px; line-height: 18px; text-align: center;
+}
+.scan-ops {
+  position: absolute; right: 4px; bottom: 4px; display: flex; gap: 4px;
+}
+.scan-ops button {
+  width: 24px; height: 24px; border: none; border-radius: 6px;
+  background: rgba(0,0,0,.55); color: #fff; font-size: 13px; line-height: 1;
+}
+.scan-ops button:disabled { opacity: .35; }
+.scan-ops button.del { background: rgba(220,38,38,.85); font-size: 15px; }
+.scan-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  height: 128px; border: 1px dashed var(--m-border); border-radius: 10px;
+  background: transparent; color: var(--m-text-sub); font-size: 12.5px;
+}
+.scan-status {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  padding: 10px 16px 0; color: var(--m-text-sub); font-size: 13px;
+}
+.rot { animation: kb-rot 1s linear infinite; }
+@keyframes kb-rot { to { transform: rotate(360deg); } }
+.scan-actions { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+
 .cap { min-height: 100%; display: flex; flex-direction: column; }
 
 .cap-head {

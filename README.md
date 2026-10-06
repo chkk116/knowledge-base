@@ -260,23 +260,51 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 - 设计特性：自绘深蓝紫标题栏、原生登录框 + 安全验证弹窗、单实例锁、系统托盘常驻
 - 后端地址默认 `http://localhost:8080`，环境变量 `KB_BACKEND_URL` / `KB_BACKEND_WS` 可覆盖
 
-## 移动端（Capacitor / Android）——未验证
+## 移动端（Capacitor / Android）
 
-> ⚠️ **状态：仅完成工程搭建与构建链路，尚未实际使用验证**。构建产物仅供参考，功能完整性与兼容性待测。
-> 注意：`capacitor.settings.gradle`、`capacitor.build.gradle`、`capacitor-cordova-android-plugins/` 均为 `npx cap sync` 生成的产物（不入库）——**克隆后直接用 IDE 打开 `android/` 会缺少这些生成物**，gradle 已做守卫只会警告不报错，但必须先完整执行下方同步步骤才能出包。
+> **状态：初具规模，已真机试用**。与早期"远端模式套壳"不同，App 现在加载**内置前端资源**（断网不白屏），并有独立的离线架构。
+
+### 已实现
+
+- **离线优先**：Service Worker 预缓存完整 chunk 依赖图（构建脚本自动注入清单）；文档阅读缓存 +
+  拍照/编辑草稿的离线队列（IndexedDB，**按登录账号隔离**，联网自动同步，登出/换号不串号）
+- **本地 OCR**：tesseract.js + 中/英文语言包全部内置（`frontend/public/tesseract/`），断网也能拍照识字
+- **扫码与 PDF**：jsQR 二维码识别（本地化）、PDF 页面转图后走同一套识别流程
+- **移动端管理**：用户管理 / 角色管理原生页（按 `USER_MANAGE` 权限可见），其余后台页经内嵌桌面页复用
+- **登录页 v3**：与 Web 同一设计语言、移动端构图；滑动验证码适配触屏
+- 细节：图片灯箱、视频倍速/画中画、小窗阅读、页脚吸底、深色模式、懒加载 chunk 失败自动刷新
+
+### 后端地址
+
+除上方「在线演示」入口外，App 相关代码与配置**不存任何公网地址**：后端根地址默认 `http://localhost:8080`（占位），
+打包自己的 App 时用环境变量覆盖后重新构建前端：
 
 ```bash
-cd mobile
-npm install
-node sync-web.js            # 从 desktop/web 同步前端产物到 web-app/（过滤 .gz/.br）
-npx cap copy android
+VITE_NATIVE_ORIGIN=https://kb.example.com npm run build
+```
+
+真机联调本机后端：Android 模拟器用 `http://10.0.2.2:8080`，真机用电脑局域网 IP。
+
+### 构建
+
+```bash
+# 1) 前端构建（双入口 main/mobile + SW 预缓存清单注入）
+cd frontend && npm run build
+# 2) 前端产物进 desktop/web（Electron 与移动端共用这份产物）
+cd ../desktop && node build-web.js
+# 3) 同步到 Android 工程
+cd ../mobile && npm install
+node sync-web.js            # desktop/web -> web-app/（过滤 .gz/.br）
+npx cap sync android        # 注意用 sync 而非 copy：需要生成 capacitor.*.gradle 等产物（不入库，克隆后必须执行）
+# 4) 出包
 cd android && gradlew.bat assembleDebug
 ```
 
 - 产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`
-- 远端模式：App 直接加载内网后端（`capacitor.config.json` 的 `server.url`，改 IP 后重打包）
-- 已放行明文 HTTP（`usesCleartextTraffic`），适配纯内网环境
-- 国内镜像：Gradle 走腾讯镜像、依赖走阿里云 Maven（`dl.google.com` 内网不可达）
+- **release 签名**：密钥放 `mobile/android/keystore/kb-release.jks`（不入库）+ 口令 `KB_KS_PASS`
+  （用户级 gradle.properties 或环境变量）；缺任一默认构建失败，联调可设
+  `KB_ALLOW_UNSIGNED_RELEASE=1` 回退 debug 签名
+- 已放行明文 HTTP（`usesCleartextTraffic`），适配纯内网环境；国内镜像：Gradle 腾讯镜像、依赖阿里云 Maven
 
 ## 生产部署
 

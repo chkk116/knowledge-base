@@ -39,7 +39,7 @@ android {
             // release 打包任务执行前（doFirst），只有真的要出 release 包时才报错。
             def ksOk = file(ksPath).exists() && ksPass
             signingConfig(ksOk ? signingConfigs.release : signingConfigs.debug)
-            tasks.matching { it.name in ['packageRelease', 'bundleRelease', 'assembleRelease', 'installRelease'] }
+            tasks.matching { it.name.toLowerCase().contains('release') }
                  .configureEach {
                      doFirst {
                          if (!ksOk && System.getenv('KB_ALLOW_UNSIGNED_RELEASE') != '1') {

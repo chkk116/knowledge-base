@@ -177,7 +177,9 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
     </div>
 
     <div v-else-if="recent.length" class="body flush-l">
-      <div class="m-sec-title pad">最近文档 <button class="more" @click="router.push('/docs')">全部</button></div>
+      <div class="m-sec-title pad">最近文档
+        <span v-if="fromCache" class="cache-tag">离线缓存</span>
+        <button class="more" @click="router.push('/docs')">全部</button></div>
       <div class="hscroll pad">
         <button v-for="(it, i) in recent" :key="i" class="hcard" type="button" @click="openDoc(it)">
           <span class="hc-tag">{{ it.spaceName }}</span>

@@ -134,6 +134,14 @@ body.kb-mobile-body { overflow-x: hidden; }
 .m-card + .m-card { margin-top: 10px; }
 
 /* 分组标题 */
+.cache-tag {
+  font-size: 10.5px; font-weight: 600; color: #f59e0b;
+  background: rgba(245,158,11,.12);
+  border-radius: 4px; padding: 1px 6px;
+  margin-left: 8px;
+}
+html.dark .cache-tag { color: #fbbf24; background: rgba(251,191,36,.15); }
+
 .m-sec-title {
   display: flex; align-items: center; gap: 6px;
   font-size: 13px; font-weight: 600; color: var(--m-text-sub);

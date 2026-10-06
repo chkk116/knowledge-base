@@ -42,7 +42,8 @@ public class FileService {
             "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
             "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg",
             "audio/webm", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/flac",
-            "video/mp4", "video/webm", "video/ogg", "video/quicktime"
+            "video/mp4", "video/webm", "video/ogg", "video/quicktime",
+            "application/pdf"   // 多页扫描导出的 PDF（App 内用链接分享/下载）
     );
 
     private static final long MAX_SIZE = 50L * 1024 * 1024; // 50MB
@@ -62,7 +63,7 @@ public class FileService {
         }
         String ct = file.getContentType();
         if (ct == null || !ALLOWED.contains(ct.toLowerCase())) {
-            throw new IllegalArgumentException("仅支持图片/音频/视频类型（png/jpg/gif/webp/bmp、mp3/wav/ogg/m4a/flac/aac 或 mp4/webm）");
+            throw new IllegalArgumentException("仅支持图片/音频/视频/PDF 类型（png/jpg/gif/webp/bmp、mp3/wav/ogg/m4a/flac/aac、mp4/webm 或 pdf）");
         }
         if (file.getSize() > MAX_SIZE) {
             throw new IllegalArgumentException("文件过大，不能超过 50MB");
@@ -96,7 +97,7 @@ public class FileService {
         int i = fn.lastIndexOf('.');
         if (i < 0 || i == fn.length() - 1) return "";
         String e = fn.substring(i).toLowerCase();
-        return e.matches("\\.(png|jpe?g|gif|webp|bmp|mp3|wav|ogg|webm|m4a|flac|aac|mp4)") ? e : "";
+        return e.matches("\\.(png|jpe?g|gif|webp|bmp|mp3|wav|ogg|webm|m4a|flac|aac|mp4|pdf)") ? e : "";
     }
 
     /** 读取文件前 12 字节用于魔数校验（不整文件加载，避免大文件占内存） */
@@ -136,6 +137,7 @@ public class FileService {
                     || at(h, 0, 0x1A, 0x45, 0xDF, 0xA3);                                // EBML（webm）
             case "video/webm" -> at(h, 0, 0x1A, 0x45, 0xDF, 0xA3);                      // EBML（webm）
             case "video/ogg" -> at(h, 0, 0x4F, 0x67, 0x67, 0x53);                       // OggS
+            case "application/pdf" -> at(h, 0, 0x25, 0x50, 0x44, 0x46);                 // %PDF
             default -> false;
         };
     }

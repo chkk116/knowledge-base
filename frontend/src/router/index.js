@@ -193,7 +193,10 @@ const CHUNK_RELOAD_KEY = 'kb_chunk_reload'
 router.onError((err) => {
   const msg = String((err && err.message) || err || '')
   if (/dynamically imported module|Importing a module script failed|Loading chunk/i.test(msg)) {
-    if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+    // 30 秒时间窗内只刷一次：会话（Electron 窗口/WebView）可能存活很久，
+    // 永久标记会导致第二次发版后再遇 chunk 404 无法自愈（外部复审指出）
+    const last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY) || 0)
+    if (Date.now() - last > 30_000) {
       sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
       window.location.reload()
     }

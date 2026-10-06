@@ -95,6 +95,7 @@ const SETTING_GROUP = {
   title: '设置',
   items: [
     { label: '账号与资料', icon: 'User', color: '', to: '/settings' },
+    { label: '隐私政策', icon: 'Document', color: '', to: '/privacy' },
     { label: '外观设置', icon: 'Setting', color: 'gray', action: 'theme' }
   ]
 }

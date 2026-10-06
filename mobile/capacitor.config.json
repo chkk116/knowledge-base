@@ -5,9 +5,9 @@
   "server": {
     "androidScheme": "https",
     "hostname": "localhost",
-    "cleartext": true
+    "cleartext": false
   },
   "android": {
-    "allowMixedContent": true
+    "allowMixedContent": false
   }
 }

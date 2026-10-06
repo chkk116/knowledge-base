@@ -15,6 +15,7 @@ import com.kb.kbplatform.service.NotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.kb.kbplatform.service.BizException;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -283,6 +284,23 @@ public class AuthController {
     public Map<String, Object> changePassword(@RequestAttribute("kbUser") TokenClaims claims,
                                               @RequestBody ChangePasswordRequest r) {
         authService.changePassword(claims.username(), r.oldPassword, r.newPassword);
+        return Map.of("ok", true);
+    }
+
+    /**
+     * 自助注销当前账号（满足 Google Play「应用内账户删除」要求）。
+     * 仅能删除本人；若当前账号是唯一管理员则禁止，避免系统无人管理。
+     * 级联删除复用与管理端一致的 deleteUser。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @DeleteMapping("/me")
+    public Map<String, Object> deleteMe(@RequestAttribute("kbUser") TokenClaims claims) {
+        User u = userRepo.findByUsername(claims.username()).orElse(null);
+        if (u == null) return Map.of("ok", true);
+        if ("ADMIN".equals(u.getRole()) && userRepo.countByRole("ADMIN") <= 1) {
+            throw new BizException("当前是唯一的管理员账号，无法注销；请先创建其他管理员后再操作");
+        }
+        authService.deleteUser(u.getId());
         return Map.of("ok", true);
     }
 }

@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../../store/auth'
+import request from '../../api/request'
 import { cachedCount, clearCache, pendingCount, syncOnReconnect } from '../../utils/offlineStore'
 import { applyTheme } from '../../utils/theme'
 
@@ -72,6 +73,26 @@ async function logout() {
   } catch { return }
   auth.logout()
   router.replace('/login')
+}
+
+async function deleteAccount() {
+  try {
+    await ElMessageBox.confirm(
+      '注销后你的账号与关联的个人数据将被永久删除，且无法恢复。确定继续吗？',
+      '注销账号',
+      { type: 'warning', confirmButtonText: '确认注销', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  try {
+    await request({ url: '/api/auth/me', method: 'delete' })
+    try { localStorage.removeItem('kb_token') } catch {}
+    await clearCache().catch(() => {})
+    window.__kbMsg?.success('账号已注销')
+    router.replace('/login')
+  } catch (e) {
+    const msg = (e && e.response && e.response.data && e.response.data.error) || (e && e.message) || '注销失败，请稍后再试'
+    window.__kbMsg?.error(msg)
+  }
 }
 
 function onBackOnline() { online.value = true; refresh() }
@@ -149,6 +170,12 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
     </div>
 
     <div class="body">
+      <button class="logout del" @click="deleteAccount">
+        <el-icon><Delete /></el-icon> 注销账号
+      </button>
+    </div>
+
+    <div class="body">
       <button class="logout" @click="logout">
         <el-icon><SwitchButton /></el-icon> 退出登录
       </button>
@@ -201,5 +228,6 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
   box-shadow: var(--m-shadow); font-size: 15.5px; font-weight: 600; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
 }
+.logout.del { background: var(--m-danger); color: #fff; }
 .ver { text-align: center; font-size: 12px; color: var(--m-text-dim); margin-top: 16px; }
 </style>

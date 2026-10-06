@@ -250,19 +250,21 @@ function fail() {
   }, 350)
 }
 
+let measureTimers = []
 onMounted(() => {
   // 等首屏样式与父容器宽度就绪后再 measure
   measure()
   // 移动端底部弹层有入场动画：挂载瞬间宽度可能是 0（measure 会提前返回），
   // 这里补几次延迟测量，保证 ResizeObserver 不可用时也能拿到真实宽度
   requestAnimationFrame(measure)
-  setTimeout(measure, 120)
-  setTimeout(measure, 450)
+  measureTimers.push(setTimeout(measure, 120), setTimeout(measure, 450))
   watchResize()
   fetchCaptcha()
 })
 
 onBeforeUnmount(() => {
+  measureTimers.forEach(clearTimeout)
+  measureTimers = []
   if (ro) ro.disconnect()
   window.removeEventListener('resize', measure)
   window.removeEventListener('pointermove', onMove)
