@@ -151,6 +151,7 @@ const emptyCopy = computed(() => (mode.value === 'general'
       sugs: generalSuggestions,
     }
   : {
+      // kb 模式保持原有身份文案（2026-10-06 用户确认：知识库模式照旧，新口径只作用于通用模式）
       title: '你好，我是知识库 AI 助手',
       tip: '基于知识库检索作答，也能陪你日常聊聊',
       features: [
@@ -542,7 +543,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
           </el-tooltip>
           <div class="ai-head-info">
             <div class="ai-title">{{ currentConversation?.title || 'AI 智能问答' }}</div>
-            <div class="ai-sub">{{ mode === 'general' ? '通用问答 · 不检索知识库' : '基于知识库作答 · 库里没有也能通用问答' }}</div>
+            <div class="ai-sub">{{ mode === 'general' ? '通用模式 · 直接作答' : '基于知识库作答 · 库里没有也能通用问答' }}</div>
           </div>
         </div>
         <div class="ai-head-right">

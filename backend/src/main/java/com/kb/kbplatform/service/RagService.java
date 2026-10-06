@@ -93,25 +93,29 @@ public class RagService {
         List<Map<String, Object>> sources = general ? List.of() : retrieve(buildSearchQuery(question.trim(), history));
         boolean hasContext = !sources.isEmpty();
 
-        // 2. 组装 system prompt：身份 + （kb 模式）知识库概况 + 行为准则 + 对话条例 + 用户习惯
+        // 2. 组装 system prompt：身份 + （kb 模式）资料行为准则 + 对话条例 + 用户习惯
         // 底层模型名动态取自「AI 模型管理」的配置显示名，不再写死厂商 —— 管理员换平台后自我介绍自动跟上
         String modelLabel = aiModelClient.resolveModelLabel(modelId);
         StringBuilder system = new StringBuilder();
-        // 身份必须分模式下发：kb 模式才是「企业知识库平台的内置助手」，
-        // 通用模式若也这么写，模型会一边被要求别提知识库、一边又被告知自己是知识库平台的助手，
-        // 于是思考过程里反复纠结「这是不是知识库内容 / 要不要提平台」，用户感觉「选了通用还是基于知识库」。
-        // 实测：新建的空会话 + 通用模式，模型思考链首句就是「角色：企业知识库平台的内置 AI 助手」。
+        // 统一身份口径（两种模式一致）：对外只自称「通用 AI 助手」+ 底层模型名，
+        // 不透露平台内部信息（知识库/检索/资料/文章数量），也不自称企业知识库平台助手。
+        String identity = "我是通用 AI 助手"
+                + (modelLabel != null && !modelLabel.isBlank() ? "，底层由 " + modelLabel + " 模型驱动" : "")
+                + "，可以回答问题、写作、翻译、编程、分析等。有什么需求直接说。";
+        String identityRule = "\n【身份口径】\n"
+                + "被问到「你是谁 / 你是什么模型 / 谁开发的 / 你能做什么」时，直接按这句话回答：" + identity + "\n"
+                + "不要提及知识库、检索、资料、文章数量等平台内部信息，也不要自称是企业知识库平台的助手。\n";
+
         if (general) {
-            // 通用模式：不注入知识库概况，不谈检索与资料，就是普通聊天助手
-            system.append("你是一个通用 AI 助手，直接、准确地回答用户的问题。");
-            if (modelLabel != null && !modelLabel.isBlank()) {
-                system.append("底层由 ").append(modelLabel).append(" 模型驱动。");
-            }
-            system.append("\n【行为准则】\n")
-                    .append("1. 直接正常回答用户问题，不要提及知识库、检索、资料、文章数量等平台内部信息，也不要自称是企业知识库平台的助手。\n")
-                    .append("2. 回答用简体中文，先结论后细节、要点分条、简洁专业；避免客套话和重复用户问题。\n")
-                    .append("3. 不讨论政治敏感内容，不提供违法或破坏系统的指导。");
+            // 通用模式 = 正常模式：只给身份与最基本的表达要求，不叠加平台侧行为约束。
+            // 模型名只在【身份口径】那一句里出现一次，避免「开头一句 + 身份句」重复堆叠。
+            system.append("你是一个通用 AI 助手。").append(identityRule)
+                    .append("【行为准则】\n")
+                    .append("1. 直接、准确地回答用户问题；用简体中文，先结论后细节、要点分条、简洁专业，避免客套话和重复用户问题。\n")
+                    .append("2. 不讨论政治敏感内容，不提供违法或破坏系统的指导。");
         } else {
+            // kb 模式：**保持原有行为**（2026-10-06 用户确认）——知识库 AI 身份 + 概况 + 资料准则 + RAG 检索，
+            // 不套用通用模式的身份口径。
             system.append("你是企业知识库平台的内置 AI 助手「知识库 AI」，服务于企业内部员工");
             if (modelLabel != null && !modelLabel.isBlank()) {
                 system.append("，底层由 ").append(modelLabel).append(" 模型驱动");
