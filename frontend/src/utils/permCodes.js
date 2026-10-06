@@ -37,7 +37,8 @@ export const PERM_GROUPS = [
       { value: 'DOC_EXPORT', label: '文档导出' },
       { value: 'ASSET_MANAGE', label: '资产管理' },
       { value: 'BLACKLIST_MANAGE', label: '黑名单管理' },
-      { value: 'CORE_MAINTAIN', label: '功能开关与站点设置' }
+      { value: 'CORE_MAINTAIN', label: '功能开关与站点设置' },
+      { value: 'AI_MANAGE', label: 'AI 模型管理' }
     ]
   },
   {

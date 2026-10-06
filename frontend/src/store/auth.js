@@ -24,6 +24,7 @@ export const PERM_LABELS = {
   DOC_SHARE: '共享文档管理（旧权限，已拆分）',
   ASSET_MANAGE: '资产管理',
   AVATAR_REVIEW: '头像审核',
+  AI_MANAGE: 'AI 模型管理',
   ADMIN_VIEW: '后台只读浏览（审计/日志/附件等）',
   DEMO_MODE: '演示权限（只读，禁止改动数据）',
 }

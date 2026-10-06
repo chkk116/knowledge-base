@@ -21,7 +21,22 @@ const CONF = {
   history: { title: '浏览历史', path: '/history' },
   ai: { title: 'AI 问答', path: '/ai/chat' },
   ranking: { title: '积分排行', path: '/ranking' },
-  post: { title: '文章', path: null }
+  post: { title: '文章', path: null },
+  // ---- 管理端（iframe 嵌桌面版管理页，仅管理员入口可见）----
+  // 管理页是重表格 + 弹窗交互，手机上使用频率低：先嵌网页版保可用，
+  // 哪个功能在手机上用得多了再单独拆移动端原生页。
+  adminstats: { title: '数据看板', path: '/admin/stats' },
+  adminusers: { title: '用户管理', path: '/admin/users' },
+  adminroles: { title: '角色管理', path: '/admin/roles' },
+  admindocs: { title: '内容管理', path: '/admin/docs' },
+  adminreview: { title: '文章审核', path: '/admin/review' },
+  admincourses: { title: '培训管理', path: '/admin/courses' },
+  adminexams: { title: '考试管理', path: '/admin/exams' },
+  admintaxonomy: { title: '分类标签', path: '/admin/taxonomy' },
+  adminannounce: { title: '公告管理', path: '/admin/announcements' },
+  adminfooter: { title: '页脚设置', path: '/admin/site-footer' },
+  adminmaintain: { title: '功能开关', path: '/admin/maintain' },
+  adminai: { title: 'AI 模型管理', path: '/admin/ai-models' }
 }
 const conf = computed(() => CONF[route.params.kind] || { title: '页面', path: '/' })
 // iframe 内嵌桌面版页面：App 端必须用绝对地址，否则 Capacitor 会当成本地文件而 404

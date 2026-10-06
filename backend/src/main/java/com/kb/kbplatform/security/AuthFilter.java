@@ -179,8 +179,10 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/admin/features")) return "CORE_MAINTAIN";
         if (path.startsWith("/api/admin/settings")) return "CORE_MAINTAIN";
         if (path.startsWith("/api/admin/banned-words")) return "BANNED_WORDS_MANAGE";
-        // AI 模型与 API Key 属敏感凭证：仅完全管理员（ADMIN 角色）可增删改
-        if (path.startsWith("/api/admin/ai")) return null;
+        // AI 模型管理：细粒度权限 AI_MANAGE（2026-10-06 起可在角色管理里授予）。
+        // 列表接口对 Key 一律脱敏（keyMasked）；演示号（DEMO_MODE）的写请求仍被上方统一拦截，
+        // 因此给演示角色勾 AI_MANAGE 的效果是「能看模型配置，改不了」。
+        if (path.startsWith("/api/admin/ai")) return "AI_MANAGE";
         // 原本仅 ADMIN 可访问的**只读**管理接口：映射到 ADMIN_VIEW，使演示账号（isAdmin()=false）
         // 也能打开查看。写操作仍由各控制器内的 isAdmin() 把守（且 AuthFilter 会拦演示号的写请求），
         // 因此这里只需在 GET 时放行。

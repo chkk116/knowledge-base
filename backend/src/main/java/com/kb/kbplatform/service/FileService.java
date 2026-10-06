@@ -62,7 +62,7 @@ public class FileService {
         }
         String ct = file.getContentType();
         if (ct == null || !ALLOWED.contains(ct.toLowerCase())) {
-            throw new IllegalArgumentException("仅支持图片或音频类型（png/jpg/gif/webp/bmp 或 mp3/wav/ogg/m4a/flac/aac）");
+            throw new IllegalArgumentException("仅支持图片/音频/视频类型（png/jpg/gif/webp/bmp、mp3/wav/ogg/m4a/flac/aac 或 mp4/webm）");
         }
         if (file.getSize() > MAX_SIZE) {
             throw new IllegalArgumentException("文件过大，不能超过 50MB");
@@ -130,9 +130,12 @@ public class FileService {
             case "audio/mpeg", "audio/mp3", "audio/aac" ->
                     at(h, 0, 0x49, 0x44, 0x33)                                          // ID3 标签
                     || (b(h, 0) == 0xFF && (b(h, 1) & 0xE0) == 0xE0);                   // MPEG 帧同步
-            case "audio/mp4", "audio/x-m4a", "audio/webm" ->
-                    at(h, 4, 0x66, 0x74, 0x79, 0x70)                                    // ....ftyp（M4A/MP4）
+            case "audio/mp4", "audio/x-m4a", "audio/webm",
+                 "video/mp4", "video/quicktime" ->
+                    at(h, 4, 0x66, 0x74, 0x79, 0x70)                                    // ....ftyp（M4A/MP4/MOV）
                     || at(h, 0, 0x1A, 0x45, 0xDF, 0xA3);                                // EBML（webm）
+            case "video/webm" -> at(h, 0, 0x1A, 0x45, 0xDF, 0xA3);                      // EBML（webm）
+            case "video/ogg" -> at(h, 0, 0x4F, 0x67, 0x67, 0x53);                       // OggS
             default -> false;
         };
     }

@@ -12,7 +12,8 @@ import { createPinia } from 'pinia'
 import {
   ElButton, ElDialog, ElDrawer, ElInput, ElIcon, ElLoadingDirective,
   ElMessage, ElMessageBox, ElEmpty, ElSkeleton, ElSwitch, ElProgress, ElTag,
-  ElDropdown, ElDropdownItem, ElDropdownMenu, ElAvatar, ElConfigProvider
+  ElDropdown, ElDropdownItem, ElDropdownMenu, ElAvatar, ElConfigProvider,
+  ElForm   // 登录页复用 Web 版 Login.vue，需要 el-form
 } from 'element-plus'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import 'element-plus/es/components/button/style/css'
@@ -33,13 +34,15 @@ import 'element-plus/es/components/dropdown-item/style/css'
 import 'element-plus/es/components/dropdown-menu/style/css'
 import 'element-plus/es/components/avatar/style/css'
 import 'element-plus/es/components/config-provider/style/css'
+import 'element-plus/es/components/form/style/css'
 import {
   Plus, HomeFilled, Document, ChatDotRound, ChatLineRound, User, Camera, Picture, Close,
   Check, ArrowLeft, MoreFilled, Delete, EditPen, Search, Refresh, Bell,
   Loading, CircleCheckFilled, WarningFilled, InfoFilled, Star, Clock,
   Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
   Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading,
-  MagicStick   // AI 问答入口图标
+  MagicStick,   // AI 问答入口图标
+  DataLine, Avatar, CollectionTag   // 「我的」页管理员分组图标
 } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -47,6 +50,10 @@ import MobileApp from './MobileApp.vue'
 import mobileRouter from './router/mobile'
 import './responsive.css'
 import './mobile.css'
+
+// 标记「当前跑的是移动端入口」：Web 版 Login.vue 复用时据此把登录后
+// 重定向改到移动端首页（桌面路由在移动端包里不存在）
+window.__KB_MOBILE__ = true
 
 // 主题：与桌面端共用 localStorage('kb_theme')，手机 / 电脑切换保持一致
 const savedTheme = localStorage.getItem('kb_theme')
@@ -60,7 +67,7 @@ const app = createApp(MobileApp)
 const EP_COMPONENTS = {
   ElButton, ElDialog, ElDrawer, ElInput, ElIcon, ElEmpty, ElSkeleton,
   ElSwitch, ElProgress, ElTag, ElDropdown, ElDropdownItem, ElDropdownMenu,
-  ElAvatar, ElConfigProvider
+  ElAvatar, ElConfigProvider, ElForm
 }
 for (const [key, component] of Object.entries(EP_COMPONENTS)) {
   app.component(key, component)
@@ -73,7 +80,8 @@ const icons = {
   Loading, CircleCheckFilled, WarningFilled, InfoFilled, Star, Clock,
   Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
   Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading,
-  MagicStick   // AI 问答入口图标
+  MagicStick,   // AI 问答入口图标
+  DataLine, Avatar, CollectionTag   // 「我的」页管理员分组图标
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)

@@ -137,8 +137,8 @@ public class AdminAiModelController {
     public Map<String, Object> usage(@RequestAttribute("kbUser") TokenClaims c,
                                      @RequestParam(value = "days", defaultValue = "30") int days,
                                      @RequestParam(value = "modelId", required = false) Long modelId) {
-        if (c == null || !c.isAdmin()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要管理员权限");
+        if (c == null || (!c.isAdmin() && !c.hasPerm("AI_MANAGE"))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要 AI 模型管理权限");
         }
         int d = (days <= 0 || days > 180) ? 30 : days;
         LocalDate since = LocalDate.now().minusDays(d - 1L);

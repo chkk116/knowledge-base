@@ -39,7 +39,13 @@ async function doLogin() {
     await auth.login(username.value.trim(), password.value, captchaToken.value, '')
     captchaOpen.value = false
     ElMessage.success('登录成功')
-    const redirect = route.query.redirect || (auth.isAdmin ? '/admin/docs' : '/')
+    let redirect = route.query.redirect || (auth.isAdmin ? '/admin/docs' : '/')
+    // App 内（main-mobile.js 会设 window.__KB_MOBILE__）：桌面路由不存在，一律回移动端首页；
+    // 仅放行 /m 前缀（外层如需带回某移动端页时会带全路径）
+    if (window.__KB_MOBILE__) {
+      const r = String(redirect)
+      redirect = r.startsWith('/m') ? r : '/home'
+    }
     router.push(redirect)
   } catch (e) {
     const msg = e.response?.data?.error || e.response?.data?.message || (e.biz && e.message) || '登录失败'
@@ -693,15 +699,21 @@ html.dark .footer-tip span { color: #8ea0c5; }
   .login-card-wrap { max-width: 360px; min-width: 0; }
 }
 @media (max-width: 768px) {
-  .login-page { flex-direction: column; height: auto; min-height: 100vh; overflow-x: hidden; }
+  .login-page { flex-direction: column; height: auto; min-height: 100vh; min-height: 100dvh; overflow-x: hidden; }
   .login-hero { flex-basis: auto; max-width: 100%; height: 200px; }
   .hero-3d { width: min(62%, 300px); }
   /* 手机端隐藏二维码：避免叠在插画上，也符合移动端登录页惯例 */
   .hero-qr { display: none; }
   .login-main { padding: 28px 16px 40px; width: 100%; box-sizing: border-box; }
+  /* App 全面屏底部安全区（页脚不被手势条压住） */
+  .login-main { padding-bottom: calc(env(safe-area-inset-bottom) + 40px); }
   .login-card-wrap { width: 100%; max-width: 380px; min-width: 0; padding: 22px 20px; }
   .login-form { min-width: 0; }
   .lang-switch { top: 14px; right: 14px; }
+  /* 16px 起：低于该值 iOS Safari/WebView 聚焦会强制放大页面 */
+  .login-input :deep(.el-input__inner) { font-size: 16px !important; }
+  .login-submit { height: 44px; }
+  .login-footer { margin-top: 14px; }
 }
 @media (max-width: 640px) {
   .captcha-pop { width: calc(100vw - 24px); max-width: 348px; }

@@ -17,8 +17,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 
 const routes = [
-  // ---- 登录：移动端单独一版竖排大按钮表单 ----
-  { path: '/login', component: () => import('../views/mobile/MobileLogin.vue'), meta: { public: true, title: '登录' } },
+  // ---- 登录：直接复用 Web 端 Login.vue（响应式布局 ≤768px 自动收成竖排），
+  //      两端共用一份登录页，样式/验证码/二维码改动不再需要两端各改一遍。
+  //      移动端差异（登录后跳 /home、输入框 16px 防 iOS 缩放、safe-area）
+  //      全部收在 Login.vue 的 window.__KB_MOBILE__ 分支与 ≤768px 媒体查询里。
+  { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true, title: '登录' } },
 
   // ---- 一级 Tab 页（底部 4 项 + 中间 ＋） ----
   { path: '/home', component: () => import('../views/mobile/MobileHome.vue'), meta: { tab: 'home', title: '首页' } },

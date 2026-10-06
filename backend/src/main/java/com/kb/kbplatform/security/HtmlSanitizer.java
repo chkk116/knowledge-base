@@ -64,6 +64,10 @@ public final class HtmlSanitizer {
             // src 为本站 /uploads 相对路径时由上方覆写放行；poster 走 http(s) 协议白名单。
             .addTags("video")
             .addTags("source")
+            // 图注：媒体配图的语义化容器（纯排版，无脚本面）
+            .addTags("figure", "figcaption")
+            .addAttributes("figure", "style")
+            .addAttributes("figcaption", "style")
             .addAttributes("video", "src", "controls", "style", "preload", "poster", "width", "height", "muted", "loop")
             .addAttributes("source", "src", "type")
             .addProtocols("video", "src", "http", "https")

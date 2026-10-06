@@ -3,8 +3,8 @@
   "appName": "知识库",
   "webDir": "web-app",
   "server": {
+    "url": "https://www.chkk116.cloud/m/home",
     "androidScheme": "https",
-    "hostname": "localhost",
     "cleartext": true
   },
   "android": {

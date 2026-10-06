@@ -100,6 +100,28 @@ const groups = [
     ]
   }
 ]
+
+// 管理员分组：Web 端管理后台的常用入口（iframe 嵌桌面版页面，见 MobileEmbed.vue CONF）。
+// 仅管理员可见；权限差异（如 EXAM_MANAGE）后端仍会兜底拦截，这里只做入口展示。
+// 管理员入口（折叠区，默认收起）：按权限码过滤——ADMIN 全部可见，
+// 普通账号（含演示号）只看到被授予的项；一项都没有则整个区块不渲染。
+// 页面本体是 iframe 嵌桌面版管理页（见 MobileEmbed.vue 的 CONF 表）。
+const ADMIN_ITEMS = [
+  { label: '数据看板', icon: 'DataLine', color: 'blue', perm: 'STATS_VIEW', to: '/embed/adminstats' },
+  { label: '用户管理', icon: 'UserFilled', color: 'blue', perm: 'USER_MANAGE', to: '/embed/adminusers' },
+  { label: '角色管理', icon: 'Avatar', color: 'blue', perm: 'USER_MANAGE', to: '/embed/adminroles' },
+  { label: '内容管理', icon: 'Files', color: 'orange', perm: 'POST_MANAGE', to: '/embed/admindocs' },
+  { label: '文章审核', icon: 'CircleCheckFilled', color: 'green', perm: 'DOC_REVIEW', to: '/embed/adminreview' },
+  { label: '培训管理', icon: 'Reading', color: 'orange', perm: 'COURSE_MANAGE', to: '/embed/admincourses' },
+  { label: '考试管理', icon: 'DocumentCopy', color: 'orange', perm: 'EXAM_MANAGE', to: '/embed/adminexams' },
+  { label: '分类标签', icon: 'CollectionTag', color: 'gray', perm: 'TAXONOMY_MANAGE', to: '/embed/admintaxonomy' },
+  { label: '公告管理', icon: 'Bell', color: 'red', perm: 'ANNOUNCEMENT_MANAGE', to: '/embed/adminannounce' },
+  { label: '页脚设置', icon: 'Document', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminfooter' },
+  { label: '功能开关', icon: 'Setting', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminmaintain' },
+  { label: 'AI 模型管理', icon: 'MagicStick', color: 'green', perm: 'AI_MANAGE', to: '/embed/adminai' }
+]
+const adminOpen = ref(false)
+const adminItems = computed(() => (auth.isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter((it) => auth.hasPerm(it.perm))))
 </script>
 
 <template>
@@ -160,6 +182,22 @@ const groups = [
       </div>
     </div>
 
+    <!-- 管理入口（默认折叠，按权限过滤）：收起时只占一行，避免「我的」页被撑长 -->
+    <div v-if="adminItems.length" class="body">
+      <button class="m-sec-title m-sec-btn" type="button" @click="adminOpen = !adminOpen">
+        <span>管理</span>
+        <span class="m-sec-count">{{ adminItems.length }}</span>
+        <el-icon class="sec-arrow" :class="{ open: adminOpen }"><Right /></el-icon>
+      </button>
+      <div v-show="adminOpen" class="m-card">
+        <button v-for="it in adminItems" :key="it.label" class="m-row" type="button" @click="go(it.to)">
+          <span class="m-ico" :class="it.color"><el-icon><component :is="it.icon" /></el-icon></span>
+          <span class="m-row-body"><span class="m-row-title">{{ it.label }}</span></span>
+          <el-icon class="m-row-extra"><Right /></el-icon>
+        </button>
+      </div>
+    </div>
+
     <div class="body">
       <button class="logout" @click="logout">
         <el-icon><SwitchButton /></el-icon> 退出登录
@@ -175,6 +213,20 @@ const groups = [
 <style scoped>
 .me { min-height: 100%; }
 .body { padding: 0 16px; }
+
+/* 「管理」折叠区标题行：mobile.css 的 <button> 全局重置会清掉排版，这里补齐 */
+.m-sec-btn {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; text-align: left; padding: 4px 2px;
+  background: transparent; border: none; cursor: pointer;
+}
+.m-sec-count {
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--m-primary); color: #fff;
+  font-size: 11px; line-height: 18px; text-align: center;
+}
+.sec-arrow { margin-left: auto; transition: transform .2s; color: var(--m-text-dim, #98a2b3); }
+.sec-arrow.open { transform: rotate(90deg); }
 
 .prof {
   display: flex; align-items: center; gap: 14px;

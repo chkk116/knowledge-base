@@ -199,8 +199,8 @@ const menus = computed(() => {
   if (auth.hasPerm('ASSET_MANAGE')) contentMgmt.push({ index: '/admin/assets', title: '资产管理', icon: 'Box' })
   // 检索测试：管理员诊断搜索质量（搜得到 / 搜得准）；演示账号（ADMIN_VIEW）也可只读探测
   if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW')) contentMgmt.push({ index: '/admin/search-test', title: '检索测试', icon: 'Search' })
-  // AI 模型含第三方 API Key：仅系统管理员
-  if (auth.isAdmin) contentMgmt.push({ index: '/admin/ai-models', title: 'AI 模型管理', icon: 'Cpu' })
+  // AI 模型管理：细粒度权限 AI_MANAGE（列表对 Key 脱敏，演示号勾上后只读）
+  if (auth.isAdmin || auth.hasPerm('AI_MANAGE')) contentMgmt.push({ index: '/admin/ai-models', title: 'AI 模型管理', icon: 'Cpu' })
   if (contentMgmt.length) base.push({ index: 'g-content', title: '内容管理', icon: 'Document', children: contentMgmt })
 
   // 二级分组：站点设置（功能开关 / 水印 / 登录页二维码 / 外观）
@@ -420,12 +420,7 @@ function openHelp() { helpVisible.value = true }
         </div>
         <router-view :key="$route.fullPath" />
         <!-- 站点页脚：备案信息（合规要求网站底部必须可见）+ 自定义内容 + 版本。
-             放在内容流末尾（跟随内容滚动）：不占固定高度，页面可用高度最大化。
-             ⚠️ 两种「看起来更整齐」的做法都别用，实测各有代价：
-               ① .main{display:flex} + 页脚 margin-top:auto
-                  → 页面根元素普遍带 height:100%，成为 flex item 后百分比高度以容器为基准，整页被压扁；
-               ② 把页脚挪到 el-main 外面常驻底部
-                  → 内容区可用高度被砍掉约 90px，短页面下方留白、长页面可视区变矮，观感也像"压缩"。
+             吸底布局见下方 .main 的 CSS 注释（内容短时贴底、内容长时随内容滚动）。
              /login 走 barePage 分支不经过 el-main，其页脚由 Login.vue 自行渲染 -->
         <SiteFooter />
       </el-main>
@@ -530,10 +525,19 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
   box-shadow: 0 0 0 1px #cbd5e1; vertical-align: middle;
 }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-/* ⚠️ 别把 .main 改成 flex/grid：页面根元素普遍带 height:100%，
-   一旦成为 flex item，百分比高度会以 flex 容器为基准解析，卡片/表格会被压扁。
-   页脚跟随内容排在末尾即可，不要为了「贴底」动这里。 */
-.main { padding: 20px; }
+/* ===== 页脚吸底（2026-10-06） =====
+   布局：.main 为纵向 flex；页面根元素 flex:1 1 0% 占满「内容区减页脚」的剩余空间，
+   页脚 margin-top:auto 沉底。内容短 → 页脚贴到内容区底部；内容长 → 随内容滚动（在最后）。
+   ⚠️ 关键是 flex-basis 必须是 0%：
+     - basis 0% 在 flex 布局里覆盖页面根元素的 height:100%，根元素实际高度由 flex 分配
+       （= 容器 − 页脚），是**确定值**，内部依赖百分比高度的编辑器/图块链条照常解析；
+     - 2026-10-05 那次「整页被压扁」的真凶是根元素走默认 flex:0 1 auto（basis=height:100%），
+       根元素假想高度 100% + 页脚超出容器 → 触发 flex **收缩**，卡片/表格被压缩。
+       basis 0% 时假想总高恰好占满、永不触发收缩，故不会再压扁；min-height:auto 兜底内容高度。
+   ⚠️ 别把页脚挪到 el-main 外面常驻底部：内容区可用高度被砍掉约 90px，观感像"压缩"。 */
+.main { padding: 20px; display: flex; flex-direction: column; }
+.main > :not(.site-footer):not(.demo-banner) { flex: 1 1 0%; }
+.main > .site-footer { margin-top: auto; }
 
 /* 演示账号横幅：全局只读提示，粘在内容区顶部 */
 .demo-banner {
