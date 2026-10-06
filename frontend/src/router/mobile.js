@@ -104,4 +104,20 @@ router.beforeEach(async (to) => {
   return { path: '/login', query: { redirect: to.fullPath } }
 })
 
+// ---- 发版兜底：懒加载 chunk 取不到时自动刷新一次 ----
+// 场景：新版本部署后旧入口文件引用的 chunk 已被清理（rsync --delete），
+// 用户停留在旧页面时点进任意懒加载路由会抛
+// "Failed to fetch dynamically imported module"。
+// 这里刷新一次拿最新入口即可自愈；用 sessionStorage 标记，只刷一次避免死循环。
+const CHUNK_RELOAD_KEY = 'kb_chunk_reload'
+router.onError((err) => {
+  const msg = String((err && err.message) || err || '')
+  if (/dynamically imported module|Importing a module script failed|Loading chunk/i.test(msg)) {
+    if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+      sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
+      window.location.reload()
+    }
+  }
+})
+
 export default router

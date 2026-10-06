@@ -126,6 +126,28 @@ function measure() {
   })
 }
 
+/**
+ * 同步测量（不等 nextTick）：**提交前必须调一次**。
+ * 背景：拼图上报值 = 显示坐标 × (320 / 舞台实际宽)。若 W 停留在初始值 320
+ * （弹层动画未结束时 getBoundingClientRect().width 为 0 → measure 提前返回，
+ * 且 ResizeObserver 不可用时没有第二次机会），而舞台实际渲染只有 292，
+ * 上报值恒定偏小约 8% → 服务端对齐校验必失败，表现为「手机版验证码怎么都过不了」。
+ */
+function measureSync() {
+  const stage = stageEl.value
+  const bar = barEl.value
+  if (!stage || !bar) return
+  const rs = stage.getBoundingClientRect()
+  const rb = bar.getBoundingClientRect()
+  if (!(rs.width > 0)) return
+  const target = Math.min(BASE_W, Math.floor(rs.width))
+  const h = Math.round(rs.height) || Math.round(target * BASE_H / BASE_W)
+  const tw = Math.floor(rb.width) || target
+  W.value = target
+  H.value = h
+  TRACK_W.value = tw
+}
+
 // 监听窗口尺寸变化（手机旋转 / 浏览器地址栏收起）
 let ro = null
 function watchResize() {
@@ -195,6 +217,7 @@ function onUp() {
 }
 
 async function check() {
+  measureSync()                 // 先按当前真实宽度刷新 W/TRACK_W，再换算上报值
   const userX = pieceLeft.value
   checking.value = true
   try {
@@ -228,8 +251,13 @@ function fail() {
 }
 
 onMounted(() => {
-  // 等首屏样式与父容器 .captcha-pop 宽度就绪后再 measure
+  // 等首屏样式与父容器宽度就绪后再 measure
   measure()
+  // 移动端底部弹层有入场动画：挂载瞬间宽度可能是 0（measure 会提前返回），
+  // 这里补几次延迟测量，保证 ResizeObserver 不可用时也能拿到真实宽度
+  requestAnimationFrame(measure)
+  setTimeout(measure, 120)
+  setTimeout(measure, 450)
   watchResize()
   fetchCaptcha()
 })
@@ -246,6 +274,7 @@ onBeforeUnmount(() => {
 .slide-captcha {
   width: 100%;
   max-width: 320px;
+  margin: 0 auto;              /* 居中：移动端底部弹层是全宽的，不居中会贴在左下角 */
   background: #fff;
   border-radius: 10px;
   box-shadow: 0 8px 30px rgba(0,0,0,0.15);
