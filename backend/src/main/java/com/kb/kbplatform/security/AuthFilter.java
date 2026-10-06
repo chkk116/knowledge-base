@@ -113,8 +113,24 @@ public class AuthFilter implements Filter {
             sendDemo403(res);
             return;
         }
+        // 演示账号禁止「批量取数」：导出类与检索测试都是 GET，上面的写方法拦截覆盖不到。
+        // 公开的演示凭据 + 导出接口 = 任何访客都能把数据拉走（2026-10-06 外部安全审查）。
+        if (!publicRequest && claims != null && claims.isDemo() && isDemoBulkReadBlocked(path)) {
+            send403(res);
+            return;
+        }
         if (claims != null) req.setAttribute("kbUser", claims);   // 供控制器读取当前用户
         chain.doFilter(request, response);
+    }
+
+    /**
+     * 演示账号禁止的批量读取接口：附件/资产导出、文档导出、检索测试。
+     * 这些都是 GET，写方法拦截覆盖不到；演示凭据公开，等于任何访客都能拉走数据。
+     * 前缀匹配保持宽松（endsWith("/export")），新增导出端点默认即被覆盖。
+     */
+    private boolean isDemoBulkReadBlocked(String path) {
+        if (path == null) return false;
+        return path.endsWith("/export") || path.startsWith("/api/admin/search/test");
     }
 
     /** 是否为会改动数据的写方法（GET/HEAD/OPTIONS 放行） */
