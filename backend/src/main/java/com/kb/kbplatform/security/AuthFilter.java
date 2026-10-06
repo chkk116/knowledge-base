@@ -52,6 +52,15 @@ public class AuthFilter implements Filter {
         }
         String method = req.getMethod();
 
+        // CORS 预检（OPTIONS）必须直接放行：按规范预检不带凭证，浏览器只关心响应头。
+        // 若不放行会被下面的鉴权判成 401 → 浏览器直接判定跨域请求失败（前端显示「服务器异常」）。
+        // App 改为内置资源模式后页面源是 https://localhost，所有 JSON 请求都变成跨域并触发预检，
+        // 表现为「App 里验证码怎么都过不了 + 服务器异常」（2026-10-06 定位）。
+        if ("OPTIONS".equalsIgnoreCase(method)) {
+            chain.doFilter(request, response);
+            return;
+        }
+
         boolean publicRequest = isPublic(path, method);
         String auth = req.getHeader("Authorization");
         if (!publicRequest && (auth == null || !auth.startsWith("Bearer "))) {
