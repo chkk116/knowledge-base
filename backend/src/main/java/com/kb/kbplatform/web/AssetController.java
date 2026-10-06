@@ -29,8 +29,24 @@ public class AssetController {
         this.svc = svc;
     }
 
+    /**
+     * 扫码查询（code 走查询参数）。
+     * 不用 /{code} 路径：前端需 encodeURIComponent，中文/特殊字符编码出的 %XX 会被
+     * AuthFilter 的「原始 URI 含 %/%/; 一律 400」规则拦死（外部复审 2026-10-06 指出）。
+     * 旧路径端点保留兼容。
+     */
+    @GetMapping("/scan")
+    public Map<String, Object> scan(@RequestAttribute("kbUser") TokenClaims c,
+                                    @RequestParam("code") String code) {
+        return detail(c, code);
+    }
+
     @GetMapping("/{code}")
     public Map<String, Object> getByCode(@RequestAttribute("kbUser") TokenClaims c, @PathVariable String code) {
+        return detail(c, code);
+    }
+
+    private Map<String, Object> detail(TokenClaims c, String code) {
         // 该路径未列入 AuthFilter.isPublic，因此未登录会被拦截返回 401，无需在此重复校验
         Asset a = svc.getAssetByCode(code);
         boolean full = c != null && c.hasPerm("ASSET_MANAGE");

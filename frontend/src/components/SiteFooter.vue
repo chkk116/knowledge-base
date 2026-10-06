@@ -25,6 +25,9 @@ defineProps({
 })
 
 const siteInfo = useSiteInfoStore()
+
+/** 链接协议白名单：服务端已校验，这里是渲染端最后一道防线（防历史脏数据 / 直改缓存） */
+const safeHref = (u) => /^https?:\/\//i.test(String(u || '').trim())
 </script>
 
 <template>
@@ -43,7 +46,7 @@ const siteInfo = useSiteInfoStore()
       <span>{{ APP_NAME }} v{{ APP_VERSION }}</span>
       <template v-for="(it, i) in siteInfo.items" :key="i">
         <span class="sf-sep">|</span>
-        <a v-if="it.url" class="sf-link" :href="it.url" target="_blank" rel="noopener noreferrer">{{ it.name }}</a>
+        <a v-if="it.url && safeHref(it.url)" class="sf-link" :href="it.url" target="_blank" rel="noopener noreferrer">{{ it.name }}</a>
         <span v-else>{{ it.name }}</span>
       </template>
     </div>

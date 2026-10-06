@@ -35,7 +35,12 @@ android {
             // 缺密钥/口令默认构建失败：防止 CI 静默发出 debug 签名的"正式包"（2026-10-06 外部安全审查）。
             // 本地联调确需无签名构建时，设环境变量 KB_ALLOW_UNSIGNED_RELEASE=1 才回退 debug 签名。
             def ksOk = file(ksPath).exists() && ksPass
-            if (!ksOk && System.getenv('KB_ALLOW_UNSIGNED_RELEASE') != '1') {
+            // 关键：buildTypes 闭包在**配置阶段**就执行，无条件 throw 会连带 IDE 同步 /
+            // assembleDebug / clean 一起失败（外部复审指出）。只在命令行确实要打 release 包时检查。
+            def releaseRequested = gradle.startParameter.taskNames.any {
+                it.toLowerCase().contains('release')
+            }
+            if (releaseRequested && !ksOk && System.getenv('KB_ALLOW_UNSIGNED_RELEASE') != '1') {
                 throw new GradleException('release 构建缺少签名密钥（keystore 或 KB_KS_PASS）；' +
                     '本地联调可设 KB_ALLOW_UNSIGNED_RELEASE=1 回退 debug 签名')
             }

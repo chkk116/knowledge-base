@@ -43,4 +43,6 @@ export function saveBlob(data, filename) {
 }
 
 // 扫码只读（需登录，脱敏）
-export const scanAsset = (code) => api.get('/assets/' + encodeURIComponent(code))
+// code 走查询参数：路径拼接需 encodeURIComponent，中文/空格编码后的 %XX 会被 AuthFilter 的
+// 「原始 URI 含 % 一律 400」规则误伤（外部复审指出）
+export const scanAsset = (code) => api.get('/assets/scan', { params: { code } })

@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.springframework.http.HttpStatus.FORBIDDEN;
@@ -54,32 +55,41 @@ public class AdminSettingsController {
      * 允许 javascript: 即构成对全部访客的 XSS（2026-10-06 外部安全审查）。
      * 顺带限条数与单条长度，防配置被写爆。
      */
+    /** Spring Boot 4 的 Jackson 3 坐标是 tools.jackson.*（com.fasterxml 不在 classpath）；
+     *  这里用容器同款 JsonMapper 真正解析后校验——正则扫原始文本会被 JSON 转义绕过
+     *  （键名写成 \u0075rl 时正则匹配不到、JSON.parse 之后却是 url）。 */
+    private static final tools.jackson.databind.json.JsonMapper SITE_JSON =
+            tools.jackson.databind.json.JsonMapper.builder().build();
+
+    @SuppressWarnings("unchecked")
     private static void sanitizeSiteInfo(String value) {
         if (value == null) return;
         if (value.length() > 20000) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "site_info 过长");
         }
-        // 逐个扫描 "url":"..." 字段值：只允许 http/https 绝对地址。
-        // 不用 JSON 库的原因：Spring Boot 4 的 Jackson 3 坐标是 tools.jackson.*，本工程未直接依赖；
-        // 且此处的 value 由前端 JSON.stringify 生成、格式规整，正则提取足够（与 PublicConfigController 同风格）。
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"url\"\\s*:\\s*\"([^\"]*)\"")
-                .matcher(value);
-        int n = 0;
-        while (m.find()) {
-            if (++n > 20) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚自定义内容最多 20 条");
-            }
-            String url = m.group(1).trim();
-            if (url.length() > 500) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚链接过长（≤500）");
+        Map<String, Object> root;
+        try {
+            root = SITE_JSON.readValue(value, Map.class);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "site_info 不是合法 JSON");
+        }
+        Object itemsObj = root.get("items");
+        if (!(itemsObj instanceof List<?> items)) return;   // 无 items = 只配备案号，不校验
+        if (items.size() > 20) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚自定义内容最多 20 条");
+        }
+        for (Object o : items) {
+            if (!(o instanceof Map<?, ?> m)) continue;
+            Object nameObj = m.get("name");
+            Object urlObj = m.get("url");
+            String name = nameObj == null ? "" : String.valueOf(nameObj);
+            String url = urlObj == null ? "" : String.valueOf(urlObj).trim();
+            if (name.length() > 200 || url.length() > 500) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚内容过长（名称≤200，链接≤500）");
             }
             if (!url.isEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚链接只允许 http/https 绝对地址");
             }
-        }
-        if (value.length() > 4000 && value.split("\"name\"", -1).length - 1 > 20) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "页脚自定义内容最多 20 条");
         }
     }
 

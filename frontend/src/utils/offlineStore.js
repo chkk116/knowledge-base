@@ -109,13 +109,14 @@ export async function getQueuedDoc(localId) {
   return tx(STORE_QUEUE, 'readonly', (s) => wrap(s.get(localId)))
 }
 
-/** 登出时清空离线队列与文档缓存：防止下一位登录者读到/提交前任的草稿与缓存文档 */
-export async function clearOfflineDataForLogout() {
+/**
+ * 登出 / 令牌失效时调用：**只清文档缓存，保留待同步草稿**。
+ * 离线时点退出不该丢内容（外部复审修正）；草稿本身带 userId，同步阶段只提交本账号条目，
+ * 无主草稿（老版本遗留、没有 userId）不自动同步，等于既不丢也不串号。
+ */
+export async function clearDocCacheForLogout() {
   try {
-    const items = await listQueuedDocs()
-    for (const it of items) await removeQueuedDoc(it.localId)
     await tx(STORE_CACHE, 'readwrite', (s) => wrap(s.clear()))
-    notify()
   } catch { /* 忽略 */ }
 }
 
@@ -143,6 +144,7 @@ export async function cacheDoc(spaceId, doc, html) {
   const key = spaceId + ':' + doc.id
   const item = {
     key, spaceId, docId: doc.id,
+    userId: currentUserId(),        // 缓存归属：换号后不给他人复用（外部复审修正）
     title: doc.title,
     html: html || doc.content || '',
     updatedAt: doc.updatedAt || doc.createdAt || '',
@@ -153,7 +155,10 @@ export async function cacheDoc(spaceId, doc, html) {
 }
 
 export async function getCachedDoc(spaceId, docId) {
-  return tx(STORE_CACHE, 'readonly', (s) => wrap(s.get(spaceId + ':' + docId)))
+  const item = await tx(STORE_CACHE, 'readonly', (s) => wrap(s.get(spaceId + ':' + docId)))
+  // 归属校验：缓存属于别的账号（或老版本无归属）时视为未缓存——换号/令牌失效后不得复用他人缓存
+  if (item && (item.userId || null) !== currentUserId()) return null
+  return item
 }
 
 /** 离线时的文档列表兜底：返回本空间已缓存的文档，按缓存时间倒序 */
@@ -195,8 +200,9 @@ export async function syncOnReconnect() {
     const { resolveDefaultSpaceId } = await import('./spaceResolver')
     const items = await listQueuedDocs()
     for (const it of items) {
-      // 串号防护：换号登录后不同步前任账号的草稿（署名错误 / 写入无权空间）
-      if (it.userId && it.userId !== currentUserId()) continue
+      // 串号防护：换号登录后不同步前任账号的草稿（署名错误 / 写入无权空间）；
+      // 无 userId 的老条目同样跳过——它属于谁不确定，任何账号自动提交都可能错署名
+      if (!it.userId || it.userId !== currentUserId()) continue
       if (it.tries >= MAX_TRIES) continue
       try {
         const spaceId = it.spaceId || await resolveDefaultSpaceId()

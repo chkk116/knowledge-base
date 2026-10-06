@@ -22,6 +22,8 @@ api.interceptors.response.use(
   (err) => {
     if (err.response && err.response.status === 401) {
       localStorage.removeItem('kb_token')
+      // 令牌失效同样要清文档缓存：这是最常见的「换号后仍读到前任缓存」路径（不经过 auth.logout）
+      import('../utils/offlineStore').then((m) => m.clearDocCacheForLogout()).catch(() => {})
       window.dispatchEvent(new Event('kb-unauthorized'))
       // 跳转到登录页（动态导入避免与 router 形成循环依赖）
       import('../router').then((m) => m.default.push('/login')).catch(() => {})

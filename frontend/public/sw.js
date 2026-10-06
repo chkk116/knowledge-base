@@ -70,9 +70,13 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    // 清掉旧版本缓存
+    // 清掉旧版本缓存：对本 SW 自己的两个缓存名做精确比较（startsWith 容易误删同前缀的其它缓存）
     const keys = await caches.keys()
-    await Promise.all(keys.filter((k) => k.startsWith('kb-mobile-') && !k.startsWith(VERSION)).map((k) => caches.delete(k)))
+    await Promise.all(
+      keys
+        .filter((k) => k.startsWith('kb-mobile-') && k !== SHELL_CACHE && k !== ASSET_CACHE)
+        .map((k) => caches.delete(k))
+    )
     await self.clients.claim()
   })())
 })
