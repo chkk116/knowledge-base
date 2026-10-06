@@ -17,11 +17,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 
 const routes = [
-  // ---- 登录：直接复用 Web 端 Login.vue（响应式布局 ≤768px 自动收成竖排），
-  //      两端共用一份登录页，样式/验证码/二维码改动不再需要两端各改一遍。
-  //      移动端差异（登录后跳 /home、输入框 16px 防 iOS 缩放、safe-area）
-  //      全部收在 Login.vue 的 window.__KB_MOBILE__ 分支与 ≤768px 媒体查询里。
-  { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true, title: '登录' } },
+  // ---- 登录：移动端 v3 构图（玻璃胶囊 + 渐变按钮），设计语言与 Web 版同源但布局不同 ----
+  { path: '/login', component: () => import('../views/mobile/MobileLogin.vue'), meta: { public: true, title: '登录' } },
 
   // ---- 一级 Tab 页（底部 4 项 + 中间 ＋） ----
   { path: '/home', component: () => import('../views/mobile/MobileHome.vue'), meta: { tab: 'home', title: '首页' } },
@@ -41,6 +38,10 @@ const routes = [
 
   { path: '/search', component: () => import('../views/mobile/MobileSearch.vue'), meta: { title: '搜索' } },
   { path: '/settings', component: () => import('../views/mobile/MobileSettings.vue'), meta: { title: '设置' } },
+
+  // ---- 管理端原生页（高频管理功能做成 App 原生，不用 iframe 嵌桌面表格）----
+  { path: '/manage/users', component: () => import('../views/mobile/MobileAdminUsers.vue'), meta: { title: '用户管理' } },
+  { path: '/manage/roles', component: () => import('../views/mobile/MobileAdminRoles.vue'), meta: { title: '角色管理' } },
 
   // 低频二级功能：用嵌入页承接（见 MobileEmbed.vue 的说明）。
   // 保留在移动端路由里，是为了让通知、个人中心里的入口都能落地，不出现死链。

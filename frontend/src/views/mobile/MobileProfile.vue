@@ -74,32 +74,30 @@ async function logout() {
   router.replace('/login')
 }
 
-const groups = [
-  {
-    title: '我的内容',
-    items: [
-      { label: '我的文档', icon: 'FolderOpened', color: 'blue', to: '/docs' },
-      { label: '我的收藏', icon: 'Star', color: 'orange', to: '/embed/favorites' },
-      { label: '浏览历史', icon: 'Clock', color: 'green', to: '/embed/history' },
-      { label: '待同步文档', icon: 'Upload', color: 'orange', to: '/docs', badge: 'pending' }
-    ]
-  },
-  {
-    title: '工具',
-    items: [
-      { label: '搜索', icon: 'Search', color: '', to: '/search' },
-      { label: 'AI 问答', icon: 'ChatDotRound', color: 'green', to: '/embed/ai' },
-      { label: '积分排行', icon: 'Trophy', color: 'orange', to: '/embed/ranking' }
-    ]
-  },
-  {
-    title: '设置',
-    items: [
-      { label: '账号与资料', icon: 'User', color: '', to: '/settings' },
-      { label: '外观设置', icon: 'Setting', color: 'gray', action: 'theme' }
-    ]
-  }
-]
+const MY_GROUP = {
+  title: '我的内容',
+  items: [
+    { label: '我的文档', icon: 'FolderOpened', color: 'blue', to: '/docs' },
+    { label: '我的收藏', icon: 'Star', color: 'orange', to: '/embed/favorites' },
+    { label: '浏览历史', icon: 'Clock', color: 'green', to: '/embed/history' },
+    { label: '待同步文档', icon: 'Upload', color: 'orange', to: '/docs', badge: 'pending' }
+  ]
+}
+const TOOL_GROUP = {
+  title: '工具',
+  items: [
+    { label: '搜索', icon: 'Search', color: '', to: '/search' },
+    { label: 'AI 问答', icon: 'ChatDotRound', color: 'green', to: '/embed/ai' },
+    { label: '积分排行', icon: 'Trophy', color: 'orange', to: '/embed/ranking' }
+  ]
+}
+const SETTING_GROUP = {
+  title: '设置',
+  items: [
+    { label: '账号与资料', icon: 'User', color: '', to: '/settings' },
+    { label: '外观设置', icon: 'Setting', color: 'gray', action: 'theme' }
+  ]
+}
 
 // 管理员分组：Web 端管理后台的常用入口（iframe 嵌桌面版页面，见 MobileEmbed.vue CONF）。
 // 仅管理员可见；权限差异（如 EXAM_MANAGE）后端仍会兜底拦截，这里只做入口展示。
@@ -108,8 +106,8 @@ const groups = [
 // 页面本体是 iframe 嵌桌面版管理页（见 MobileEmbed.vue 的 CONF 表）。
 const ADMIN_ITEMS = [
   { label: '数据看板', icon: 'DataLine', color: 'blue', perm: 'STATS_VIEW', to: '/embed/adminstats' },
-  { label: '用户管理', icon: 'UserFilled', color: 'blue', perm: 'USER_MANAGE', to: '/embed/adminusers' },
-  { label: '角色管理', icon: 'Avatar', color: 'blue', perm: 'USER_MANAGE', to: '/embed/adminroles' },
+  { label: '用户管理', icon: 'UserFilled', color: 'blue', perm: 'USER_MANAGE', to: '/manage/users' },
+  { label: '角色管理', icon: 'Avatar', color: 'blue', perm: 'USER_MANAGE', to: '/manage/roles' },
   { label: '内容管理', icon: 'Files', color: 'orange', perm: 'POST_MANAGE', to: '/embed/admindocs' },
   { label: '文章审核', icon: 'CircleCheckFilled', color: 'green', perm: 'DOC_REVIEW', to: '/embed/adminreview' },
   { label: '培训管理', icon: 'Reading', color: 'orange', perm: 'COURSE_MANAGE', to: '/embed/admincourses' },
@@ -122,6 +120,14 @@ const ADMIN_ITEMS = [
 ]
 const adminOpen = ref(false)
 const adminItems = computed(() => (auth.isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter((it) => auth.hasPerm(it.perm))))
+
+// 分组顺序：我的内容 / 工具 / 管理（折叠，紧挨高频区而非退出登录，防误触）/ 设置
+const groups = computed(() => {
+  const list = [MY_GROUP, TOOL_GROUP]
+  if (adminItems.value.length) list.push({ title: '管理', collapsible: true })
+  list.push(SETTING_GROUP)
+  return list
+})
 </script>
 
 <template>
@@ -164,38 +170,38 @@ const adminItems = computed(() => (auth.isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filt
       </div>
     </div>
 
-    <!-- 分组列表 -->
+    <!-- 分组列表（管理组是折叠区：收起只占一行，且位置在设置组之前、远离退出登录按钮） -->
     <div v-for="g in groups" :key="g.title" class="body">
-      <div class="m-sec-title">{{ g.title }}</div>
-      <div class="m-card">
-        <button v-for="it in g.items" :key="it.label" class="m-row" type="button"
-                @click="it.action === 'theme' ? toggleTheme() : go(it.to)">
-          <span class="m-ico" :class="it.color"><el-icon><component :is="it.icon" /></el-icon></span>
-          <span class="m-row-body"><span class="m-row-title">{{ it.label }}</span></span>
-          <span v-if="it.badge === 'pending' && pending" class="m-chip orange">{{ pending }}</span>
-          <span v-else-if="it.action === 'theme'" class="m-row-extra">
-            {{ dark ? '夜间' : '日间' }}
-            <el-icon><component :is="dark ? 'Moon' : 'Sunny'" /></el-icon>
-          </span>
-          <el-icon v-else class="m-row-extra"><Right /></el-icon>
+      <template v-if="g.collapsible">
+        <button class="m-sec-title m-sec-btn" type="button" @click="adminOpen = !adminOpen">
+          <span>管理</span>
+          <span class="m-sec-count">{{ adminItems.length }}</span>
+          <el-icon class="sec-arrow" :class="{ open: adminOpen }"><Right /></el-icon>
         </button>
-      </div>
-    </div>
-
-    <!-- 管理入口（默认折叠，按权限过滤）：收起时只占一行，避免「我的」页被撑长 -->
-    <div v-if="adminItems.length" class="body">
-      <button class="m-sec-title m-sec-btn" type="button" @click="adminOpen = !adminOpen">
-        <span>管理</span>
-        <span class="m-sec-count">{{ adminItems.length }}</span>
-        <el-icon class="sec-arrow" :class="{ open: adminOpen }"><Right /></el-icon>
-      </button>
-      <div v-show="adminOpen" class="m-card">
-        <button v-for="it in adminItems" :key="it.label" class="m-row" type="button" @click="go(it.to)">
-          <span class="m-ico" :class="it.color"><el-icon><component :is="it.icon" /></el-icon></span>
-          <span class="m-row-body"><span class="m-row-title">{{ it.label }}</span></span>
-          <el-icon class="m-row-extra"><Right /></el-icon>
-        </button>
-      </div>
+        <div v-show="adminOpen" class="m-card">
+          <button v-for="it in adminItems" :key="it.label" class="m-row" type="button" @click="go(it.to)">
+            <span class="m-ico" :class="it.color"><el-icon><component :is="it.icon" /></el-icon></span>
+            <span class="m-row-body"><span class="m-row-title">{{ it.label }}</span></span>
+            <el-icon class="m-row-extra"><Right /></el-icon>
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <div class="m-sec-title">{{ g.title }}</div>
+        <div class="m-card">
+          <button v-for="it in g.items" :key="it.label" class="m-row" type="button"
+                  @click="it.action === 'theme' ? toggleTheme() : go(it.to)">
+            <span class="m-ico" :class="it.color"><el-icon><component :is="it.icon" /></el-icon></span>
+            <span class="m-row-body"><span class="m-row-title">{{ it.label }}</span></span>
+            <span v-if="it.badge === 'pending' && pending" class="m-chip orange">{{ pending }}</span>
+            <span v-else-if="it.action === 'theme'" class="m-row-extra">
+              {{ dark ? '夜间' : '日间' }}
+              <el-icon><component :is="dark ? 'Moon' : 'Sunny'" /></el-icon>
+            </span>
+            <el-icon v-else class="m-row-extra"><Right /></el-icon>
+          </button>
+        </div>
+      </template>
     </div>
 
     <div class="body">
