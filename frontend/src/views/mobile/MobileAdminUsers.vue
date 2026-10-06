@@ -39,7 +39,7 @@ async function load(reset = false) {
     if (filter.value === 'admin') params.role = 'ADMIN'
     if (filter.value === 'disabled') params.enabled = false
     const { data } = await api.get('/admin/users', { params })
-    const rows = data.content || []
+    const rows = Array.isArray(data) ? data : (data.content || [])
     users.value = reset ? rows : [...users.value, ...rows]
     page.value = p + 1
     hasMore.value = !data.last
@@ -143,7 +143,7 @@ load()
           <div class="m-sheet-grip"></div>
           <div class="m-sheet-title">{{ nameOf(active) }} · @{{ active?.username }}</div>
           <button class="m-sheet-item" :class="{ danger: active?.enabled }" :disabled="busy"
-                  @click="active?.enabled ? toggleEnabled() : toggleEnabled()">
+                  @click="toggleEnabled()">
             <el-icon><component :is="active?.enabled ? 'CircleCloseFilled' : 'CircleCheckFilled'" /></el-icon>
             {{ active?.enabled ? '禁用该账号' : '启用该账号' }}
           </button>

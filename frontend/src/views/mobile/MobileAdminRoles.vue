@@ -7,7 +7,7 @@
  * 注意：改角色权限会令持有该角色用户的旧 token 失效（tokenVersion 递增），需重新登录。
  */
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import api from '../../api/request'
 import { PERM_GROUPS } from '../../utils/permCodes'
@@ -46,6 +46,15 @@ function back() {
   if (editing.value) { editing.value = null; return }
   router.back()
 }
+
+// 编辑态拦物理/浏览器返回键：软返回（back()）置空 editing 后才真正离开
+onBeforeRouteLeave(() => {
+  if (editing.value && dirty.value) {
+    window.__kbMsg?.warning('有未保存的修改，请先保存或点「取消」')
+    return false
+  }
+  return true
+})
 
 function togglePerm(code) {
   if (editing.value?.builtin) return

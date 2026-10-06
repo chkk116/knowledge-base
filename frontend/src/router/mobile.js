@@ -40,8 +40,8 @@ const routes = [
   { path: '/settings', component: () => import('../views/mobile/MobileSettings.vue'), meta: { title: '设置' } },
 
   // ---- 管理端原生页（高频管理功能做成 App 原生，不用 iframe 嵌桌面表格）----
-  { path: '/manage/users', component: () => import('../views/mobile/MobileAdminUsers.vue'), meta: { title: '用户管理' } },
-  { path: '/manage/roles', component: () => import('../views/mobile/MobileAdminRoles.vue'), meta: { title: '角色管理' } },
+  { path: '/manage/users', component: () => import('../views/mobile/MobileAdminUsers.vue'), meta: { title: '用户管理', perm: 'USER_MANAGE' } },
+  { path: '/manage/roles', component: () => import('../views/mobile/MobileAdminRoles.vue'), meta: { title: '角色管理', perm: 'USER_MANAGE' } },
 
   // 低频二级功能：用嵌入页承接（见 MobileEmbed.vue 的说明）。
   // 保留在移动端路由里，是为了让通知、个人中心里的入口都能落地，不出现死链。
@@ -89,7 +89,11 @@ router.beforeEach(async (to) => {
 
   await ensureAuth()
   // fetchMe 成功 → user 已就绪，正常放行
-  if (auth.user) return true
+  if (auth.user) {
+    // 细粒度权限页：入口按 hasPerm 过滤，这里再兜一层（防手输 URL）
+    if (to.meta.perm && !auth.isAdmin && !auth.hasPerm(to.meta.perm)) return { path: '/profile' }
+    return true
+  }
   // 本地有 token 但校验没成功：多半是网络抖动而非真的未登录。
   // 继续放行，让页面自己处理接口错误（避免"网络一抖就被踢回登录页"）；
   // 真 401 由 axios 拦截器派发 kb-unauthorized 统一登出。
