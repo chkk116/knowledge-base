@@ -143,7 +143,9 @@ router.beforeEach(async (to) => {
   //   · 未配 anyPerm 的（附件管理/检索测试）= 真实管理员或 ADMIN_VIEW 可看
   if (to.meta.adminOnly) {
     const anyPerm = to.meta.anyPerm || []
-    const ok = auth.isAdmin()
+    // ⚠️ isAdmin 是 store 里的 computed（属性），不是方法——写成 isAdmin() 会让守卫抛
+    // TypeError 导致所有跳转失败（2026-10-06 踩过）
+    const ok = auth.isAdmin
       || (anyPerm.length ? anyPerm.some((p) => auth.hasPerm(p)) : auth.hasPerm('ADMIN_VIEW'))
     if (!ok) return { path: '/' }
   }

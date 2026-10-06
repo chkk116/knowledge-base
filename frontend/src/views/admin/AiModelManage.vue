@@ -12,10 +12,11 @@ import ProviderLogo from '../../components/ProviderLogo.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
-// 双保险：路由守卫已按 adminOnly 拦截，这里再判一次，防直接改路由配置漏人。
-// 只弹提示不算拦截——下面 onMounted 仍会跑 load()/loadUsage()，必须真的阻断
-if (!auth.isAdmin) {
-  ElMessage.error('仅系统管理员可访问该页面')
+// 双保险：路由守卫已按 AI_MANAGE 权限码拦截，这里再判一次，防直接改路由配置漏人。
+// 注意：必须同时放行细粒度权限码 AI_MANAGE（2026-10-06 起该页可从角色管理授权），
+// 只判 isAdmin 会把「有 AI_MANAGE 的演示号/子管理员」也踢走（曾经的真凶）。
+if (!auth.isAdmin && !auth.hasPerm('AI_MANAGE')) {
+  ElMessage.error('需要「AI 模型管理」权限')
   router.replace('/')
 }
 
