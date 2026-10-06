@@ -2,7 +2,7 @@
 import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getDoc } from '../api/kb'
-import { enhanceVideos, bindImgLightbox } from '../utils/mediaEnhance'
+import { enhanceVideos, bindImgLightbox, absolutizeMedia } from '../utils/mediaEnhance'
 
 const route = useRoute()
 const doc = ref(null)
@@ -14,6 +14,7 @@ const lightboxSrc = ref('')
 function decorate() {
   const el = rwRef.value
   if (!el) return
+  absolutizeMedia(el)
   enhanceVideos(el)
   bindImgLightbox(el, (src) => { if (src) lightboxSrc.value = src })
 }

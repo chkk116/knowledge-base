@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { resolveUrl } from '../utils/runtimeBase'
 import { ref } from 'vue'
 import { notificationUnread } from '../api/kb'
 
@@ -17,7 +18,8 @@ export const useNotificationStore = defineStore('notification', () => {
     if (!token) return
     // 先拉一次准确未读数（避免重连期间遗漏）
     notificationUnread().then(({ data }) => { unread.value = data.count || 0 }).catch(() => {})
-    const url = `/api/notifications/stream?token=${encodeURIComponent(token)}`
+    // App 内置资源模式下必须用线上绝对地址（相对路径会被 Capacitor 当本地资源 → 404）
+    const url = resolveUrl(`/api/notifications/stream?token=${encodeURIComponent(token)}`)
     es = new EventSource(url)
     es.onopen = () => {
       // 连接成功：重置退避（后端若重启，恢复正常节奏）

@@ -9,7 +9,7 @@
  *  - 离线可读：优先用本地缓存，无网且无缓存给明确提示
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { enhanceVideos, bindImgLightbox } from '../../utils/mediaEnhance'
+import { enhanceVideos, bindImgLightbox, absolutizeMedia } from '../../utils/mediaEnhance'
 import { useRoute, useRouter } from 'vue-router'
 import { getShareDoc } from '../../api/docShare'
 import { getCachedDoc, cacheDoc } from '../../utils/offlineStore'
@@ -55,6 +55,7 @@ watch(html, async () => {
   await nextTick()
   const el = proseRef.value
   if (!el) return
+  absolutizeMedia(el)
   enhanceVideos(el)
   bindImgLightbox(el, (src) => { if (src) lightboxSrc.value = src })
 }, { immediate: true })

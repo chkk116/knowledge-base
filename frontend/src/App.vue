@@ -9,7 +9,7 @@ import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import SiteFooter from './components/SiteFooter.vue'
 import { useNotificationStore } from './store/notification'
 import { reader, closeReader, startDrag, startResize, clampToViewport } from './store/reader'
-import { enhanceVideos, bindImgLightbox } from './utils/mediaEnhance'
+import { enhanceVideos, bindImgLightbox, absolutizeMedia } from './utils/mediaEnhance'
 import { featureMap } from './api/features'
 import { appearanceLogo as siteLogo, loadAppearance, resetAppearance } from './utils/appearance'
 import { applyTheme } from './utils/theme'
@@ -139,6 +139,7 @@ const readerLightbox = ref('')
 watch(() => reader.content, async () => {
   await nextTick()
   if (!reader.open || !rfRef.value) return
+  absolutizeMedia(rfRef.value)
   enhanceVideos(rfRef.value)
   bindImgLightbox(rfRef.value, (src) => { if (src) readerLightbox.value = src })
 })

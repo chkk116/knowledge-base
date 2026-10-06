@@ -7,6 +7,7 @@ import { User, Lock, ChatDotRound, ChatLineRound, Promotion } from '@element-plu
 import { useAuthStore } from '../store/auth'
 import SlideCaptcha from '../components/SlideCaptcha.vue'
 import SiteFooter from '../components/SiteFooter.vue'
+import { resolveUrl } from '../utils/runtimeBase'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -119,7 +120,7 @@ onMounted(async () => {
   let supportUrl = 'https://www.example.com/support'
   let items = null
   try {
-    const { data } = await fetch('/api/public/login-config').then(r => r.json()).then(d => ({ data: d }))
+    const { data } = await fetch(resolveUrl('/api/public/login-config')).then(r => r.json()).then(d => ({ data: d }))
     if (data?.wxUrl) wxUrl = data.wxUrl
     if (data?.supportUrl) supportUrl = data.supportUrl
     if (data?.wxImage) wxImage.value = data.wxImage
@@ -399,7 +400,7 @@ function startParticles() {
       <div class="hero-qr">
         <div v-for="(it, i) in qrItems" :key="i" class="qr-item">
           <div class="qr-box">
-            <img v-if="it.image" :src="it.image" class="qr-img" alt="" />
+            <img v-if="it.image" :src="resolveUrl(it.image)" class="qr-img" alt="" />
             <div v-else-if="it.svg" class="qr-real" v-html="it.svg"></div>
             <div v-else class="qr-empty">未配置</div>
             <div class="qr-badge" :class="i % 2 ? 'sup' : 'wx'">{{ (it.label || '?').charAt(0) }}</div>

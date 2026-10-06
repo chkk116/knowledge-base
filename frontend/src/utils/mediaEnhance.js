@@ -1,5 +1,12 @@
+import { resolveUrl } from './runtimeBase'
+
 /**
  * 文档正文媒体增强：供 Web 端 PostDetail 与移动端 MobileDocView 共用。
+ *
+ * 【App 内置资源模式（P0 离线化）关键函数】absolutizeMedia：
+ *   内置模式下页面源是 https://localhost，正文里的 /uploads/xxx、/api/thumb?src=...
+ *   这类**站内相对地址会被 Capacitor 本地服务器当成自己的本地文件**（404），
+ *   必须补成线上绝对地址。网页端 resolveUrl 原样返回，调用无副作用。
  *
  * 1) <video>：
  *    - 强制 16:9 占位（加载元数据前就撑好高度，避免「点开瞬间页面跳大」）
@@ -58,6 +65,24 @@ export function enhanceVideos(container) {
   })
 }
 
+/** 把正文里以 '/' 开头的媒体地址补成当前环境可用的绝对地址（App 端必需） */
+export function absolutizeMedia(container) {
+  if (!container) return
+  const fix = (el, attr) => {
+    const v = el.getAttribute(attr)
+    if (!v || v.startsWith('//') || !v.startsWith('/')) return
+    const abs = resolveUrl(v)
+    if (abs !== v) el.setAttribute(attr, abs)
+  }
+  container.querySelectorAll('img').forEach((el) => {
+    fix(el, 'src')
+    if (el.dataset.full) el.dataset.full = resolveUrl(el.dataset.full)
+  })
+  container.querySelectorAll('video').forEach((el) => { fix(el, 'src'); fix(el, 'poster') })
+  container.querySelectorAll('source').forEach((el) => fix(el, 'src'))
+  container.querySelectorAll('audio').forEach((el) => fix(el, 'src'))
+}
+
 /** 点击正文图片放大：调用方传 onOpen(src)，由调用方自己渲染灯箱 */
 export function bindImgLightbox(container, onOpen) {
   if (!container || typeof onOpen !== 'function') return
@@ -68,7 +93,7 @@ export function bindImgLightbox(container, onOpen) {
     img.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
-      onOpen(img.dataset.full || img.getAttribute('src') || '')
+      onOpen(resolveUrl(img.dataset.full || img.getAttribute('src') || ''))
     })
   })
 }

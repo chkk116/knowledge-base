@@ -15,6 +15,7 @@
  */
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../store/auth'
+import { isNative } from '../utils/runtimeBase'
 
 const routes = [
   // ---- 登录：移动端 v3 构图（玻璃胶囊 + 渐变按钮），设计语言与 Web 版同源但布局不同 ----
@@ -52,9 +53,11 @@ const routes = [
 ]
 
 const router = createRouter({
-  // App 与网页统一挂在 /m/ 下：App 的 server.url 指向 /m/home，
-  // nginx 的 location /m/ 兜底到 mobile.html，两端行为一致（避免 App 落到桌面入口）。
-  history: createWebHistory('/m/'),
+  // base 必须分环境：
+  //   · 网页端 —— 挂在 /m/ 下（nginx 的 location /m/ 兜底到 mobile.html）
+  //   · App 内置资源模式 —— 页面由 Capacitor 本地服务器在 https://localhost/ 提供，
+  //     路径不带 /m 前缀；若仍写 '/m/' 会匹配不到任何路由 → 白屏（P0 离线化改造点）
+  history: createWebHistory(isNative() ? '/' : '/m/'),
   routes,
   scrollBehavior: () => ({ top: 0 })
 })

@@ -9,7 +9,8 @@ import { getDoc, getComments, addComment, deleteComment, myCommentLikes, toggleC
 import { approveDoc, rejectDoc } from '../api/admin'
 import { fromNow, fmtDateTime } from '../utils/time'
 import { getLevel } from '../utils/level'
-import { enhanceVideos } from '../utils/mediaEnhance'
+import { enhanceVideos, absolutizeMedia } from '../utils/mediaEnhance'
+import { resolveUrl } from '../utils/runtimeBase'
 import EmojiPanel from '../components/EmojiPanel.vue'
 import TocNode from '../components/TocNode.vue'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
@@ -288,12 +289,15 @@ const decorateContent = async () => {
         const W = Math.max(320, Math.min(1280, Math.ceil((contentRef.value?.clientWidth || 900) / 80) * 80))
         img.dataset.full = srcAttr // 灯箱仍用原图
         img.dataset.thumb = '1'
-        img.src = '/api/thumb?src=' + encodeURIComponent(rel) + '&w=' + W
+        // App 内置资源模式下相对路径会被当成本地文件 → 过 resolveUrl 补线上绝对地址
+        img.src = resolveUrl('/api/thumb?src=' + encodeURIComponent(rel) + '&w=' + W)
       }
     }
     if (!img.dataset.full) img.dataset.full = srcAttr
-    img.addEventListener('click', () => { lightboxSrc.value = img.dataset.full || srcAttr })
+    img.addEventListener('click', () => { lightboxSrc.value = resolveUrl(img.dataset.full || srcAttr) })
   })
+  // App 内置资源模式：正文里的 /uploads、/api 相对地址要补成线上绝对地址（否则本地服务器 404）
+  absolutizeMedia(el)
   // 视频增强：16:9 占位防跳变 + 倍速/全屏/画中画控制条（utils/mediaEnhance.js）
   enhanceVideos(el)
 }
