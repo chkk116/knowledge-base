@@ -15,6 +15,7 @@ import { PERM_GROUPS } from '../../utils/permCodes'
 const router = useRouter()
 
 const roles = ref([])
+const members = ref({})      // roleId -> 成员数（后端 /admin/roles/members）
 const loading = ref(false)
 const saving = ref(false)
 const editing = ref(null)            // 当前编辑的角色（null = 列表态）
@@ -26,6 +27,10 @@ async function load() {
   try {
     const { data } = await api.get('/admin/roles')
     roles.value = Array.isArray(data) ? data : (data.content || [])
+    const m = await api.get('/admin/roles/members').catch(() => ({ data: {} }))
+    const cnt = {}
+    Object.entries(m.data || {}).forEach(([rid, n]) => { cnt[String(rid)] = Number(n) || 0 })
+    members.value = cnt
   } catch (e) {
     window.__kbMsg?.error(e?.response?.data?.error || '加载失败')
   } finally {
@@ -111,7 +116,7 @@ async function save() {
             </span>
             <span class="m-row-desc">{{ r.description || r.code }}</span>
           </span>
-          <span class="pcount">{{ permCount(r) }} 项</span>
+          <span class="pcount">{{ members[String(r.id)] || 0 }} 人 · {{ permCount(r) }} 项</span>
           <el-icon class="m-row-extra"><Right /></el-icon>
         </button>
       </div>

@@ -188,11 +188,11 @@ const menus = computed(() => {
   if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW') || auth.hasPerm('AUDIT_VIEW') || auth.hasPerm('LOGIN_LOG_VIEW')) {
     // 黑名单：无对应后端接口，仅 ADMIN 角色可见
     if (auth.isAdmin) userMgmt.push({ index: '/admin/blacklist', title: '黑名单', icon: 'CircleClose' })
-    // 操作审计 / 登录日志：各自独立权限码（ADMIN_VIEW 作为旧码兼容仍可看）
-    if (auth.isAdmin || auth.hasPerm('AUDIT_VIEW') || auth.hasPerm('ADMIN_VIEW')) {
+    // 操作审计 / 登录日志：严格按各自独立权限码显示（不回退 ADMIN_VIEW，与后端判定一致）
+    if (auth.isAdmin || auth.hasPerm('AUDIT_VIEW')) {
       userMgmt.push({ index: '/admin/audit', title: '操作审计', icon: 'Clock' })
     }
-    if (auth.isAdmin || auth.hasPerm('LOGIN_LOG_VIEW') || auth.hasPerm('ADMIN_VIEW')) {
+    if (auth.isAdmin || auth.hasPerm('LOGIN_LOG_VIEW')) {
       userMgmt.push({ index: '/admin/login-logs', title: '登录日志', icon: 'Key' })
     }
   }

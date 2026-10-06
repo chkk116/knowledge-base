@@ -60,6 +60,10 @@ export const rejectAvatar = (id) => api.post('/admin/avatars/' + id + '/reject')
 
 // ---- 角色管理（仅管理员，需 USER_MANAGE）----
 export const listRoles = () => api.get('/admin/roles')
+
+// 各角色成员数 { roleId: 人数 }（走 kb_user_role 关联表统计；
+// 不能用用户列表自己数——列表接口返回的实体不含 roleIds）
+export const roleMembers = () => api.get('/admin/roles/members')
 export const createRole = (d) => api.post('/admin/roles', d)
 export const updateRole = (id, d) => api.put('/admin/roles/' + id, d)
 export const deleteRole = (id) => api.delete('/admin/roles/' + id)

@@ -54,6 +54,12 @@ public class OrgService {
 
     // ==================== 角色 ====================
 
+    /** 各角色成员数（[roleId, count] 行）：角色管理列表展示用。
+     *  必须走 kb_user_role 关联表——用户列表接口返回的实体不含 roleIds。 */
+    public List<Object[]> roleMemberCounts() {
+        return userRoleRepo.countGroupByRole();
+    }
+
     public List<Role> listRoles() {
         return roleRepo.findAllByOrderBySortOrderAsc();
     }

@@ -38,6 +38,19 @@ public class AdminRoleController {
         return orgService.listRoles();
     }
 
+    /** 各角色成员数：{ roleId: 人数 }。角色管理列表「成员」列用。
+     *  注意必须走 kb_user_role 关联表统计——用户列表接口返回的实体不含 roleIds，
+     *  前端拿列表数据自己数会恒为 0（2026-10-06 修的 bug）。 */
+    @GetMapping("/members")
+    public java.util.Map<String, Object> members(@RequestAttribute("kbUser") TokenClaims c) {
+        requirePerm(c, "USER_MANAGE");
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        for (Object[] row : orgService.roleMemberCounts()) {
+            out.put(String.valueOf(row[0]), row[1]);
+        }
+        return out;
+    }
+
     /** 新建角色 */
     @PostMapping
     public Role create(@RequestAttribute("kbUser") TokenClaims c,

@@ -32,6 +32,10 @@ public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
     @Query("SELECT ur.userId FROM UserRole ur WHERE ur.roleId = :roleId")
     List<Long> findUserIdsByRoleId(@Param("roleId") Long roleId);
 
+    /** 各角色的成员数（角色管理列表展示「成员 N 人」用）：[roleId, count] 两列结果 */
+    @Query("SELECT ur.roleId, COUNT(ur) FROM UserRole ur GROUP BY ur.roleId")
+    List<Object[]> countGroupByRole();
+
     /** 整体替换某用户的角色分配前，先清空旧关联 */
     @Modifying
     @Query("DELETE FROM UserRole ur WHERE ur.userId = :userId")

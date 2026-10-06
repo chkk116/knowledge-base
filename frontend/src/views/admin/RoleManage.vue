@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, UserFilled } from '@element-plus/icons-vue'
-import { listRoles, createRole, updateRole, deleteRole, listUsers } from '../../api/admin'
+import { listRoles, createRole, updateRole, deleteRole, roleMembers } from '../../api/admin'
 import PageBar from '../../components/PageBar.vue'
 
 const roles = ref([])
@@ -35,12 +35,12 @@ const load = async () => {
 }
 const loadMembers = async () => {
   try {
-    const { data } = await listUsers({ size: 200 })
-    const rows = data.content || []
+    const { data } = await roleMembers()
+    // 后端返回 { roleId: 人数 }；统一成字符串键，避免数字/字符串键不匹配显示 0
     const cnt = {}
-    rows.forEach(u => { (u.roleIds || []).forEach(rid => { cnt[rid] = (cnt[rid] || 0) + 1 }) })
+    Object.entries(data || {}).forEach(([rid, n]) => { cnt[String(rid)] = Number(n) || 0 })
     memberCount.value = cnt
-  } catch {}
+  } catch { memberCount.value = {} }
 }
 
 const openAdd = () => {
@@ -139,7 +139,7 @@ onMounted(async () => { await load(); await loadMembers() })
           </template>
         </el-table-column>
         <el-table-column label="成员" width="90" align="center">
-          <template #default="{ row }">{{ memberCount[row.id] || 0 }} 人</template>
+          <template #default="{ row }">{{ memberCount[String(row.id)] || 0 }} 人</template>
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
