@@ -107,8 +107,6 @@ const onSceneLeave = () => {
 // 二维码：前端用 qrcode 包生成 SVG；内容地址由管理后台「登录页二维码」配置（未配置用内置默认）
 // 若后台直接上传了二维码图片（wxImage/supportImage），优先显示图片（适合微信群截图类现成码）
 // errorCorrectionLevel 'H'：中心有徽章遮挡，需要 30% 纠错才能稳定扫出
-const wxQrSvg = ref('')
-const supportQrSvg = ref('')
 const wxImage = ref('')
 const supportImage = ref('')
 // 个性化二维码列表（2026-10-06）：后台「登录页二维码」可配任意数量，
@@ -128,10 +126,7 @@ onMounted(async () => {
     if (data?.items) { try { items = JSON.parse(data.items) } catch (e) { items = null } }
   } catch (e) { /* 拉不到配置就用默认地址，不阻塞登录 */ }
   const opt = { type: 'svg', margin: 1, width: 96, errorCorrectionLevel: 'H', color: { dark: '#1e2a3f', light: '#ffffff' } }
-  try {
-    wxQrSvg.value = await QRCode.toString(wxUrl, opt)
-    supportQrSvg.value = await QRCode.toString(supportUrl, opt)
-  } catch (e) { console.warn('qrcode gen failed', e) }
+
 
   // 组装渲染列表：items 优先；无 items 时从旧字段迁移，保证向后兼容
   const list = Array.isArray(items) && items.length

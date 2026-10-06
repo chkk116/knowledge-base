@@ -136,7 +136,9 @@ watch(() => route.fullPath, () => { drawerOpen.value = false })
 // 小窗阅读：图片点开放大 + 视频增强（16:9 占位/倍速/全屏/画中画），样式在全局 responsive.css
 const rfRef = ref(null)
 const readerLightbox = ref('')
-watch(() => reader.content, async () => {
+      // 组合监听 open + content：closeReader 只置 open=false 不清 content，
+      // 只监听 content 的话「关掉再打开同一篇」不会重新绑定灯箱/视频增强
+      watch([() => reader.open, () => reader.content], async () => {
   await nextTick()
   if (!reader.open || !rfRef.value) return
   absolutizeMedia(rfRef.value)

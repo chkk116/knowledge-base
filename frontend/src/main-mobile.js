@@ -36,7 +36,7 @@ import 'element-plus/es/components/avatar/style/css'
 import 'element-plus/es/components/config-provider/style/css'
 import 'element-plus/es/components/form/style/css'
 import {
-  Plus, HomeFilled, Document, ChatDotRound, ChatLineRound, User, Camera, Picture, Close,
+  Plus, HomeFilled, Document, ChatDotRound, ChatLineRound, User, Camera, Picture, Close, CircleCloseFilled,
   Check, ArrowLeft, MoreFilled, Delete, EditPen, Search, Refresh, Bell,
   Loading, CircleCheckFilled, WarningFilled, InfoFilled, Star, Clock,
   Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
@@ -75,7 +75,7 @@ for (const [key, component] of Object.entries(EP_COMPONENTS)) {
 app.directive('loading', ElLoadingDirective)
 
 const icons = {
-  Plus, HomeFilled, Document, ChatDotRound, ChatLineRound, User, Camera, Picture, Close,
+  Plus, HomeFilled, Document, ChatDotRound, ChatLineRound, CircleCloseFilled, User, Camera, Picture, Close,
   Check, ArrowLeft, MoreFilled, Delete, EditPen, Search, Refresh, Bell,
   Loading, CircleCheckFilled, WarningFilled, InfoFilled, Star, Clock,
   Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,

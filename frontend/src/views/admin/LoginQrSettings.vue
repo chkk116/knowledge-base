@@ -14,6 +14,7 @@ import QRCode from 'qrcode'
 import api from '../../api/request'
 import { uploadFile } from '../../api/file'
 import { errMsg } from '../../utils/errMsg'
+import { resolveUrl } from '../../utils/runtimeBase'
 
 const KEY = 'login_qrcodes'
 const items = ref([])          // [{ label, content, image, preview }]
@@ -194,7 +195,7 @@ async function save() {
         <div class="qr-row">
           <div v-for="(it, i) in items" :key="i" class="qr-item">
             <div class="qr-box">
-              <img v-if="it.image" :src="it.image" class="qr-real qr-img" alt="" />
+              <img v-if="it.image" :src="resolveUrl(it.image)" class="qr-real qr-img" alt="" />
               <div v-else-if="it.preview" class="qr-real" v-html="it.preview"></div>
               <div v-else class="qr-empty">未配置</div>
               <div class="qr-badge">{{ (it.label || '?').charAt(0) }}</div>

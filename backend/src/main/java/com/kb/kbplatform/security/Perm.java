@@ -44,8 +44,9 @@ public final class Perm {
 
     /**
      * 操作审计 / 登录日志的独立只读权限码（2026-10-06）。
-     * 从 ADMIN_VIEW 里拆出来，便于在「角色管理 → 系统与运营」里按需单独授予；
-     * 旧角色只勾了 ADMIN_VIEW 也仍然可看（映射处用 `新码|ADMIN_VIEW` 兼容）。
+     * 从 ADMIN_VIEW 里拆出来，便于在「角色管理 → 系统与运营」里按需单独授予。
+     * 注意：2026-10-05 的严格化已去掉 ADMIN_VIEW 兜底——旧角色只勾 ADMIN_VIEW 将无法访问
+     * 审计/登录日志，需显式授予本码（AuthFilter 映射为单码，不走「新码|ADMIN_VIEW」兼容）。
      */
     public static final String AUDIT_VIEW = "AUDIT_VIEW";
     public static final String LOGIN_LOG_VIEW = "LOGIN_LOG_VIEW";
