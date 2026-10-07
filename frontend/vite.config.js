@@ -121,7 +121,7 @@ export default defineConfig({
   },
   build: {
     target: 'es2020',
-    outDir: 'dist-v102',
+    outDir: 'dist',
     // 分包：把体积大且变动少的第三方库拆成独立长缓存 chunk，主包因此显著变小
     chunkSizeWarningLimit: 1500,
     rollupOptions: {

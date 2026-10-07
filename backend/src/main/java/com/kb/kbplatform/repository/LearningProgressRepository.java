@@ -15,6 +15,7 @@ public interface LearningProgressRepository extends JpaRepository<LearningProgre
     List<LearningProgress> findByUserIdAndCourseId(Long userId, Long courseId);
     Optional<LearningProgress> findByUserIdAndChapterId(Long userId, Long chapterId);
     List<LearningProgress> findByUserId(Long userId);
+    void deleteByUserId(Long userId);   // 自助注销：清空本人学习进度
 
     /** 删除章节时清掉对应学习进度，避免孤儿数据（调用方必须 @Transactional） */
     void deleteByChapterId(Long chapterId);

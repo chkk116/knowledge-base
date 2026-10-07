@@ -13,4 +13,5 @@ import java.util.Optional;
 public interface NoteRepository extends JpaRepository<CourseNote, Long> {
 
     Optional<CourseNote> findByUserIdAndChapterId(Long userId, Long chapterId);
+    void deleteByUserId(Long userId);   // 自助注销：清空本人课程笔记
 }

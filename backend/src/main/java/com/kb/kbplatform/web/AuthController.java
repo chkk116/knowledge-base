@@ -35,17 +35,20 @@ public class AuthController {
     private final RateLimitService rateLimit;
     private final com.kb.kbplatform.service.LoginLogService loginLogService;
     private final NotificationService notificationService;
+    private final com.kb.kbplatform.service.AccountDeletionService deletionService;
 
     public AuthController(AuthService authService, UserRepository userRepo,
                           CaptchaService captchaService, RateLimitService rateLimit,
                           com.kb.kbplatform.service.LoginLogService loginLogService,
-                          NotificationService notificationService) {
+                          NotificationService notificationService,
+                          com.kb.kbplatform.service.AccountDeletionService deletionService) {
         this.authService = authService;
         this.userRepo = userRepo;
         this.captchaService = captchaService;
         this.rateLimit = rateLimit;
         this.loginLogService = loginLogService;
         this.notificationService = notificationService;
+        this.deletionService = deletionService;
     }
 
     public static class LoginRequest {
@@ -289,18 +292,15 @@ public class AuthController {
 
     /**
      * 自助注销当前账号（满足 Google Play「应用内账户删除」要求）。
-     * 仅能删除本人；若当前账号是唯一管理员则禁止，避免系统无人管理。
-     * 级联删除复用与管理端一致的 deleteUser。
+     * 密码二次确认 + 软删除账号（PII 清除、公共内容匿名显示）+ 个人数据硬删，
+     * 详见 AccountDeletionService（2026-10-07 外部审查：原实现仅删 user 行，关联数据残留）。
      */
-    @Transactional(rollbackFor = Exception.class)
     @DeleteMapping("/me")
-    public Map<String, Object> deleteMe(@RequestAttribute("kbUser") TokenClaims claims) {
+    public Map<String, Object> deleteMe(@RequestAttribute("kbUser") TokenClaims claims,
+                                        @RequestBody(required = false) Map<String, String> body) {
         User u = userRepo.findByUsername(claims.username()).orElse(null);
         if (u == null) return Map.of("ok", true);
-        if ("ADMIN".equals(u.getRole()) && userRepo.countByRole("ADMIN") <= 1) {
-            throw new BizException("当前是唯一的管理员账号，无法注销；请先创建其他管理员后再操作");
-        }
-        userRepo.deleteById(u.getId());
+        deletionService.deleteAccount(u, body == null ? null : body.get("password"));
         return Map.of("ok", true);
     }
 }

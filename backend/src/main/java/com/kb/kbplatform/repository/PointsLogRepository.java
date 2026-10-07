@@ -16,6 +16,7 @@ import java.util.List;
 public interface PointsLogRepository extends JpaRepository<PointsLog, Long> {
     List<PointsLog> findByUserIdOrderByCreatedAtDesc(Long userId);
     List<PointsLog> findByUsernameOrderByCreatedAtDesc(String username);
+    void deleteByUserId(Long userId);   // 自助注销：清空本人积分流水
 
     // 积分明细页：按用户 + 时间倒序分页
     Page<PointsLog> findByUsernameOrderByCreatedAtDesc(String username, Pageable pageable);

@@ -43,10 +43,10 @@ async function loadTesseract() {
   if (modPromise) return modPromise
   modPromise = (async () => {
     if (window.Tesseract) return window.Tesseract
-    const umd = [
-      'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
-      'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js'
-    ]
+    // 本地资源（frontend/public/tesseract/，随构建打包）：消除 CDN 依赖——
+    // ① 持令牌页面上加载无 SRI 的第三方脚本是供应链风险；②「离线 OCR」此前实际必须联网；
+    // ③ APK 白多 9MB 资源却没用上（外部复审 2026-10-07）
+    const umd = [`${import.meta.env.BASE_URL}tesseract/tesseract.min.js`]
     let lastErr = null
     for (const url of umd) {
       try {
@@ -93,7 +93,13 @@ async function ensureWorker(langs, onProgress) {
     worker = null
   }
   // 语言包按需下载；logger 把「loading language traineddata」进度转出来
+  // worker / core / 语言包全部指向本地内置资源；traineddata 未压缩，gzip:false 告知 worker 不追加 .gz
+  const localBase = `${import.meta.env.BASE_URL}tesseract/`
   worker = await T.createWorker(langs, 1, {
+    workerPath: localBase + 'worker.min.js',
+    corePath: localBase + 'tesseract-core-simd-lstm.js',
+    langPath: localBase,
+    gzip: false,
     logger: (m) => {
       if (!onProgress) return
       if (m.status === 'loading tesseract core') onProgress(0.08, '正在加载识别引擎…')

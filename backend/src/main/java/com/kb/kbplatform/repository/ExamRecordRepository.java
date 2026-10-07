@@ -15,6 +15,7 @@ import java.util.List;
 
 public interface ExamRecordRepository extends JpaRepository<ExamRecord, Long> {
     List<ExamRecord> findByUserIdOrderByStartedAtDesc(Long userId);
+    void deleteByUserId(Long userId);   // 自助注销：清空本人考试记录
     /** 该用户此前是否已通过过这门试卷（用于结业证书通知去重，避免重考反复推送） */
     boolean existsByUserIdAndPaperIdAndPassedTrue(Long userId, Long paperId);
 
