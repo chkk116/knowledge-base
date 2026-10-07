@@ -8,7 +8,7 @@
 //   TOOL: {"tool":"工具名","args":{...}}
 // 信息足够时直接输出最终答案。前端解析 TOOL 行→执行→把结果追加进轨迹→进入下一轮。
 
-import { search, docDetail } from '../api/kb'
+import { search, getDoc } from '../api/kb'
 
 const MAX_STEPS = 4
 const DOC_SNIPPET = 3000
@@ -63,7 +63,7 @@ export async function runLocalAgent({ question, ask, onStep, signal }) {
         result = rows.length ? `命中 ${rows.length} 篇：\n` + rows.join('\n') : '没有命中文档'
       } else if (tool === 'read_doc') {
         say('📄 读取文档 #' + args.id)
-        const { data } = await docDetail(args.id)
+        const { data } = await getDoc(args.id)
         result = `《${data.title || '无标题'}》正文（节选）：\n` + String(data.content || '').slice(0, DOC_SNIPPET)
       } else if (tool === 'now') {
         result = '当前时间：' + new Date().toLocaleString('zh-CN')

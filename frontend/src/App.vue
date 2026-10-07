@@ -175,6 +175,7 @@ const menus = computed(() => {
       { index: '/favorites', title: '我的收藏', icon: 'Star' },
       { index: '/history', title: '浏览历史', icon: 'Clock' },
       { index: '/badges', title: '我的勋章', icon: 'Medal' },
+      { index: '/files', title: '我的文件', icon: 'Upload' },
     )
     if (featureOpen('ranking')) base.push({ index: '/ranking', title: '积分排行榜', icon: 'Medal' })
     if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: 'AI 问答', icon: 'ChatDotRound' })

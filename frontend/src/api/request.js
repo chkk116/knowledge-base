@@ -11,6 +11,9 @@ import { apiBase } from '../utils/runtimeBase'
 //   切换逻辑收敛在 utils/runtimeBase.js，本文件不再硬编码。
 const api = axios.create({ baseURL: apiBase(), timeout: 15000 })
 
+// 5xx 全局提示的节流时间戳（模块级、跨请求共享）：故障期只提示一次，不刷屏
+let lastServerErrAt = 0
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('kb_token')
   if (token) config.headers.Authorization = 'Bearer ' + token
@@ -37,18 +40,24 @@ api.interceptors.response.use(
       if (!err.__silent && !err.config?.silent) ElMessage.warning(rdata.error || '演示账户不能执行该操作')
       return Promise.reject(err)
     }
-    // 服务器异常（5xx）或网络故障（无 status）：全局兜底提示，
-    // 避免部分接口失败时静默无反馈。4xx 通常由各调用处自行处理，这里不重复弹。
+    // 网络故障（无 status）：连不上 / 超时 / DNS 失败 / 被 CORS 拦截 / 服务器重启中。
+    // 这是弱网与离线时的常态，页面会走本地缓存或空态展示。
+    // ⚠️ 不能只看 navigator.onLine —— 手机连着 WiFi 但无外网时 onLine 仍是 true，
+    //    旧逻辑会走 5xx 分支、每个失败请求弹一次「服务器异常」→ 刷屏 + 误以为「App 打不开」。
+    //    因此对「无响应」一律静默，仅打标记供页面识别（顶部离线条已有提示）。
     const status = err.response && err.response.status
-    const offline = typeof navigator !== 'undefined' && navigator.onLine === false
-    if (!status && offline) {
-      // 离线：不弹「服务器异常」——顶部已有离线提示条，页面会走本地缓存；
-      // 否则每个请求都弹一次，离线时直接刷屏（2026-10-06 用户反馈）
-      err.offline = true
+    if (!status) {
+      err.network = true
       return Promise.reject(err)
     }
-    if (!status || status >= 500) {
-      if (!err.__silent && !err.config?.silent) ElMessage.error('服务器异常，请稍后重试')
+    // 5xx：服务端错误（重启 / 故障）。节流提示：60 秒内只弹一次，避免故障期刷屏。
+    if (status >= 500) {
+      err.server = true
+      const now = Date.now()
+      if (!err.__silent && !err.config?.silent && now - lastServerErrAt > 60000) {
+        lastServerErrAt = now
+        ElMessage.error('服务暂时不可用，请稍后重试')
+      }
     }
     return Promise.reject(err)
   }

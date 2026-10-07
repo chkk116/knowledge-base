@@ -120,6 +120,12 @@ public class AiConversationService {
     // 若包在事务里会一直占用 DB 连接直到模型返回（数秒~数十秒）。
     // 下面各 msgRepo/convRepo.save 走 Spring Data JPA 自带的独立短事务，已各自原子。
     public Map<String, Object> ask(Long userId, Long conversationId, String question, String mode, Long modelId) {
+        return ask(userId, conversationId, question, mode, modelId, null);
+    }
+
+    /** 多模态版本：images 为图片 dataURL 列表（可空；模型原生多模态直接看图，无需 OCR） */
+    public Map<String, Object> ask(Long userId, Long conversationId, String question, String mode, Long modelId,
+                                   List<String> images) {
         AiConversation c;
         if (conversationId == null) {
             c = create(userId, autoTitle(question));
@@ -166,7 +172,8 @@ public class AiConversationService {
                 c.getInstructions() == null ? "" : c.getInstructions(),
                 persona == null ? "" : persona,
                 mode == null ? "kb" : mode,
-                modelId);
+                modelId,
+                images);
         String answer = rag.get("answer") == null ? "" : rag.get("answer").toString();
         Object sources = rag.get("sources");
         // 调用可视化字段透传：模型名 / 耗时 / token 用量 / 思考过程，前端在回答旁展示

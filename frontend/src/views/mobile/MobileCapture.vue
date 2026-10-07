@@ -611,7 +611,7 @@ onMounted(prewarm)
   cursor: pointer; transition: transform .14s;
 }
 .pick-btn:active { transform: scale(.98); }
-.pick-btn.primary { background: linear-gradient(140deg, #6366f1, #4f46e5); color: #fff; box-shadow: 0 8px 22px rgba(79, 70, 229, .3); }
+.pick-btn.primary { background: var(--m-primary); color: #fff; box-shadow: 0 8px 22px rgba(22, 119, 255, .28); }
 .pb-ico {
   width: 62px; height: 62px; border-radius: 20px;
   display: inline-flex; align-items: center; justify-content: center;

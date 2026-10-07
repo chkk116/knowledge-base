@@ -87,7 +87,8 @@ const TOOL_GROUP = {
   title: '工具',
   items: [
     { label: '搜索', icon: 'Search', color: '', to: '/search' },
-    { label: 'AI 问答', icon: 'ChatDotRound', color: 'green', to: '/embed/ai' },
+    { label: '我的文件', icon: 'FolderOpened', color: 'blue', to: '/files' },
+    { label: 'AI 问答', icon: 'ChatDotRound', color: 'green', to: '/ai' },
     { label: '积分排行', icon: 'Trophy', color: 'orange', to: '/embed/ranking' }
   ]
 }
@@ -249,11 +250,11 @@ const groups = computed(() => {
 .prof {
   display: flex; align-items: center; gap: 14px;
   padding: calc(env(safe-area-inset-top) + 20px) 18px 22px;
-  background: linear-gradient(150deg, #6366f1 0%, #4f46e5 100%);
+  background: var(--m-primary);
   border-radius: 0 0 24px 24px;
   color: #fff; cursor: pointer;
 }
-html.dark .prof { background: linear-gradient(150deg, #312e81, #3730a3); }
+html.dark .prof { background: var(--m-primary-deep); }
 .prof-avatar {
   flex: none; width: 58px; height: 58px; border-radius: 50%;
   background: rgba(255, 255, 255, .22); color: #fff;

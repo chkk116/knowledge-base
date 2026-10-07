@@ -153,16 +153,18 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
   overflow: hidden;
 }
 
-/* 页面容器：唯一滚动区。padding-bottom 给 TabBar 让位（含 iOS 底部横条安全区） */
+/* 页面容器：唯一滚动区。
+   ⚠️ 这里**不能再给 TabBar 预留 padding-bottom**：TabBar 是 .m-app 的 flex 兄弟节点、
+   在文档流里占高度（不是 fixed 覆盖层），.m-view 的下边缘本来就紧贴 TabBar 上边缘。
+   之前那 58px 预留会把整页内容顶高 —— 聊天页这类「满高 flex」页面的底部输入条
+   因此悬在半空、视觉上偏上（2026-10-07 修）。 */
 .m-view {
   flex: 1 1 auto; min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
-  padding-bottom: calc(58px + env(safe-area-inset-bottom));
 }
-.m-app.no-tab .m-view { padding-bottom: 0; }
 
 /* ---------- 离线 / 待同步提示条 ---------- */
 .net-bar {
@@ -184,12 +186,12 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
 .net-act {
   margin-left: auto; flex: none;
   border: none; background: transparent;
-  color: #4f46e5; font-size: 12.5px; font-weight: 600;
+  color: var(--m-primary); font-size: 12.5px; font-weight: 600;
   padding: 4px 6px; cursor: pointer;
 }
 html.dark .net-bar { background: #3b2411; color: #fdba74; border-color: #7c2d12; }
 html.dark .net-bar.offline { background: #3f1d1d; color: #fca5a5; border-color: #7f1d1d; }
-html.dark .net-act { color: #a5b4fc; }
+html.dark .net-act { color: #4c8dff; }   /* 深棕底上 #1677ff 对比度仅 ~3.5:1，用亮蓝变体达 AA */
 
 /* ---------- 底部 TabBar ---------- */
 .tabbar {
@@ -234,14 +236,14 @@ html.dark .net-act { color: #a5b4fc; }
 .fab {
   width: 46px; height: 46px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: var(--m-primary);
   color: #fff;
   display: inline-flex; align-items: center; justify-content: center;
-  box-shadow: 0 6px 18px rgba(79, 70, 229, .42);
+  box-shadow: 0 6px 18px rgba(22, 119, 255, .38);
   transform: translateY(-14px);
   transition: transform .16s cubic-bezier(.34, 1.56, .64, 1), box-shadow .16s;
 }
-.tab.center:active .fab { transform: translateY(-14px) scale(.92); box-shadow: 0 3px 12px rgba(79, 70, 229, .5); }
+.tab.center:active .fab { transform: translateY(-14px) scale(.92); box-shadow: 0 3px 12px rgba(22, 119, 255, .45); }
 
 /* ---------- 过渡动画 ---------- */
 .fade-page-enter-active, .fade-page-leave-active { transition: opacity .16s ease, transform .16s ease; }

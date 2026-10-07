@@ -26,6 +26,8 @@ const routes = [
   { path: '/subscriptions', component: () => import('../views/Subscriptions.vue'), meta: { title: '我的订阅', maintenance: 'docs' } },
   { path: '/history', component: () => import('../views/History.vue'), meta: { title: '浏览历史', maintenance: 'profile' } },
   { path: '/profile', component: () => import('../views/Profile.vue'), meta: { title: '个人资料', maintenance: 'profile' } },
+  // 我的文件：文件中心（与移动端 MobileFiles 共用一套接口）
+  { path: '/files', component: () => import('../views/FileCenter.vue'), meta: { title: '我的文件', maintenance: 'profile' } },
   { path: '/ranking', component: () => import('../views/Ranking.vue'), meta: { title: '积分排行榜' } },
   // 徽章 / 勋章墙：基于用户实时统计派生（积分 / 文章 / 获赞 / 粉丝等），无需落库
   { path: '/badges', component: () => import('../views/Badges.vue'), meta: { title: '我的勋章', maintenance: 'profile' } },
@@ -128,8 +130,13 @@ function ensureAuth() {
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (to.meta.public) return true
-  // 先确保本地令牌已还原成 user（首次直接访问后台页时守卫早于 App.onMounted 执行）
-  await ensureAuth()
+  // 先确保本地令牌已还原成 user（首次直接访问后台页时守卫早于 App.onMounted 执行）。
+  // 加超时兜底：连不上服务器时 axios 要等满 15s 超时，期间路由挂起 → 白屏「打不开」。
+  // 到点即用本地状态放行，真正的 401 仍由 axios 拦截器统一登出。
+  await Promise.race([
+    ensureAuth(),
+    new Promise((resolve) => setTimeout(resolve, 6000))
+  ])
   if (!auth.loggedIn) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }

@@ -69,7 +69,7 @@ public class RagService {
     /** 兼容旧调用：不指定模型时用管理员配置的默认模型 */
     public Map<String, Object> ask(String question, List<Map<String, String>> history,
                                    String instructions, String persona, String mode) {
-        return ask(question, history, instructions, persona, mode, null);
+        return ask(question, history, instructions, persona, mode, null, null);
     }
 
     /**
@@ -77,6 +77,16 @@ public class RagService {
      */
     public Map<String, Object> ask(String question, List<Map<String, String>> history,
                                    String instructions, String persona, String mode, Long modelId) {
+        return ask(question, history, instructions, persona, mode, modelId, null);
+    }
+
+    /**
+     * 多模态版本：imageUrls 为图片 dataURL 列表（data:image/png;base64,...）；为空则等同纯文本。
+     * @param modelId 本次对话要用的模型配置 id；null = 用默认模型
+     */
+    public Map<String, Object> ask(String question, List<Map<String, String>> history,
+                                   String instructions, String persona, String mode, Long modelId,
+                                   List<String> imageUrls) {
         if (!enabled || question == null || question.isBlank()) {
             if (!enabled) {
                 log.warn("AI 问答未启用：kb.ai.enabled=false（若已在「AI 模型管理」配好模型，请改回 true）");
@@ -145,8 +155,8 @@ public class RagService {
         }
 
         // 3. 组装 messages：system + 历史 + 当前 user
-        List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", system.toString()));
+        List<Map<String, Object>> messages = new ArrayList<>();
+        messages.add(Map.<String, Object>of("role", "system", "content", system.toString()));
         if (history != null) {
             for (Map<String, String> h : history) {
                 String role = h.get("role");
@@ -155,9 +165,11 @@ public class RagService {
                 if (!"user".equals(role) && !"ai".equals(role) && !"assistant".equals(role)) continue;
                 // 统一使用 assistant 作为 AI 角色名（智谱兼容）
                 String modelRole = "ai".equals(role) ? "assistant" : role;
-                messages.add(Map.of("role", modelRole, "content", content));
+                messages.add(Map.<String, Object>of("role", modelRole, "content", content));
             }
         }
+        // 当前提问文本（kb 模式带检索资料）
+        String userText;
         if (hasContext) {
             // 上下文增强：优先喂「全文中最相关的段落」（fullText），无则回退 160 字摘要
             StringBuilder ctx = new StringBuilder();
@@ -167,10 +179,22 @@ public class RagService {
                 if (ctx.length() > 0) ctx.append("\n\n");
                 ctx.append("【").append(s.getOrDefault("title", "")).append("】\n").append(body);
             }
-            messages.add(Map.of("role", "user", "content",
-                    "【资料】\n" + ctx + "\n\n【问题】" + question.trim()));
+            userText = "【资料】\n" + ctx + "\n\n【问题】" + question.trim();
         } else {
-            messages.add(Map.of("role", "user", "content", question.trim()));
+            userText = question.trim();
+        }
+        // 有图片时用多模态 content（text + image_url 数组）——模型原生多模态直接看图，无需 OCR
+        List<String> imgs = imageUrls == null ? List.of()
+                : imageUrls.stream().filter(u -> u != null && !u.isBlank()).toList();
+        if (imgs.isEmpty()) {
+            messages.add(Map.<String, Object>of("role", "user", "content", userText));
+        } else {
+            List<Map<String, Object>> parts = new ArrayList<>();
+            parts.add(Map.of("type", "text", "text", userText));
+            for (String u : imgs) {
+                parts.add(Map.of("type", "image_url", "image_url", Map.of("url", u)));
+            }
+            messages.add(Map.<String, Object>of("role", "user", "content", parts));
         }
 
         AiModelClient.AiChatResult call = callModel(modelId, messages);
@@ -214,7 +238,7 @@ public class RagService {
     }
 
     /** 交给统一模型层：该层负责按配置选模型，并在限流/报错时自动降级到下一个可用模型 */
-    private AiModelClient.AiChatResult callModel(Long modelId, List<Map<String, String>> messages) {
+    private AiModelClient.AiChatResult callModel(Long modelId, List<Map<String, Object>> messages) {
         return aiModelClient.chat(modelId, messages);
     }
 

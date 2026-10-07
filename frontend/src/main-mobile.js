@@ -108,7 +108,12 @@ window.addEventListener('error', (e) => {
   reportError((e.error && e.error.stack) || e.message)
 })
 window.addEventListener('unhandledrejection', (e) => {
-  reportError('Promise: ' + ((e.reason && e.reason.stack) || e.reason))
+  const r = e.reason
+  // 网络类失败（axios 无响应 / 被 CORS 拦截 / 超时）不当「页面问题」处理：
+  // 弱网、离线、服务器重启时很常见，弹「页面出现问题」会误导用户以为 App 坏了。
+  // 真正的 401 已由 axios 拦截器统一登出，其余由各页面自行兜底（走缓存/空态）。
+  if (r && (r.isAxiosError || r.network || r.response || r.code === 'ERR_NETWORK' || r.code === 'ECONNABORTED' || r.code === 'ETIMEDOUT')) return
+  reportError('Promise: ' + ((r && r.stack) || r))
 })
 
 app.use(createPinia()).use(mobileRouter).use({ install: () => {} }).mount('#app')

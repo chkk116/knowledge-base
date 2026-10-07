@@ -174,9 +174,9 @@ function openDraft(id) { router.push(`/draft/${id}`) }
 }
 .store-bar i {
   display: block; height: 100%; border-radius: 3px;
-  background: linear-gradient(90deg, #6366f1, #4f46e5);
+  background: var(--m-primary);
   transition: width .3s;
 }
-.store-bar i.warn { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+.store-bar i.warn { background: var(--m-warn); }
 .store-txt { font-size: 12px; color: var(--m-text-dim); margin-top: 6px; }
 </style>

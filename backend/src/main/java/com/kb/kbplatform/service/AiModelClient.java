@@ -89,12 +89,12 @@ public class AiModelClient {
      * 对话：按请求优先使用指定模型，失败自动降级。
      * @param modelId 本次要用的模型配置 id；null = 用默认
      */
-    public AiChatResult chat(Long modelId, List<Map<String, String>> messages) {
+    public AiChatResult chat(Long modelId, List<Map<String, Object>> messages) {
         return chatChain(candidates(modelId), messages, "chat");
     }
 
     /** 沿给定候选链依次尝试（对话降级链与「测试连接」的单模型验证共用）；source 用于用量流水标记 */
-    private AiChatResult chatChain(List<AiModel> chain, List<Map<String, String>> messages, String source) {
+    private AiChatResult chatChain(List<AiModel> chain, List<Map<String, Object>> messages, String source) {
         if (chain.isEmpty()) {
             return AiChatResult.fail("尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。");
         }
@@ -191,7 +191,7 @@ public class AiModelClient {
     public AiChatResult test(Long modelId) {
         AiModel m = repo.findById(modelId).orElse(null);
         if (m == null || !m.isEnabled()) return AiChatResult.fail("该模型配置不存在或已停用");
-        List<Map<String, String>> msgs = List.of(Map.of("role", "user", "content", "只回复两个字：正常"));
+        List<Map<String, Object>> msgs = List.of(Map.<String, Object>of("role", "user", "content", "只回复两个字：正常"));
         return chatChain(List.of(m), msgs, "test");
     }
 

@@ -61,3 +61,7 @@ mobile/android/keystore/
 
 # 前端构建产物打包（dist-vNNN.tar.gz，仅本地留存）
 dist-v*.tar.gz
+
+# APK/AAB 构建产物（体积大且含签名，仅本地/CI 留存）
+outputs/apk/*.apk
+outputs/apk/*.aab

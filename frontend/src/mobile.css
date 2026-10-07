@@ -40,38 +40,45 @@
 .kb-mobile-body .m-btn:disabled { opacity: .45; }
 
 /* ---------- 设计变量 ---------- */
+/* 配色思路（对标主流企业级 App：Ant Design / 支付宝 / 飞书 / 钉钉）：
+     - 品牌色取**扁平蓝**，不渐变、不用紫；主色只用在「主行动点 + 选中态」
+     - 大面积交给中性灰阶：浅灰底 + 白卡 + 发丝边框，主色只做点缀
+     - 语义色（成功/警告/危险）各自独立，不与品牌色混用渐变
+   想换品牌调性，只改 --m-primary / --m-primary-soft / --m-primary-deep 三个即可。 */
 :root {
-  --m-primary: #4f46e5;
-  --m-primary-soft: #eef2ff;
-  --m-bg: #f4f5f9;
+  --m-primary: #1677ff;
+  --m-primary-soft: #e8f3ff;
+  --m-primary-deep: #0958d9;   /* 按下态 / 需要更重一档的品牌色 */
+  --m-bg: #f5f6f7;
   --m-card: #ffffff;
-  --m-card-2: #fafbfe;
-  --m-text: #101828;
-  --m-text-sub: #475467;
-  --m-text-dim: #98a2b3;
-  --m-border: #eceef3;
-  --m-danger: #ef4444;
-  --m-success: #10b981;
-  --m-warn: #f59e0b;
-  --m-radius: 16px;
-  --m-radius-lg: 20px;
-  --m-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 14px rgba(16, 24, 40, .05);
+  --m-card-2: #f7f8fa;
+  --m-text: #1d2129;
+  --m-text-sub: #4e5969;
+  --m-text-dim: #86909c;
+  --m-border: #e5e6eb;
+  --m-danger: #f53f3f;
+  --m-success: #00b42a;
+  --m-warn: #ff7d00;
+  --m-radius: 12px;
+  --m-radius-lg: 16px;
+  --m-shadow: 0 1px 2px rgba(0, 0, 0, .03), 0 2px 8px rgba(0, 0, 0, .04);
   --m-tabbar-bg: rgba(255, 255, 255, .94);
-  --m-mask: rgba(16, 24, 40, .45);
+  --m-mask: rgba(0, 0, 0, .45);
 }
 
 html.dark {
-  --m-primary: #818cf8;
-  --m-primary-soft: #23234a;
-  --m-bg: #0f0f1e;
-  --m-card: #1a1a2e;
-  --m-card-2: #20203a;
-  --m-text: #ececf4;
-  --m-text-sub: #b7b8cd;
-  --m-text-dim: #7b7c93;
-  --m-border: #26264a;
-  --m-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .28);
-  --m-tabbar-bg: rgba(26, 26, 46, .94);
+  --m-primary: #4c8dff;
+  --m-primary-soft: #16233a;
+  --m-primary-deep: #2b5aa8;   /* 深色底上的深一档蓝（用于大面积色块，避免刺眼） */
+  --m-bg: #17181c;
+  --m-card: #1f2024;
+  --m-card-2: #26272c;
+  --m-text: #e5e6eb;
+  --m-text-sub: #a9aeb8;
+  --m-text-dim: #7b7f8a;
+  --m-border: #2c2d33;
+  --m-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 2px 8px rgba(0, 0, 0, .24);
+  --m-tabbar-bg: rgba(31, 32, 36, .94);
   --m-mask: rgba(0, 0, 0, .6);
 }
 

@@ -18,6 +18,7 @@ import {
 } from '../../api/ai'
 import { search } from '../../api/kb'
 import { recognizeLocal } from '../../utils/localOcr'
+import { compressImage } from '../../utils/imageCompress'
 import { runLocalAgent } from '../../utils/localAgent'
 import MarkdownIt from 'markdown-it'
 
@@ -179,6 +180,27 @@ function removeAttachment(id) {
   attachments.value = attachments.value.filter((a) => a.id !== id)
 }
 
+/** 图片附件切换处理方式：看图（多模态）⇄ 识文字（本地 OCR，离线可用） */
+function toggleAttMode(id) {
+  const a = attachments.value.find((x) => x.id === id)
+  if (a && a.kind === 'image') a.mode = a.mode === 'vision' ? 'ocr' : 'vision'
+}
+
+/** 「识文字」模式的图片：本地 OCR 填充 text（文字随提问走，离线可用） */
+async function ocrMarkedAttachments() {
+  for (const a of attachments.value) {
+    if (a.kind !== 'image' || a.mode !== 'ocr' || a.text) continue
+    try {
+      window.__kbMsg?.info('正在本地识别「' + a.name + '」…')
+      const r = await recognizeLocal(a.file || a.dataUrl, () => {})
+      a.text = (r && r.text ? String(r.text) : '').trim()
+      if (!a.text) window.__kbMsg?.warning('「' + a.name + '」没有识别出文字，已跳过')
+    } catch (err) {
+      window.__kbMsg?.warning('「' + a.name + '」本地识别失败：' + ((err && err.message) || err))
+    }
+  }
+}
+
 async function onFilesPicked(e) {
   const list = Array.from(e.target.files || [])
   e.target.value = ''
@@ -192,12 +214,14 @@ async function onFilesPicked(e) {
       let text = ''
       let kind = 'text'
       if (/^image\//i.test(f.type)) {
-        // 图片：走内置 tesseract 本地 OCR（离线可用）
-        kind = 'image'
-        window.__kbMsg?.info('正在识别「' + f.name + '」…')
-        const r = await recognizeLocal(f, () => {})
-        text = (r && r.text ? String(r.text) : '').trim()
-        if (!text) { window.__kbMsg?.warning('「' + f.name + '」没有识别出文字'); continue }
+        // 图片：默认「看图」——压缩后多模态直接交给模型（图案/排版都能识别）；
+        // chip 上可切「识文字」用本地 tesseract OCR（离线可用）；拍照建文档的离线识别不受影响
+        const dataUrl = await compressImage(f)
+        attachments.value = [...attachments.value, {
+          id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+          name: f.name, size: f.size, kind: 'image', dataUrl, text: '', file: f, mode: 'vision'
+        }]
+        continue
       } else if (/\.(txt|md|markdown|json|csv|log|xml|yml|yaml|sql|ts|js|mjs|py|java|html?|css|vue|ini|conf|properties)$/i.test(f.name) || /^text\//i.test(f.type || '')) {
         if (f.size > ATT_TEXT_MAX) { window.__kbMsg?.warning('「' + f.name + '」超过 200KB，已跳过'); continue }
         kind = 'text'
@@ -223,19 +247,21 @@ async function onFilesPicked(e) {
   attBusy.value = false
 }
 
-/** 有附件时：把附件内容以统一格式拼进提问 */
+/** 把文本类内容（文本文件 + 已本地识别的图片）拼进提问；「看图」的图片由 images 走多模态 */
 function buildQuestionWithAttachments(q) {
-  if (!attachments.value.length) return q
-  const parts = attachments.value.map((a, i) =>
-    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 已 OCR 识别】' : '】') + '\n' + a.text
+  const texts = attachments.value.filter((a) => a.text)
+  if (!texts.length) return q
+  const parts = texts.map((a, i) =>
+    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 本地识别文字】' : '】') + '\n' + a.text
   )
   return parts.join('\n\n') + '\n\n【提问】' + q
 }
 /** 发送前把附件文字汇总为一段（Agent 两种引擎共用） */
 const attachmentsText = computed(() => {
-  if (!attachments.value.length) return ''
-  return attachments.value.map((a, i) =>
-    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 已 OCR 识别】' : '】') + '\n' + a.text
+  const texts = attachments.value.filter((a) => a.text)
+  if (!texts.length) return ''
+  return texts.map((a, i) =>
+    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 本地识别文字】' : '】') + '\n' + a.text
   ).join('\n\n')
 })
 
@@ -345,6 +371,16 @@ async function send(text) {
     if (!input.value.trim() && attachments.value.length) input.value = '请帮我处理附件内容'
 
     const engine = localStorage.getItem('kb_agent_engine') || 'local'
+    // Agent 两种引擎都基于文本工作：图片一律先本地 OCR 成文字（离线也能用）
+    for (const a of attachments.value) {
+      if (a.kind !== 'image' || a.text) continue
+      try {
+        agentStep.value = '本地识别「' + a.name + '」…'
+        const r = await recognizeLocal(a.file || a.dataUrl, () => {})
+        a.text = (r && r.text ? String(r.text) : '').trim()
+      } catch { a.text = '' }
+    }
+    agentStep.value = ''
     const fileNames = attachments.value.map((a) => a.name)
     const q = input.value.trim() || '请帮我处理附件内容'
     const cur = convMessages.value[cid] || []
@@ -440,6 +476,9 @@ async function send(text) {
     updateConversation(convId, { title: t }).catch(() => {})
   }
 
+  // 「识文字」模式的图片先本地 OCR（文字拼进提问，离线也能用）；「看图」模式的收集为多模态 images
+  await ocrMarkedAttachments()
+  const images = attachments.value.filter((a) => a.kind === 'image' && a.mode === 'vision' && a.dataUrl).map((a) => a.dataUrl)
   const finalQ = buildQuestionWithAttachments(q)
   input.value = ''
   attachments.value = []
@@ -450,7 +489,8 @@ async function send(text) {
   try {
     abortCtrl.value = new AbortController()
     const { data } = await aiAsk(finalQ, convId, mode.value, {
-      modelId: selectedModelId.value || null, signal: abortCtrl.value.signal
+      modelId: selectedModelId.value || null, signal: abortCtrl.value.signal,
+      images: images.length ? images : null
     })
     const curAi = convMessages.value[convId] || []
     convMessages.value[convId] = [...curAi, {
@@ -565,7 +605,10 @@ onMounted(async () => {
 
     <div class="aic-atts" v-if="attachments.length">
       <span v-for="a in attachments" :key="a.id" class="aic-att" :title="a.name">
-        {{ a.kind === 'image' ? '🖼' : '📄' }} {{ a.name.length > 14 ? a.name.slice(0, 13) + '…' : a.name }}
+        {{ a.kind === 'image' ? (a.mode === 'vision' ? '🖼' : '📝') : '📄' }} {{ a.name.length > 12 ? a.name.slice(0, 11) + '…' : a.name }}
+        <button v-if="a.kind === 'image'" type="button" class="aic-att-mode"
+          :title="a.mode === 'vision' ? '当前：直接给模型看图。点击改为本地 OCR 识别文字（离线可用）' : '当前：本地 OCR 识别文字。点击改回直接看图'"
+          @click="toggleAttMode(a.id)">{{ a.mode === 'vision' ? '看图' : '识文' }}</button>
         <button class="aic-att-x" @click="removeAttachment(a.id)">×</button>
       </span>
     </div>
@@ -762,6 +805,11 @@ html.dark .aic-md :deep(pre) { background: rgba(255, 255, 255, .08); }
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .aic-att-x { border: none; background: transparent; color: var(--m-text-dim); font-size: 14px; padding: 0 2px; cursor: pointer; }
+.aic-att-mode {
+  border: none; cursor: pointer; padding: 1px 6px; border-radius: 6px;
+  background: rgba(22,119,255,.12); color: #0958d9; font-size: 11px; line-height: 1.4;
+}
+html.dark .aic-att-mode { background: rgba(76,141,255,.2); color: #9cc6ff; }
 
 /* 📎 按钮 */
 .aic-clip {

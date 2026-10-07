@@ -128,7 +128,7 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
           <el-icon><Search /></el-icon>
           <span>搜索文档、标签、内容</span>
         </button>
-        <button class="ai-btn" type="button" title="AI 问答" @click="router.push('/embed/ai')">
+        <button class="ai-btn" type="button" title="AI 问答" @click="router.push('/ai')">
           <el-icon :size="20"><MagicStick /></el-icon>
         </button>
       </div>
@@ -157,8 +157,8 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
           <span class="q-ico blue"><el-icon :size="23"><FolderOpened /></el-icon></span>
           <span class="q-txt">我的文档</span>
         </button>
-        <button class="quick" type="button" @click="router.push('/embed/ai')">
-          <span class="q-ico purple"><el-icon :size="23"><MagicStick /></el-icon></span>
+        <button class="quick" type="button" @click="router.push('/ai')">
+          <span class="q-ico cyan"><el-icon :size="23"><MagicStick /></el-icon></span>
           <span class="q-txt">AI 问答</span>
         </button>
         <button class="quick" type="button" @click="router.push('/search')">
@@ -237,11 +237,11 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
 /* ---------- 顶部问候区 ---------- */
 .hero {
   padding: calc(env(safe-area-inset-top) + 14px) 16px 18px;
-  background: linear-gradient(150deg, #6366f1 0%, #4f46e5 48%, #7c3aed 100%);
+  background: var(--m-primary);
   border-radius: 0 0 24px 24px;
   color: #fff;
 }
-html.dark .hero { background: linear-gradient(150deg, #312e81 0%, #3730a3 50%, #4c1d95 100%); }
+html.dark .hero { background: var(--m-primary-deep); }
 .hero-top { display: flex; align-items: center; gap: 12px; }
 .hero-txt { flex: 1 1 auto; min-width: 0; }
 .hero-greet { font-size: 13px; opacity: .82; }
@@ -308,15 +308,16 @@ html.dark .offline-card { background: #3b2411; color: #fdba74; }
   transition: transform .14s;
 }
 .quick:active .q-ico { transform: scale(.92); }
-.q-ico.grad { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; box-shadow: 0 5px 14px rgba(79, 70, 229, .3); }
+/* 大厂做法：快捷入口用「浅色底 + 品牌色图标」，不用渐变实心块 */
+.q-ico.grad { background: var(--m-primary-soft); color: var(--m-primary); box-shadow: none; }
 .q-ico.blue { background: #eff8ff; color: #1570ef; }
 .q-ico.orange { background: #fff7ed; color: #ea580c; }
 .q-ico.green { background: #ecfdf5; color: #059669; }
-.q-ico.purple { background: #f5f3ff; color: #7c3aed; }
+.q-ico.cyan { background: #ecfeff; color: #0891b2; }
 html.dark .q-ico.blue { background: #12253d; color: #60a5fa; }
 html.dark .q-ico.orange { background: #3a2411; color: #fb923c; }
 html.dark .q-ico.green { background: #0e2e26; color: #34d399; }
-html.dark .q-ico.purple { background: #2a1f4d; color: #c4b5fd; }
+html.dark .q-ico.cyan { background: #0e2e33; color: #67e8f9; }
 .q-txt { font-size: 12px; color: var(--m-text-sub); line-height: 1.2; }
 
 /* ---------- 横向卡片 ---------- */

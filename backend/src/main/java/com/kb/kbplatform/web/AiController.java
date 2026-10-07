@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -64,7 +65,18 @@ public class AiController {
         String mode = body.get("mode") == null ? "kb" : body.get("mode").toString();
         // modelId 省略时用管理员配置的默认模型
         Long modelId = parseLong(body.get("modelId"));
-        return convService.ask(claims.userId(), conversationId, question, mode, modelId);
+        // 图片（dataURL 列表）：模型原生多模态，直接随消息下发（不再走本地 OCR）
+        List<String> images = new ArrayList<>();
+        Object imgsRaw = body.get("images");
+        if (imgsRaw instanceof List<?> l) {
+            for (Object o : l) {
+                if (o != null) {
+                    String s = o.toString();
+                    if (!s.isBlank()) images.add(s);
+                }
+            }
+        }
+        return convService.ask(claims.userId(), conversationId, question, mode, modelId, images);
     }
 
     @GetMapping("/conversations")

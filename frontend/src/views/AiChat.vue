@@ -26,6 +26,8 @@ import 'prismjs/components/prism-sql'
 import 'prismjs/components/prism-yaml'
 import 'prismjs/components/prism-go'
 import { escapeHtml } from '../utils/text'
+import { compressImage } from '../utils/imageCompress'
+import { recognizeLocal } from '../utils/localOcr'
 
 const auth = useAuthStore()
 
@@ -58,6 +60,14 @@ async function loadModels() {
     modelList.value = []
   }
 }
+
+// ---------- 附件：内容在本地解析（图片走内置 OCR、文本文件直接读），随提问一起发给 AI ----------
+// 与移动端 MobileAiChat 同源能力：解析全在浏览器完成，零后端改动。
+const attachments = ref([])       // [{ id, name, size, kind: 'image'|'text', text }]
+const fileInput = ref(null)
+const attBusy = ref(false)
+const ATT_TEXT_MAX = 200 * 1024   // 文本文件上限 200KB
+const ATT_SNIPPET = 6000          // 单附件注入提问的内容截断长度
 // ---------- 调用可视化：本次实际用的模型 / 耗时 / token 用量，回答下方一行展示 ----------
 function buildMeta(data) {
   if (!data) return null
@@ -258,15 +268,33 @@ async function newConversation() {
 }
 
 async function send(text) {
-  const q = (text ?? input.value).trim()
-  if (!q) { ElMessage.warning('请输入内容'); return }
+  const raw = (text ?? input.value).trim()
+  const hasAtt = attachments.value.length > 0
+  if (!raw && !hasAtt) { ElMessage.warning('请输入内容'); return }
   if (loading.value) return
+
+  // 「识文字」模式的图片先本地 OCR（文字拼进提问，离线也能用）；「看图」模式的收集为多模态 images
+  for (const a of attachments.value) {
+    if (a.kind !== 'image' || a.mode !== 'ocr' || a.text) continue
+    try {
+      ElMessage.info('正在本地识别「' + a.name + '」…')
+      const r = await recognizeLocal(a.file || a.dataUrl, () => {})
+      a.text = (r && r.text ? String(r.text) : '').trim()
+      if (!a.text) ElMessage.warning('「' + a.name + '」没有识别出文字，已跳过')
+    } catch (err) {
+      ElMessage.warning('「' + a.name + '」本地识别失败：' + ((err && err.message) || err))
+    }
+  }
+  const fileNames = attachments.value.map((a) => a.name)
+  const images = attachments.value.filter((a) => a.kind === 'image' && a.mode === 'vision' && a.dataUrl).map((a) => a.dataUrl)
+  const q = buildQuestionWithAttachments(raw || (images.length ? '请识别并说明这些图片的内容' : ''))
+  const titleBase = raw || ('附件：' + fileNames.join('、'))
 
   let convId = currentId.value
   if (!convId) {
     creating.value = true
     try {
-      const { data } = await createConversation(q)
+      const { data } = await createConversation(titleBase)
       convMessages.value[data.id] = []
       conversations.value.unshift(data)
       currentId.value = data.id
@@ -281,16 +309,17 @@ async function send(text) {
   }
 
   const curUser = convMessages.value[convId] || []
-  convMessages.value[convId] = [...curUser, { role: 'user', content: q }]
+  convMessages.value[convId] = [...curUser, { role: 'user', content: raw, files: fileNames.length ? fileNames : null }]
 
   const conv = conversations.value.find((c) => c.id === convId)
   if (conv && (conv.title === '新对话' || !conv.title)) {
-    const newTitle = q.length > 20 ? q.slice(0, 20) + '…' : q
+    const newTitle = titleBase.length > 20 ? titleBase.slice(0, 20) + '…' : titleBase
     conv.title = newTitle
     updateConversation(convId, { title: newTitle }).catch(() => {})
   }
 
   input.value = ''
+  attachments.value = []
   loadingSet.value.add(convId)
   await nextTick()
   scrollToBottom()
@@ -298,7 +327,8 @@ async function send(text) {
   try {
     abortCtrl.value = new AbortController()
     const { data } = await aiAsk(q, convId, mode.value, {
-      modelId: selectedModelId.value || null, signal: abortCtrl.value.signal
+      modelId: selectedModelId.value || null, signal: abortCtrl.value.signal,
+      images: images.length ? images : null
     })
     const curAi = convMessages.value[convId] || []
     convMessages.value[convId] = [...curAi, {
@@ -400,7 +430,72 @@ async function submitInstructions() {
 }
 
 function openSource(id) { if (id != null) window.open('/reader/' + id, '_blank') }
-function onUpload() { ElMessage.info('暂仅支持文本提问，文件问答即将上线') }
+// ---------- 附件：本地解析（图片走内置 OCR、文本文件直读），随提问注入 ----------
+function pickFiles() { fileInput.value?.click() }
+
+function removeAttachment(id) {
+  attachments.value = attachments.value.filter((a) => a.id !== id)
+}
+
+/** 图片附件切换处理方式：看图（多模态）⇄ 识文字（本地 OCR，离线可用） */
+function toggleAttMode(id) {
+  const a = attachments.value.find((x) => x.id === id)
+  if (a && a.kind === 'image') a.mode = a.mode === 'vision' ? 'ocr' : 'vision'
+}
+
+async function onFilesPicked(e) {
+  const list = Array.from(e.target.files || [])
+  e.target.value = ''
+  if (!list.length || attBusy.value) return
+  attBusy.value = true
+  for (const f of list) {
+    if (attachments.value.length >= 4) { ElMessage.warning('一次最多带 4 个附件'); break }
+    if (f.size > 8 * 1024 * 1024) { ElMessage.warning('「' + f.name + '」超过 8MB，已跳过'); continue }
+    try {
+      let text = ''
+      let kind = 'text'
+      if (/^image\//i.test(f.type)) {
+        // 图片：默认「看图」——压缩后多模态直接交给模型（图案/排版都能识别）；
+        // 也可在附件 chip 上切「识文字」用本地 OCR 提取文字（离线可用）。
+        const dataUrl = await compressImage(f)
+        attachments.value = [...attachments.value, {
+          id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+          name: f.name, size: f.size, kind: 'image', dataUrl, text: '', file: f, mode: 'vision'
+        }]
+        continue
+      } else if (/\.(txt|md|markdown|json|csv|log|xml|yml|yaml|sql|ts|js|mjs|py|java|html?|css|vue|ini|conf|properties)$/i.test(f.name) || /^text\//i.test(f.type || '')) {
+        if (f.size > ATT_TEXT_MAX) { ElMessage.warning('「' + f.name + '」超过 200KB，已跳过'); continue }
+        kind = 'text'
+        text = await new Promise((res, rej) => {
+          const r = new FileReader()
+          r.onload = () => res(String(r.result || ''))
+          r.onerror = () => rej(new Error('读取失败'))
+          r.readAsText(f, 'utf-8')
+        })
+      } else {
+        ElMessage.warning('「' + f.name + '」暂不支持（目前支持图片 OCR 与文本类文件）')
+        continue
+      }
+      attachments.value = [...attachments.value, {
+        id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        name: f.name, size: f.size, kind,
+        text: text.slice(0, ATT_SNIPPET) + (text.length > ATT_SNIPPET ? '\n…（内容过长已截断）' : '')
+      }]
+    } catch (err) {
+      ElMessage.error('解析「' + f.name + '」失败：' + ((err && err.message) || err))
+    }
+  }
+  attBusy.value = false
+}
+
+/** 把文本类内容（文本文件 + 「识文字」的图片）拼进提问；「看图」的图片由 images 走多模态 */
+function buildQuestionWithAttachments(q) {
+  const texts = attachments.value.filter((a) => a.text)
+  if (!texts.length) return q
+  const parts = texts.map((a, i) =>
+    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 本地识别文字】' : '】') + '\n' + a.text)
+  return parts.join('\n\n') + '\n\n【提问】' + q
+}
 async function copyAnswer(m) {
   try { await navigator.clipboard.writeText(m.content); ElMessage.success('已复制') }
   catch { ElMessage.warning('复制失败，请手动选择') }
@@ -588,7 +683,12 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
           <template v-for="(m, i) in messages" :key="currentId + ':' + i">
             <!-- 用户：消息气泡在左，头像在右，整行右对齐 -->
             <div v-if="m.role === 'user'" class="ai-msg user">
-              <div class="ai-bubble user-bubble" v-html="escapeHtml(m.content)"></div>
+              <div class="ai-bubble user-bubble">
+                <div v-if="m.files && m.files.length" class="ai-files">
+                  <span v-for="f in m.files" :key="f" class="ai-file-chip">📎 {{ f }}</span>
+                </div>
+                <div v-html="escapeHtml(m.content)"></div>
+              </div>
               <div class="ai-avatar user-av" :style="{ background: userGradient }">
                 <img v-if="userAvatar" :src="userAvatar" alt="" />
                 <span v-else>{{ userInitial }}</span>
@@ -679,6 +779,18 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
       <!-- 输入栏 -->
       <div class="ai-input-wrap">
         <div class="ai-input-card">
+          <input ref="fileInput" type="file" multiple hidden
+            accept="image/*,.txt,.md,.markdown,.json,.csv,.log,.xml,.yml,.yaml,.sql,.ts,.js,.py,.java,.html,.css,.vue,.ini,.conf,.properties"
+            @change="onFilesPicked" />
+          <div v-if="attachments.length" class="ai-atts">
+            <span v-for="a in attachments" :key="a.id" class="ai-att" :title="a.name">
+              {{ a.kind === 'image' ? (a.mode === 'vision' ? '🖼' : '📝') : '📄' }} {{ a.name.length > 14 ? a.name.slice(0, 13) + '…' : a.name }}
+              <button v-if="a.kind === 'image'" type="button" class="ai-att-mode"
+                :title="a.mode === 'vision' ? '当前：直接给模型看图。点击改为本地 OCR 识别文字（离线可用）' : '当前：本地 OCR 识别文字。点击改回直接看图'"
+                @click="toggleAttMode(a.id)">{{ a.mode === 'vision' ? '看图' : '识文' }}</button>
+              <button type="button" class="ai-att-x" @click="removeAttachment(a.id)">×</button>
+            </span>
+          </div>
           <textarea v-model="input" class="ai-text" rows="2"
             placeholder="输入你的问题，Enter 发送，Shift + Enter 换行" @keydown="onKey"></textarea>
           <div class="ai-input-bar">
@@ -694,8 +806,8 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
               </button>
             </div>
             <div class="ai-input-right">
-              <el-tooltip content="上传文件" placement="top" :show-after="300">
-                <button type="button" class="ai-round-btn ghost" @click="onUpload"><el-icon><Paperclip /></el-icon></button>
+              <el-tooltip content="上传文件（图片 OCR / 文本类）" placement="top" :show-after="300">
+                <button type="button" class="ai-round-btn ghost" @click="pickFiles" :disabled="attBusy"><el-icon><Paperclip /></el-icon></button>
               </el-tooltip>
               <button v-if="!loading" type="button" class="ai-send" @click="send()">
                 <el-icon><Promotion /></el-icon>
@@ -1076,6 +1188,32 @@ html.dark .ai-input-card { background: #1b1b35; border-color: #2b2c4d; }
 .ai-text { flex: 1; width: 100%; resize: none; border: none; outline: none; font-size: 14.5px; font-family: inherit; color: #0f172a; background: transparent; line-height: 1.6; }
 html.dark .ai-text { color: #e7e7ee; }
 .ai-input-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+
+/* ---------- 附件（上传的本地解析内容） ---------- */
+.ai-atts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ai-att {
+  display: inline-flex; align-items: center; gap: 4px;
+  max-width: 240px; padding: 3px 6px 3px 9px;
+  border-radius: 9px; background: #eef2ff; color: #4338ca;
+  font-size: 12px; line-height: 1.5;
+}
+html.dark .ai-att { background: #23244a; color: #a5b4fc; }
+.ai-att-x {
+  border: none; background: transparent; cursor: pointer;
+  color: inherit; opacity: .65; font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.ai-att-x:hover { opacity: 1; }
+.ai-att-mode {
+  border: none; cursor: pointer; padding: 1px 6px; border-radius: 6px;
+  background: rgba(99,102,241,.14); color: #4338ca; font-size: 11px; line-height: 1.4;
+}
+.ai-att-mode:hover { background: rgba(99,102,241,.24); }
+html.dark .ai-att-mode { background: rgba(129,140,248,.22); color: #c7d2fe; }
+.ai-files { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.ai-file-chip {
+  display: inline-block; padding: 2px 8px; border-radius: 7px;
+  background: rgba(255,255,255,.22); font-size: 12px; line-height: 1.5;
+}
 
 /* 模式切换（滑动指示器） */
 .ai-mode { position: relative; display: inline-flex; background: #f1f5f9; border-radius: 10px; padding: 3px; }

@@ -300,7 +300,7 @@ public class AuthController {
         if ("ADMIN".equals(u.getRole()) && userRepo.countByRole("ADMIN") <= 1) {
             throw new BizException("当前是唯一的管理员账号，无法注销；请先创建其他管理员后再操作");
         }
-        authService.deleteUser(u.getId());
+        userRepo.deleteById(u.getId());
         return Map.of("ok", true);
     }
 }

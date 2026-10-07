@@ -6,8 +6,9 @@ import api from './request'
 // 返回 { answer, conversationId, title, sources?, modelName?, latencyMs?, usage? }
 // timeout 单独放宽：全局 15s，但 RAG 检索 + 大模型生成实测常超 15s，会被 axios 掐断
 // config 可传 { modelId } 与 { signal }（AbortController，用于「停止生成」按钮中断请求）
-export const aiAsk = (question, conversationId, mode, { modelId = null, ...config } = {}) =>
-  api.post('/ai/ask', { question, conversationId, mode, modelId }, { timeout: 120000, ...config })
+// images: 图片 dataURL 数组（模型原生多模态，直接看图；不传则退化为纯文本）
+export const aiAsk = (question, conversationId, mode, { modelId = null, images = null, ...config } = {}) =>
+  api.post('/ai/ask', { question, conversationId, mode, modelId, images }, { timeout: 120000, ...config })
 
 // 会话列表
 export const listConversations = () =>

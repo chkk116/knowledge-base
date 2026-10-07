@@ -281,7 +281,7 @@ onUnmounted(() => { if (particleCleanup) particleCleanup() })
 .login {
   position: relative;
   min-height: 100vh; min-height: 100dvh;
-  background: linear-gradient(175deg, #eaf2ff 0%, #f7faff 46%, #fdfeff 100%);
+  background: var(--m-bg);
   padding-bottom: calc(env(safe-area-inset-bottom) + 22px);
   box-sizing: border-box; overflow: hidden;
   display: flex; flex-direction: column;
@@ -296,8 +296,7 @@ onUnmounted(() => { if (particleCleanup) particleCleanup() })
 }
 .brand-name {
   margin-top: -6px; font-size: 21px; font-weight: 700; letter-spacing: 6px;
-  background: linear-gradient(120deg, #3b6fe0, #6a5cff);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
+  color: var(--m-primary);
 }
 
 /* 表单区：左对齐标题 + 玻璃胶囊，构图与 Web 白卡明显区分 */
@@ -337,11 +336,11 @@ onUnmounted(() => { if (particleCleanup) particleCleanup() })
   width: 100%; height: 52px; margin-top: 6px;
   border: none; border-radius: 999px; color: #fff;
   font-size: 16px; font-weight: 600; letter-spacing: 6px; text-indent: 6px;
-  background: linear-gradient(135deg, #4f7cff 0%, #3b5fe0 100%);
-  box-shadow: 0 12px 24px -10px rgba(59, 95, 224, .55);
+  background: var(--m-primary);
+  box-shadow: 0 12px 24px -10px rgba(22, 119, 255, .45);
   transition: transform .15s, box-shadow .2s;
 }
-.cta:active { transform: scale(.98); box-shadow: 0 8px 18px -10px rgba(59, 95, 224, .5); }
+.cta:active { transform: scale(.98); box-shadow: 0 8px 18px -10px rgba(22, 119, 255, .45); }
 .cta:disabled { opacity: .75; }
 .rot { animation: kb-rot 1s linear infinite; }
 @keyframes kb-rot { to { transform: rotate(360deg); } }
@@ -365,8 +364,8 @@ onUnmounted(() => { if (particleCleanup) particleCleanup() })
 .captcha-sheet { padding-bottom: calc(env(safe-area-inset-bottom) + 18px); }
 
 /* ===== 暗色：同 Web 登录页深蓝系 ===== */
-html.dark .login { background: linear-gradient(175deg, #101c3c 0%, #0d1730 55%, #0c1428 100%); }
-html.dark .brand-name { background: linear-gradient(120deg, #7ea6ff, #9b8cff); -webkit-background-clip: text; background-clip: text; }
+html.dark .login { background: var(--m-bg); }
+html.dark .brand-name { color: var(--m-primary); }
 html.dark .hi { color: #e6ecf7; }
 html.dark .sub { color: #7688ab; }
 html.dark .pill {

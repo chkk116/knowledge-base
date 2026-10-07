@@ -38,8 +38,12 @@ const routes = [
   { path: '/draft/:localId', component: () => import('../views/mobile/MobileDraftView.vue'), meta: { title: '本地草稿' } },
 
   { path: '/search', component: () => import('../views/mobile/MobileSearch.vue'), meta: { title: '搜索' } },
+  // ---- AI 问答：原生移动版（此前是 iframe 嵌桌面 /ai/chat，小屏体验差）----
+  { path: '/ai', component: () => import('../views/mobile/MobileAiChat.vue'), meta: { title: 'AI 问答' } },
   { path: '/settings', component: () => import('../views/mobile/MobileSettings.vue'), meta: { title: '设置' } },
   { path: '/privacy', component: () => import('../views/mobile/MobilePrivacy.vue'), meta: { public: true, title: '隐私政策' } },
+  // ---- 我的文件：文件中心（与网页端 FileCenter 共用一套接口）----
+  { path: '/files', component: () => import('../views/mobile/MobileFiles.vue'), meta: { title: '我的文件' } },
 
   // ---- 管理端原生页（高频管理功能做成 App 原生，不用 iframe 嵌桌面表格）----
   { path: '/manage/users', component: () => import('../views/mobile/MobileAdminUsers.vue'), meta: { title: '用户管理', perm: 'USER_MANAGE' } },
@@ -71,6 +75,10 @@ function ensureAuth() {
   return authReady
 }
 
+// 登录态校验的最长等待：连不上服务器时 axios 要等满 15s 超时才 reject，
+// 期间路由一直挂起 → 白屏「打不开」。到点即用本地状态放行，避免长时间白屏。
+const AUTH_WAIT_MS = 6000
+
 /**
  * 离线兜底：断网时 fetchMe 必然失败，若直接跳登录页，用户会被挡在门外 ——
  * 但这时本地其实有有效 token（离线写文档正需要它）。
@@ -91,7 +99,13 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  await ensureAuth()
+  // 校验登录态。加超时兜底：连不上服务器（弱网 / onLine 误判为在线）时
+  // axios 要等满 15s 超时才 reject，期间路由一直挂起 → 白屏「打不开」。
+  // 到点即用本地 token / 缓存状态放行，真正的 401 仍由 axios 拦截器统一登出。
+  await Promise.race([
+    ensureAuth(),
+    new Promise((resolve) => setTimeout(resolve, AUTH_WAIT_MS))
+  ])
   // fetchMe 成功 → user 已就绪，正常放行
   if (auth.user) {
     // 细粒度权限页：入口按 hasPerm 过滤，这里再兜一层（防手输 URL）
