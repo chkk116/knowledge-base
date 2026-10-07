@@ -268,7 +268,7 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 
 - **离线优先**：Service Worker 预缓存完整 chunk 依赖图（构建脚本自动注入清单）；文档阅读缓存 +
   拍照/编辑草稿的离线队列（IndexedDB，**按登录账号隔离**，联网自动同步，登出/换号不串号）
-- **本地 OCR**：tesseract.js + 中/英文语言包全部内置（`frontend/public/tesseract/`），断网也能拍照识字
+- **本地 OCR**：tesseract.js + 中/英文语言包**全部内置并离线加载**（`frontend/public/tesseract/`，零 CDN 依赖），断网也能拍照识字
 - **扫码与 PDF**：jsQR 二维码识别（本地化）、PDF 页面转图后走同一套识别流程
 - **移动端管理**：用户管理 / 角色管理原生页（按 `USER_MANAGE` 权限可见），其余后台页经内嵌桌面页复用
 - **登录页 v3**：与 Web 同一设计语言、移动端构图；滑动验证码适配触屏
@@ -314,6 +314,7 @@ cd android && gradlew.bat assembleDebug
 ## 鉴权与安全要点
 
 - **密码**：随机 salt(16B hex) + SHA-256，存储 `salt:sha256hex`；安全边界在 TLS + 服务端哈希 + 验证码限流
+- **自助注销**：密码二次确认；账号软删除（用户名释放、PII 清空、令牌全失效、匿名显示「已注销用户」），AI 会话/通知/收藏/上传文件等个人数据硬删
 - **令牌**：HMAC-SHA256 自签（零第三方依赖），`Authorization: Bearer <token>`，默认 24h，支持令牌版本号批量失效
 - **验证码**：滑动拼图，correctX/Y 仅存服务端；容差 ±6px，轨迹 ≥3 点且 ≥120ms；环回地址免 IP 锁定
 - **权限模型**：细粒度权限码（`Perm` 集中白名单）+ 角色聚合 + 全权限视同管理员；资源审批类接口刻意仅认真实 ADMIN
