@@ -14,7 +14,8 @@ if (!token) { console.error('缺 KB_TOKEN'); process.exit(1); }
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
   await page.addInitScript((t) => { try { localStorage.setItem('kb_token', t) } catch (e) {} }, token);
 
-  await page.goto('(process.env.KB_BASE || 'http://localhost:8080') + '/ai/chat'', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  const BASE = process.env.KB_BASE || 'http://localhost:8080'
+  await page.goto(BASE + '/ai/chat', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(4500);
   console.log('URL:', page.url());
   const bodyHead = (await page.evaluate(() => document.body.innerText)).replace(/\s+/g, ' ').slice(0, 160);

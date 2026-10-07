@@ -458,7 +458,8 @@ async function onFilesPicked(e) {
         // 图片：默认「看图」——压缩后多模态直接交给模型（图案/排版都能识别）；
         // 也可在附件 chip 上切「识文字」用本地 OCR 提取文字（离线可用）。
         const dataUrl = await compressImage(f)
-        attachments.value = [...attachments.value, {
+        const safeName = f.name.replace(/[\r\n\u0000-\u001f]/g, ' ')
+      attachments.value = [...attachments.value, {
           id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
           name: f.name, size: f.size, kind: 'image', dataUrl, text: '', file: f, mode: 'vision'
         }]

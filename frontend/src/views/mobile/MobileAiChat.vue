@@ -235,9 +235,10 @@ async function onFilesPicked(e) {
         window.__kbMsg?.warning('「' + f.name + '」暂不支持（目前支持图片 OCR 与文本类文件）')
         continue
       }
+      const safeName = f.name.replace(/[\r\n\u0000-\u001f]/g, ' ')
       attachments.value = [...attachments.value, {
         id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-        name: f.name, size: f.size, kind,
+        name: safeName, size: f.size, kind,
         text: text.slice(0, ATT_SNIPPET) + (text.length > ATT_SNIPPET ? '\n…（内容过长已截断）' : '')
       }]
     } catch (err) {

@@ -87,7 +87,9 @@ public class RagService {
     public Map<String, Object> ask(String question, List<Map<String, String>> history,
                                    String instructions, String persona, String mode, Long modelId,
                                    List<String> imageUrls) {
-        if (!enabled || question == null || question.isBlank()) {
+        // 纯图片提问（question 为空但带了 imageUrls）是合法场景，只有两者都为空才拦
+        boolean hasImages = imageUrls != null && imageUrls.stream().anyMatch(u -> u != null && !u.isBlank());
+        if (!enabled || ((question == null || question.isBlank()) && !hasImages)) {
             if (!enabled) {
                 log.warn("AI 问答未启用：kb.ai.enabled=false（若已在「AI 模型管理」配好模型，请改回 true）");
             }
@@ -184,8 +186,13 @@ public class RagService {
             userText = question.trim();
         }
         // 有图片时用多模态 content（text + image_url 数组）——模型原生多模态直接看图，无需 OCR
+        // 兜底校验（即便 controller 层漏拦）：数量 ≤4、data:image 前缀、单条长度上限
         List<String> imgs = imageUrls == null ? List.of()
-                : imageUrls.stream().filter(u -> u != null && !u.isBlank()).toList();
+                : imageUrls.stream()
+                        .filter(u -> u != null && !u.isBlank())
+                        .filter(u -> u.startsWith("data:image/"))
+                        .limit(4)
+                        .toList();
         if (imgs.isEmpty()) {
             messages.add(Map.<String, Object>of("role", "user", "content", userText));
         } else {

@@ -13,7 +13,8 @@ const { chromium } = require('playwright-core');
   // 模拟「连不上服务器」：所有 API 请求直接失败（无响应）
   await page.route('**/api/**', (route) => route.abort('failed'));
 
-  await page.goto('(process.env.KB_BASE || 'http://localhost:8080') + '/m/home'', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  const BASE = process.env.KB_BASE || 'http://localhost:8080'
+  await page.goto(BASE + '/m/home', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(9000);
 
   const text = await page.evaluate(() => document.body.innerText || '');

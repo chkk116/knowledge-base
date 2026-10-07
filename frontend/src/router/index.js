@@ -133,12 +133,18 @@ router.beforeEach(async (to) => {
   // 先确保本地令牌已还原成 user（首次直接访问后台页时守卫早于 App.onMounted 执行）。
   // 加超时兜底：连不上服务器时 axios 要等满 15s 超时，期间路由挂起 → 白屏「打不开」。
   // 到点即用本地状态放行，真正的 401 仍由 axios 拦截器统一登出。
+  // 超时兜底：弱网下 ensureAuth 6s 未完成时不把已登录用户踢去登录页
+  // （真 401 由 axios 拦截器统一登出；持 token 者放行，页面自行兜底）
+  let authTimer
+  const hasLocalToken = !!localStorage.getItem('kb_token')
   await Promise.race([
     ensureAuth(),
-    new Promise((resolve) => setTimeout(resolve, 6000))
+    new Promise((resolve) => { authTimer = setTimeout(resolve, 6000) })
   ])
+  clearTimeout(authTimer)
   if (!auth.loggedIn) {
-    return { path: '/login', query: { redirect: to.fullPath } }
+    // 没有本地 token = 确实未登录；有 token 而校验超时 = 放行（弱网兜底）
+    if (!hasLocalToken) return { path: '/login', query: { redirect: to.fullPath } }
   }
   // 后台页：要求对应权限码（hasPerm 已包含 ADMIN / 通配 * 的判断）
   if (to.meta.admin && to.meta.perm && !auth.hasPerm(to.meta.perm)) {

@@ -12,11 +12,12 @@ if (!token) { console.error('缺 KB_TOKEN'); process.exit(1); }
   page.on('console', (m) => logs.push(m.type() + ': ' + m.text()));
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
   const apiHits = [];
-  page.on('response', (r) => { if (r.url().includes('/api/files')) apiHits.push(r.status() + ' ' + r.request().method() + ' ' + r.url().replace('process.env.KB_BASE || 'http://localhost:8080'', '')); });
+  const BASE = process.env.KB_BASE || 'http://localhost:8080'
+  page.on('response', (r) => { if (r.url().includes('/api/files')) apiHits.push(r.status() + ' ' + r.request().method() + ' ' + r.url().replace(BASE, '')); });
 
   await page.addInitScript((t) => { try { localStorage.setItem('kb_token', t) } catch (e) {} }, token);
 
-  await page.goto('process.env.KB_BASE || 'http://localhost:8080'/files', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto(BASE + '/files', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(3500);
   console.log('URL:', page.url());
   console.log('页面文本:', (await page.evaluate(() => document.body.innerText)).replace(/\s+/g, ' ').slice(0, 260));

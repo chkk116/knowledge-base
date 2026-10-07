@@ -112,7 +112,8 @@ window.addEventListener('unhandledrejection', (e) => {
   // 网络类失败（axios 无响应 / 被 CORS 拦截 / 超时）不当「页面问题」处理：
   // 弱网、离线、服务器重启时很常见，弹「页面出现问题」会误导用户以为 App 坏了。
   // 真正的 401 已由 axios 拦截器统一登出，其余由各页面自行兜底（走缓存/空态）。
-  if (r && (r.isAxiosError || r.network || r.response || r.code === 'ERR_NETWORK' || r.code === 'ECONNABORTED' || r.code === 'ETIMEDOUT')) return
+  // 只放行网络类/取消类错误；5xx（r.response 存在）仍走上报通道，避免服务端故障两端同时无感
+  if (r && (r.network || !r.response || r.code === 'ERR_NETWORK' || r.code === 'ECONNABORTED' || r.code === 'ETIMEDOUT' || r.code === 'ERR_CANCELED')) return
   reportError('Promise: ' + ((r && r.stack) || r))
 })
 

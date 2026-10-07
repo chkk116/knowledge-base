@@ -102,10 +102,12 @@ router.beforeEach(async (to) => {
   // 校验登录态。加超时兜底：连不上服务器（弱网 / onLine 误判为在线）时
   // axios 要等满 15s 超时才 reject，期间路由一直挂起 → 白屏「打不开」。
   // 到点即用本地 token / 缓存状态放行，真正的 401 仍由 axios 拦截器统一登出。
+  let authTimer
   await Promise.race([
     ensureAuth(),
-    new Promise((resolve) => setTimeout(resolve, AUTH_WAIT_MS))
+    new Promise((resolve) => { authTimer = setTimeout(resolve, AUTH_WAIT_MS) })
   ])
+  clearTimeout(authTimer)
   // fetchMe 成功 → user 已就绪，正常放行
   if (auth.user) {
     // 细粒度权限页：入口按 hasPerm 过滤，这里再兜一层（防手输 URL）

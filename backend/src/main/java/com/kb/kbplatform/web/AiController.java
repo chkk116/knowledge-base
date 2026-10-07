@@ -65,15 +65,29 @@ public class AiController {
         String mode = body.get("mode") == null ? "kb" : body.get("mode").toString();
         // modelId 省略时用管理员配置的默认模型
         Long modelId = parseLong(body.get("modelId"));
-        // 图片（dataURL 列表）：模型原生多模态，直接随消息下发（不再走本地 OCR）
+        // 图片（dataURL 列表）：模型原生多模态，直接随消息下发。
+        // 服务端必须兜底校验（前端压缩可绕过）：数量 ≤4、必须 data:image/*;base64、
+        // 单张解码后 ≤2MB（base64 长度 ≈ 4/3 原始字节，用 3_000_000 字符近似）。
+        // 缺校验会导致内存/带宽放大与 token 费用被刷（外部复审 2026-10-07）。
         List<String> images = new ArrayList<>();
         Object imgsRaw = body.get("images");
         if (imgsRaw instanceof List<?> l) {
             for (Object o : l) {
-                if (o != null) {
-                    String s = o.toString();
-                    if (!s.isBlank()) images.add(s);
+                if (o == null) continue;
+                if (!(o instanceof String s)) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "images 元素必须是字符串 dataURL");
                 }
+                if (s.isBlank()) continue;
+                if (!s.matches("^data:image/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=\\s]+$")) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片仅支持 data:image/(png|jpeg|webp|gif) 的 base64 dataURL");
+                }
+                if (s.length() > 3_000_000) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "单张图片过大（解码后 ≤2MB）");
+                }
+                images.add(s);
+            }
+            if (images.size() > 4) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "一次最多附带 4 张图片");
             }
         }
         return convService.ask(claims.userId(), conversationId, question, mode, modelId, images);
