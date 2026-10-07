@@ -16,6 +16,9 @@ import {
   aiAsk, listAiModels, listConversations, createConversation,
   deleteConversation, listMessages, updateConversation
 } from '../../api/ai'
+import { search } from '../../api/kb'
+import { recognizeLocal } from '../../utils/localOcr'
+import { runLocalAgent } from '../../utils/localAgent'
 import MarkdownIt from 'markdown-it'
 
 const router = useRouter()
@@ -30,9 +33,44 @@ const abortCtrl = ref(null)
 const bodyRef = ref(null)
 const historyOpen = ref(false)
 
-const mode = ref('kb')
+const mode = ref('kb')            // kb | general | agent
 const modelList = ref([])
 const selectedModelId = ref('')
+
+// ---------- 附件：内容在本地解析（图片走内置 OCR、文本文件直接读），随提问一起发给 AI ----------
+const attachments = ref([])       // [{ id, name, size, kind: 'image'|'text', text }]
+const fileInput = ref(null)
+const ATT_TEXT_MAX = 200 * 1024   // 文本文件上限 200KB
+const ATT_SNIPPET = 6000          // 单附件注入提问的内容截断长度
+const attBusy = ref(false)
+
+// ---------- Agent 模式：直连自建 Hermes Agent 的 OpenAI 兼容端点 ----------
+// Hermes 部署在用户自己的机器/服务器上（hermes gateway + API_SERVER_ENABLED=true），
+// 端点形如 http://<ip>:8642/v1。端点与 Key 只存本机 localStorage，不入仓库。
+const agentStep = ref('')         // Agent 当前步骤（typing 气泡内展示）
+const agentOpen = ref(false)      // Agent 设置弹层
+const agentEngine = ref(localStorage.getItem('kb_agent_engine') || 'local')   // local | hermes
+const agentEndpoint = ref(localStorage.getItem('kb_agent_endpoint') || '')
+const agentKey = ref(localStorage.getItem('kb_agent_key') || '')
+
+function saveAgentCfg() {
+  const ep = agentEndpoint.value.trim().replace(/\/+$/, '')
+  if (!ep) { window.__kbMsg?.warning('请填写 Agent 端点（如 http://192.168.1.10:8642/v1）'); return }
+  try {
+    localStorage.setItem('kb_agent_engine', agentEngine.value)
+    localStorage.setItem('kb_agent_endpoint', ep)
+    localStorage.setItem('kb_agent_key', agentKey.value.trim())
+  } catch {}
+  agentOpen.value = false
+  window.__kbMsg?.success('Agent 配置已保存')
+}
+
+function openAgentCfg() {
+  agentEngine.value = localStorage.getItem('kb_agent_engine') || 'local'
+  agentEndpoint.value = localStorage.getItem('kb_agent_endpoint') || ''
+  agentKey.value = localStorage.getItem('kb_agent_key') || ''
+  agentOpen.value = true
+}
 
 const messages = computed(() => (currentId.value ? (convMessages.value[currentId.value] || []) : []))
 const userName = computed(() => auth.user?.displayName || auth.user?.username || '我')
@@ -41,7 +79,9 @@ const userInitial = computed(() => (userName.value || '我').charAt(0).toUpperCa
 // 空状态文案跟随模式：切到「通用」后不能再挂着知识库口吻，否则用户以为模式没生效
 const KB_SUGS = ['如何发布一篇文章？', '知识库支持哪些内容格式？', '怎么查看我的积分明细？', '帮我总结一下知识库的常见用法']
 const GENERAL_SUGS = ['用三句话解释什么是向量数据库', '帮我把这段话润色得更正式', '推荐几本讲系统设计的好书', '写一个 Python 读取 Excel 的例子']
-const sugs = computed(() => (mode.value === 'general' ? GENERAL_SUGS : KB_SUGS))
+const AGENT_SUGS = ['帮我梳理知识库里关于入职流程的全部文档并给出要点', '检索项目资料并写一份周报草稿', '把我的会议记录整理成待办清单']
+const sugs = computed(() => (mode.value === 'agent' ? AGENT_SUGS : (mode.value === 'general' ? GENERAL_SUGS : KB_SUGS)))
+const agentReady = computed(() => !!localStorage.getItem('kb_agent_endpoint'))
 
 // ---------- Markdown：html:false 会转义源里的裸 HTML，AI 返回内容不会变成 XSS ----------
 // 刻意不接 prism 高亮：桌面版那套 prism 语言组件有「全局 Prism 求值顺序」的坑，
@@ -132,10 +172,245 @@ async function removeConversation(id) {
 
 function stopAi() { abortCtrl.value?.abort() }
 
+// ---------- 附件 ----------
+function pickFiles() { fileInput.value?.click() }
+
+function removeAttachment(id) {
+  attachments.value = attachments.value.filter((a) => a.id !== id)
+}
+
+async function onFilesPicked(e) {
+  const list = Array.from(e.target.files || [])
+  e.target.value = ''
+  if (!list.length) return
+  if (attBusy.value) return
+  attBusy.value = true
+  for (const f of list) {
+    if (attachments.value.length >= 4) { window.__kbMsg?.warning('一次最多带 4 个附件'); break }
+    if (f.size > 8 * 1024 * 1024) { window.__kbMsg?.warning('「' + f.name + '」超过 8MB，已跳过'); continue }
+    try {
+      let text = ''
+      let kind = 'text'
+      if (/^image\//i.test(f.type)) {
+        // 图片：走内置 tesseract 本地 OCR（离线可用）
+        kind = 'image'
+        window.__kbMsg?.info('正在识别「' + f.name + '」…')
+        const r = await recognizeLocal(f, () => {})
+        text = (r && r.text ? String(r.text) : '').trim()
+        if (!text) { window.__kbMsg?.warning('「' + f.name + '」没有识别出文字'); continue }
+      } else if (/\.(txt|md|markdown|json|csv|log|xml|yml|yaml|sql|ts|js|mjs|py|java|html?|css|vue|ini|conf|properties)$/i.test(f.name) || /^text\//i.test(f.type || '')) {
+        if (f.size > ATT_TEXT_MAX) { window.__kbMsg?.warning('「' + f.name + '」超过 200KB，已跳过'); continue }
+        kind = 'text'
+        text = await new Promise((res, rej) => {
+          const r = new FileReader()
+          r.onload = () => res(String(r.result || ''))
+          r.onerror = () => rej(new Error('读取失败'))
+          r.readAsText(f, 'utf-8')
+        })
+      } else {
+        window.__kbMsg?.warning('「' + f.name + '」暂不支持（目前支持图片 OCR 与文本类文件）')
+        continue
+      }
+      attachments.value = [...attachments.value, {
+        id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        name: f.name, size: f.size, kind,
+        text: text.slice(0, ATT_SNIPPET) + (text.length > ATT_SNIPPET ? '\n…（内容过长已截断）' : '')
+      }]
+    } catch (err) {
+      window.__kbMsg?.error('解析「' + f.name + '」失败：' + ((err && err.message) || err))
+    }
+  }
+  attBusy.value = false
+}
+
+/** 有附件时：把附件内容以统一格式拼进提问 */
+function buildQuestionWithAttachments(q) {
+  if (!attachments.value.length) return q
+  const parts = attachments.value.map((a, i) =>
+    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 已 OCR 识别】' : '】') + '\n' + a.text
+  )
+  return parts.join('\n\n') + '\n\n【提问】' + q
+}
+/** 发送前把附件文字汇总为一段（Agent 两种引擎共用） */
+const attachmentsText = computed(() => {
+  if (!attachments.value.length) return ''
+  return attachments.value.map((a, i) =>
+    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 已 OCR 识别】' : '】') + '\n' + a.text
+  ).join('\n\n')
+})
+
+/** Hermes 直连：OpenAI 兼容 /chat/completions（非流式，带最近历史） */
+async function callHermes(q, hist, signal) {
+  const ep = (localStorage.getItem('kb_agent_endpoint') || '').trim()
+  if (!ep) { openAgentCfg(); throw new Error('未配置 Hermes 端点') }
+  const key = localStorage.getItem('kb_agent_key') || ''
+  const messages = [
+    { role: 'system', content: '你是企业知识库移动端里的 Agent 助手。用简体中文回答；需要外部信息时使用你的工具；回答尽量给出可执行的结论。' },
+    ...hist,
+    { role: 'user', content: q }
+  ]
+  const resp = await fetch(ep.replace(/\/+$/, '') + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: 'Bearer ' + key } : {}) },
+    body: JSON.stringify({ model: 'hermes-agent', messages, stream: false }),
+    signal
+  })
+  if (!resp.ok) throw new Error('Hermes 端点返回 ' + resp.status)
+  const data = await resp.json()
+  return data.choices?.[0]?.message?.content || '（Agent 未返回内容）'
+}
+
+// ---------- Agent 模式：直连 Hermes 的 OpenAI 兼容端点（带最近历史，无状态调用） ----------
+async function sendAgent(convId) {
+  const ep = (localStorage.getItem('kb_agent_endpoint') || '').trim()
+  if (!ep) { openAgentCfg(); return }
+  const key = localStorage.getItem('kb_agent_key') || ''
+  const q = buildQuestionWithAttachments(input.value.trim())
+  const fileNames = attachments.value.map((a) => a.name)
+
+  const cur = convMessages.value[convId] || []
+  convMessages.value[convId] = [...cur, {
+    role: 'user', content: input.value.trim(), files: fileNames.length ? fileNames : null
+  }]
+  input.value = ''
+  attachments.value = []
+  loading.value = true
+  await nextTick()
+  scrollToBottom()
+
+  try {
+    // 历史取最近 10 条（Hermes 无状态，全量由 messages 传入；带附件内容的历史消息同样注入）
+    const hist = cur.slice(-10).map((m) => ({
+      role: m.role === 'ai' ? 'assistant' : 'user',
+      content: (m.role === 'user' && m.files && m.files.length)
+        ? '[附件：' + m.files.join('、') + '] ' + m.content
+        : m.content
+    }))
+    hist.push({ role: 'user', content: q })
+    abortCtrl.value = new AbortController()
+    const resp = await fetch(ep.replace(/\/+$/, '') + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(key ? { Authorization: 'Bearer ' + key } : {})
+      },
+      body: JSON.stringify({
+        model: 'hermes-agent',
+        messages: [
+          { role: 'system', content: '你是企业知识库移动端里的 Agent 助手。用简体中文回答；需要外部信息时使用你的工具；回答尽量给出可执行的结论。' },
+          ...hist
+        ],
+        stream: false
+      }),
+      signal: abortCtrl.value.signal
+    })
+    if (!resp.ok) throw new Error('Agent 端点返回 ' + resp.status)
+    const data = await resp.json()
+    const content = data.choices?.[0]?.message?.content || '（Agent 未返回内容）'
+    const curAi = convMessages.value[convId] || []
+    convMessages.value[convId] = [...curAi, { role: 'ai', content, sources: [], mode: 'agent' }]
+  } catch (e) {
+    const stopped = e && (e.name === 'CanceledError' || e.code === 'ERR_CANCELED' || e.name === 'AbortError')
+    const curErr = convMessages.value[convId] || []
+    convMessages.value[convId] = [...curErr, {
+      role: 'ai',
+      content: stopped ? '（已停止）' : 'Agent 调用失败：' + ((e && e.message) || e) + '\n请检查 Agent 端点是否可达、Key 是否正确。',
+      sources: [], mode: 'agent'
+    }]
+  } finally {
+    abortCtrl.value = null
+    loading.value = false
+    scrollToBottom()
+  }
+}
+
 async function send(text) {
   const q = (text ?? input.value).trim()
-  if (!q) { window.__kbMsg?.warning('请输入内容'); return }
+  if (!q && !attachments.value.length) { window.__kbMsg?.warning('请输入内容'); return }
   if (loading.value) return
+  if (mode.value === 'agent') {
+    // Agent 模式独立链路：本地引擎（ReAct + 本地工具）或直连自建 Hermes 端点。
+    // 两者都不进后端会话（历史由前端传递，消息仅存本机内存）。
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      window.__kbMsg?.warning('当前离线，无法使用 Agent'); return
+    }
+    let cid = currentId.value
+    if (!cid) {
+      const local = 'agent-' + Date.now()
+      convMessages.value[local] = []
+      conversations.value.unshift({ id: local, title: 'Agent 对话' })
+      currentId.value = local
+      cid = local
+    }
+    if (!input.value.trim() && attachments.value.length) input.value = '请帮我处理附件内容'
+
+    const engine = localStorage.getItem('kb_agent_engine') || 'local'
+    const fileNames = attachments.value.map((a) => a.name)
+    const q = input.value.trim() || '请帮我处理附件内容'
+    const cur = convMessages.value[cid] || []
+    convMessages.value[cid] = [...cur, {
+      role: 'user', content: q, files: fileNames.length ? fileNames : null
+    }]
+    input.value = ''
+    attachments.value = []
+    loading.value = true
+    agentStep.value = ''
+    await nextTick()
+    scrollToBottom()
+
+    try {
+      abortCtrl.value = new AbortController()
+      const signal = abortCtrl.value.signal
+
+      // 附件文字随任务带入（两种引擎通用）
+      const withAtt = attachmentsText.value
+        ? attachmentsText.value + '\n\n【任务】' + q
+        : q
+      const hist = cur.slice(-6).map((m) => ({
+        role: m.role === 'ai' ? 'assistant' : 'user',
+        content: (m.role === 'user' && m.files && m.files.length) ? '[附件：' + m.files.join('、') + '] ' + m.content : m.content
+      }))
+
+      let answer = ''
+      let steps = []
+      if (engine === 'hermes') {
+        agentStep.value = '调用 Hermes…'
+        const r = await callHermes(withAtt, hist, signal)
+        answer = r
+      } else {
+        agentStep.value = '启动本地 Agent…'
+        const r = await runLocalAgent({
+          question: withAtt,
+          ask: async (text, sig) => {
+            const { data } = await aiAsk(text, null, 'general', {
+              modelId: selectedModelId.value || null, signal: sig || signal
+            })
+            return data.answer || ''
+          },
+          onStep: (t) => { agentStep.value = t },
+          signal
+        })
+        answer = r.answer
+        steps = r.steps
+      }
+      const curAi = convMessages.value[cid] || []
+      convMessages.value[cid] = [...curAi, { role: 'ai', content: answer, sources: [], mode: 'agent', steps }]
+    } catch (e) {
+      const stopped = e && (e.name === 'CanceledError' || e.code === 'ERR_CANCELED' || e.name === 'AbortError')
+      const curErr = convMessages.value[cid] || []
+      convMessages.value[cid] = [...curErr, {
+        role: 'ai',
+        content: stopped ? '（已停止）' : 'Agent 执行失败：' + ((e && e.message) || e),
+        sources: [], mode: 'agent'
+      }]
+    } finally {
+      abortCtrl.value = null
+      loading.value = false
+      agentStep.value = ''
+      scrollToBottom()
+    }
+    return
+  }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     window.__kbMsg?.warning('当前离线，无法使用 AI 问答')
     return
@@ -155,8 +430,9 @@ async function send(text) {
     }
   }
 
+  const fileNames = attachments.value.map((a) => a.name)
   const cur = convMessages.value[convId] || []
-  convMessages.value[convId] = [...cur, { role: 'user', content: q }]
+  convMessages.value[convId] = [...cur, { role: 'user', content: q, files: fileNames.length ? fileNames : null }]
   const conv = conversations.value.find((c) => c.id === convId)
   if (conv && (conv.title === '新对话' || !conv.title)) {
     const t = q.length > 20 ? q.slice(0, 20) + '…' : q
@@ -164,14 +440,16 @@ async function send(text) {
     updateConversation(convId, { title: t }).catch(() => {})
   }
 
+  const finalQ = buildQuestionWithAttachments(q)
   input.value = ''
+  attachments.value = []
   loading.value = true
   await nextTick()
   scrollToBottom()
 
   try {
     abortCtrl.value = new AbortController()
-    const { data } = await aiAsk(q, convId, mode.value, {
+    const { data } = await aiAsk(finalQ, convId, mode.value, {
       modelId: selectedModelId.value || null, signal: abortCtrl.value.signal
     })
     const curAi = convMessages.value[convId] || []
@@ -221,20 +499,27 @@ onMounted(async () => {
       <div class="aic-seg">
         <button :class="{ on: mode === 'kb' }" @click="mode = 'kb'">知识库</button>
         <button :class="{ on: mode === 'general' }" @click="mode = 'general'">通用</button>
+        <button :class="{ on: mode === 'agent' }" @click="mode = 'agent'; if (!agentEndpoint) openAgentCfg()">Agent</button>
       </div>
-      <select v-model="selectedModelId" class="aic-model" aria-label="模型">
+      <select v-if="mode !== 'agent'" v-model="selectedModelId" class="aic-model" aria-label="模型">
         <option value="">默认模型</option>
         <option v-for="m in modelList" :key="m.id" :value="String(m.id)">{{ m.name }}</option>
       </select>
+      <button v-else class="aic-cfg" aria-label="Agent 设置" @click="openAgentCfg">
+        <el-icon :size="16"><Setting /></el-icon>
+      </button>
     </div>
 
     <div ref="bodyRef" class="aic-body">
       <div v-if="!messages.length" class="aic-empty">
         <div class="aic-empty-ico"><el-icon :size="26"><ChatDotRound /></el-icon></div>
         <div class="aic-empty-title">
-          {{ mode === 'general' ? '你好，我是通用 AI 助手' : '你好，我是知识库 AI 助手' }}
+          {{ mode === 'agent' ? 'Agent 模式' : (mode === 'general' ? '你好，我是通用 AI 助手' : '你好，我是知识库 AI 助手') }}
         </div>
-        <div class="aic-empty-tip">
+        <div class="aic-empty-tip" v-if="mode === 'agent'">
+          {{ agentEndpoint ? '已连接 Hermes Agent：具备记忆、工具与技能，可执行多步任务' : '先点右上角⚙配置自建 Hermes Agent 端点' }}
+        </div>
+        <div class="aic-empty-tip" v-else>
           {{ mode === 'general' ? '不检索知识库，直接凭通用知识作答' : '基于知识库检索作答，也能陪你日常聊聊' }}
         </div>
         <div class="aic-sugs">
@@ -249,11 +534,19 @@ onMounted(async () => {
         </div>
         <div class="aic-bubble">
           <div v-if="m.role === 'ai'" class="aic-md" v-html="renderMarkdown(m.content)"></div>
-          <div v-else class="aic-text">{{ m.content }}</div>
+          <div v-else class="aic-text">
+            <div v-if="m.files && m.files.length" class="aic-files">
+              <span v-for="f in m.files" :key="f" class="aic-file-chip">📎 {{ f }}</span>
+            </div>
+            {{ m.content }}
+          </div>
 
           <div v-if="m.sources && m.sources.length" class="aic-src">
             <div class="aic-src-h">引用来源（{{ m.sources.length }}）</div>
             <span v-for="(s, si) in m.sources" :key="si" class="aic-src-chip">{{ s.title || s.docTitle || '文档' }}</span>
+          </div>
+          <div v-if="m.steps && m.steps.length" class="aic-steps">
+            <div v-for="(st, si) in m.steps" :key="si" class="aic-step-row">{{ st }}</div>
           </div>
           <div v-if="m.meta && (m.meta.name || m.meta.latencyMs)" class="aic-meta">
             {{ m.meta.name }}<span v-if="m.meta.latencyMs"> · {{ fmtMs(m.meta.latencyMs) }}</span>
@@ -263,20 +556,61 @@ onMounted(async () => {
 
       <div v-if="loading" class="aic-msg ai">
         <div class="aic-av"><span class="aic-av-a"><el-icon><MagicStick /></el-icon></span></div>
-        <div class="aic-bubble aic-typing"><i /><i /><i /></div>
+        <div class="aic-bubble aic-typing"><i /><i /><i />
+          <span v-if="agentStep" class="aic-step">{{ agentStep }}</span>
+        </div>
       </div>
       <div style="height:8px"></div>
     </div>
 
+    <div class="aic-atts" v-if="attachments.length">
+      <span v-for="a in attachments" :key="a.id" class="aic-att" :title="a.name">
+        {{ a.kind === 'image' ? '🖼' : '📄' }} {{ a.name.length > 14 ? a.name.slice(0, 13) + '…' : a.name }}
+        <button class="aic-att-x" @click="removeAttachment(a.id)">×</button>
+      </span>
+    </div>
     <div class="aic-input">
+      <input ref="fileInput" type="file" multiple hidden
+             accept="image/*,.txt,.md,.markdown,.json,.csv,.log,.xml,.yml,.yaml,.sql,.ts,.js,.py,.java,.html,.css,.vue,.ini,.conf,.properties"
+             @change="onFilesPicked" />
+      <button class="aic-clip" :disabled="loading || attBusy" @click="pickFiles" aria-label="上传附件">
+        <el-icon :size="18"><Paperclip /></el-icon>
+      </button>
       <textarea
         v-model="input" rows="1" class="aic-ta"
-        placeholder="问点什么…" @keydown.enter.exact.prevent="send()"
+        :placeholder="mode === 'agent' ? '给 Agent 派活…' : '问点什么…'" @keydown.enter.exact.prevent="send()"
       ></textarea>
       <button v-if="loading" class="aic-send stop" @click="stopAi">停止</button>
       <button v-else class="aic-send" :disabled="!input.trim()" @click="send()">
         <el-icon><Promotion /></el-icon>
       </button>
+    </div>
+
+    <!-- Agent 设置：端点 + Key -->
+    <div v-if="agentOpen" class="aic-mask" @click.self="agentOpen = false">
+      <div class="aic-sheet" @click.stop>
+        <div class="aic-sheet-h"><span>Agent 设置</span></div>
+        <div class="aic-cfg-form">
+          <label class="aic-cfg-l">Agent 引擎</label>
+          <div class="aic-cfg-eng">
+            <button :class="{ on: agentEngine === 'local' }" @click="agentEngine = 'local'">手机本地（推荐）</button>
+            <button :class="{ on: agentEngine === 'hermes' }" @click="agentEngine = 'hermes'">Hermes 实例</button>
+          </div>
+          <p class="aic-cfg-tip" v-if="agentEngine === 'local'">本地引擎：AI 在手机上自主检索知识库、读取文档后作答，零配置开箱即用。</p>
+          <template v-if="agentEngine === 'hermes'">
+          <label class="aic-cfg-l">Hermes 端点（OpenAI 兼容）</label>
+          <input v-model="agentEndpoint" class="aic-cfg-i" placeholder="http://192.168.1.10:8642/v1"
+                 autocapitalize="off" autocomplete="off" spellcheck="false" />
+          <label class="aic-cfg-l">API Key（未设可留空）</label>
+          <input v-model="agentKey" class="aic-cfg-i" placeholder="API_SERVER_KEY" type="password"
+                 autocomplete="off" />
+          <p class="aic-cfg-tip">在自建 Hermes 上启用 API Server：<br/>
+            ~/.hermes/.env 里 API_SERVER_ENABLED=true，然后 hermes gateway。<br/>
+            端点与 Key 只保存在本机，不会上传。</p>
+          </template>
+          <button class="aic-cfg-save" @click="saveAgentCfg">保存</button>
+        </div>
+      </div>
     </div>
 
     <div v-if="historyOpen" class="aic-mask" @click="historyOpen = false">
@@ -414,6 +748,68 @@ html.dark .aic-md :deep(pre) { background: rgba(255, 255, 255, .08); }
 .aic-typing i:nth-child(2) { animation-delay: .2s; }
 .aic-typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes aicBlink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+/* 附件 chips（输入条上方一行） */
+.aic-atts {
+  flex: none; display: flex; gap: 6px; flex-wrap: wrap;
+  padding: 6px 14px 0; background: var(--m-bg);
+}
+.aic-att {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--m-text);
+  background: var(--m-card); border: 1px solid var(--m-border);
+  border-radius: 6px; padding: 3px 8px; max-width: 46%;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.aic-att-x { border: none; background: transparent; color: var(--m-text-dim); font-size: 14px; padding: 0 2px; cursor: pointer; }
+
+/* 📎 按钮 */
+.aic-clip {
+  flex: none; width: 40px; height: 40px; border-radius: 12px;
+  border: 1px solid var(--m-border); background: var(--m-card); color: var(--m-text-dim);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.aic-clip:active { color: var(--m-primary); border-color: var(--m-primary); }
+
+/* Agent 设置按钮 */
+.aic-cfg {
+  flex: none; width: 32px; height: 32px; border-radius: 8px;
+  border: 1px solid var(--m-border); background: var(--m-card); color: var(--m-text-dim);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.aic-cfg-form { padding: 4px 2px; }
+.aic-cfg-l { display: block; font-size: 12.5px; color: var(--m-text-dim); margin: 10px 2px 6px; }
+.aic-cfg-i {
+  width: 100%; box-sizing: border-box; height: 42px;
+  border: 1px solid var(--m-border); border-radius: 8px;
+  background: var(--m-card-2, var(--m-card)); color: var(--m-text);
+  padding: 0 12px; font-size: 15px;
+}
+.aic-cfg-tip { font-size: 11.5px; color: var(--m-text-dim); line-height: 1.7; margin: 10px 0 0; }
+.aic-cfg-save {
+  width: 100%; height: 42px; margin-top: 14px;
+  border: none; border-radius: 8px; background: var(--m-primary); color: #fff;
+  font-size: 15px; cursor: pointer;
+}
+
+/* Agent 步骤 */
+.aic-step { font-size: 12px; color: var(--m-text-dim); margin-left: 8px; }
+.aic-steps { margin-top: 8px; border-top: 1px dashed var(--m-border); padding-top: 6px; }
+.aic-step-row { font-size: 11.5px; color: var(--m-text-dim); line-height: 1.8; }
+.aic-cfg-eng { display: flex; gap: 8px; }
+.aic-cfg-eng button {
+  flex: 1; height: 38px; border-radius: 8px;
+  border: 1px solid var(--m-border); background: var(--m-card-2, var(--m-card));
+  color: var(--m-text-dim); font-size: 13.5px; cursor: pointer;
+}
+.aic-cfg-eng button.on { color: var(--m-primary); border-color: var(--m-primary); background: var(--m-primary-soft, var(--m-card)); font-weight: 600; }
+
+/* 用户消息附件标记 */
+.aic-files { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.aic-file-chip {
+  font-size: 11.5px; background: rgba(255,255,255,.16);
+  border-radius: 5px; padding: 2px 7px;
+}
 
 /* 底部输入条：安全区由 TabBar 统一兜底（TabBar 自带 padding-bottom: safe-area），
    这里不再叠加 env(safe-area-inset-bottom)，否则输入条被垫高、输入框显得偏上。 */
