@@ -13,7 +13,7 @@ const { chromium } = require('playwright-core');
     <tr><td>3</td><td>ap-floor1</td><td>198.51.100.11</td><td>A4:5E:60:12:34:56</td></tr>
     <tr><td>4</td><td>srv-db-01</td><td>203.0.113.21</td><td>B8:27:EB:AA:BB:CC</td></tr>
   </table></body>`);
-  await p.screenshot({ path: 'path.join(__dirname, '../outputs/ipmac-test.png')', fullPage: true });
+  await p.screenshot({ path: path.join(__dirname, '../outputs/ipmac-test.png'), fullPage: true });
   await b.close();
   console.log('已生成 ipmac-test.png');
 })();

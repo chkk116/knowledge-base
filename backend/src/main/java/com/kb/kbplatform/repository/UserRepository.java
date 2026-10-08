@@ -38,6 +38,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** 看板统计：按角色 / 禁用态计数 */
     long countByRole(String role);
+    /** 只统计启用中的管理员：已注销（软删除 enabled=false）/ 已停用的不应计入，
+     *  否则两个管理员先后注销会双双通过唯一性检查，最后启用中的管理员为 0（外部复审 2026-10-08） */
+    long countByRoleAndEnabled(String role, boolean enabled);
     long countByEnabledFalse();
     long countByCreatedAtAfter(java.time.LocalDateTime t);
     long countByCreatedAtBetween(java.time.LocalDateTime from, java.time.LocalDateTime to);

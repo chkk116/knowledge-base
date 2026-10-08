@@ -24,6 +24,7 @@ public interface DocSubscriptionRepository extends JpaRepository<DocSubscription
 
     /** 「我的订阅」：按订阅时间倒序 */
     List<DocSubscription> findByUserIdOrderByCreatedAtDesc(@Param("userId") Long userId);
+    void deleteByUserId(Long userId);   // 自助注销：清空本人文档订阅
 
     long countByDocId(@Param("docId") Long docId);
 

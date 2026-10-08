@@ -61,7 +61,7 @@ public class AdminBootstrap implements ApplicationRunner {
             log.error("[引导] KB_ADMIN_USERNAME 与 KB_ADMIN_PASSWORD 必须成对设置，当前只设置了一个，已忽略。");
         }
         // 没有管理员 = 系统不可运维（进不去后台、改不了任何配置），必须让运维看见
-        if (userRepo.countByRole("ADMIN") == 0) {
+        if (userRepo.countByRoleAndEnabled("ADMIN", true) == 0) {   // 与注销服务的唯一管理员判定同口径（启用中）
             log.error("[引导] 当前系统中没有任何管理员账号。"
                     + "请设置环境变量 KB_ADMIN_USERNAME 与 KB_ADMIN_PASSWORD 后重启，将自动创建首个管理员。");
         }

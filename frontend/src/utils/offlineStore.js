@@ -130,6 +130,19 @@ export async function clearDocCacheForLogout() {
   } catch { /* 忽略 */ }
 }
 
+/**
+ * 注销场景专用：队列与缓存全部清空。
+ * 与 clearDocCacheForLogout（登出，保留草稿）不同——注销后账号不复存在，草稿无法再同步。
+ */
+export async function purgeAllOffline() {
+  try {
+    const items = await listQueuedDocs()
+    for (const it of items) await removeQueuedDoc(it.localId)
+    await tx(STORE_CACHE, 'readwrite', (s) => wrap(s.clear()))
+    notify()
+  } catch { /* 忽略 */ }
+}
+
 export async function removeQueuedDoc(localId) {
   await tx(STORE_QUEUE, 'readwrite', (s) => wrap(s.delete(localId)))
   notify()

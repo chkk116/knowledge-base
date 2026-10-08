@@ -27,6 +27,7 @@ public interface SharedDocPermissionRepository extends JpaRepository<SharedDocPe
     @Modifying
     @Query("DELETE FROM SharedDocPermission p WHERE p.docId = :docId AND p.userId = :userId")
     void deleteByDocIdAndUserId(@Param("docId") Long docId, @Param("userId") Long userId);
+    void deleteByUserId(Long userId);   // 自助注销：授权随账号失效
 
     /** 删除某文档的全部文档级权限（删文档/移出空间时清理） */
     @Modifying

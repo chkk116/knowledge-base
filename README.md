@@ -242,7 +242,7 @@ ws 地址跟随页面协议：HTTPS 同源走 `/collab/`，HTTP 走 `ws://主机
 
 | 用户名 | 密码 | 角色 |
 |---------|-----------|-------|
-| `admin` | `Admin@123` | ADMIN |
+| `admin` | `Admin@123` | ADMIN（仅本地开发默认值，生产环境请勿使用） |
 | `zhangsan` | `Zhang@123` | USER |
 | `lisi` | `Li@123` | USER |
 

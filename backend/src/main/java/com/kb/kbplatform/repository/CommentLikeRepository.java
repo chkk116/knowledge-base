@@ -16,6 +16,7 @@ public interface CommentLikeRepository extends JpaRepository<CommentLike, Long> 
     void deleteByUserIdAndCommentId(Long userId, Long commentId);
 
     List<CommentLike> findByUserId(Long userId);
+    void deleteByUserId(Long userId);   // 自助注销：清空本人评论点赞
 
     /** 删除评论时清掉它的所有点赞记录，避免孤儿数据（调用方必须 @Transactional） */
     void deleteByCommentId(Long commentId);

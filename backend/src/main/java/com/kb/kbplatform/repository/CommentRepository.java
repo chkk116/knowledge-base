@@ -57,6 +57,6 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     void deleteByDocId(@org.springframework.data.repository.query.Param("docId") Long docId);
     /** 自助注销：本人评论保留但匿名（userId 置 null，前端对空 userId 显示「已注销用户」） */
     @org.springframework.data.jpa.repository.Modifying
-    @org.springframework.data.jpa.repository.Query("update Comment c set c.userId = null where c.userId = :uid")
+    @org.springframework.data.jpa.repository.Query("update Comment c set c.userId = null, c.username = '已注销用户' where c.userId = :uid")   // username 快照会被评论接口公开显示，必须一并匿名
     void anonymizeByUserId(@org.springframework.data.repository.query.Param("uid") Long uid);
 }

@@ -65,7 +65,7 @@ public class StatsService {
         m.put("viewsTotal", docRepo.sumViews());
         // 用户
         m.put("userTotal", userRepo.count());
-        m.put("userAdmin", userRepo.countByRole("ADMIN"));
+        m.put("userAdmin", userRepo.countByRoleAndEnabled("ADMIN", true));   // 已注销/停用不计入
         m.put("userBlocked", userRepo.countByEnabledFalse());
         m.put("userToday", userRepo.countByCreatedAtAfter(today));
         m.put("userYesterday", userRepo.countByCreatedAtBetween(yesterday, today));

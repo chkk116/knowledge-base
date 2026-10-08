@@ -21,6 +21,7 @@ public interface DocSharePermissionRepository extends JpaRepository<DocSharePerm
     java.util.List<DocSharePermission> findByShareIdIn(java.util.Collection<Long> shareIds);
 
     void deleteByShareIdAndUserId(Long shareId, Long userId);
+    void deleteByUserId(Long userId);   // 自助注销：授权随账号失效（username 快照随条目消失）
 
     long countByShareIdAndPermission(Long shareId, String permission);
 }

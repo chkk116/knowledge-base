@@ -16,6 +16,7 @@ public interface LikeRepository extends JpaRepository<PostLike, Long> {
     void deleteByUserIdAndDocId(Long userId, Long docId);
 
     List<PostLike> findByUserId(Long userId);
+    void deleteByUserId(Long userId);   // 自助注销：清空本人帖子点赞
 
     /** 彻底删除文档时清理关联记录（F12/purge：不留孤儿数据） */
     @org.springframework.data.jpa.repository.Modifying

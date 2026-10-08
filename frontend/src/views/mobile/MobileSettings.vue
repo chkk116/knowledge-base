@@ -80,13 +80,25 @@ async function deleteAccount() {
     await ElMessageBox.confirm(
       '注销后你的账号与关联的个人数据将被永久删除，且无法恢复。确定继续吗？',
       '注销账号',
-      { type: 'warning', confirmButtonText: '确认注销', cancelButtonText: '取消' }
+      { type: 'warning', confirmButtonText: '下一步', cancelButtonText: '取消' }
     )
   } catch { return }
+  let password = ''
   try {
-    await request({ url: '/api/auth/me', method: 'delete' })
+    // 后端要求密码二次确认：不可逆删号仅凭 24h 令牌不够（外部复审 2026-10-08）
+    const r = await ElMessageBox.prompt('请输入登录密码，确认后账号将立即注销且无法恢复', '身份确认', {
+      type: 'warning', inputType: 'password', inputPlaceholder: '登录密码',
+      confirmButtonText: '确认注销', cancelButtonText: '取消'
+    })
+    password = String(r.value || '')
+    if (!password) { window.__kbMsg?.warning('需要密码确认'); return }
+  } catch { return }
+  try {
+    await request({ url: '/api/auth/me', method: 'delete', data: { password } })
     try { localStorage.removeItem('kb_token') } catch {}
     await clearCache().catch(() => {})
+    // 注销 = 账号不复存在：待同步草稿一并清除（否则残留在设备上且永远无法同步）
+    import('../../utils/offlineStore').then((m) => m.purgeAllOffline()).catch(() => {})
     window.__kbMsg?.success('账号已注销')
     router.replace('/login')
   } catch (e) {
