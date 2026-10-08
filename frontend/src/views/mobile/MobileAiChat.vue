@@ -24,6 +24,9 @@ import { runLocalAgent } from '../../utils/localAgent'
 import { createMyDoc, updateMyDoc, listMyDocs } from '../../api/kb'
 import { listMyFiles } from '../../api/file'
 import api from '../../api/request'
+import { buildFlowchartGraph, flowchartHtml } from '../../utils/flowchartGen'
+import { createShareDoc, updateShareDoc, getShareDoc } from '../../api/docShare'
+import { resolveDefaultSpaceId } from '../../utils/spaceResolver'
 import MarkdownIt from 'markdown-it'
 
 const router = useRouter()
@@ -577,6 +580,30 @@ async function send(text) {
                 return rows.length ? `我的文档共 ${rows.length} 篇：\n` + rows.join('\n') : '我还没有自己的文档'
               } catch (e) {
                 return '列出文档失败：' + ((e && e.message) || e)
+              }
+            },
+            insertFlowchart: async ({ title, docId, nodes, edges }) => {
+              if (auth.isDemo) return '演示账号是只读的，无法生成文档'
+              try {
+                const graph = buildFlowchartGraph(nodes, edges)
+                if (!graph.nodes.length) return '没有有效节点，未生成流程图'
+                const html = flowchartHtml(title, graph)
+                const sid = await resolveDefaultSpaceId()
+                if (!sid) return '没有可写入的共享空间'
+                const tip = `（${graph.nodes.length} 个节点 / ${graph.edges.length} 条连线）`
+                // docId 来自模型输出：必须是整数，防路径拼接出非预期端点（外部复审 2026-10-08）
+                const docIdNum = Number(docId)
+                if (docId && !Number.isInteger(docIdNum)) return '文档 id 非法'
+                const t = String(title || '流程图').slice(0, 80)
+                if (docId) {
+                  const { data } = await getShareDoc(sid, docId)
+                  await updateShareDoc(sid, docId, { content: String(data.content || '') + html })
+                  return `已在共享文档《${data.title || docId}》中生成流程图${tip}`
+                }
+                const { data } = await createShareDoc(sid, { title: t, content: html })
+                return `已新建共享文档《${t}》并生成流程图${tip}（id=${data && data.id}）`
+              } catch (e) {
+                return '生成流程图失败：' + ((e && e.message) || e)
               }
             },
             createDoc: async ({ title, content, status }) => {

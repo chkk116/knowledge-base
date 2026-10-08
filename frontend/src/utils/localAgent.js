@@ -33,6 +33,11 @@ TOOL: {"tool":"工具名","args":{...}}
 9. list_my_files —— 列出「我的文件」里已上传的图片 / 音视频 / PDF（含可直接用的链接）。参数 {}
    · **要在文档里插入图片 / 视频 / 音频时，先用它拿到 url**，再写进正文。写法（**别直接写 HTML 标签，会被转义**）：
      图片：![说明](url) ｜ 视频：@[video](url) ｜ 音频：@[audio](url)
+10. create_flowchart —— **生成流程图**并写进共享文档（画布）。参数：
+    {"title":"流程图标题","docId":可选(不传就新建一篇),"nodes":[{"id":"1","label":"开始","shape":"ellipse"}],"edges":[{"from":"1","to":"2","label":"是"}]}
+    · shape 取值：ellipse 开始/结束、rect 普通步骤、diamond 判断分支、doc 文档、db 数据库、sub 子流程。
+    · **只需给节点和连线，坐标由前端自动排版**，不要自己编位置。
+    · 适用：「画个流程」「生成审批流程图」「把步骤画成图」这类要求。
 
 工作方式要求：
 - 用户说「审查/优化/改写我某篇文档」时：先用 list_my_docs（或 search_kb）定位到文档 → read_doc 读全文 → 分析 → 用 update_doc 写回优化后的**完整正文**（不是只给建议，要真正落地）。
@@ -50,7 +55,8 @@ TOOL: {"tool":"工具名","args":{...}}
  *   ask       (text, signal) => Promise<string>  单轮 LLM 调用（通用模式，无知识库注入）
  *   onStep    (text) => void                      每步进展回调（UI 展示）
  *   signal    AbortSignal
- *   hooks     { navigate?, createDoc? }           宿主能力（跳转 / 保存文档），未传则对应工具不可用
+ *   hooks     { navigate?, createDoc?, updateDoc?, listMyDocs?, listMyFiles?, insertFlowchart?, askUser? }
+ *             宿主能力集合，未传的对应工具返回「不支持」
  * @returns {Promise<{answer:string, steps:string[]}>}
  */
 export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} }) {
@@ -135,6 +141,20 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
         } else {
           say('📎 列出我的文件')
           result = await hooks.listMyFiles()
+        }
+      } else if (tool === 'create_flowchart') {
+        if (typeof hooks.insertFlowchart !== 'function') {
+          result = '当前环境不支持生成流程图'
+        } else {
+          const title = String(args.title || '流程图').slice(0, 80)
+          const ns = Array.isArray(args.nodes) ? args.nodes : []
+          const es = Array.isArray(args.edges) ? args.edges : []
+          if (!ns.length) {
+            result = '节点为空，未生成流程图'
+          } else {
+            // buildFlowchartGraph 内部会把节点截到 40 / 连线截到 60，播报数量须与之一致
+            result = await hooks.insertFlowchart({ title, docId: args.docId, nodes: ns, edges: es })
+          }
         }
       } else if (tool === 'create_doc') {
         if (typeof hooks.createDoc !== 'function') {

@@ -561,7 +561,7 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
        根元素假想高度 100% + 页脚超出容器 → 触发 flex **收缩**，卡片/表格被压缩。
        basis 0% 时假想总高恰好占满、永不触发收缩，故不会再压扁；min-height:auto 兜底内容高度。
    ⚠️ 别把页脚挪到 el-main 外面常驻底部：内容区可用高度被砍掉约 90px，观感像"压缩"。 */
-.main { padding: 20px; display: flex; flex-direction: column; }
+.main { padding: 20px 20px 4px; display: flex; flex-direction: column; }
 /* width:100% 必须加：flex 纵向容器的子项若只靠 stretch，遇到根元素自带
    max-width + margin:0 auto 的页面（收藏/排行/勋章/考试等）会被**收缩成内容宽**
    （实测 /favorites 根被压到 311px），表现为「页面被压扁/从手机宽度往外延伸」。

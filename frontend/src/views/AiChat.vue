@@ -17,6 +17,9 @@ import { runLocalAgent } from '../utils/localAgent'
 import { createMyDoc, updateMyDoc, listMyDocs } from '../api/kb'
 import { listMyFiles } from '../api/file'
 import api from '../api/request'
+import { buildFlowchartGraph, flowchartHtml } from '../utils/flowchartGen'
+import { createShareDoc, updateShareDoc, getShareDoc } from '../api/docShare'
+import { resolveDefaultSpaceId } from '../utils/spaceResolver'
 // ⚠️ 必须走 utils/prism 这一层包装，不能直接 `import Prism from 'prismjs'`：
 // prismjs 是 CJS，构建后 `global` 不存在，语言组件又直接读写全局 Prism，
 // 运行时会抛 "ReferenceError: Prism is not defined"。原因与顺序要求见 utils/prism.js。
@@ -441,6 +444,30 @@ async function sendAgent(raw) {
             const rows = (data || []).slice(0, 30).map((d) => `- [${d.id}] ${d.title || '无标题'}`)
             return rows.length ? `我的文档共 ${rows.length} 篇：\n` + rows.join('\n') : '我还没有自己的文档'
           } catch (e) { return '列出文档失败：' + ((e && e.message) || e) }
+        },
+        insertFlowchart: async ({ title, docId, nodes, edges }) => {
+          if (auth.isDemo) return '演示账号是只读的，无法生成文档'
+          try {
+            const graph = buildFlowchartGraph(nodes, edges)
+            if (!graph.nodes.length) return '没有有效节点，未生成流程图'
+            const html = flowchartHtml(title, graph)
+            const sid = await resolveDefaultSpaceId()
+            if (!sid) return '没有可写入的共享空间'
+            const tip = `（${graph.nodes.length} 个节点 / ${graph.edges.length} 条连线）`
+            // docId 来自模型输出：必须是整数，防路径拼接出非预期端点（外部复审 2026-10-08）
+            const docIdNum = Number(docId)
+            if (docId && !Number.isInteger(docIdNum)) return '文档 id 非法'
+            const t = String(title || '流程图').slice(0, 80)
+            if (docId) {
+              const { data } = await getShareDoc(sid, docId)
+              await updateShareDoc(sid, docId, { content: String(data.content || '') + html })
+              return `已在共享文档《${data.title || docId}》中生成流程图${tip}`
+            }
+            const { data } = await createShareDoc(sid, { title: t, content: html })
+            return `已新建共享文档《${t}》并生成流程图${tip}（id=${data && data.id}）`
+          } catch (e) {
+            return '生成流程图失败：' + ((e && e.message) || e)
+          }
         },
         createDoc: async ({ title, content, status }) => {
           // 演示账号后端会 403，提前给出明确原因，免得 Agent 白跑几步再失败

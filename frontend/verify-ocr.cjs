@@ -13,6 +13,7 @@ if (!token) { console.error('缺 KB_TOKEN'); process.exit(1); }
   page.on('console', (m) => logs.push(m.type() + ': ' + m.text()));
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
   page.on('requestfailed', (r) => { if (r.url().includes('tesseract')) logs.push('reqfail: ' + r.url() + ' ' + (r.failure() || {}).errorText) });
+  if (!token) { console.error('缺少 KB_TOKEN 环境变量，脚本无法以登录态运行'); process.exit(1) }
   await page.addInitScript((t) => { try { localStorage.setItem('kb_token', t) } catch (e) {} }, token);
 
   await page.goto('' + BASE + '/m/capture', { waitUntil: 'domcontentloaded', timeout: 30000 });

@@ -56,7 +56,7 @@ const safeHref = (u) => /^https?:\/\//i.test(String(u || '').trim())
 <style scoped>
 .site-footer {
   margin-top: 28px;
-  padding: 16px 0 20px;
+  padding: 16px 0 8px;
   border-top: 1px solid var(--el-border-color-lighter, #ebeef5);
   font-size: 12.5px;
   line-height: 1.9;

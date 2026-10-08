@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MoreFilled, Document, Grid, Share, Connection, ArrowDown } from '@element-plus/icons-vue'
+import { MoreFilled, Document, Grid, Share, Connection, ArrowDown, Expand } from '@element-plus/icons-vue'
 import {
   getShare, updateShare, listShareDocs, createShareDoc,
   getShareDoc, updateShareDoc, deleteShareDoc, moveShareDoc,
@@ -30,6 +30,15 @@ const loading = ref(false)
 const shareStorage = ref(null)  // 空间容量 { used, capacity, hasCapacity, ownerQuota, ownerUsed }
 
 const activeDoc = ref(null)
+
+// 全屏阅读：整页覆盖，只留标题 + 正文，隐藏顶栏/文档列表（Esc 退出）
+const readingMode = ref(false)
+function toggleReading() { readingMode.value = !readingMode.value }
+function onReadingKey(e) {
+  if (e.key === 'Escape' && readingMode.value) readingMode.value = false
+}
+onMounted(() => window.addEventListener('keydown', onReadingKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onReadingKey))
 const editorTitle = ref('')
 const saving = ref(false)
 
@@ -577,6 +586,11 @@ watch(() => route.query.doc, async (want) => {
       <main class="editor" v-if="activeDoc">
         <div class="title-bar">
           <input v-model="editorTitle" class="title-input" placeholder="无标题文档" :disabled="!canWrite" @change="saveTitle" />
+          <button class="reading-btn" type="button"
+                  :title="readingMode ? '退出全屏阅读（Esc）' : '全屏阅读'"
+                  @click="toggleReading">
+            <el-icon><Expand /></el-icon>
+          </button>
         </div>
         <DocShareEditor :key="activeDoc.id + ':' + (activeDoc.yjsRev || 0)" :share-id="shareId" :doc-id="activeDoc.id"
                         :revision="activeDoc.yjsRev || 0"
@@ -749,7 +763,14 @@ watch(() => route.query.doc, async (want) => {
 </template>
 
 <style scoped>
-.wrap { height: calc(100vh - 84px); display: flex; flex-direction: column; }
+/* 高度交给 App.vue 的 `.main > * { flex: 1 1 0% }` 分配（= 视口 - 顶栏 - 页脚）。
+   原来写死 calc(100vh - 84px) 只减了顶栏、没减页脚，导致整块溢出被页脚盖住。
+   min-height:0 必须有，否则内部滚动容器会被内容撑高、失效。 */
+/* flex 嵌套链上每一层都要 min-height:0，否则子项的 min-height:auto 会让整条链被内容撑高，
+   内部的 overflow:auto 就永远不触发 → 内容直接画到容器外盖住页脚。
+   链：.wrap → .workspace → .editor → .collab → .collab-canvas(overflow:auto) */
+/* .main padding-bottom 已经改小了（App.vue），这里不需要再抵消；保留原高度自动分配。 */
+.wrap { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .topbar { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px; }
 .topbar .left { display: flex; align-items: center; gap: 10px; }
 .topbar .name { font-weight: 600; font-size: 16px; color: #0f172a; }
@@ -757,7 +778,8 @@ watch(() => route.query.doc, async (want) => {
 .topbar .right { display: flex; align-items: center; gap: 10px; }
 .topbar .cap-box { display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
 .topbar .cap-text { font-size: 12px; color: #64748b; white-space: nowrap; }
-.workspace { flex: 1; display: flex; min-height: 0; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
+.workspace { flex: 1; display: flex; min-height: 0; overflow: hidden; border-radius: 8px; background: #fff; }
+/* 边线原先：border: 1px solid #e2e8f0 —— 修好溢出后这条底边会显现出"一根横线"看着突兀，去掉 */
 .doc-list { width: 264px; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; }
 .list-head { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
 .list-head .head-actions { display: flex; gap: 6px; font-weight: normal; }
@@ -778,9 +800,30 @@ watch(() => route.query.doc, async (want) => {
 .ava img { width: 100%; height: 100%; object-fit: cover; }
 .ava-tx { background: #6366f1; color: #fff; font-size: 10px; font-weight: 600; }
 .ava-tx.sm { width: 20px; height: 20px; font-size: 11px; vertical-align: middle; }
-.editor { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #f2f3f5; }
+.editor { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: #f2f3f5; }
 .editor.empty { align-items: center; justify-content: center; }
-.title-bar { background: #f2f3f5; padding: 20px 0 0; }
+.title-bar { background: #f2f3f5; padding: 20px 0 0; position: relative; }
+/* 全屏阅读开关：平时淡，hover 才明显，避免抢标题的视觉焦点 */
+.reading-btn {
+  position: absolute; right: 18px; top: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; color: #94a3b8;
+  cursor: pointer; transition: all .16s;
+}
+.reading-btn:hover { background: #fff; border-color: #e2e8f0; color: #6366f1; }
+.wrap.reading .reading-btn { color: #6366f1; background: #eef2ff; }
+
+/* ---- 全屏阅读：整页覆盖，只留标题 + 正文 ---- */
+.wrap.reading {
+  position: fixed; inset: 0; z-index: 2000;
+  margin: 0; padding: 0; background: #fff;
+  border-radius: 0;
+}
+.wrap.reading .topbar { display: none; }
+.wrap.reading .doc-list { display: none; }
+.wrap.reading .workspace { border: none; border-radius: 0; }
+.wrap.reading .title-bar { padding-top: 30px; }
 .title-bar .title-input {
   display: block; width: min(860px, 100%); margin: 0 auto; box-sizing: border-box;
   padding: 0 64px 6px; border: none; outline: none; background: transparent;
@@ -848,13 +891,16 @@ html.dark .title-bar .title-input:disabled { color: #c2c6d2; }
 
 /* 手机：文档列表与编辑区改为上下单列，列表限高可滚 */
 @media (max-width: 640px) {
-  .wrap { height: auto; min-height: calc(100vh - 72px); }
+  /* 手机：上下单列，整页随内容滚动，页脚自然排在内容之后（不再写死视口高度）。
+     overflow/flex 必须一并覆盖：基础规则是 overflow:hidden + flex:1 1 0%，
+     只改 height 会让超出内容被裁掉且无法滚动（外部复审 2026-10-08） */
+  .wrap { height: auto; min-height: 0; overflow: visible; flex: none; }
   .topbar { padding-bottom: 8px; }
   .topbar .desc { flex: 1 1 100%; }
   .topbar .right { width: 100%; }
   .topbar .cap-box { flex: 1 1 100%; }
   .topbar .cap-box :deep(.el-progress) { width: 100% !important; }
-  .workspace { flex-direction: column; min-height: 0; }
+  .workspace { flex-direction: column; min-height: 0; overflow: visible; }
   .doc-list { width: 100%; flex: none; max-height: 42vh; border-right: 0; }
   .list-head { padding: 8px; }
   .doc-item { padding: 8px; }

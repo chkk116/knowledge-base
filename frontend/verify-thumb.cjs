@@ -6,6 +6,7 @@ const token = process.env.KB_TOKEN;
   const b = await chromium.launch({ headless: true, channel: 'chrome' });
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
+  if (!token) { console.error('缺少 KB_TOKEN 环境变量，脚本无法以登录态运行'); process.exit(1) }
   await page.addInitScript((t) => { try { localStorage.setItem('kb_token', t) } catch (e) {} }, token);
   await page.goto('' + BASE + '/ai/chat', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(9000); console.log("URL:", page.url());

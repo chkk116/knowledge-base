@@ -9,6 +9,7 @@ const token = process.env.KB_TOKEN;
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text().slice(0, 160)) });
+  if (!token) { console.error('缺少 KB_TOKEN 环境变量，脚本无法以登录态运行'); process.exit(1) }
   await page.addInitScript((t) => { try { localStorage.setItem('kb_token', t) } catch (e) {} }, token);
   await page.goto('' + BASE + '/ai/chat', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(10000);

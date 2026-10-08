@@ -11,6 +11,7 @@ if (!token) { console.error('缺 KB_TOKEN'); process.exit(1); }
   const page = await ctx.newPage();
   const logs = [];
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
+  if (!token) { console.error('缺少 KB_TOKEN 环境变量，脚本无法以登录态运行'); process.exit(1) }
   await page.addInitScript((t) => { try { localStorage.setItem('kb_token', t) } catch (e) {} }, token);
 
   await page.goto('' + BASE + '/m/ai', { waitUntil: 'domcontentloaded', timeout: 30000 });

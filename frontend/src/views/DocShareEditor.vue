@@ -949,7 +949,9 @@ watch(() => props.canWrite, (w) => {
 </template>
 
 <style scoped>
-.collab { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* min-height:0 必须有：否则 flex 子项的 min-height:auto 会被内容撑高，
+   下游 .collab-canvas 的 overflow:auto 永远不触发（内容溢出盖住页脚）。 */
+.collab { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 
 /* ---------- 工具栏 ---------- */
 .collab-toolbar {
