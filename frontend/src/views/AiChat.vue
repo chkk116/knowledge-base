@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, reactive, nextTick, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound, Plus, Delete, EditPen, ChatLineRound, Document,
@@ -12,6 +12,11 @@ import {
   deleteConversation, listMessages
 } from '../api/ai'
 import MarkdownIt from 'markdown-it'
+import { useRouter } from 'vue-router'
+import { runLocalAgent } from '../utils/localAgent'
+import { createMyDoc, updateMyDoc, listMyDocs } from '../api/kb'
+import { listMyFiles } from '../api/file'
+import api from '../api/request'
 // ⚠️ 必须走 utils/prism 这一层包装，不能直接 `import Prism from 'prismjs'`：
 // prismjs 是 CJS，构建后 `global` 不存在，语言组件又直接读写全局 Prism，
 // 运行时会抛 "ReferenceError: Prism is not defined"。原因与顺序要求见 utils/prism.js。
@@ -28,6 +33,7 @@ import 'prismjs/components/prism-go'
 import { escapeHtml } from '../utils/text'
 import { compressImage } from '../utils/imageCompress'
 import { recognizeLocal } from '../utils/localOcr'
+import { parseDocument, DOC_EXTS } from '../utils/docParse'
 
 const auth = useAuthStore()
 
@@ -44,6 +50,36 @@ const messages = computed(() => (currentId.value ? (convMessages.value[currentId
 const started = computed(() => messages.value.length > 0)
 
 const mode = ref('kb')
+const agentSteps = ref([])  // Agent 模式：步骤列表（累积展示，能看到它做了什么）
+const agentStepsOpen = ref(true)  // 步骤折叠状态：执行中展开，完成后自动收起
+// 高消耗发送确认的开关与阈值（管理员在「AI 模型管理 → 消息设置」配置）
+const aiGuard = reactive({ enabled: true, imageThreshold: 2, textThreshold: 8000 })
+async function loadAiGuard() {
+  try {
+    const { data } = await api.get('/public/ai-guard')
+    if (data && typeof data.enabled === 'boolean') aiGuard.enabled = data.enabled
+    if (data && Number(data.imageThreshold) > 0) aiGuard.imageThreshold = Number(data.imageThreshold)
+    if (data && Number(data.textThreshold) > 0) aiGuard.textThreshold = Number(data.textThreshold)
+  } catch { /* 读不到就用默认 */ }
+}
+const router = useRouter()
+// Agent 询问用户（ask_user 工具）：拿不准时弹出来让用户拍板
+const agentAsk = ref(null)      // { question, options, resolve }
+const agentAskInput = ref('')
+function askUser(question, options) {
+  return new Promise((resolve) => {
+    agentAskInput.value = ''
+    agentAsk.value = { question, options: options || [], resolve }
+  })
+}
+function answerAgentAsk(val) {
+  const a = agentAsk.value
+  if (!a) return
+  const ans = String(val != null ? val : agentAskInput.value || '').trim()
+  agentAsk.value = null
+  agentAskInput.value = ''
+  a.resolve(ans)
+}
 // ---------- 模型选择（模型由管理员在「AI 模型管理」页配置，这里只选不配）----------
 // selectedModelId 为 '' 时不指定，走后端「默认模型」；选了具体 id 则本次请求强制用它
 const modelList = ref([])
@@ -98,7 +134,10 @@ function fmtTokens(u) {
 }
 
 const showScrollBtn = ref(false)
-const thumbStyle = computed(() => ({ transform: mode.value === 'general' ? 'translateX(100%)' : 'translateX(0)' }))
+// 分段滑块位置：必须与按钮个数同步（kb=0 / general=1 / agent=2），
+// 之前只算了 2 个位置，加了 Agent 按钮后遮罩就错位了。
+const MODE_INDEX = { kb: 0, general: 1, agent: 2 }
+const thumbStyle = computed(() => ({ transform: `translateX(${(MODE_INDEX[mode.value] || 0) * 100}%)` }))
 
 // 侧栏：宽屏 = 折叠进文档流（记忆到 localStorage）；窄屏 = 覆盖式抽屉，默认收起
 const SIDEBAR_KEY = 'kb_ai_sidebar_collapsed'
@@ -149,8 +188,27 @@ const generalSuggestions = [
   '推荐几本讲系统设计的好书',
   '写一个 Python 读取 Excel 的例子',
 ]
-const emptyCopy = computed(() => (mode.value === 'general'
-  ? {
+const agentSuggestions = [
+  '帮我写一篇关于「消防演练注意事项」的文档，存进知识库',
+  '审查我最近的一篇文档，指出问题并优化',
+  '把知识库里关于报销的内容找出来，对比有没有矛盾',
+  '列出我最近写的文档',
+]
+const emptyCopy = computed(() => {
+  if (mode.value === 'agent') {
+    return {
+      title: '你好，我是 Agent',
+      tip: '我会自己检索资料、读写文档——你说目标，我来干活（写好的文档会存进知识库）',
+      features: [
+        { icon: 'Search', text: '自主检索' },
+        { icon: 'EditPen', text: '写 / 改文档' },
+        { icon: 'Cpu', text: '多步执行' },
+      ],
+      sugs: agentSuggestions,
+    }
+  }
+  if (mode.value === 'general') {
+    return {
       title: '你好，我是通用 AI 助手',
       tip: '不检索知识库，直接凭通用知识作答',
       features: [
@@ -160,17 +218,19 @@ const emptyCopy = computed(() => (mode.value === 'general'
       ],
       sugs: generalSuggestions,
     }
-  : {
-      // kb 模式保持原有身份文案（2026-10-06 用户确认：知识库模式照旧，新口径只作用于通用模式）
-      title: '你好，我是知识库 AI 助手',
-      tip: '基于知识库检索作答，也能陪你日常聊聊',
-      features: [
-        { icon: 'Reading', text: '知识检索' },
-        { icon: 'EditPen', text: '总结写作' },
-        { icon: 'ChatDotRound', text: '日常问答' },
-      ],
-      sugs: suggestions,
-    }))
+  }
+  return {
+    // kb 模式保持原有身份文案（2026-10-06 用户确认：知识库模式照旧，新口径只作用于通用模式）
+    title: '你好，我是知识库 AI 助手',
+    tip: '基于知识库检索作答，也能陪你日常聊聊',
+    features: [
+      { icon: 'Reading', text: '知识检索' },
+      { icon: 'EditPen', text: '总结写作' },
+      { icon: 'ChatDotRound', text: '日常问答' },
+    ],
+    sugs: suggestions,
+  }
+})
 
 const currentConversation = computed(() =>
   conversations.value.find((c) => c.id === currentId.value)
@@ -267,18 +327,173 @@ async function newConversation() {
   }
 }
 
+/**
+ * 轻量 Markdown → HTML：Agent 写/改文档时用（文档正文存的是富文本 HTML）。
+ * 只支持标题 / 列表 / 加粗 / 代码块 / 段落 —— 够 Agent 产出用，且零依赖。
+ */
+function mdToHtml(md) {
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')   // 引号必须转义：alt/src 属性位置可被注入 onerror（外部复审 2026-10-08）
+  const out = []
+  let inCode = false
+  let inList = false
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false } }
+  for (const raw of String(md || '').split('\n')) {
+    const line = raw.replace(/\s+$/, '')
+    if (/^```/.test(line)) {
+      closeList()
+      out.push(inCode ? '</pre>' : '<pre>')
+      inCode = !inCode
+      continue
+    }
+    if (inCode) { out.push(esc(line)); continue }
+    // 图片：![说明](url) —— Agent 用 list_my_files 拿到 url 后这样插入
+    const img = line.match(/^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/)
+    if (img) { closeList(); out.push(`<img src="${esc(img[2])}" alt="${esc(img[1])}"/>`); continue }
+    // 视频 / 音频：@[video](url) / @[audio](url)（HTML 标签会被转义，故用专门语法）
+    const media = line.match(/^@\[(video|audio)\]\(([^)\s]+)\)\s*$/)
+    if (media) {
+      closeList()
+      out.push(`<${media[1]} src="${esc(media[2])}" controls></${media[1]}>`)
+      continue
+    }
+    const h = line.match(/^(#{1,4})\s+(.*)$/)
+    if (h) { closeList(); out.push(`<h${h[1].length}>${esc(h[2])}</h${h[1].length}>`); continue }
+    const li = line.match(/^\s*[-*]\s+(.*)$/)
+    if (li) { if (!inList) { out.push('<ul>'); inList = true } out.push(`<li>${esc(li[1])}</li>`); continue }
+    closeList()
+    if (!line.trim()) continue
+    out.push(`<p>${esc(line).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`)
+  }
+  closeList()
+  if (inCode) out.push('</pre>')
+  return out.join('')
+}
+
+/**
+ * Agent 模式：ReAct 编排 + 本地工具（检索 / 读文档 / 写文档 / 改文档 / 跳转）。
+ * 与移动端同一套引擎（utils/localAgent），走「通用」模式的无状态调用，不进后端会话。
+ */
+async function sendAgent(raw) {
+  if (!raw) { ElMessage.warning('请输入任务描述'); return }
+  if (loading.value) return
+
+  let convId = currentId.value
+  if (!convId) {
+    creating.value = true
+    try {
+      const { data } = await createConversation(raw.slice(0, 20))
+      convMessages.value[data.id] = []
+      conversations.value.unshift(data)
+      currentId.value = data.id
+      localStorage.setItem(STORAGE_KEY, String(data.id))
+      convId = data.id
+    } catch {
+      ElMessage.error('创建会话失败')
+      return
+    } finally {
+      creating.value = false
+    }
+  }
+
+  convMessages.value[convId] = [...(convMessages.value[convId] || []), { role: 'user', content: raw }]
+  input.value = ''
+  attachments.value = []
+  loadingSet.value.add(convId)
+  agentSteps.value = []
+  agentStepsOpen.value = true
+  await nextTick()
+  scrollToBottom()
+
+  try {
+    abortCtrl.value = new AbortController()
+    const r = await runLocalAgent({
+      question: raw,
+      ask: async (t, sig) => {
+        const { data } = await aiAsk(t, null, 'general', {
+          modelId: selectedModelId.value || null, signal: sig || abortCtrl.value.signal
+        })
+        return (data && data.answer) || ''
+      },
+      onStep: (s) => { agentSteps.value = [...agentSteps.value, s] },
+      signal: abortCtrl.value.signal,
+      hooks: {
+        askUser,
+        listMyFiles: async () => {
+          try {
+            const { data } = await listMyFiles()
+            const rows = (data || []).slice(0, 40).map((f) => {
+              const kind = /^image/i.test(f.contentType || '') ? '图片'
+                : /^(audio|video)/i.test(f.contentType || '') ? '音视频' : '文件'
+              return `- [${kind}] ${f.name} → ${f.url}`
+            })
+            return rows.length ? `我的文件共 ${rows.length} 个：\n` + rows.join('\n') : '我还没有上传文件'
+          } catch (e) {
+            return '列出文件失败：' + ((e && e.message) || e)
+          }
+        },
+        navigate: async (path) => {
+          if (!path || !String(path).startsWith('/')) return '跳转失败：路径不合法'
+          try { router.push(String(path)); return '已跳转到 ' + path } catch (e) { return '跳转失败：' + ((e && e.message) || e) }
+        },
+        listMyDocs: async () => {
+          try {
+            const { data } = await listMyDocs()
+            const rows = (data || []).slice(0, 30).map((d) => `- [${d.id}] ${d.title || '无标题'}`)
+            return rows.length ? `我的文档共 ${rows.length} 篇：\n` + rows.join('\n') : '我还没有自己的文档'
+          } catch (e) { return '列出文档失败：' + ((e && e.message) || e) }
+        },
+        createDoc: async ({ title, content, status }) => {
+          // 演示账号后端会 403，提前给出明确原因，免得 Agent 白跑几步再失败
+          if (auth.isDemo) return '演示账号是只读的，无法创建文档（请用正式账号登录后再试）'
+          try {
+            const isDraft = status === 'draft'
+            const { data } = await createMyDoc({
+              title, content: mdToHtml(content), status: isDraft ? 'DRAFT' : 'PENDING_REVIEW'
+            })
+            const st = (data && data.status) || (isDraft ? 'DRAFT' : 'PENDING_REVIEW')
+            if (st === 'PUBLISHED') return '已发布《' + title + '》（id=' + (data && data.id) + '）'
+            if (st === 'DRAFT') return '已存为草稿《' + title + '》（id=' + (data && data.id) + '，仅自己可见）'
+            return '已提交审核《' + title + '》（id=' + (data && data.id) + '，等待管理员通过后才公开）'
+          } catch (e) { return '新建失败：' + ((e && e.message) || e) }
+        },
+        updateDoc: async ({ id, title, content }) => {
+          if (auth.isDemo) return '演示账号是只读的，无法修改文档（请用正式账号登录后再试）'
+          try {
+            const body = { content: mdToHtml(content) }
+            if (title) body.title = title
+            const { data } = await updateMyDoc(id, body)
+            const st = data && data.status
+            return '已更新文档《' + ((data && data.title) || title || id) + '》（id=' + id + '）' + (st === 'PENDING_REVIEW' ? '（改动已提交审核）' : '')
+          } catch (e) { return '更新失败：' + ((e && e.message) || e) }
+        }
+      }
+    })
+    convMessages.value[convId] = [...convMessages.value[convId], { role: 'assistant', content: r.answer, mode: 'agent' }]
+  } catch (e) {
+    convMessages.value[convId] = [...convMessages.value[convId], { role: 'assistant', content: 'Agent 执行失败：' + ((e && e.message) || e), mode: 'agent' }]
+  } finally {
+    agentStepsOpen.value = false   // 完成后自动收起步骤（数据保留，可点「展开」回看）
+    loadingSet.value.delete(convId)
+    abortCtrl.value = null
+    await nextTick()
+    scrollToBottom()
+  }
+}
+
 async function send(text) {
   const raw = (text ?? input.value).trim()
   const hasAtt = attachments.value.length > 0
   if (!raw && !hasAtt) { ElMessage.warning('请输入内容'); return }
   if (loading.value) return
+  // Agent 模式走独立链路（ReAct + 本地工具），不进后端会话
+  if (mode.value === 'agent') { await sendAgent(raw); return }
 
   // 「识文字」模式的图片先本地 OCR（文字拼进提问，离线也能用）；「看图」模式的收集为多模态 images
   for (const a of attachments.value) {
     if (a.kind !== 'image' || a.mode !== 'ocr' || a.text) continue
     try {
       ElMessage.info('正在本地识别「' + a.name + '」…')
-      const r = await recognizeLocal(a.file || a.dataUrl, () => {})
+      const r = await recognizeLocal(a.file || a.dataUrl, () => {}, { table: true })
       a.text = (r && r.text ? String(r.text) : '').trim()
       if (!a.text) ElMessage.warning('「' + a.name + '」没有识别出文字，已跳过')
     } catch (err) {
@@ -288,6 +503,20 @@ async function send(text) {
   const fileNames = attachments.value.map((a) => a.name)
   const images = attachments.value.filter((a) => a.kind === 'image' && a.mode === 'vision' && a.dataUrl).map((a) => a.dataUrl)
   const q = buildQuestionWithAttachments(raw || (images.length ? '请识别并说明这些图片的内容' : ''))
+
+  // 高消耗确认：图片走多模态约 850 tokens/张，长文本约 1.5 tokens/汉字。
+  // 开关与阈值由管理员在「AI 模型管理 → 消息设置」里配置（/api/public/ai-guard），读不到用默认值。
+  const textLen = attachments.value.reduce((n, a) => n + (a.text ? a.text.length : 0), 0) + raw.length
+  const estTokens = images.length * 850 + Math.round(textLen * 1.5)
+  if (aiGuard.enabled && (images.length >= aiGuard.imageThreshold || textLen >= aiGuard.textThreshold)) {
+    try {
+      await ElMessageBox.confirm(
+        `本次将发送 ${images.length} 张图片、约 ${textLen} 字文本，预计消耗约 ${estTokens.toLocaleString()} tokens。`,
+        '确认消耗',
+        { confirmButtonText: '继续发送', cancelButtonText: '取消', type: 'warning' }
+      )
+    } catch { return }
+  }
   const titleBase = raw || ('附件：' + fileNames.join('、'))
 
   let convId = currentId.value
@@ -450,7 +679,9 @@ async function onFilesPicked(e) {
   attBusy.value = true
   for (const f of list) {
     if (attachments.value.length >= 4) { ElMessage.warning('一次最多带 4 个附件'); break }
-    if (f.size > 8 * 1024 * 1024) { ElMessage.warning('「' + f.name + '」超过 8MB，已跳过'); continue }
+    const isDoc = DOC_EXTS.test(f.name)
+    const sizeLimit = isDoc ? 20 * 1024 * 1024 : 8 * 1024 * 1024
+    if (f.size > sizeLimit) { ElMessage.warning('「' + f.name + '」超过 ' + (isDoc ? 20 : 8) + 'MB，已跳过'); continue }
     try {
       let text = ''
       let kind = 'text'
@@ -464,6 +695,28 @@ async function onFilesPicked(e) {
           name: f.name, size: f.size, kind: 'image', dataUrl, text: '', file: f, mode: 'vision'
         }]
         continue
+      } else if (isDoc) {
+        // PDF / Word / PPT / Excel：本地解析成文本（PDF 扫描件页自动转图走多模态）
+        ElMessage.info('正在解析「' + f.name + '」…')
+        const r = await parseDocument(f)
+        const txt = (r && r.text ? r.text : '').trim()
+        if (txt) {
+          attachments.value = [...attachments.value, {
+            id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+            name: f.name, size: f.size, kind: 'text',
+            text: txt.slice(0, ATT_SNIPPET) + (txt.length > ATT_SNIPPET ? '\n…（内容过长已截断）' : '')
+          }]
+        }
+        const imgs = (r && r.images) || []
+        for (let i = 0; i < Math.min(imgs.length, 2); i++) {
+          if (attachments.value.length >= 4) break
+          attachments.value = [...attachments.value, {
+            id: Date.now() + '-p' + i + '-' + Math.random().toString(36).slice(2, 7),
+            name: f.name + ' 第' + (i + 1) + '页', size: 0, kind: 'image', dataUrl: imgs[i], text: '', mode: 'vision'
+          }]
+        }
+        if (!txt && !imgs.length) ElMessage.warning('「' + f.name + '」没解析出内容')
+        continue
       } else if (/\.(txt|md|markdown|json|csv|log|xml|yml|yaml|sql|ts|js|mjs|py|java|html?|css|vue|ini|conf|properties)$/i.test(f.name) || /^text\//i.test(f.type || '')) {
         if (f.size > ATT_TEXT_MAX) { ElMessage.warning('「' + f.name + '」超过 200KB，已跳过'); continue }
         kind = 'text'
@@ -474,7 +727,7 @@ async function onFilesPicked(e) {
           r.readAsText(f, 'utf-8')
         })
       } else {
-        ElMessage.warning('「' + f.name + '」暂不支持（目前支持图片 OCR 与文本类文件）')
+        ElMessage.warning('「' + f.name + '」暂不支持（支持图片、PDF、Word/PPT/Excel、文本类文件）')
         continue
       }
       attachments.value = [...attachments.value, {
@@ -555,6 +808,7 @@ function onKey(e) {
 }
 
 onMounted(async () => {
+  loadAiGuard()
   // 窄屏判定：与 CSS 断点保持一致（≤1024 侧栏变抽屉）
   mqNarrow = window.matchMedia('(max-width: 1024px)')
   isNarrow.value = mqNarrow.matches
@@ -653,7 +907,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
           </el-tooltip>
           <div class="ai-head-info">
             <div class="ai-title">{{ currentConversation?.title || 'AI 智能问答' }}</div>
-            <div class="ai-sub">{{ mode === 'general' ? '通用模式 · 直接作答' : '基于知识库作答 · 库里没有也能通用问答' }}</div>
+            <div class="ai-sub">{{ mode === 'agent' ? 'Agent 模式 · 自主检索 / 写文档 / 改文档' : (mode === 'general' ? '通用模式 · 直接作答' : '基于知识库作答 · 库里没有也能通用问答') }}</div>
           </div>
         </div>
         <div class="ai-head-right">
@@ -719,8 +973,8 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
               </div>
               <div class="ai-col">
                 <div class="ai-name-row">
-                  <span class="ai-name">知识库 AI</span>
-                  <span class="ai-mode-chip">{{ m.mode === 'general' ? '通用问答' : '基于知识库' }}</span>
+                  <span class="ai-name">{{ m.mode === 'agent' ? 'Agent' : '知识库 AI' }}</span>
+                  <span class="ai-mode-chip">{{ m.mode === 'agent' ? 'Agent 执行' : (m.mode === 'general' ? '通用问答' : '基于知识库') }}</span>
                 </div>
                 <!-- 思考过程：思考型模型才有，默认折叠（历史回答不保留） -->
                 <details v-if="m.meta && m.meta.reasoning" class="ai-reasoning">
@@ -780,6 +1034,18 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
             </div>
             <div class="ai-col">
               <div class="ai-typing"><span></span><span></span><span></span></div>
+              <!-- Agent 模式：步骤可折叠（执行中展开看进度，完成后自动收起，避免刷屏） -->
+              <div v-if="agentSteps.length" class="ai-agent-steps">
+                <div class="ai-agent-head" @click="agentStepsOpen = !agentStepsOpen">
+                  <span>执行过程（{{ agentSteps.length }} 步）</span>
+                  <span class="ai-agent-toggle">{{ agentStepsOpen ? '收起' : '展开' }}</span>
+                </div>
+                <div v-show="agentStepsOpen" class="ai-agent-list">
+                  <div v-for="(s, i) in agentSteps" :key="i" class="ai-agent-step">
+                    <span class="ai-agent-dot"></span>{{ s }}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -795,7 +1061,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
       <div class="ai-input-wrap">
         <div class="ai-input-card">
           <input ref="fileInput" type="file" multiple hidden
-            accept="image/*,.txt,.md,.markdown,.json,.csv,.log,.xml,.yml,.yaml,.sql,.ts,.js,.py,.java,.html,.css,.vue,.ini,.conf,.properties"
+            accept="image/*,.pdf,.docx,.pptx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.xml,.yml,.yaml,.sql,.ts,.js,.py,.java,.html,.css,.vue,.ini,.conf,.properties"
             @change="onFilesPicked" />
           <div v-if="attachments.length" class="ai-atts">
             <span v-for="a in attachments" :key="a.id" class="ai-att" :title="a.name">
@@ -818,6 +1084,10 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
               <button type="button" class="ai-mode-btn" :class="{ active: mode === 'general' }"
                 title="不检索知识库，进行通用问答" @click="mode = 'general'">
                 <el-icon><ChatDotRound /></el-icon><span>通用</span>
+              </button>
+              <button type="button" class="ai-mode-btn" :class="{ active: mode === 'agent' }"
+                title="Agent：自主检索资料、写文档、改文档（会真正操作你的知识库）" @click="mode = 'agent'">
+                <el-icon><Cpu /></el-icon><span>Agent</span>
               </button>
             </div>
             <div class="ai-input-right">
@@ -855,6 +1125,27 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
         </div>
       </div>
     </el-drawer>
+
+    <!-- Agent 询问用户：给选项点选，也可以自己输入 -->
+    <div v-if="agentAsk" class="ai-ask-mask" @click.self="answerAgentAsk('')">
+      <div class="ai-ask-box">
+        <div class="ai-ask-title">Agent 想跟你确认</div>
+        <p class="ai-ask-q">{{ agentAsk.question }}</p>
+        <div v-if="agentAsk.options.length" class="ai-ask-opts">
+          <button
+            v-for="(o, i) in agentAsk.options" :key="i"
+            class="ai-ask-opt" @click="answerAgentAsk(o)"
+          >{{ o }}</button>
+        </div>
+        <div class="ai-ask-custom">
+          <input
+            v-model="agentAskInput" class="ai-ask-i"
+            placeholder="也可以自己输入…" @keyup.enter="answerAgentAsk()"
+          />
+          <button class="ai-ask-send" @click="answerAgentAsk()">确定</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1173,6 +1464,49 @@ html.dark .ai-icon-btn:hover:not(:disabled) { background: #26264f; }
 
 /* 思考中三点 */
 .ai-typing { display: inline-flex; gap: 5px; align-items: center; min-height: 24px; padding: 4px 2px; }
+.ai-agent-steps { margin-top: 6px; }
+.ai-agent-head {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 12.5px; color: var(--el-text-color-secondary); user-select: none;
+}
+.ai-agent-head:hover { color: var(--el-color-primary); }
+.ai-agent-toggle { font-size: 12px; color: var(--el-color-primary); }
+.ai-agent-list { margin-top: 6px; display: flex; flex-direction: column; gap: 5px; }
+.ai-agent-step {
+  display: flex; align-items: flex-start; gap: 7px;
+  font-size: 12.5px; color: var(--el-text-color-secondary); line-height: 1.55;
+}
+.ai-agent-dot { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--el-color-primary); margin-top: 7px; }
+
+/* Agent 询问弹层 */
+.ai-ask-mask {
+  position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, .42);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.ai-ask-box {
+  width: 100%; max-width: 460px; background: var(--el-bg-color);
+  border-radius: 14px; padding: 20px 22px; box-shadow: 0 12px 40px rgba(0, 0, 0, .18);
+}
+.ai-ask-title { font-size: 15px; font-weight: 700; color: var(--el-text-color-primary); margin-bottom: 10px; }
+.ai-ask-q { margin: 0 0 16px; font-size: 14px; line-height: 1.7; color: var(--el-text-color-regular); }
+.ai-ask-opts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.ai-ask-opt {
+  text-align: left; border: 1px solid var(--el-border-color); background: var(--el-bg-color);
+  color: var(--el-text-color-regular); font-size: 13.5px; padding: 11px 14px;
+  border-radius: 10px; cursor: pointer; transition: all .16s;
+}
+.ai-ask-opt:hover { border-color: var(--el-color-primary); color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.ai-ask-custom { display: flex; gap: 8px; }
+.ai-ask-i {
+  flex: 1 1 auto; border: 1px solid var(--el-border-color); border-radius: 10px;
+  background: var(--el-bg-color); color: var(--el-text-color-primary);
+  font-size: 14px; padding: 10px 12px; outline: none;
+}
+.ai-ask-i:focus { border-color: var(--el-color-primary); }
+.ai-ask-send {
+  flex: none; border: none; border-radius: 10px; background: var(--el-color-primary);
+  color: #fff; font-size: 14px; padding: 0 20px; cursor: pointer;
+}
 .ai-typing span { width: 7px; height: 7px; border-radius: 50%; background: #c7d2fe; animation: ai-blink 1.2s infinite both; }
 html.dark .ai-typing span { background: #6366f1; }
 .ai-typing span:nth-child(2) { animation-delay: .2s; }
@@ -1234,7 +1568,7 @@ html.dark .ai-att-mode { background: rgba(129,140,248,.22); color: #c7d2fe; }
 .ai-mode { position: relative; display: inline-flex; background: #f1f5f9; border-radius: 10px; padding: 3px; }
 html.dark .ai-mode { background: #14142a; }
 .ai-mode-thumb {
-  position: absolute; top: 3px; left: 3px; width: calc(50% - 3px); height: calc(100% - 6px);
+  position: absolute; top: 3px; left: 3px; width: calc((100% - 6px) / 3); height: calc(100% - 6px);
   background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(15,23,42,.12);
   transition: transform .22s cubic-bezier(.4,0,.2,1);
 }

@@ -189,7 +189,7 @@ async function recognizeAll() {
       progress.value = Math.round(((i) / scanPages.value.length) * 100)
       try {
         if (engine.value === 'local') {
-          const t = await recognizeLocal(scanPages.value[i].file, (p) => { progress.value = p })
+          const t = await recognizeLocal(scanPages.value[i].file, (p) => { progress.value = p }, { table: true })
           parts.push(t || '')
         } else {
           const { data } = await ocrImportShareDoc(targetSpace.value, scanPages.value[i].file)
@@ -221,7 +221,7 @@ async function startRecognize() {
       text = await recognizeLocal(file.value, (p, msg) => {
         progress.value = p
         statusText.value = msg || `识别中 ${Math.round(p * 100)}%`
-      })
+      }, { table: true })
     } else {
       statusText.value = '正在上传并调用云端识别…'
       progress.value = 0.3
@@ -390,7 +390,7 @@ onMounted(prewarm)
             <span class="m-ico green"><el-icon><Lock /></el-icon></span>
             <span class="m-row-body">
               <span class="m-row-title">本地识别</span>
-              <span class="m-row-desc">图片不离开手机 · 离线可用 · 首次需下载语言包</span>
+              <span class="m-row-desc">图片不离开手机 · 离线可用 · 适合纯文字；表格/清单建议用云端</span>
             </span>
             <span class="radio" :class="{ on: engine === 'local' }"><i></i></span>
           </button>
@@ -398,14 +398,14 @@ onMounted(prewarm)
             <span class="m-ico blue"><el-icon><Promotion /></el-icon></span>
             <span class="m-row-body">
               <span class="m-row-title">云端识别</span>
-              <span class="m-row-desc">精度更高 · 需联网 · 排版还原更好</span>
+              <span class="m-row-desc">精度更高 · 能识别表格结构（IP/MAC 清单、报表等）· 需联网</span>
             </span>
             <span class="radio" :class="{ on: engine === 'cloud' }"><i></i></span>
           </button>
         </div>
         <div class="engine-tip">
           <el-icon><InfoFilled /></el-icon>
-          <span>推荐先用「本地识别」实测效果；不够准再换云端。</span>
+          <span>纯文字内容本地识别即可；表格、清单、复杂排版建议用云端（多模态模型理解结构更准）。</span>
         </div>
       </div>
     </div>

@@ -42,6 +42,7 @@ import {
   Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
   Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading,
   MagicStick,   // AI 问答入口图标
+  Paperclip,    // AI 页「上传附件」按钮（此前漏注册 → 图标空白）
   DataLine, Avatar, CollectionTag, Brush   // 「我的」页管理员分组图标
 } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
@@ -81,6 +82,7 @@ const icons = {
   Setting, SwitchButton, DocumentCopy, FolderOpened, Upload, Sunny, Moon,
   Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading,
   MagicStick,   // AI 问答入口图标
+  Paperclip,    // AI 页「上传附件」按钮（此前漏注册 → 图标空白）
   DataLine, Avatar, CollectionTag, Brush   // 「我的」页管理员分组图标
 }
 for (const [key, component] of Object.entries(icons)) {

@@ -9,7 +9,7 @@
  *   - 底部固定输入条（含 safe-area），生成中可「停止」
  *   - 历史会话用底部抽屉承载，避免挤占小屏正文空间
  */
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import {
@@ -19,7 +19,11 @@ import {
 import { search } from '../../api/kb'
 import { recognizeLocal } from '../../utils/localOcr'
 import { compressImage } from '../../utils/imageCompress'
+import { parseDocument, DOC_EXTS } from '../../utils/docParse'
 import { runLocalAgent } from '../../utils/localAgent'
+import { createMyDoc, updateMyDoc, listMyDocs } from '../../api/kb'
+import { listMyFiles } from '../../api/file'
+import api from '../../api/request'
 import MarkdownIt from 'markdown-it'
 
 const router = useRouter()
@@ -48,17 +52,23 @@ const attBusy = ref(false)
 // ---------- Agent 模式：直连自建 Hermes Agent 的 OpenAI 兼容端点 ----------
 // Hermes 部署在用户自己的机器/服务器上（hermes gateway + API_SERVER_ENABLED=true），
 // 端点形如 http://<ip>:8642/v1。端点与 Key 只存本机 localStorage，不入仓库。
-const agentStep = ref('')         // Agent 当前步骤（typing 气泡内展示）
+const agentSteps = ref([])       // Agent 步骤列表（累积展示，用户能看到它做了哪些事）
+const agentStepsOpen = ref(true) // 步骤折叠状态：执行中展开，完成后自动收起
 const agentOpen = ref(false)      // Agent 设置弹层
 const agentEngine = ref(localStorage.getItem('kb_agent_engine') || 'local')   // local | hermes
 const agentEndpoint = ref(localStorage.getItem('kb_agent_endpoint') || '')
 const agentKey = ref(localStorage.getItem('kb_agent_key') || '')
 
 function saveAgentCfg() {
+  const eng = agentEngine.value
   const ep = agentEndpoint.value.trim().replace(/\/+$/, '')
-  if (!ep) { window.__kbMsg?.warning('请填写 Agent 端点（如 http://192.168.1.10:8642/v1）'); return }
+  // 本地引擎不需要端点（用平台已配的 AI 模型）；只有 Hermes 引擎才校验端点
+  if (eng === 'hermes' && !ep) {
+    window.__kbMsg?.warning('Hermes 引擎需填写端点（如 http://192.168.1.10:8642/v1）')
+    return
+  }
   try {
-    localStorage.setItem('kb_agent_engine', agentEngine.value)
+    localStorage.setItem('kb_agent_engine', eng)
     localStorage.setItem('kb_agent_endpoint', ep)
     localStorage.setItem('kb_agent_key', agentKey.value.trim())
   } catch {}
@@ -187,6 +197,77 @@ async function removeConversation(id) {
 
 function stopAi() { abortCtrl.value?.abort() }
 
+// 高消耗发送确认的开关与阈值（管理员在「AI 模型管理 → 消息设置」配置）
+const aiGuard = reactive({ enabled: true, imageThreshold: 2, textThreshold: 8000 })
+async function loadAiGuard() {
+  try {
+    const { data } = await api.get('/public/ai-guard')
+    if (data && typeof data.enabled === 'boolean') aiGuard.enabled = data.enabled
+    if (data && Number(data.imageThreshold) > 0) aiGuard.imageThreshold = Number(data.imageThreshold)
+    if (data && Number(data.textThreshold) > 0) aiGuard.textThreshold = Number(data.textThreshold)
+  } catch { /* 读不到就用默认 */ }
+}
+
+// ---- Agent 询问用户（ask_user 工具）：Agent 拿不准时弹出来让用户拍板 ----
+const agentAsk = ref(null)      // { question, options, resolve }
+const agentAskInput = ref('')
+function askUser(question, options) {
+  return new Promise((resolve) => {
+    agentAskInput.value = ''
+    agentAsk.value = { question, options: options || [], resolve }
+  })
+}
+function answerAgentAsk(val) {
+  const a = agentAsk.value
+  if (!a) return
+  const ans = String(val != null ? val : agentAskInput.value || '').trim()
+  agentAsk.value = null
+  agentAskInput.value = ''
+  a.resolve(ans)
+}
+
+/**
+ * 轻量 Markdown → HTML：Agent 写/改文档时用（文档正文存的是富文本 HTML）。
+ * 只支持标题 / 列表 / 加粗 / 代码块 / 段落 —— 够 Agent 产出用，且零依赖。
+ */
+function mdToHtml(md) {
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')   // 引号必须转义：alt/src 属性位置可被注入 onerror
+  const out = []
+  let inCode = false
+  let inList = false
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false } }
+  for (const raw of String(md || '').split('\n')) {
+    const line = raw.replace(/\s+$/, '')
+    if (/^```/.test(line)) {
+      closeList()
+      out.push(inCode ? '</pre>' : '<pre>')
+      inCode = !inCode
+      continue
+    }
+    if (inCode) { out.push(esc(line)); continue }
+    // 图片：![说明](url) —— Agent 用 list_my_files 拿到 url 后这样插入
+    const img = line.match(/^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/)
+    if (img) { closeList(); out.push(`<img src="${esc(img[2])}" alt="${esc(img[1])}"/>`); continue }
+    // 视频 / 音频：@[video](url) / @[audio](url)（HTML 标签会被转义，故用专门语法）
+    const media = line.match(/^@\[(video|audio)\]\(([^)\s]+)\)\s*$/)
+    if (media) {
+      closeList()
+      out.push(`<${media[1]} src="${esc(media[2])}" controls></${media[1]}>`)
+      continue
+    }
+    const h = line.match(/^(#{1,4})\s+(.*)$/)
+    if (h) { closeList(); out.push(`<h${h[1].length}>${esc(h[2])}</h${h[1].length}>`); continue }
+    const li = line.match(/^\s*[-*]\s+(.*)$/)
+    if (li) { if (!inList) { out.push('<ul>'); inList = true } out.push(`<li>${esc(li[1])}</li>`); continue }
+    closeList()
+    if (!line.trim()) continue
+    out.push(`<p>${esc(line).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`)
+  }
+  closeList()
+  if (inCode) out.push('</pre>')
+  return out.join('')
+}
+
 // ---------- 附件 ----------
 function pickFiles() { fileInput.value?.click() }
 
@@ -206,7 +287,7 @@ async function ocrMarkedAttachments() {
     if (a.kind !== 'image' || a.mode !== 'ocr' || a.text) continue
     try {
       window.__kbMsg?.info('正在本地识别「' + a.name + '」…')
-      const r = await recognizeLocal(a.file || a.dataUrl, () => {})
+      const r = await recognizeLocal(a.file || a.dataUrl, () => {}, { table: true })
       a.text = (r && r.text ? String(r.text) : '').trim()
       if (!a.text) window.__kbMsg?.warning('「' + a.name + '」没有识别出文字，已跳过')
     } catch (err) {
@@ -223,7 +304,9 @@ async function onFilesPicked(e) {
   attBusy.value = true
   for (const f of list) {
     if (attachments.value.length >= 4) { window.__kbMsg?.warning('一次最多带 4 个附件'); break }
-    if (f.size > 8 * 1024 * 1024) { window.__kbMsg?.warning('「' + f.name + '」超过 8MB，已跳过'); continue }
+    const isDoc = DOC_EXTS.test(f.name)
+    const sizeLimit = isDoc ? 20 * 1024 * 1024 : 8 * 1024 * 1024
+    if (f.size > sizeLimit) { window.__kbMsg?.warning('「' + f.name + '」超过 ' + (isDoc ? 20 : 8) + 'MB，已跳过'); continue }
     try {
       let text = ''
       let kind = 'text'
@@ -236,6 +319,28 @@ async function onFilesPicked(e) {
           name: f.name, size: f.size, kind: 'image', dataUrl, text: '', file: f, mode: 'vision'
         }]
         continue
+      } else if (isDoc) {
+        // PDF / Word / PPT / Excel：本地解析成文本（PDF 扫描件页自动转图走多模态）
+        window.__kbMsg?.info('正在解析「' + f.name + '」…')
+        const r = await parseDocument(f)
+        const txt = (r && r.text ? r.text : '').trim()
+        if (txt) {
+          attachments.value = [...attachments.value, {
+            id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+            name: f.name, size: f.size, kind: 'text',
+            text: txt.slice(0, ATT_SNIPPET) + (txt.length > ATT_SNIPPET ? '\n…（内容过长已截断）' : '')
+          }]
+        }
+        const imgs = (r && r.images) || []
+        for (let i = 0; i < Math.min(imgs.length, 2); i++) {
+          if (attachments.value.length >= 4) break
+          attachments.value = [...attachments.value, {
+            id: Date.now() + '-p' + i + '-' + Math.random().toString(36).slice(2, 7),
+            name: f.name + ' 第' + (i + 1) + '页', size: 0, kind: 'image', dataUrl: imgs[i], text: '', mode: 'vision'
+          }]
+        }
+        if (!txt && !imgs.length) window.__kbMsg?.warning('「' + f.name + '」没解析出内容')
+        continue
       } else if (/\.(txt|md|markdown|json|csv|log|xml|yml|yaml|sql|ts|js|mjs|py|java|html?|css|vue|ini|conf|properties)$/i.test(f.name) || /^text\//i.test(f.type || '')) {
         if (f.size > ATT_TEXT_MAX) { window.__kbMsg?.warning('「' + f.name + '」超过 200KB，已跳过'); continue }
         kind = 'text'
@@ -246,7 +351,7 @@ async function onFilesPicked(e) {
           r.readAsText(f, 'utf-8')
         })
       } else {
-        window.__kbMsg?.warning('「' + f.name + '」暂不支持（目前支持图片 OCR 与文本类文件）')
+        window.__kbMsg?.warning('「' + f.name + '」暂不支持（支持图片、PDF、Word/PPT/Excel、文本类文件）')
         continue
       }
       const safeName = f.name.replace(/[\r\n\u0000-\u001f]/g, ' ')
@@ -390,12 +495,12 @@ async function send(text) {
     for (const a of attachments.value) {
       if (a.kind !== 'image' || a.text) continue
       try {
-        agentStep.value = '本地识别「' + a.name + '」…'
-        const r = await recognizeLocal(a.file || a.dataUrl, () => {})
+        agentSteps.value = [...agentSteps.value, '本地识别「' + a.name + '」…']
+        const r = await recognizeLocal(a.file || a.dataUrl, () => {}, { table: true })
         a.text = (r && r.text ? String(r.text) : '').trim()
       } catch { a.text = '' }
     }
-    agentStep.value = ''
+    agentSteps.value = []
     const fileNames = attachments.value.map((a) => a.name)
     const q = input.value.trim() || '请帮我处理附件内容'
     const cur = convMessages.value[cid] || []
@@ -405,7 +510,7 @@ async function send(text) {
     input.value = ''
     attachments.value = []
     loading.value = true
-    agentStep.value = ''
+    agentSteps.value = []
     await nextTick()
     scrollToBottom()
 
@@ -425,11 +530,11 @@ async function send(text) {
       let answer = ''
       let steps = []
       if (engine === 'hermes') {
-        agentStep.value = '调用 Hermes…'
+        agentSteps.value = [...agentSteps.value, '调用 Hermes…']
         const r = await callHermes(withAtt, hist, signal)
         answer = r
       } else {
-        agentStep.value = '启动本地 Agent…'
+        agentSteps.value = [...agentSteps.value, '启动本地 Agent…']
         const r = await runLocalAgent({
           question: withAtt,
           ask: async (text, sig) => {
@@ -438,8 +543,76 @@ async function send(text) {
             })
             return data.answer || ''
           },
-          onStep: (t) => { agentStep.value = t },
-          signal
+          onStep: (t) => { agentSteps.value = [...agentSteps.value, t] },
+          signal,
+          // 让 Agent 真正能「干活」：跳转页面 + 写/改知识库文档
+          hooks: {
+            askUser,
+            listMyFiles: async () => {
+              try {
+                const { data } = await listMyFiles()
+                const rows = (data || []).slice(0, 40).map((f) => {
+                  const kind = /^image/i.test(f.contentType || '') ? '图片'
+                    : /^(audio|video)/i.test(f.contentType || '') ? '音视频' : '文件'
+                  return `- [${kind}] ${f.name} → ${f.url}`
+                })
+                return rows.length ? `我的文件共 ${rows.length} 个：\n` + rows.join('\n') : '我还没有上传文件'
+              } catch (e) {
+                return '列出文件失败：' + ((e && e.message) || e)
+              }
+            },
+            navigate: async (path) => {
+              if (!path || !String(path).startsWith('/')) return '跳转失败：路径不合法（需以 / 开头）'
+              try {
+                router.push(String(path))
+                return '已跳转到 ' + path
+              } catch (e) {
+                return '跳转失败：' + ((e && e.message) || e)
+              }
+            },
+            listMyDocs: async () => {
+              try {
+                const { data } = await listMyDocs()
+                const rows = (data || []).slice(0, 30).map((d) => `- [${d.id}] ${d.title || '无标题'}`)
+                return rows.length ? `我的文档共 ${rows.length} 篇：\n` + rows.join('\n') : '我还没有自己的文档'
+              } catch (e) {
+                return '列出文档失败：' + ((e && e.message) || e)
+              }
+            },
+            createDoc: async ({ title, content, status }) => {
+              // 演示账号后端会 403，提前给出明确原因，免得 Agent 白跑几步再失败
+              if (auth.isDemo) return '演示账号是只读的，无法创建文档（请用正式账号登录后再试）'
+              try {
+                const isDraft = status === 'draft'
+                const { data } = await createMyDoc({
+                  title,
+                  content: mdToHtml(content),
+                  status: isDraft ? 'DRAFT' : 'PENDING_REVIEW'
+                })
+                const id = data && data.id
+                const st = (data && data.status) || (isDraft ? 'DRAFT' : 'PENDING_REVIEW')
+                // 如实回报状态：普通用户不会直接发布，别让用户以为已经公开
+                if (st === 'PUBLISHED') return '已发布《' + title + '》（id=' + id + '）'
+                if (st === 'DRAFT') return '已存为草稿《' + title + '》（id=' + id + '，仅自己可见，可在草稿箱提交审核）'
+                return '已提交审核《' + title + '》（id=' + id + '，等待管理员通过后才公开）'
+              } catch (e) {
+                return '新建失败：' + ((e && e.message) || e)
+              }
+            },
+            updateDoc: async ({ id, title, content }) => {
+              if (auth.isDemo) return '演示账号是只读的，无法修改文档（请用正式账号登录后再试）'
+              try {
+                const body = { content: mdToHtml(content) }
+                if (title) body.title = title
+                const { data } = await updateMyDoc(id, body)
+                const st = data && data.status
+                const extra = st === 'PENDING_REVIEW' ? '（改动已提交审核）' : ''
+                return '已更新文档《' + ((data && data.title) || title || id) + '》（id=' + id + '）' + extra
+              } catch (e) {
+                return '更新失败：' + ((e && e.message) || e)
+              }
+            }
+          }
         })
         answer = r.answer
         steps = r.steps
@@ -457,7 +630,7 @@ async function send(text) {
     } finally {
       abortCtrl.value = null
       loading.value = false
-      agentStep.value = ''
+      agentStepsOpen.value = false   // 完成后自动收起（数据保留，可点「展开」回看）
       scrollToBottom()
     }
     return
@@ -465,6 +638,21 @@ async function send(text) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     window.__kbMsg?.warning('当前离线，无法使用 AI 问答')
     return
+  }
+
+  // 高消耗确认：图片约 850 tokens/张、文本约 1.5 tokens/汉字。
+  // 开关与阈值由管理员在「AI 模型管理 → 消息设置」配置（/api/public/ai-guard）。
+  // 放在「插入消息之前」——用户取消时不该在会话里留下这条消息。
+  {
+    const imgs = attachments.value.filter((a) => a.kind === 'image' && a.mode === 'vision' && a.dataUrl).length
+    const textLen = attachments.value.reduce((n, a) => n + (a.text ? a.text.length : 0), 0) + String(q || '').length
+    if (aiGuard.enabled && (imgs >= aiGuard.imageThreshold || textLen >= aiGuard.textThreshold)) {
+      const est = imgs * 850 + Math.round(textLen * 1.5)
+      const ok = window.confirm(
+        `本次将发送 ${imgs} 张图片、约 ${textLen} 字文本，预计消耗约 ${est.toLocaleString()} tokens。\n\n继续发送？`
+      )
+      if (!ok) return
+    }
   }
 
   let convId = currentId.value
@@ -530,6 +718,7 @@ async function send(text) {
 }
 
 onMounted(async () => {
+  loadAiGuard()
   await loadModels()
   await loadConversations()
   let saved = null
@@ -554,7 +743,7 @@ onMounted(async () => {
       <div class="aic-seg">
         <button :class="{ on: mode === 'kb' }" @click="mode = 'kb'">知识库</button>
         <button :class="{ on: mode === 'general' }" @click="mode = 'general'">通用</button>
-        <button :class="{ on: mode === 'agent' }" @click="mode = 'agent'; if (!agentEndpoint) openAgentCfg()">Agent</button>
+        <button :class="{ on: mode === 'agent' }" @click="mode = 'agent'">Agent</button>
       </div>
       <select v-if="mode !== 'agent'" v-model="selectedModelId" class="aic-model" aria-label="模型">
         <option value="">默认模型</option>
@@ -572,7 +761,9 @@ onMounted(async () => {
           {{ mode === 'agent' ? 'Agent 模式' : (mode === 'general' ? '你好，我是通用 AI 助手' : '你好，我是知识库 AI 助手') }}
         </div>
         <div class="aic-empty-tip" v-if="mode === 'agent'">
-          {{ agentEndpoint ? '已连接 Hermes Agent：具备记忆、工具与技能，可执行多步任务' : '先点右上角⚙配置自建 Hermes Agent 端点' }}
+          {{ agentEngine === 'hermes'
+            ? (agentEndpoint ? '已连接 Hermes Agent：具备记忆、工具与技能，可执行多步任务' : 'Hermes 引擎未配置端点，点右上角 ⚙ 填写')
+            : '本地引擎（默认）：用平台已配置的 AI 模型 + 本地工具（检索知识库 / 读文档），无需额外配置' }}
         </div>
         <div class="aic-empty-tip" v-else>
           {{ mode === 'general' ? '不检索知识库，直接凭通用知识作答' : '基于知识库检索作答，也能陪你日常聊聊' }}
@@ -612,7 +803,17 @@ onMounted(async () => {
       <div v-if="loading" class="aic-msg ai">
         <div class="aic-av"><span class="aic-av-a"><el-icon><MagicStick /></el-icon></span></div>
         <div class="aic-bubble aic-typing"><i /><i /><i />
-          <span v-if="agentStep" class="aic-step">{{ agentStep }}</span>
+          <div v-if="agentSteps.length" class="aic-steps">
+            <div class="aic-steps-head" @click="agentStepsOpen = !agentStepsOpen">
+              <span>执行过程（{{ agentSteps.length }} 步）</span>
+              <span class="aic-steps-toggle">{{ agentStepsOpen ? '收起' : '展开' }}</span>
+            </div>
+            <div v-show="agentStepsOpen" class="aic-steps-list">
+              <div v-for="(s, i) in agentSteps" :key="i" class="aic-step-row">
+                <span class="aic-step-dot"></span><span class="aic-step-txt">{{ s }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div style="height:8px"></div>
@@ -629,7 +830,7 @@ onMounted(async () => {
     </div>
     <div class="aic-input">
       <input ref="fileInput" type="file" multiple hidden
-             accept="image/*,.txt,.md,.markdown,.json,.csv,.log,.xml,.yml,.yaml,.sql,.ts,.js,.py,.java,.html,.css,.vue,.ini,.conf,.properties"
+             accept="image/*,.pdf,.docx,.pptx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.xml,.yml,.yaml,.sql,.ts,.js,.py,.java,.html,.css,.vue,.ini,.conf,.properties"
              @change="onFilesPicked" />
       <button class="aic-clip" :disabled="loading || attBusy" @click="pickFiles" aria-label="上传附件">
         <el-icon :size="18"><Paperclip /></el-icon>
@@ -642,6 +843,29 @@ onMounted(async () => {
       <button v-else class="aic-send" :disabled="!input.trim()" @click="send()">
         <el-icon><Promotion /></el-icon>
       </button>
+    </div>
+
+    <!-- Agent 询问用户：给选项点选，也可以自己输入 -->
+    <div v-if="agentAsk" class="aic-mask" @click.self="answerAgentAsk('')">
+      <div class="aic-sheet" @click.stop>
+        <div class="aic-sheet-h"><span>Agent 想跟你确认</span></div>
+        <div class="aic-ask">
+          <p class="aic-ask-q">{{ agentAsk.question }}</p>
+          <div v-if="agentAsk.options.length" class="aic-ask-opts">
+            <button
+              v-for="(o, i) in agentAsk.options" :key="i"
+              class="aic-ask-opt" @click="answerAgentAsk(o)"
+            >{{ o }}</button>
+          </div>
+          <div class="aic-ask-custom">
+            <input
+              v-model="agentAskInput" class="aic-ask-i"
+              placeholder="也可以自己输入…" @keyup.enter="answerAgentAsk()"
+            />
+            <button class="aic-ask-send" @click="answerAgentAsk()">确定</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Agent 设置：端点 + Key -->
@@ -825,6 +1049,39 @@ html.dark .aic-md :deep(pre) { background: rgba(255, 255, 255, .08); }
   background: rgba(22,119,255,.12); color: #0958d9; font-size: 11px; line-height: 1.4;
 }
 html.dark .aic-att-mode { background: rgba(76,141,255,.2); color: #9cc6ff; }
+
+/* Agent 步骤列表（累积展示，可折叠） */
+.aic-steps { margin-top: 6px; }
+.aic-steps-head {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 12.5px; color: var(--m-text-dim); user-select: none;
+}
+.aic-steps-toggle { font-size: 12px; color: #1677ff; }
+.aic-steps-list { margin-top: 6px; display: flex; flex-direction: column; gap: 5px; }
+.aic-step-row { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px; color: var(--m-text-dim); line-height: 1.5; }
+.aic-step-dot { flex: none; width: 5px; height: 5px; border-radius: 50%; background: #1677ff; margin-top: 7px; }
+.aic-step-txt { flex: 1 1 auto; word-break: break-word; }
+
+/* Agent 询问弹层 */
+.aic-ask { padding: 4px 2px 2px; }
+.aic-ask-q { margin: 0 0 14px; font-size: 14px; line-height: 1.65; color: var(--m-text); }
+.aic-ask-opts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.aic-ask-opt {
+  text-align: left; border: 1px solid var(--m-border); background: var(--m-bg);
+  color: var(--m-text); font-size: 13.5px; padding: 11px 14px; border-radius: 10px; cursor: pointer;
+  transition: all .16s;
+}
+.aic-ask-opt:hover, .aic-ask-opt:active { border-color: #1677ff; color: #1677ff; background: rgba(22,119,255,.06); }
+.aic-ask-custom { display: flex; gap: 8px; }
+.aic-ask-i {
+  flex: 1 1 auto; border: 1px solid var(--m-border); border-radius: 10px;
+  background: var(--m-bg); color: var(--m-text); font-size: 14px; padding: 10px 12px; outline: none;
+}
+.aic-ask-i:focus { border-color: #1677ff; }
+.aic-ask-send {
+  flex: none; border: none; border-radius: 10px; background: #1677ff; color: #fff;
+  font-size: 14px; padding: 0 18px; cursor: pointer;
+}
 
 /* 📎 按钮 */
 .aic-clip {

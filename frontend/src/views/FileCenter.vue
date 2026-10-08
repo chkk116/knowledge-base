@@ -10,9 +10,10 @@
  *  - 列表按时间倒序；图片显示缩略图，其余显示类型图标
  *  - 删除前二次确认（后端还会在文档正文引用时只解除登记，避免文档裂图）
  */
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listMyFiles, uploadManagedFile, deleteMyFile } from '../api/file'
+import { getStorage } from '../api/docShare'
 
 const files = ref([])
 const loading = ref(false)
@@ -20,6 +21,19 @@ let uploadSeq = 0
 const uploading = ref([])      // [{ id, name, percent }]（reactive 条目，进度才能触发重渲染）
 const dragging = ref(false)
 const inputRef = ref(null)
+
+// 存储用量（让页面有信息量：知道自己用了多少 / 还剩多少）
+const storage = reactive({ used: 0, quota: 0, has: false })
+// 筛选与搜索
+const filter = ref('all')      // all | image | media | doc
+const keyword = ref('')
+
+const FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'image', label: '图片' },
+  { key: 'media', label: '音视频' },
+  { key: 'doc', label: '文档' }
+]
 
 function fmtSize(n) {
   const v = Number(n || 0)
@@ -38,6 +52,27 @@ function fmtTime(s) {
 function isImage(f) {
   return /^image\//i.test(f.contentType || '') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.url || '')
 }
+function isMedia(f) {
+  return /^(audio|video)\//i.test(f.contentType || '') || /\.(mp4|webm|mov|mp3|wav|m4a|ogg)$/i.test(f.url || '')
+}
+function isDoc(f) {
+  return /(pdf|word|excel|ppt|text|json|csv)/i.test(f.contentType || '') || /\.(pdf|docx?|xlsx?|pptx?|txt|md|csv)$/i.test(f.url || '')
+}
+
+const shown = computed(() => {
+  let list = files.value
+  if (filter.value === 'image') list = list.filter(isImage)
+  else if (filter.value === 'media') list = list.filter(isMedia)
+  else if (filter.value === 'doc') list = list.filter(isDoc)
+  const k = keyword.value.trim().toLowerCase()
+  if (k) list = list.filter((f) => String(f.name || '').toLowerCase().includes(k))
+  return list
+})
+
+const usedPercent = computed(() => {
+  if (!storage.quota) return 0
+  return Math.min(100, Math.round((storage.used / storage.quota) * 100))
+})
 
 async function load() {
   loading.value = true
@@ -49,6 +84,15 @@ async function load() {
   } finally {
     loading.value = false
   }
+  // 用量单独取，失败不影响列表
+  try {
+    const { data } = await getStorage()
+    if (data && (data.used != null || data.quota != null)) {
+      storage.used = Number(data.used || 0)
+      storage.quota = Number(data.quota || 0)
+      storage.has = true
+    }
+  } catch { /* 忽略 */ }
 }
 
 async function uploadAll(list) {
@@ -111,8 +155,17 @@ onMounted(load)
   <div class="fc">
     <header class="fc-head">
       <h2>我的文件</h2>
-      <p class="fc-sub">上传图片 / 音频 / 视频 / PDF，可复制链接插入文档或分享（单个 ≤ 50MB）</p>
+      <p class="fc-sub">统一管理你上传过的图片 / 音频 / 视频 / PDF：复制链接可插进文档或分享，也能查看占用、清理无用文件（单个 ≤ 50MB）</p>
     </header>
+
+    <!-- 存储用量 -->
+    <div v-if="storage.has" class="fc-store">
+      <div class="fc-store-row">
+        <span class="fc-store-t">已用 {{ fmtSize(storage.used) }}<template v-if="storage.quota"> / {{ fmtSize(storage.quota) }}</template></span>
+        <span class="fc-store-n">共 {{ files.length }} 个文件</span>
+      </div>
+      <div class="fc-store-bar"><i :style="{ width: usedPercent + '%' }"></i></div>
+    </div>
 
     <!-- 上传区 -->
     <div
@@ -137,11 +190,27 @@ onMounted(load)
       </div>
     </div>
 
+    <!-- 工具条：类型筛选 + 搜索 -->
+    <div v-if="files.length" class="fc-bar">
+      <div class="fc-tabs">
+        <button
+          v-for="t in FILTERS" :key="t.key"
+          class="fc-tab" :class="{ on: filter === t.key }"
+          @click="filter = t.key"
+        >{{ t.label }}</button>
+      </div>
+      <input v-model="keyword" class="fc-search" placeholder="搜索文件名…" />
+    </div>
+
     <!-- 列表 -->
     <div v-if="loading && !files.length" class="fc-empty">加载中…</div>
-    <div v-else-if="!files.length" class="fc-empty">还没有文件，上传第一个吧</div>
+    <div v-else-if="!files.length" class="fc-empty">
+      <div class="fc-empty-t">还没有文件</div>
+      <div class="fc-empty-d">上传后可复制链接插进文档；在编辑器里直接粘贴图片也会自动登记到这里。</div>
+    </div>
+    <div v-else-if="!shown.length" class="fc-empty">没有匹配的文件</div>
     <div v-else class="fc-grid">
-      <div v-for="f in files" :key="f.id" class="fc-item">
+      <div v-for="f in shown" :key="f.id" class="fc-item">
         <div class="fc-thumb">
           <img v-if="isImage(f)" :src="f.url" :alt="f.name" />
           <span v-else class="fc-thumb-txt">{{ (f.name || '').split('.').pop()?.toUpperCase() || 'FILE' }}</span>
@@ -185,6 +254,34 @@ onMounted(load)
 .fc-prog-num { flex: none; width: 44px; text-align: right; color: var(--el-text-color-secondary); }
 
 .fc-empty { margin-top: 26px; text-align: center; color: var(--el-text-color-secondary); font-size: 13.5px; }
+.fc-empty-t { font-size: 15px; font-weight: 600; color: var(--el-text-color-regular); margin-bottom: 6px; }
+.fc-empty-d { max-width: 460px; margin: 0 auto; line-height: 1.7; }
+
+/* 存储用量 */
+.fc-store { margin-bottom: 16px; }
+.fc-store-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.fc-store-t { font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); }
+.fc-store-n { font-size: 12px; color: var(--el-text-color-secondary); }
+.fc-store-bar { height: 6px; border-radius: 3px; background: var(--el-border-color-lighter); overflow: hidden; }
+.fc-store-bar i { display: block; height: 100%; background: var(--el-color-primary); transition: width .3s; }
+
+/* 筛选 + 搜索 */
+.fc-bar { margin-top: 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fc-tabs { display: flex; gap: 6px; }
+.fc-tab {
+  border: 1px solid var(--el-border-color-lighter); background: var(--el-bg-color);
+  color: var(--el-text-color-regular); font-size: 13px; padding: 5px 14px;
+  border-radius: 999px; cursor: pointer; transition: all .16s;
+}
+.fc-tab:hover { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
+.fc-tab.on { background: var(--el-color-primary); border-color: var(--el-color-primary); color: #fff; }
+.fc-search {
+  margin-left: auto; width: 200px; max-width: 46vw;
+  border: 1px solid var(--el-border-color-lighter); border-radius: 999px;
+  background: var(--el-bg-color); color: var(--el-text-color-primary);
+  font-size: 13px; padding: 6px 14px; outline: none;
+}
+.fc-search:focus { border-color: var(--el-color-primary); }
 
 .fc-grid {
   margin-top: 18px;

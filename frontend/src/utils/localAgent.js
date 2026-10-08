@@ -10,16 +10,38 @@
 
 import { search, getDoc } from '../api/kb'
 
-const MAX_STEPS = 4
+const MAX_STEPS = 6
 const DOC_SNIPPET = 3000
 
 const TOOL_MANUAL = `可用工具（需要时输出一行 TOOL 调用，格式严格为：
 TOOL: {"tool":"工具名","args":{...}}
 工具列表：
 1. search_kb —— 检索知识库文档。参数 {"query":"关键词"}
-2. read_doc —— 读取某篇文档全文。参数 {"id":文档id}（id 来自 search_kb 的结果）
-3. now —— 获取当前日期时间。参数 {}
-当已有信息足够回答时，直接输出最终答案（不要再输出 TOOL 行）。不要编造工具。`
+2. read_doc —— 读取某篇文档全文。参数 {"id":文档id}（id 来自 search_kb 或 list_my_docs）
+3. list_my_docs —— 列出「我的文档」（我自己写的文档）。参数 {}
+4. now —— 获取当前日期时间。参数 {}
+5. create_doc —— 新建一篇文档并**保存进知识库**。参数 {"title":"标题","content":"正文，Markdown 格式","status":"draft|submit"}
+   · status 可选：draft = 存草稿（仅自己可见）；submit = 提交审核（默认）。
+   · 重要：普通用户创建的文档**不会直接公开**——draft 进草稿箱，submit 进「待审核」等管理员通过；
+     管理员账号才会直接发布。所以回答里要如实说明文档处于什么状态，别让用户以为已经公开了。
+6. update_doc —— 改写/优化一篇**已有文档**并保存。参数 {"id":文档id,"title":"可选新标题","content":"优化后的完整正文（Markdown）"}
+7. navigate —— 跳转到本应用内的页面。参数 {"path":"/m/docs/123"}（文档页为 /m/docs/<id>；首页 /m/home、文档库 /m/docs、我的 /m/profile）
+8. ask_user —— **需要用户拍板时提问，不要自己替用户决定**。参数 {"question":"问题","options":["选项A","选项B"]}
+   · 用户会从选项里点选，也可以自己输入；返回「用户选择：xxx」。
+   · 适用场景：写文档前问风格/篇幅、审查文档时问改哪些部分、有多个方案让用户取舍。
+   · 一次只问一个关键问题，别把多个问题堆在一起。
+9. list_my_files —— 列出「我的文件」里已上传的图片 / 音视频 / PDF（含可直接用的链接）。参数 {}
+   · **要在文档里插入图片 / 视频 / 音频时，先用它拿到 url**，再写进正文。写法（**别直接写 HTML 标签，会被转义**）：
+     图片：![说明](url) ｜ 视频：@[video](url) ｜ 音频：@[audio](url)
+
+工作方式要求：
+- 用户说「审查/优化/改写我某篇文档」时：先用 list_my_docs（或 search_kb）定位到文档 → read_doc 读全文 → 分析 → 用 update_doc 写回优化后的**完整正文**（不是只给建议，要真正落地）。
+- 用户说「写一篇…」「帮我整理成文档」「存进知识库」时：用 create_doc 真正新建，不要只在回答里复述内容。
+- 想让用户看某篇文档时，用 navigate 直接跳过去。
+- 正文用 Markdown 写（标题 #、列表 -、加粗 **、代码块 \`\`\`）。
+- **预计消耗大的操作先问用户**：例如要连续读 3 篇以上长文档、反复多次调用工具、或写入很长的正文时，
+  先用 ask_user 说明「这一步会消耗较多 token」并确认，别闷头把额度烧掉。
+- 信息足够时直接给出最终答案（不要再输出 TOOL 行）。不要编造工具。`
 
 /**
  * 跑一个本地 Agent 任务。
@@ -28,9 +50,10 @@ TOOL: {"tool":"工具名","args":{...}}
  *   ask       (text, signal) => Promise<string>  单轮 LLM 调用（通用模式，无知识库注入）
  *   onStep    (text) => void                      每步进展回调（UI 展示）
  *   signal    AbortSignal
+ *   hooks     { navigate?, createDoc? }           宿主能力（跳转 / 保存文档），未传则对应工具不可用
  * @returns {Promise<{answer:string, steps:string[]}>}
  */
-export async function runLocalAgent({ question, ask, onStep, signal }) {
+export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} }) {
   const steps = []
   const say = (t) => { steps.push(t); onStep && onStep(t) }
   const trace = []
@@ -67,6 +90,83 @@ export async function runLocalAgent({ question, ask, onStep, signal }) {
         result = `《${data.title || '无标题'}》正文（节选）：\n` + String(data.content || '').slice(0, DOC_SNIPPET)
       } else if (tool === 'now') {
         result = '当前时间：' + new Date().toLocaleString('zh-CN')
+      } else if (tool === 'list_my_docs') {
+        if (typeof hooks.listMyDocs !== 'function') {
+          result = '当前环境不支持列出文档'
+        } else {
+          say('📚 列出我的文档')
+          result = await hooks.listMyDocs()
+        }
+      } else if (tool === 'navigate') {
+        if (typeof hooks.navigate !== 'function') {
+          result = '当前环境不支持页面跳转'
+        } else {
+          // 应用内路径白名单：Agent 输出可能被检索内容 prompt injection 影响，
+          // 放行 //evil.com 或 https:// 形式会跳出应用（外部复审 2026-10-08）
+          const path = String(args.path || '').slice(0, 200).trim()
+          if (!path.startsWith('/') || path.startsWith('//')) {
+            result = 'path 必须是应用内绝对路径（以单个 / 开头），如 /m/docs/123'
+          } else {
+            say('➡️ 跳转到 ' + path)
+            result = await hooks.navigate(path)
+          }
+        }
+      } else if (tool === 'ask_user') {
+        if (typeof hooks.askUser !== 'function') {
+          result = '当前环境不支持向用户提问，请自行合理假设后继续'
+        } else {
+          const q = String(args.question || '').slice(0, 300)
+          const opts = Array.isArray(args.options)
+            ? args.options.slice(0, 6).map((o) => String(o).slice(0, 80))
+            : []
+          if (!q) {
+            result = '提问内容为空'
+          } else {
+            say('❓ 等待你确认：' + q)
+            const ans = await hooks.askUser(q, opts)
+            result = ans
+              ? '用户选择：' + ans
+              : '用户未做选择（可能取消了）。请自行按最合理的方案继续，不要重复问同一个问题。'
+          }
+        }
+      } else if (tool === 'list_my_files') {
+        if (typeof hooks.listMyFiles !== 'function') {
+          result = '当前环境不支持列出文件'
+        } else {
+          say('📎 列出我的文件')
+          result = await hooks.listMyFiles()
+        }
+      } else if (tool === 'create_doc') {
+        if (typeof hooks.createDoc !== 'function') {
+          result = '当前环境不支持保存文档'
+        } else {
+          const title = String(args.title || 'Agent 整理').slice(0, 100)
+          // 正文上限：超长正文既占库存储，又会在后续步骤反复进上下文放大 token 消耗
+          const content = String(args.content || '').slice(0, 20000)
+          if (!content.trim()) {
+            result = '内容为空，未保存'
+          } else {
+            const status = args.status === 'draft' ? 'draft' : 'submit'
+            say('💾 新建文档：' + title + (status === 'draft' ? '（草稿）' : '（提交审核）'))
+            result = await hooks.createDoc({ title, content, status })
+          }
+        }
+      } else if (tool === 'update_doc') {
+        if (typeof hooks.updateDoc !== 'function') {
+          result = '当前环境不支持更新文档'
+        } else {
+          const id = (typeof args.id === 'string' || typeof args.id === 'number') ? args.id : ''
+          const content = String(args.content || '').slice(0, 20000)
+          const title = args.title ? String(args.title).slice(0, 100) : ''
+          if (!id) {
+            result = '缺少文档 id（必须是字符串或数字），无法更新'
+          } else if (!content.trim()) {
+            result = '正文为空，未更新'
+          } else {
+            say('✏️ 更新文档 #' + id + (title ? '（' + title + '）' : ''))
+            result = await hooks.updateDoc({ id, title, content })
+          }
+        }
       } else {
         result = '未知工具：' + tool
       }

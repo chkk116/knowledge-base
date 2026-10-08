@@ -60,7 +60,7 @@ async function loadTesseract() {
 }
 
 /** 把 File/Blob 按最长边缩放，返回 canvas 的 dataURL（降低识别耗时） */
-function normalizeImage(file, maxEdge = 1600) {
+function normalizeImage(file, maxEdge = 1600, removeLines = false) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const img = new Image()
@@ -77,11 +77,54 @@ function normalizeImage(file, maxEdge = 1600) {
       ctx.fillStyle = '#fff'
       ctx.fillRect(0, 0, w, h)
       ctx.drawImage(img, 0, 0, w, h)
-      resolve(c.toDataURL('image/jpeg', 0.9))
+      if (removeLines) eraseTableLines(ctx, w, h)
+      resolve(c.toDataURL('image/jpeg', 0.92))
     }
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片读取失败')) }
     img.src = url
   })
+}
+
+/**
+ * 擦掉表格线：Tesseract 会把横竖表格线认成 `[` `|` `-` 之类的字符，
+ * 这是识别表格时最主要的噪声来源（实测「IP/MAC 表格」里满屏的 `[` 和 `|`）。
+ * 做法：把几乎横贯 / 纵贯全图的暗线涂成白色。
+ */
+function eraseTableLines(ctx, w, h) {
+  try {
+    const img = ctx.getImageData(0, 0, w, h)
+    const d = img.data
+    const step = w > 1600 ? 2 : 1 // 大图隔点采样，避免双重循环过慢
+    const dark = (x, y) => {
+      const i = (y * w + x) * 4
+      return (d[i] + d[i + 1] + d[i + 2]) / 3 < 128
+    }
+    // 水平线：某行暗像素占比过高 → 视为表格线
+    const rowDark = new Uint32Array(h)
+    for (let y = 0; y < h; y++) {
+      let n = 0
+      for (let x = 0; x < w; x += step) if (dark(x, y)) n++
+      rowDark[y] = n * step
+    }
+    for (let y = 0; y < h; y++) {
+      if (rowDark[y] > w * 0.7) {
+        for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; d[i] = 255; d[i + 1] = 255; d[i + 2] = 255 }
+      }
+    }
+    // 垂直线（在水平线已擦除的基础上重新统计）
+    const colDark = new Uint32Array(w)
+    for (let x = 0; x < w; x++) {
+      let n = 0
+      for (let y = 0; y < h; y += step) if (dark(x, y)) n++
+      colDark[x] = n * step
+    }
+    for (let x = 0; x < w; x++) {
+      if (colDark[x] > h * 0.7) {
+        for (let y = 0; y < h; y++) { const i = (y * w + x) * 4; d[i] = 255; d[i + 1] = 255; d[i + 2] = 255 }
+      }
+    }
+    ctx.putImageData(img, 0, 0)
+  } catch (e) { /* 取像素失败（跨域等）就直接跳过，不阻塞识别 */ }
 }
 
 /** 取（或创建）worker；语言变化时重建 */
@@ -94,11 +137,16 @@ async function ensureWorker(langs, onProgress) {
   }
   // 语言包按需下载；logger 把「loading language traineddata」进度转出来
   // worker / core / 语言包全部指向本地内置资源；traineddata 未压缩，gzip:false 告知 worker 不追加 .gz
+  // ⚠️ workerBlobURL:false 必须保留：tesseract.js 默认把 worker 脚本包成 Blob URL，
+  //    Blob worker 内 scriptDirectory 为空 → core 用裸名 fetch `tesseract-core-simd-lstm.wasm`
+  //    → 「Failed to parse URL」→ 永久卡在「正在加载识别引擎」（2026-10-07 实测复现）。
+  //    用真实 URL（同源）后 core 才能正确拼出 wasm 的绝对路径。
   const localBase = `${import.meta.env.BASE_URL}tesseract/`
   worker = await T.createWorker(langs, 1, {
     workerPath: localBase + 'worker.min.js',
     corePath: localBase + 'tesseract-core-simd-lstm.js',
     langPath: localBase,
+    workerBlobURL: false,
     gzip: false,
     logger: (m) => {
       if (!onProgress) return
@@ -119,12 +167,14 @@ async function ensureWorker(langs, onProgress) {
  * 本地识别
  * @param {File|Blob} file 图片
  * @param {(p:number, msg:string)=>void} onProgress 进度回调（0~1）
+ * @param {{table?:boolean}} opts table=true 时按词坐标重建表格结构（输出 Markdown）
  * @returns {Promise<string>} 识别出的文本
  */
-export async function recognizeLocal(file, onProgress) {
+export async function recognizeLocal(file, onProgress, opts = {}) {
   const step = (p, t) => { ocrProgress.value = p; ocrProgress.text = t; onProgress && onProgress(p, t) }
   step(0.02, '正在处理图片…')
-  const dataUrl = await normalizeImage(file)
+  // 表格模式：分辨率给足（2000）+ 擦掉表格线，否则 Tesseract 会满屏认出 `[` `|` 这类噪声
+  const dataUrl = await normalizeImage(file, opts.table ? 2000 : 1600, !!opts.table)
 
   // 中文 + 英文：chi_sim 单独会把英文/数字识别得很糟
   const langs = 'chi_sim+eng'
@@ -133,7 +183,75 @@ export async function recognizeLocal(file, onProgress) {
 
   const { data } = await w.recognize(dataUrl)
   step(1, '识别完成')
+  if (opts.table) {
+    const md = buildTableFromWords(data)
+    if (md) return md
+  }
   return cleanText(data && data.text)
+}
+
+/**
+ * 用 Tesseract 给出的**词坐标**重建表格 → Markdown。
+ *
+ * 为什么需要：Tesseract 只认字、不理解表格结构，直接输出会把行列的对应关系打乱
+ * （用户实测「IP/MAC 表格」识别出来是一坨乱码）。这里按 y 坐标聚成行、行内按 x 排序，
+ * 至少把行列结构还原出来；不像表格时返回 null，调用方回退为纯文本。
+ */
+function buildTableFromWords(data) {
+  // tesseract.js v5 把词级结果移到 blocks[].paragraphs[].lines[].words，data.words 可能为 undefined
+  let words = (data && data.words) || []
+  if (!words.length && data && Array.isArray(data.blocks)) {
+    for (const b of data.blocks) for (const p of (b.paragraphs || [])) for (const l of (p.lines || [])) {
+      if (Array.isArray(l.words)) words = words.concat(l.words)
+    }
+  }
+  words = words
+    .filter((w) => w && w.text && String(w.text).trim())
+    .map((w) => ({
+      text: String(w.text).trim(),
+      x: w.bbox.x0,
+      y: w.bbox.y0,
+      h: (w.bbox.y1 - w.bbox.y0) || 10
+    }))
+  if (words.length < 4) return null
+
+  // 行聚类：按 y 排序，容差取词高的 60%
+  words.sort((a, b) => a.y - b.y)
+  const rows = []
+  for (const w of words) {
+    const tol = Math.max(6, w.h * 0.6)
+    let row = rows.find((r) => Math.abs(r.y - w.y) <= tol)
+    if (!row) {
+      row = { y: w.y, words: [] }
+      rows.push(row)
+    }
+    row.words.push(w)
+    row.y = row.words.reduce((s, x) => s + x.y, 0) / row.words.length // 用行内均值，聚类更稳
+  }
+  if (rows.length < 2) return null
+
+  const table = rows.map((r) => r.words.slice().sort((a, b) => a.x - b.x).map((w) => w.text))
+  const maxCol = Math.max(...table.map((r) => r.length))
+  if (maxCol < 2) return null // 每行都只有 1 个词 → 不是表格
+
+  // 关键：各行词数必须「基本一致」才算表格。普通段落每行词数差异很大，
+  // 少了这一步会把正常文章也拆成假表格，反而更难读。
+  const freq = {}
+  for (const r of table) freq[r.length] = (freq[r.length] || 0) + 1
+  const topFreq = Math.max(...Object.values(freq))
+  if (topFreq < Math.ceil(table.length * 0.6)) return null
+
+  const pad = (r) => {
+    const c = r.slice()
+    while (c.length < maxCol) c.push('')
+    return c
+  }
+  const line = (r) => '| ' + pad(r).join(' | ') + ' |'
+  return [
+    line(table[0]),
+    '| ' + Array.from({ length: maxCol }, () => '---').join(' | ') + ' |',
+    ...table.slice(1).map(line)
+  ].join('\n')
 }
 
 /** 预热：进入拍照页就后台把引擎与语言包准备好，用户点识别时无需等待 */

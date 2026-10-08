@@ -67,30 +67,44 @@ public class OcrService {
         this.cipher = cipher;
     }
 
-    /** 是否可用：受总开关约束，且管理页至少配了一条启用的智谱模型（取不到 Key 时视为不可用） */
+    /** 是否可用：受总开关约束，且管理页至少配了一条可用的多模态模型（取不到 Key 时视为不可用） */
     public boolean isEnabled() {
-        return enabled && zhipuConfig() != null;
+        return enabled && visionConfig() != null;
     }
 
     /**
-     * 取一条可用的智谱配置（含解密后的 Key）。管理页可配多条，取排序最前的启用项。
-     * 没有智谱配置 / Key 解密失败 / Key 为空时返回 null。
+     * 取可用的视觉模型配置（含解密后的 Key 与候选模型名）。
+     * 选择顺序：
+     *   1) 优先智谱（ZHIPU）—— 沿用历史行为，候选为智谱视觉模型降级链；
+     *   2) 否则取平台默认模型（is_default），再退首个启用模型 —— 支持任意**原生多模态**模型
+     *      （如 DeepSeek-V4.1-Flash），候选即该模型自身。
+     * 没有可用模型 / Key 解密失败 / Key 为空时返回 null。
      * 注：AiKeyCipher.decrypt() 内部已吞掉异常并返回空串（主密钥轮换场景），故此处无需 try-catch。
      */
-    private ZhipuConfig zhipuConfig() {
+    private VisionConfig visionConfig() {
         List<AiModel> all = modelRepo.findByEnabledTrueOrderBySortOrderAscIdAsc();
+        // 1) 智谱优先
         for (AiModel m : all) {
             if (!AiModel.PROVIDER_ZHIPU.equalsIgnoreCase(m.getProvider())) continue;
             String key = cipher.decrypt(m.getApiKey());
             if (key == null || key.isBlank()) continue;
             String base = m.getBaseUrl() == null || m.getBaseUrl().isBlank() ? ZHIPU_DEFAULT_BASE : m.getBaseUrl().trim();
-            return new ZhipuConfig(base, key.trim());
+            return new VisionConfig(base, key.trim(), VISION_MODELS);
         }
-        return null;
+        // 2) 平台默认模型（支持任意原生多模态模型）
+        AiModel pick = all.stream().filter(AiModel::isDefaultModel).findFirst()
+                .orElse(all.isEmpty() ? null : all.get(0));
+        if (pick == null) return null;
+        String key = cipher.decrypt(pick.getApiKey());
+        if (key == null || key.isBlank()) return null;
+        String base = pick.getBaseUrl() == null || pick.getBaseUrl().isBlank() ? ZHIPU_DEFAULT_BASE : pick.getBaseUrl().trim();
+        // 模型名为空（历史数据/未填）时 List.of(null) 会 NPE → 500，而非走到友好提示
+        if (pick.getModel() == null || pick.getModel().isBlank()) return null;
+        return new VisionConfig(base, key.trim(), List.of(pick.getModel()));
     }
 
-    /** 一条智谱端点 + Key 的瞬时快照（不缓存，保证管理页改动即时生效） */
-    private record ZhipuConfig(String baseUrl, String apiKey) {
+    /** 一条视觉模型端点 + Key + 候选模型名的瞬时快照（不缓存，保证管理页改动即时生效） */
+    private record VisionConfig(String baseUrl, String apiKey, List<String> models) {
     }
 
     /** 校验上传的图片类型与大小，不合法抛 IllegalStateException */
@@ -109,10 +123,10 @@ public class OcrService {
      * @return 提取出的纯文本（保留换行）
      */
     public String recognize(byte[] imageBytes, String contentType) {
-        ZhipuConfig conf = enabled ? zhipuConfig() : null;
+        VisionConfig conf = enabled ? visionConfig() : null;
         if (conf == null) {
             throw new IllegalStateException(enabled
-                    ? "OCR 未启用：请在「AI 模型管理」中添加一条启用的智谱（ZHIPU）模型配置并填写 API Key"
+                    ? "OCR 未启用：请在「AI 模型管理」配置一个支持视觉的多模态模型（智谱 ZHIPU，或把多模态模型设为默认）并填写 API Key"
                     : "OCR 未启用：kb.ai.enabled=false，请先在配置中开启 AI 功能");
         }
         // 与 AI 模型调用同理：不给超时，模型端 hang 住会把请求线程一直占着
@@ -138,7 +152,7 @@ public class OcrService {
         Map<String, Object> userMsg = Map.of("role", "user", "content", List.of(textPart, imagePart));
 
         String lastErr = "识别服务暂不可用";
-        for (String model : VISION_MODELS) {
+        for (String model : conf.models()) {
             try {
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("model", model);

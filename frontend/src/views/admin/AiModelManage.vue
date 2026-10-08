@@ -8,7 +8,35 @@ import {
   adminToggleModel, adminSetDefaultModel, adminTestModel, adminUsage
 } from '../../api/ai'
 import { loadEcharts, chartTxt, chartTip } from '../../utils/echartsLoader'
+import api from '../../api/request'
 import ProviderLogo from '../../components/ProviderLogo.vue'
+
+// ---- 消息设置：高消耗发送前确认（存 SysSetting 的 ai_cost_guard，跨设备生效）----
+const guard = reactive({ enabled: true, imageThreshold: 2, textThreshold: 8000 })
+const guardSaving = ref(false)
+async function loadGuard() {
+  try {
+    const { data } = await api.get('/admin/settings/ai_cost_guard')
+    const raw = data && data.value
+    if (raw) {
+      const v = JSON.parse(raw)
+      if (typeof v.enabled === 'boolean') guard.enabled = v.enabled
+      if (Number(v.imageThreshold) > 0) guard.imageThreshold = Number(v.imageThreshold)
+      if (Number(v.textThreshold) > 0) guard.textThreshold = Number(v.textThreshold)
+    }
+  } catch { /* 没配过就用默认值 */ }
+}
+async function saveGuard() {
+  guardSaving.value = true
+  try {
+    await api.put('/admin/settings/ai_cost_guard', { value: JSON.stringify({ ...guard }) })
+    ElMessage.success('已保存')
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    guardSaving.value = false
+  }
+}
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -288,6 +316,7 @@ const onResize = () => usageChart && usageChart.resize()
 onMounted(() => {
   load()
   loadUsage()
+  loadGuard()
   // 主题切换时图表跟随重绘；窗口缩放时自适应
   themeObserver = new MutationObserver(onThemeChange)
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
@@ -483,6 +512,35 @@ onUnmounted(() => {
           <template #default="{ row }">{{ row.avgLatencyMs }}ms</template>
         </el-table-column>
       </el-table>
+    </section>
+
+    <!-- 消息设置：高消耗发送前确认（AI 页读取，跨设备生效） -->
+    <section class="guard-sec">
+      <h3 class="sec-title">消息设置</h3>
+      <div class="guard-card">
+        <div class="guard-row">
+          <div class="guard-info">
+            <div class="guard-name">高消耗发送前确认</div>
+            <div class="guard-desc">
+              AI 页发送多张图片或超长文本前先弹窗确认，避免一次误发就烧掉大量额度
+              （图片约 850 tokens/张，文本约 1.5 tokens/字）
+            </div>
+          </div>
+          <el-switch v-model="guard.enabled" :loading="guardSaving" @change="saveGuard" />
+        </div>
+        <div v-if="guard.enabled" class="guard-thresh">
+          <label class="guard-field">
+            <span>图片 ≥</span>
+            <el-input-number v-model="guard.imageThreshold" :min="1" :max="10" size="small" @change="saveGuard" />
+            <span>张时确认</span>
+          </label>
+          <label class="guard-field">
+            <span>文本 ≥</span>
+            <el-input-number v-model="guard.textThreshold" :min="1000" :max="100000" :step="1000" size="small" @change="saveGuard" />
+            <span>字时确认</span>
+          </label>
+        </div>
+      </div>
     </section>
 
     <!-- 测试连接结果 -->
@@ -740,6 +798,23 @@ html.dark .dv { color: #d5d7e0; }
 .dtitle { font-size: 13px; font-weight: 600; color: #334155; margin: 10px 0 2px; }
 html.dark .dtitle { color: #d5d7e0; }
 .dempty { color: #98a2b3; font-size: 13px; padding: 24px 0; text-align: center; }
+
+/* ===== 消息设置（高消耗确认） ===== */
+.guard-sec { margin-top: 16px; }
+.guard-card {
+  margin-top: 10px; background: #fff; border: 1px solid #eef2f7;
+  border-radius: 14px; padding: 14px 16px 16px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+}
+html.dark .guard-card { background: #17171f; border-color: #2a2a35; }
+.guard-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.guard-name { font-size: 14px; font-weight: 600; color: #1e293b; }
+html.dark .guard-name { color: #e7e7ee; }
+.guard-desc { margin-top: 4px; font-size: 12.5px; line-height: 1.6; color: #94a3b8; max-width: 640px; }
+.guard-thresh { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px dashed #eef2f7; }
+html.dark .guard-thresh { border-color: #2a2a35; }
+.guard-field { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #64748b; }
+html.dark .guard-field { color: #9aa3b2; }
 
 /* ===== 用量统计 ===== */
 .usage-sec {

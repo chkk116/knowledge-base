@@ -99,6 +99,55 @@ public class PublicConfigController {
 
     private static String nvl(String v) { return v == null ? "" : v; }
 
+    /** 提取 JSON 数字字段（形如 "key":123） */
+    private static Integer extractJsonNumber(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(\\d+)")
+                .matcher(json);
+        if (!m.find()) return null;
+        try {
+            long v = Long.parseLong(m.group(1));
+            // 公开下发的阈值是前端展示/比较用，裁到 int 正数域，防超大值 NumberFormatException → 500
+            return (v > 0 && v <= Integer.MAX_VALUE) ? (int) v : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** 提取 JSON 布尔字段（形如 "key":true） */
+    private static Boolean extractJsonBool(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*(true|false)")
+                .matcher(json);
+        return m.find() ? Boolean.valueOf(m.group(1)) : null;
+    }
+
+    /**
+     * AI 消耗守护：GET /api/public/ai-guard
+     *
+     * AI 页在「发多张图 / 发超长文本」前是否先弹确认，由管理员在「AI 模型管理」里配置，
+     * 数据源是 SysSetting 的 ai_cost_guard 键（JSON）。普通用户也要读到，故公开下发。
+     * 默认**开启**（保守）：即使从没配过，也不会一次误发就烧掉大量额度。
+     */
+    @GetMapping("/ai-guard")
+    public Map<String, Object> aiGuard() {
+        Map<String, Object> r = new java.util.LinkedHashMap<>();
+        r.put("enabled", Boolean.TRUE);
+        r.put("imageThreshold", Integer.valueOf(2));
+        r.put("textThreshold", Integer.valueOf(8000));
+        SysSetting s = settingRepo.findByKey("ai_cost_guard").orElse(null);
+        if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
+            String raw = s.getValue();
+            Boolean en = extractJsonBool(raw, "enabled");
+            if (en != null) r.put("enabled", en);
+            Integer it = extractJsonNumber(raw, "imageThreshold");
+            if (it != null && it.intValue() > 0) r.put("imageThreshold", it);
+            Integer tt = extractJsonNumber(raw, "textThreshold");
+            if (tt != null && tt.intValue() > 0) r.put("textThreshold", tt);
+        }
+        return r;
+    }
+
     /**
      * 提取 JSON 数组字段的原始文本（形如 "items":[...]）。
      * 用括号深度扫描而非贪婪正则：条目文字里可能出现 ] 或 [，正则会截错。
