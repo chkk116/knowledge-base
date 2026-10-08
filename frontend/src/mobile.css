@@ -324,9 +324,22 @@ html.dark .m-chip.red { background: #3d1a1a; color: #f87171; }
 }
 .m-prose code { background: var(--m-card-2); padding: 1px 5px; border-radius: 5px; font-size: .92em; }
 .m-prose pre code { background: transparent; padding: 0; }
-.m-prose table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 12px 0; }
-.m-prose th, .m-prose td { border: 1px solid var(--m-border); padding: 7px 9px; text-align: left; }
+/* 表格：列多时原来 width:100% 会把每列压成一团、数字/英文全挤断，看着像"显示不正常"。
+   列少时撑满容器、列多时表格自身横向滚动（超出屏幕部分不撑破页面）。 */
+.m-prose table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin: 12px 0;
+}
+.m-prose th, .m-prose td { border: 1px solid var(--m-border); padding: 7px 9px; text-align: left; white-space: nowrap; }
 .m-prose th { background: var(--m-card-2); font-weight: 600; }
+/* 单元格里的长文本（如正文段落）才允许换行，表头/短字段保持不折行更好读 */
+.m-prose td > p { white-space: normal; }
 .m-prose a { color: var(--m-primary); text-decoration: none; word-break: break-all; }
 
 /* Element Plus 在移动端的统一收口 */

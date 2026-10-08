@@ -730,7 +730,9 @@ onBeforeUnmount(() => {
 }
 .kb-st-btn.primary { background: #10b981; border-color: #10b981; color: #fff; }
 .kb-st-btn:hover { opacity: 0.88; }
-.kb-sheet-stage { position: relative; }
+/* 手机上列一多，表格比屏幕宽 —— 容器必须能横向滑动，否则被外层 .kb-sheet 的
+   overflow:hidden 直接裁掉、怎么划都划不动。iOS 还要 -webkit-overflow-scrolling 才有惯性。 */
+.kb-sheet-stage { position: relative; overflow: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
 .kb-sheet-canvas { height: 420px; position: relative; }
 .kb-sheet-canvas.readonly { pointer-events: none; }
 /* 远端协作者高亮层（叠在 canvas 之上，不拦交互） */

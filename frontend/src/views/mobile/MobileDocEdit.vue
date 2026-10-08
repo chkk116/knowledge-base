@@ -2,23 +2,32 @@
 /**
  * 移动端文档编辑页
  *
- * 取舍说明（很重要）：
- *   桌面端用的是 Tiptap 协同编辑器（含 Yjs、表格、图表块等重型依赖），
- *   它需要固定的宽屏工具栏，在手机上体验很差；而且依赖 @hocuspocus 连接，
- *   离线时完全不可用 —— 与「离线也能编辑」的目标冲突。
+ * 2026-10-08 改版：原来用 textarea 走「Markdown 式纯文本」，代价是**手机端编不了表格/导图/流程图**。
+ * 现改为 **Tiptap 可编辑实例**（与桌面端同一套扩展），并配一条手机友好的底部工具栏：
+ *   - 正文所见即所得，流程图 / 脑图 / 电子表格可以直接在手机上改
+ *   - 图片、表格可插入；图块内部交互沿用桌面端组件
  *
- *   所以移动端改为「轻量编辑」：
- *     - 标题 input + 正文 textarea（纯文本 → 段落 HTML）
- *     - 支持 Markdown 式简易语法：行首 # / ## / ### 变标题，- 变列表，> 变引用
- *     - 保存时转成 HTML 存进共享文档（与桌面端的 content 字段完全兼容）
- *     - 离线时写进 IndexedDB 队列，联网自动同步
- *   代价：手机端编不了表格/导图（这类内容请在电脑上改）。
+ * 协同说明：移动端**不接 Yjs 实时协同**（依赖 @hocuspocus 长连接，离线不可用），
+ * 保存是「整篇覆盖」。所以多人同时编辑同一篇时，请以电脑端为准。
+ * 离线仍可用：断网时存到本机队列，联网自动同步。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { getShareDoc, updateShareDoc, createShareDoc } from '../../api/docShare'
 import { enqueueDoc, getCachedDoc, cacheDoc } from '../../utils/offlineStore'
+import { useEditor, EditorContent } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
+import Table from '@tiptap/extension-table'
+import TableRow from '@tiptap/extension-table-row'
+import TableHeader from '@tiptap/extension-table-header'
+import TableCell from '@tiptap/extension-table-cell'
+import Placeholder from '@tiptap/extension-placeholder'
+import MindmapNode from '../../extensions/MindmapNode'
+import FlowchartNode from '../../extensions/FlowchartNode'
+import SpreadsheetNode from '../../extensions/SpreadsheetNode'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,97 +36,44 @@ const spaceId = Number(route.params.spaceId)
 const docId = Number(route.params.docId)
 
 const title = ref('')
-const body = ref('')
 const loading = ref(true)
 const saving = ref(false)
 const dirty = ref(false)
 const online = ref(navigator.onLine)
+const textLen = ref(0)   // 正文字数（由编辑器的 update 事件维护）
+// 工具栏展开状态（手机上默认收起，省屏幕；点击「工具」按钮展开）
+const barOpen = ref(false)
 
-/** HTML → 可编辑纯文本（Markdown 风格），尽量保持可读 */
-function htmlToMd(html) {
-  if (!html) return ''
-  const d = document.createElement('div')
-  d.innerHTML = html
-  const out = []
-  const walk = (nodes) => {
-    for (const el of nodes) {
-      if (el.nodeType === 3) {
-        const t = el.textContent
-        if (t && t.trim()) out.push(t.trim())
-        continue
-      }
-      if (el.nodeType !== 1) continue
-      const tag = el.tagName.toLowerCase()
-      if (tag === 'h1') { out.push('# ' + (el.textContent || '').trim()); continue }
-      if (tag === 'h2') { out.push('## ' + (el.textContent || '').trim()); continue }
-      if (tag === 'h3' || tag === 'h4') { out.push('### ' + (el.textContent || '').trim()); continue }
-      if (tag === 'blockquote') { out.push('> ' + (el.textContent || '').trim()); continue }
-      if (tag === 'li') { out.push('- ' + (el.textContent || '').trim()); continue }
-      if (tag === 'pre') { out.push('```\n' + (el.textContent || '').trim() + '\n```'); continue }
-      if (tag === 'br') { out.push(''); continue }
-      if (tag === 'img') { out.push('[图片]'); continue }
-      if (tag === 'ul' || tag === 'ol' || tag === 'table' || tag === 'tbody' || tag === 'thead' || tag === 'tr') {
-        walk(el.childNodes); continue
-      }
-      if (tag === 'td' || tag === 'th') { out.push('| ' + (el.textContent || '').trim()); continue }
-      if (tag === 'p' || tag === 'div' || tag === 'section') {
-        const txt = (el.textContent || '').trim()
-        out.push(txt)
-        continue
-      }
-      walk(el.childNodes)
-    }
-  }
-  walk(d.childNodes)
-  return out.filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\n').trim()
+const editor = useEditor({
+  content: '',
+  editable: true,
+  extensions: [
+    StarterKit.configure({ history: true }),
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    Table.configure({ resizable: true }),
+    TableRow, TableHeader, TableCell,
+    MindmapNode, FlowchartNode, SpreadsheetNode,
+    // 占位提示依赖该扩展注入 is-editor-empty 类（此前 CSS 写了却永不生效，外部复审 2026-10-08）
+    Placeholder.configure({ placeholder: '开始写点什么…' }),
+  ],
+  editorProps: { attributes: { class: 'm-prose de-prose' } },
+  onUpdate: ({ editor: ed }) => {
+    dirty.value = true
+    // 字数在这里算：computed 追踪不到编辑器内部的变化，必须由 update 事件推
+    textLen.value = (ed.getText() || '').replace(/\s/g, '').length
+  },
+})
+
+/** 用编辑器 HTML 覆盖正文（loaded=false 时不触发 update，避免误标 dirty） */
+function setBody(html) {
+  if (!editor.value) return
+  editor.value.commands.setContent(html || '', false)
+  textLen.value = (editor.value.getText() || '').replace(/\s/g, '').length
+  dirty.value = false
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
-}
-
-/** Markdown 风格纯文本 → 段落 HTML（与桌面端 content 字段兼容） */
-function mdToHtml(md) {
-  const lines = String(md || '').replace(/\r/g, '').split('\n')
-  const out = []
-  let inCode = false
-  let listBuf = []
-
-  const flushList = () => {
-    if (listBuf.length) { out.push('<ul>' + listBuf.map((t) => '<li>' + t + '</li>').join('') + '</ul>'); listBuf = [] }
-  }
-
-  for (const raw of lines) {
-    const line = raw
-    if (/^```/.test(line.trim())) {
-      flushList()
-      if (!inCode) { inCode = true; out.push('<pre><code>') }
-      else { inCode = false; out.push('</code></pre>') }
-      continue
-    }
-    if (inCode) { out.push(escapeHtml(line) + '\n'); continue }
-
-    const t = line.trim()
-    if (!t) { flushList(); continue }
-    let m
-    if ((m = t.match(/^###\s+(.*)$/))) { flushList(); out.push('<h3>' + escapeHtml(m[1]) + '</h3>'); continue }
-    if ((m = t.match(/^##\s+(.*)$/))) { flushList(); out.push('<h2>' + escapeHtml(m[1]) + '</h2>'); continue }
-    if ((m = t.match(/^#\s+(.*)$/))) { flushList(); out.push('<h1>' + escapeHtml(m[1]) + '</h1>'); continue }
-    if ((m = t.match(/^>\s?(.*)$/))) { flushList(); out.push('<blockquote>' + escapeHtml(m[1]) + '</blockquote>'); continue }
-    if ((m = t.match(/^[-*+]\s+(.*)$/))) { listBuf.push(escapeHtml(m[1])); continue }
-    if ((m = t.match(/^(\d+)[.)]\s+(.*)$/))) { listBuf.push(escapeHtml(m[2])); continue }
-    flushList()
-    // 行内加粗 / 斜体 / 代码
-    let html = escapeHtml(t)
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    html = html.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
-    out.push('<p>' + html + '</p>')
-  }
-  flushList()
-  if (inCode) out.push('</code></pre>')
-  return out.join('')
-}
+let pendingBody = ''   // load 首次取到的正文（编辑器异步创建后补灌用）
 
 async function load() {
   loading.value = true
@@ -126,11 +82,12 @@ async function load() {
       try {
         const { data } = await getShareDoc(spaceId, docId)
         title.value = data.title || ''
-        body.value = htmlToMd(data.content)
+        pendingBody = data.content          // 缓存起来：编辑器异步就绪后直接灌，不再二次请求（二次请求会把用户刚输入的内容覆盖掉）
+        setBody(data.content)
         cacheDoc(spaceId, data).catch(() => {})
       } catch (e) {
         const c = await getCachedDoc(spaceId, docId).catch(() => null)
-        if (c) { title.value = c.title || ''; body.value = htmlToMd(c.html); window.__kbMsg?.warning('离线，已载入本地缓存') }
+        if (c) { title.value = c.title || ''; setBody(c.html); window.__kbMsg?.warning('离线，已载入本地缓存') }
         else throw e
       }
     }
@@ -138,13 +95,18 @@ async function load() {
     window.__kbMsg?.error('载入失败：' + (e.response?.data?.error || e.message))
   } finally {
     loading.value = false
+    // 编辑器是异步创建的，创建完成后再灌一次内容（用已取到的数据，不发第二次请求）
+    if (editor.value && !editor.value.getHTML().replace(/<p[^>]*><\/p>/g, '').trim()) {
+      if (pendingBody) setBody(pendingBody)
+    }
+    pendingBody = ''
   }
 }
 
 async function save() {
   if (saving.value) return
   saving.value = true
-  const html = mdToHtml(body.value)
+  const html = editor.value ? editor.value.getHTML() : ''
   const t = title.value.trim() || '未命名文档'
   try {
     if (online.value && docId > 0) {
@@ -179,6 +141,43 @@ async function save() {
   }
 }
 
+// ---- 工具栏命令 ----
+function cmd(name, arg) {
+  const e = editor.value
+  if (!e) return
+  const chain = e.chain().focus()
+  if (typeof chain[name] !== 'function') return
+  if (arg !== undefined) chain[name](arg).run()
+  else chain[name]().run()
+}
+
+// 表格大小选择器：手机上点格子选行列，比写死 3×3 好用（桌面端也只能插 3×3）
+const tablePicker = ref(false)
+const tpR = ref(3)
+const tpC = ref(3)
+const tpAt = (i) => ({ r: Math.ceil(i / 6), c: ((i - 1) % 6) + 1 })
+function tpHover(i) { const { r, c } = tpAt(i); tpR.value = r; tpC.value = c }
+function tpOn(i) { const { r, c } = tpAt(i); return r <= tpR.value && c <= tpC.value }
+function tpPick(i) {
+  const { r, c } = tpAt(i)
+  editor.value?.chain().focus().insertTable({ rows: r, cols: c, withHeaderRow: true }).run()
+  dirty.value = true
+  tablePicker.value = false
+}
+/** 插入图块：与桌面端同款节点，手机上也能编辑 */
+function insertFlow() {
+  editor.value?.chain().focus().insertContent({ type: 'flowchartBlock', attrs: { title: '流程图' } }).run()
+  dirty.value = true
+}
+function insertMind() {
+  editor.value?.chain().focus().insertContent({ type: 'mindmapBlock', attrs: { title: '思维导图' } }).run()
+  dirty.value = true
+}
+function insertSheet() {
+  editor.value?.chain().focus().insertContent({ type: 'sheetBlock', attrs: { title: '电子表格' } }).run()
+  dirty.value = true
+}
+
 async function back() {
   if (dirty.value) {
     try {
@@ -207,9 +206,10 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
+  try { editor.value?.destroy() } catch { /* ignore */ }
 })
 
-const charCount = computed(() => body.value.length)
+const charCount = computed(() => textLen.value)
 </script>
 
 <template>
@@ -229,12 +229,44 @@ const charCount = computed(() => body.value.length)
 
     <div class="de-body">
       <input v-model="title" class="t-input" placeholder="标题" @input="dirty = true" />
-      <textarea v-model="body" class="t-body" @input="dirty = true"
-                placeholder="开始写点什么…
-支持简易 Markdown：
-# 标题    ## 二级标题
-- 列表项   > 引用
-**加粗**   `代码`"></textarea>
+      <!-- 所见即所得正文：流程图 / 脑图 / 电子表格可直接在手机上编辑 -->
+      <EditorContent :editor="editor" />
+    </div>
+
+    <!-- 手机端工具栏：横向可滚，避免撑破窄屏 -->
+    <button class="de-bar-toggle" @click="barOpen = !barOpen">{{ barOpen ? '收起工具' : '展开工具' }}</button>
+    <div v-show="barOpen" class="de-bar">
+      <button class="tb" :class="{ on: editor?.isActive('bold') }" @click="cmd('toggleBold')"><b>B</b></button>
+      <button class="tb" :class="{ on: editor?.isActive('italic') }" @click="cmd('toggleItalic')"><i>I</i></button>
+      <button class="tb" :class="{ on: editor?.isActive('heading', { level: 2 }) }" @click="cmd('toggleHeading', { level: 2 })">H2</button>
+      <button class="tb" :class="{ on: editor?.isActive('bulletList') }" @click="cmd('toggleBulletList')">• 列表</button>
+      <button class="tb" :class="{ on: editor?.isActive('orderedList') }" @click="cmd('toggleOrderedList')">1. 编号</button>
+      <button class="tb" :class="{ on: editor?.isActive('blockquote') }" @click="cmd('toggleBlockquote')">引用</button>
+      <button class="tb" :class="{ on: editor?.isActive('codeBlock') }" @click="cmd('toggleCodeBlock')">&lt;/&gt;</button>
+      <span class="tb-sep"></span>
+      <button class="tb" @click="tablePicker = true">表格</button>
+      <button class="tb" @click="insertFlow">流程图</button>
+      <button class="tb" @click="insertMind">脑图</button>
+      <button class="tb" @click="insertSheet">电子表格</button>
+      <span class="tb-sep"></span>
+      <button class="tb" @click="cmd('undo')">撤销</button>
+      <button class="tb" @click="cmd('redo')">重做</button>
+    </div>
+
+    <!-- 表格大小选择器（点格子选行列） -->
+    <div v-if="tablePicker" class="tp-mask" @click.self="tablePicker = false">
+      <div class="tp-panel">
+        <div class="tp-head">
+          <span class="tp-title">插入表格</span>
+          <span class="tp-size">{{ tpR }} × {{ tpC }}</span>
+        </div>
+        <div class="tp-grid" @mouseleave="tpR = 3, tpC = 3">
+          <span v-for="i in 36" :key="i" class="tp-cell" :class="{ on: tpOn(i) }"
+                @mouseenter="tpHover(i)" @click="tpPick(i)"></span>
+        </div>
+        <div class="tp-tip">点一下格子即插入（含表头行）</div>
+        <button class="tp-cancel" @click="tablePicker = false">取消</button>
+      </div>
     </div>
 
     <div class="m-actionbar">
@@ -274,13 +306,51 @@ html.dark .off-note { background: #3b2411; color: #fdba74; }
   font-family: inherit; padding: 6px 0 12px; letter-spacing: -.3px;
 }
 .t-input::placeholder { color: var(--m-text-dim); font-weight: 600; }
-.t-body {
-  width: 100%; box-sizing: border-box; min-height: 52vh;
-  border: none; outline: none; background: transparent; resize: none;
-  font-size: 16px; line-height: 1.78; color: var(--m-text);
-  font-family: inherit; padding: 0;
+/* 正文：Tiptap 编辑区（.m-prose 提供排版，这里只补编辑态细节） */
+.de-prose { min-height: 52vh; outline: none; font-size: 16px; line-height: 1.78; color: var(--m-text); }
+
+.de-prose :deep(p.is-editor-empty:first-child::before) { color: var(--m-text-dim); content: '开始写点什么…'; float: left; height: 0; pointer-events: none; }
+
+/* 手机端工具栏：横向滚动，不换行 */
+.de-bar {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  background: var(--m-card, #fff); border-top: 1px solid var(--m-border);
 }
-.t-body::placeholder { color: var(--m-text-dim); font-size: 14.5px; line-height: 1.8; }
+.de-bar::-webkit-scrollbar { display: none; }
+.tb {
+  flex: none; border: 1px solid var(--m-border); background: var(--m-bg);
+  color: var(--m-text); font-size: 13px; padding: 7px 12px; border-radius: 9px;
+  cursor: pointer; white-space: nowrap; transition: all .15s;
+}
+.tb.on { background: var(--m-primary, #1677ff); border-color: var(--m-primary, #1677ff); color: #fff; }
+.tb-sep { flex: none; width: 1px; height: 18px; background: var(--m-border); margin: 0 2px; }
+
+/* 表格大小选择器 */
+.tp-mask {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(15, 23, 42, .45);
+  display: flex; align-items: center; justify-content: center;
+}
+.tp-panel {
+  width: 268px; padding: 16px; border-radius: 16px;
+  background: var(--m-card, #fff); box-shadow: 0 12px 32px rgba(15, 23, 42, .22);
+}
+.tp-head { display: flex; align-items: baseline; justify-content: space-between; }
+.tp-title { font-size: 15px; font-weight: 600; color: var(--m-text); }
+.tp-size { font-size: 13px; color: var(--m-primary, #1677ff); font-variant-numeric: tabular-nums; }
+.tp-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin: 12px 0 8px; }
+.tp-cell {
+  aspect-ratio: 1; border: 1px solid var(--m-border); border-radius: 4px;
+  background: var(--m-bg); transition: background .1s, border-color .1s;
+}
+.tp-cell.on { background: var(--m-primary, #1677ff); border-color: var(--m-primary, #1677ff); }
+.tp-tip { font-size: 12px; color: var(--m-text-dim); }
+.tp-cancel {
+  width: 100%; margin-top: 12px; padding: 9px; border-radius: 10px;
+  border: 1px solid var(--m-border); background: var(--m-bg);
+  color: var(--m-text); font-size: 14px; cursor: pointer;
+}
 
 .de-count { flex: none; font-size: 12px; color: var(--m-text-dim); display: flex; align-items: center; padding-right: 4px; }
 </style>
