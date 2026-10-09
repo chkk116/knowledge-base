@@ -27,7 +27,7 @@ const ALLOWED_HOSTS = (() => {
   const hosts = new Set([location.host])
   try {
     // App 内置资源模式下 location.host 是 https://localhost，真实站点从 NATIVE_ORIGIN 取
-    import('../../utils/runtimeBase').then((m) => {
+    import('./runtimeBase').then((m) => {
       try { hosts.add(new URL(m.NATIVE_ORIGIN, location.href).host) } catch { /* 忽略 */ }
     }).catch(() => {})
   } catch { /* ignore */ }
@@ -40,7 +40,7 @@ function assertSafeUpdateUrl(url) {
   if (!ALLOWED_HOSTS.has(u.host)) throw new Error('非法的更新地址（host 不在允许列表）')
 }
 
-export async function downloadAndInstall(url, onProgress) {
+export async function downloadAndInstall(url, onProgress, checksum) {
   assertSafeUpdateUrl(url)
   const P = window.Capacitor?.Plugins?.ApkInstaller
   if (!P?.downloadAndInstall) {
@@ -64,7 +64,7 @@ export async function downloadAndInstall(url, onProgress) {
   } catch { /* 监听注册失败不影响主流程 */ }
 
   try {
-    await P.downloadAndInstall({ url })
+    await P.downloadAndInstall({ url, checksum: checksum || '' })
     return { mode: 'in-app' }
   } finally {
     handles.forEach((h) => { try { h?.remove?.() } catch { /* ignore */ } })

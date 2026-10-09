@@ -16,6 +16,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class LoginLogService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LoginLogService.class);
+
+    /** 登录日志保留期：隐私政策已声明 90 天（外部复审 2026-10-09） */
+    private static final int RETENTION_DAYS = 90;
+
     private final LoginLogRepository repo;
 
     public LoginLogService(LoginLogRepository repo) {
@@ -49,6 +54,17 @@ public class LoginLogService {
             return request.getRemoteAddr();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /** 每日 03:30 清理超期登录日志（隐私政策声明保留 90 天，外部复审 2026-10-09） */
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 30 3 * * ?")
+    public void purgeExpired() {
+        try {
+            long n = repo.deleteByCreatedAtBefore(java.time.LocalDateTime.now().minusDays(RETENTION_DAYS));
+            if (n > 0) log.info("[登录日志] 清理 {} 条超期记录（保留期 {} 天）", n, RETENTION_DAYS);
+        } catch (Exception e) {
+            log.warn("[登录日志] 清理失败", e);
         }
     }
 }

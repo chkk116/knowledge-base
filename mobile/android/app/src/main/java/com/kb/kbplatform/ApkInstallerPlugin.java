@@ -61,12 +61,15 @@ public class ApkInstallerPlugin extends Plugin {
             call.reject("已有下载任务在进行中");
             return;
         }
-        final String fileName = call.getString("fileName", "kb-update.apk");
+        // 固定服务端文件名：不采信 JS 侧传入的 fileName（../ 或绝对路径会穿越出缓存目录）
+        final String fileName = "kb-update.apk";
+        // SHA-256 校验值（十六进制，来自后端 SysSetting）：非空时下载完成后强制比对，不匹配即删除重试
+        final String checksum = call.getString("checksum");
         downloading = true;
 
         new Thread(() -> {
             try {
-                File apk = download(url, fileName);
+                File apk = download(url, fileName, checksum);
                 JSObject res = new JSObject();
                 res.put("filePath", apk.getAbsolutePath());
                 res.put("size", apk.length());
@@ -103,7 +106,9 @@ public class ApkInstallerPlugin extends Plugin {
 
     // ---------------- 内部实现 ----------------
 
-    private File download(String url, String fileName) throws Exception {
+    private File download(String url, String fileName, String expectedSha256) throws Exception {
+        // 原生层白名单兜底：只允许 https（JS 侧已校验，这里防未来新增调用点漏检）
+        if (!url.startsWith("https://")) throw new Exception("更新地址必须为 HTTPS");
         File dir = new File(getContext().getCacheDir(), "update");
         if (!dir.exists() && !dir.mkdirs()) throw new Exception("无法创建缓存目录");
         File out = new File(dir, fileName);
@@ -112,7 +117,8 @@ public class ApkInstallerPlugin extends Plugin {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setConnectTimeout(20_000);
         conn.setReadTimeout(60_000);
-        conn.setInstanceFollowRedirects(true);
+        // 禁止自动跟随重定向：防 https→http 降级或跨域重定向绕过 URL 校验
+        conn.setInstanceFollowRedirects(false);
         conn.connect();
 
         int code = conn.getResponseCode();
@@ -145,7 +151,27 @@ public class ApkInstallerPlugin extends Plugin {
         } finally {
             conn.disconnect();
         }
+        // SHA-256 完整性校验：checksum 由后端 SysSetting 随更新信息下发（构建脚本算出）
+        if (expectedSha256 != null && !expectedSha256.isBlank()) {
+            String actual = sha256Hex(out);
+            if (!actual.equalsIgnoreCase(expectedSha256.trim())) {
+                out.delete();
+                throw new Exception("安装包校验失败（SHA-256 不匹配），已删除重试");
+            }
+        }
         return out;
+    }
+
+    private static String sha256Hex(File f) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        try (InputStream in = new java.io.FileInputStream(f)) {
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (byte b : md.digest()) sb.append(String.format("%02x", b));
+        return sb.toString();
     }
 
     private void launchInstall(final File apk) {

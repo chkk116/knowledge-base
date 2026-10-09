@@ -118,10 +118,30 @@ public class AccountDeletionService {
         }
     }
 
+    /**
+     * 管理端删除用户：走与自助注销完全相同的软删除 + 个人数据清理链路（外部复审 2026-10-09：
+     * 此前 AdminService 直接 deleteById，角色/权限残留会让唯一管理员计数虚高）。
+     * 无需被删者密码（管理员操作），演示账号保护仍然生效。
+     */
+    public void deleteByAdmin(User u) {
+        deleteLock.lock();
+        try {
+            tx.executeWithoutResult(status -> doDelete(u, null, true));
+        } finally {
+            deleteLock.unlock();
+        }
+    }
+
     private void doDelete(User u, String password) {
-        // 密码二次确认：不可逆删号仅凭 24h 令牌不够
-        if (password == null || password.isBlank() || !PasswordUtil.matches(password, u.getPassword())) {
-            throw new IllegalArgumentException("密码校验失败，无法注销");
+        doDelete(u, password, false);
+    }
+
+    private void doDelete(User u, String password, boolean byAdmin) {
+        if (!byAdmin) {
+            // 密码二次确认：不可逆删号仅凭 24h 令牌不够（管理员路径跳过）
+            if (password == null || password.isBlank() || !PasswordUtil.matches(password, u.getPassword())) {
+                throw new IllegalArgumentException("密码校验失败，无法注销");
+            }
         }
         Long uid = u.getId();
 
@@ -155,15 +175,18 @@ public class AccountDeletionService {
         docSubscriptionRepo.deleteByUserId(uid);   // 文档订阅
         userRoleRepo.deleteByUserId(uid);          // 角色关联
 
-        // 上传文件：与 deleteMine 同规则——正文被引用的只删登记（防已发布文章裂图），否则物理+登记都删
+        // 上传文件：与 deleteMine 同规则——正文被引用的只删登记（防已发布文章裂图），否则物理+登记都删。
+        // findAllContents 只查一次（移出循环，避免 N 个文件全表扫 N 遍）；
+        // 引用检查失败按「被引用」处理（fail-closed：宁可残留文件也不制造裂图，外部复审 2026-10-09）
+        List<String> allContents = docRepo.findAllContents();
         List<UploadedFile> files = uploadedFileRepo.findByOwnerIdOrderByCreatedAtDesc(uid);
         for (UploadedFile f : files) {
             boolean referenced = false;
             try {
-                List<String> contents = docRepo.findAllContents();
-                referenced = f.getUrl() != null && contents.stream().anyMatch(s -> s != null && s.contains(f.getUrl()));
+                referenced = f.getUrl() != null && allContents.stream().anyMatch(s -> s != null && s.contains(f.getUrl()));
             } catch (Exception e) {
-                log.warn("[注销] 引用检查失败，按未引用处理：{}", f.getUrl());
+                log.warn("[注销] 引用检查失败，按被引用处理（fail-closed）：{}", f.getUrl());
+                referenced = true;
             }
             if (!referenced) {
                 try {

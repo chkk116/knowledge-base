@@ -119,7 +119,7 @@ function doUpdate() {
   progress.value = -1
   // App 内：下载完直接拉起系统安装器（不再跳浏览器）。
   // Web 端 / 老包没带 ApkInstaller 插件时，downloadAndInstall 内部会自动退回系统浏览器。
-  downloadAndInstall(u.url, (p) => { progress.value = p })
+  downloadAndInstall(u.url, (p) => { progress.value = p }, u.checksum)
     .then((r) => {
       if (r.mode === 'in-app') window.__kbMsg?.success('下载完成，请在弹出的安装界面完成安装')
     })
@@ -147,7 +147,7 @@ async function checkBundle() {
     if (!data?.version || !data.url) return          // 后台没配 → 不热更
     const cur = await updater.current()
     if (cur?.bundle?.version === data.version) return // 已是最新
-    const b = await updater.download({ url: data.url, version: data.version })
+    const b = await updater.download({ url: data.url, version: data.version, checksum: data.checksum })
     await updater.set({ id: b.id })
     // 不立刻 reload：留到下次冷启动生效，避免打断用户当前操作
   } catch (e) {

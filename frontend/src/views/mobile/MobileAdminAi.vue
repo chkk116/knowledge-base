@@ -70,6 +70,12 @@ function openSheet(m) {
 
 async function run(fn, okMsg) {
   if (busy.value) return
+  // 后端对 AI_MANAGE 只放行 GET（防持有者改 baseUrl 偷 Key 的 SSRF 防线），写操作仅完全管理员；
+  // 前端统一拦截给出明确提示，避免点按钮收 403（外部复审 2026-10-09）
+  if (auth.user?.role !== 'ADMIN') {
+    window.__kbMsg?.warning('AI 模型修改仅完全管理员可用，当前为只读视图')
+    return
+  }
   busy.value = true
   try {
     await fn()

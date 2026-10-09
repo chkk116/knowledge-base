@@ -29,7 +29,10 @@ public class AdminService {
     private final UserRepository userRepo;
     private final OrgService orgService;
 
-    public AdminService(UserRepository userRepo, OrgService orgService) {
+    private final com.kb.kbplatform.service.AccountDeletionService deletionService;
+
+    public AdminService(UserRepository userRepo, OrgService orgService, com.kb.kbplatform.service.AccountDeletionService deletionService) {
+        this.deletionService = deletionService;
         this.userRepo = userRepo;
         this.orgService = orgService;
     }
@@ -193,14 +196,15 @@ public class AdminService {
 
     @Transactional(rollbackFor = Exception.class)
     public void deleteUser(Long id) {
-        userRepo.findById(id).ifPresent(u -> {
-            // 演示账号是公共演示入口，管理员误删会让演示功能整体失效（外部复审 2026-10-09）；
-            // 如确需删除，先在用户管理中移除其 DEMO_MODE 权限标记
-            if (com.kb.kbplatform.security.Perm.isDemo(u.getPermissions())) {
-                throw new IllegalArgumentException("演示账号不支持删除；如需处理请先移除其 DEMO_MODE 权限标记");
-            }
-        });
-        userRepo.deleteById(id);
+        User u = userRepo.findById(id).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        // 演示账号是公共演示入口，管理员误删会让演示功能整体失效（外部复审 2026-10-09）；
+        // 如确需删除，先在用户管理中移除其 DEMO_MODE 权限标记
+        if (com.kb.kbplatform.security.Perm.isDemo(u.getPermissions())) {
+            throw new IllegalArgumentException("演示账号不支持删除；如需处理请先移除其 DEMO_MODE 权限标记");
+        }
+        // 走统一注销链路：软删除 + 个人数据清理 + 授权失效（直接 deleteById 会残留角色/权限，
+        // 且让唯一管理员计数虚高——外部复审 2026-10-09）
+        deletionService.deleteByAdmin(u);
     }
 
     /** 管理员重置密码：生成 10 位随机密码并写回（原密码失效），返回明文供管理员转交用户（无 SMTP 故不发邮件） */

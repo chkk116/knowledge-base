@@ -13,6 +13,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface LoginLogRepository extends JpaRepository<LoginLog, Long> {
+    long deleteByCreatedAtBefore(java.time.LocalDateTime time);   // 隐私政策：登录日志保留 90 天
 
     /**
      * 登录日志检索（倒序分页）。

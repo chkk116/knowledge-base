@@ -216,6 +216,9 @@ public class CourseService {
     public CourseChapter saveChapter(CourseChapter ch) {
         if (ch.getCourseId() == null) throw new IllegalArgumentException("章节必须归属课程");
         if (ch.getTitle() == null || ch.getTitle().isBlank()) throw new IllegalArgumentException("章节标题不能为空");
+        // [5] 章节正文净化：课程管理员写入 → 完整管理员查看（v-html）是提权级 XSS 链路，
+        // 与评论/共享文档同用一套白名单清洗（外部复审 2026-10-09）
+        ch.setContent(com.kb.kbplatform.security.HtmlSanitizer.sanitize(ch.getContent()));
         return chapterRepo.save(ch);
     }
 
