@@ -393,9 +393,8 @@ onMounted(loadLibs)
   width: 46px; height: 46px;
   border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, .3);
+  background: #e0e7ff;
+  color: #4f46e5;
   flex-shrink: 0;
 }
 .head-text { flex: 1; min-width: 220px; }
@@ -582,4 +581,5 @@ html.dark .reveal-box.on { background: #3a2a1a; border-color: #a16207; color: #f
   .add-row { flex-direction: column; }
   .head-stats { margin-left: 0; }
 }
+html.dark .head-icon { background: rgb(79 70 229 / .2); color: #a5b4fc; }
 </style>

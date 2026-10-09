@@ -451,6 +451,8 @@ function startParticles() {
 
         <div class="footer-tip">
           <span @click="onForgot">忘记密码？</span>
+          <i class="ft-sep">·</i>
+          <span @click="router.push('/privacy')">隐私政策</span>
         </div>
       </div>
 
@@ -640,6 +642,7 @@ function startParticles() {
 .footer-tip { margin-top: 18px; text-align: center; font-size: 12px; color: #9aa5bd; }
 .footer-tip span { cursor: pointer; color: #6b7a99; }
 .footer-tip span:hover { color: #3b6fe0; text-decoration: underline; }
+.footer-tip .ft-sep { margin: 0 6px; color: #c3ccdd; font-style: normal; }
 
 /* ---- 滑块验证码弹窗 ---- */
 .captcha-mask {

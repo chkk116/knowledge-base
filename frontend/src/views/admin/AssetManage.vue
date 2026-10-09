@@ -846,11 +846,8 @@ html.dark .kpi-card:hover { border-color: rgb(var(--accent) / .45); }
 .kpi-icon {
   position: relative; isolation: isolate; flex: none;
   width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
-  font-size: 21px; color: #fff;
-  background: linear-gradient(135deg,
-              color-mix(in srgb, rgb(var(--accent)), #fff 22%),
-              color-mix(in srgb, rgb(var(--accent)), #000 8%));
-  box-shadow: 0 5px 12px -5px rgb(var(--accent) / .60);
+  font-size: 21px; color: rgb(var(--accent));
+  background: color-mix(in srgb, rgb(var(--accent)) 14%, transparent);
 }
 /* 背后只留一枚浅色圆环，与导入页的双形状区分开 */
 .kpi-icon::before {

@@ -477,9 +477,8 @@ const loadOrg = async () => {
   width: 46px; height: 46px;
   border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, .3);
+  background: #e0e7ff;
+  color: #4f46e5;
   flex-shrink: 0;
 }
 .head-text { flex: 1; min-width: 220px; }
@@ -663,4 +662,5 @@ html.dark .status-text.off { color: #f87171; }
   .grid .span-3 { grid-column: span 1; }
   .user-dialog { width: 96% !important; }
 }
+html.dark .head-icon { background: rgb(79 70 229 / .2); color: #a5b4fc; }
 </style>

@@ -421,19 +421,22 @@ html.dark .tagcloud .chip.more { border-color: #3a3b45; color: #7b8190; }
 .card:hover { border-color: #4f46e5; box-shadow: 0 4px 14px rgba(79, 70, 229,.12); }
 .row { display: flex; align-items: center; gap: 9px; }
 .row .title { flex: 1; min-width: 0; }
-/* 分类徽章：卡片的视觉锚点，配色按分类语义区分 */
-.cat-badge { width: 34px; height: 34px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; }
+/* 分类徽章：扁平化——淡色底 + 单色图标，去掉渐变与投影（原来是彩色渐变方块，视觉太重） */
+.cat-badge { width: 34px; height: 34px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .cat-badge .el-icon { font-size: 18px; }
-.b-ops { background: linear-gradient(135deg, #38bdf8, #2563eb); box-shadow: 0 3px 8px -3px rgb(37 99 235 / .5); }
-.b-dev { background: linear-gradient(135deg, #818cf8, #4f46e5); box-shadow: 0 3px 8px -3px rgb(79 70 229 / .5); }
-.b-biz { background: linear-gradient(135deg, #fbbf24, #f59e0b); box-shadow: 0 3px 8px -3px rgb(245 158 11 / .5); }
-.b-def { background: linear-gradient(135deg, #94a3b8, #64748b); box-shadow: 0 3px 8px -3px rgb(100 116 139 / .5); }
-html.dark .cat-badge { opacity: .92; }
+.b-ops { background: #e0f2fe; color: #0284c7; }
+.b-dev { background: #e0e7ff; color: #4f46e5; }
+.b-biz { background: #fef3c7; color: #d97706; }
+.b-def { background: #f1f5f9; color: #64748b; }
+html.dark .b-ops { background: rgb(2 132 199 / .18); color: #7dd3fc; }
+html.dark .b-dev { background: rgb(79 70 229 / .2); color: #a5b4fc; }
+html.dark .b-biz { background: rgb(217 119 6 / .2); color: #fcd34d; }
+html.dark .b-def { background: rgb(100 116 139 / .2); color: #94a3b8; }
 .title { font-weight: 600; font-size: 16px; }
 .score { color: #4f46e5; font-size: 12px; }
 .side { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.hot { display: inline-flex; align-items: center; justify-content: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 16px; letter-spacing: .5px; color: #fff; background: linear-gradient(135deg, #ff7a45, #ff4d4f); box-shadow: 0 1px 3px rgba(255,77,79,.28); }
-.top { display: inline-flex; align-items: center; justify-content: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 16px; letter-spacing: .5px; color: #fff; background: linear-gradient(135deg, #36cfc9, #1677ff); box-shadow: 0 1px 3px rgba(22,119,255,.28); }
+.hot { display: inline-flex; align-items: center; justify-content: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 16px; letter-spacing: .5px; color: #dc2626; background: #fee2e2; }
+.top { display: inline-flex; align-items: center; justify-content: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 16px; letter-spacing: .5px; color: #0284c7; background: #e0f2fe; }
 .fav { border: none; background: none; cursor: pointer; font-size: 18px; color: #cbd5e1; padding: 0 2px; line-height: 1; transition: .15s; }
 .fav:hover { color: #f59e0b; transform: scale(1.15); }
 .fav.on { color: #f59e0b; }

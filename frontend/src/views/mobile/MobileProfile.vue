@@ -97,6 +97,7 @@ const SETTING_GROUP = {
   items: [
     { label: '账号与资料', icon: 'User', color: '', to: '/settings' },
     { label: '隐私政策', icon: 'Document', color: '', to: '/privacy' },
+    { label: '关于', icon: 'InfoFilled', color: '', to: '/about' },
     { label: '外观设置', icon: 'Setting', color: 'gray', action: 'theme' }
   ]
 }
@@ -129,7 +130,7 @@ const ADMIN_ITEMS = [
   { label: '水印设置', icon: 'EditPen', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminwatermark' },
   { label: '外观设置', icon: 'Brush', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminappearance' },
   { label: '登录页二维码', icon: 'Camera', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminloginqr' },
-  { label: 'AI 模型管理', icon: 'MagicStick', color: 'green', perm: 'AI_MANAGE', to: '/embed/adminai' }
+  { label: 'AI 模型管理', icon: 'MagicStick', color: 'green', perm: 'AI_MANAGE', to: '/manage/ai' }
 ]
 const adminOpen = ref(false)
 const adminItems = computed(() => (auth.isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter((it) => auth.hasPerm(it.perm))))

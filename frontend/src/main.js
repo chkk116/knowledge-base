@@ -84,7 +84,7 @@ import 'element-plus/es/components/message-box/style/css'
 import 'element-plus/es/components/loading/style/css'
 import 'element-plus/es/components/config-provider/style/css'
 import {
-  HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
+  House, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
   Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush, Cpu, Search,
@@ -125,7 +125,7 @@ app.directive('loading', ElLoadingDirective)
 
 // 按需注册 Element Plus 图标（仅注册实际用到的图标，避免全量注册撑大主包）
 const icons = {
-  HomeFilled, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
+  House, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
   Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush, Cpu, Search,

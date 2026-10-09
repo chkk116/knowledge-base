@@ -182,9 +182,12 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
     </div>
 
     <div class="body">
-      <button class="logout del" @click="deleteAccount">
+      <!-- 演示账号是公共账号，注销会把它删掉、其他人就用不了了；后端也会 403，这里直接禁用免得白点 -->
+      <button class="logout del" :class="{ off: auth.isDemo }" :disabled="auth.isDemo" @click="deleteAccount">
         <el-icon><Delete /></el-icon> 注销账号
       </button>
+      <p v-if="auth.isDemo" class="del-tip">演示账号为公共账号，不支持注销</p>
+      <p v-else class="del-tip">注销后账号与个人数据将永久删除，无法恢复；唯一的管理员账号不允许注销</p>
     </div>
 
     <div class="body">
@@ -241,5 +244,7 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
 }
 .logout.del { background: var(--m-danger); color: #fff; }
+.logout.del.off { background: var(--m-card-2); color: var(--m-text-dim); cursor: not-allowed; box-shadow: none; }
+.del-tip { margin: 8px 2px 0; font-size: 12px; line-height: 1.6; color: var(--m-text-dim); }
 .ver { text-align: center; font-size: 12px; color: var(--m-text-dim); margin-top: 16px; }
 </style>

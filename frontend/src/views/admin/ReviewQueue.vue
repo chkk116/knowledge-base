@@ -186,7 +186,7 @@ onMounted(loadDocs)
 .page-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
 .head-icon {
   width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; box-shadow: 0 4px 12px rgba(217,119,6,.3); flex-shrink: 0;
+  background: #fef3c7; color: #d97706; flex-shrink: 0;
 }
 .head-text { flex: 1; min-width: 220px; }
 .head-text h2 { margin: 0; font-size: 20px; font-weight: 700; color: #1e293b; }
@@ -207,4 +207,5 @@ onMounted(loadDocs)
 html.dark .head-text h2 { color: var(--el-text-color-primary); }
 html.dark .link { color: #a5b4fc; }
 html.dark .av-default { background: #334155; color: #94a3b8; }
+html.dark .head-icon { background: rgb(217 119 6 / .2); color: #fcd34d; }
 </style>

@@ -306,7 +306,7 @@ onMounted(load)
 .page-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
 .head-icon {
   width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #0ea5e9, #0284c7); color: #fff; box-shadow: 0 4px 12px rgba(2,132,199,.3); flex-shrink: 0;
+  background: #e0f2fe; color: #0284c7; flex-shrink: 0;
 }
 .head-text { flex: 1; min-width: 220px; }
 .head-text h2 { margin: 0; font-size: 20px; font-weight: 700; color: #1e293b; }
@@ -341,4 +341,5 @@ onMounted(load)
 
 html.dark .node-name, html.dark .dept-title h3, html.dark .member-name { color: var(--el-text-color-primary); }
 html.dark .head-text h2 { color: var(--el-text-color-primary); }
+html.dark .head-icon { background: rgb(2 132 199 / .18); color: #7dd3fc; }
 </style>

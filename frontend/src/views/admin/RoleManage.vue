@@ -196,7 +196,7 @@ onMounted(async () => { await load(); await loadMembers() })
 .page-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
 .head-icon {
   width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; box-shadow: 0 4px 12px rgba(79,70,229,.3); flex-shrink: 0;
+  background: #e0e7ff; color: #4f46e5; flex-shrink: 0;
 }
 .head-text { flex: 1; min-width: 220px; }
 .head-text h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
@@ -221,4 +221,5 @@ onMounted(async () => { await load(); await loadMembers() })
 html.dark .pgroup { border-color: #2a3858; background: #131c33; }
 /* 窄屏分组单列 */
 @media (max-width: 1024px) { .pgroups { grid-template-columns: minmax(0, 1fr); } }
+html.dark .head-icon { background: rgb(79 70 229 / .2); color: #a5b4fc; }
 </style>

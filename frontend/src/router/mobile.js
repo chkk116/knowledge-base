@@ -41,6 +41,7 @@ const routes = [
   // ---- AI 问答：原生移动版（此前是 iframe 嵌桌面 /ai/chat，小屏体验差）----
   { path: '/ai', component: () => import('../views/mobile/MobileAiChat.vue'), meta: { title: 'AI 问答' } },
   { path: '/settings', component: () => import('../views/mobile/MobileSettings.vue'), meta: { title: '设置' } },
+  { path: '/about', component: () => import('../views/mobile/MobileAbout.vue'), meta: { title: '关于' } },
   { path: '/privacy', component: () => import('../views/mobile/MobilePrivacy.vue'), meta: { public: true, title: '隐私政策' } },
   // ---- 我的文件：文件中心（与网页端 FileCenter 共用一套接口）----
   { path: '/files', component: () => import('../views/mobile/MobileFiles.vue'), meta: { title: '我的文件' } },
@@ -48,6 +49,7 @@ const routes = [
   // ---- 管理端原生页（高频管理功能做成 App 原生，不用 iframe 嵌桌面表格）----
   { path: '/manage/users', component: () => import('../views/mobile/MobileAdminUsers.vue'), meta: { title: '用户管理', perm: 'USER_MANAGE' } },
   { path: '/manage/roles', component: () => import('../views/mobile/MobileAdminRoles.vue'), meta: { title: '角色管理', perm: 'USER_MANAGE' } },
+  { path: '/manage/ai', component: () => import('../views/mobile/MobileAdminAi.vue'), meta: { title: 'AI 模型管理', perm: 'AI_MANAGE' } },
 
   // 低频二级功能：用嵌入页承接（见 MobileEmbed.vue 的说明）。
   // 保留在移动端路由里，是为了让通知、个人中心里的入口都能落地，不出现死链。

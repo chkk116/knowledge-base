@@ -193,6 +193,13 @@ public class AdminService {
 
     @Transactional(rollbackFor = Exception.class)
     public void deleteUser(Long id) {
+        userRepo.findById(id).ifPresent(u -> {
+            // 演示账号是公共演示入口，管理员误删会让演示功能整体失效（外部复审 2026-10-09）；
+            // 如确需删除，先在用户管理中移除其 DEMO_MODE 权限标记
+            if (com.kb.kbplatform.security.Perm.isDemo(u.getPermissions())) {
+                throw new IllegalArgumentException("演示账号不支持删除；如需处理请先移除其 DEMO_MODE 权限标记");
+            }
+        });
         userRepo.deleteById(id);
     }
 

@@ -125,6 +125,15 @@ public class AccountDeletionService {
         }
         Long uid = u.getId();
 
+        // 演示账号：公共账号，注销掉别人就进不来了。
+        // ⚠️ 判定必须用 permissions 里的 DEMO_MODE 标记，**不能看 role**——
+        // 演示号的 role 实际是 USER（id=6），role 判断永远不会命中。
+        // AuthFilter 已按「演示只读」拦过一次写操作，这里再显式拦一道，
+        // 保证任何调用路径（含将来的内部调用）都拦得住，并给出明确原因而非笼统 403。
+        if (com.kb.kbplatform.security.Perm.isDemo(u.getPermissions())) {
+            throw new IllegalArgumentException("演示账号为公共账号，不支持注销");
+        }
+
         // 唯一管理员：只统计「启用中」的管理员（已注销/已停用不再计入，外部复审 2026-10-08）
         if ("ADMIN".equals(u.getRole()) && userRepo.countByRoleAndEnabled("ADMIN", true) <= 1) {
             throw new IllegalArgumentException("当前是唯一的管理员账号，无法注销；请先创建其他管理员后再操作");

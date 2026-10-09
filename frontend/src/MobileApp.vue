@@ -13,6 +13,7 @@ import { useAuthStore } from './store/auth'
 import { useNotificationStore } from './store/notification'
 import { useSiteInfoStore } from './store/siteInfo'
 import { syncOnReconnect, pendingCount } from './utils/offlineStore'
+import { getAppVersion, getAppBundle } from './api/app'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,13 +66,114 @@ function onOnline() { online.value = true; doSync() }
 function onOffline() { online.value = false }
 function onPendingChange() { refreshPending() }
 
+// ---------- App 版本检查（仅原生壳内生效，Web 端不打扰） ----------
+// window.Capacitor 由原生运行时注入，所以前端不需要依赖 @capacitor/core
+const isNative = !!window.Capacitor?.isNativePlatform?.()
+const updateInfo = ref(null)      // { versionCode, versionName, url, notes, force }
+const showUpdate = ref(false)
+const downloading = ref(false)
+
+/** 取当前安装包的 versionCode（来自 @capacitor/app 的 getInfo().build） */
+async function currentVersionCode() {
+  try {
+    const info = await window.Capacitor?.Plugins?.App?.getInfo?.()
+    return Number(info?.build || 0)
+  } catch {
+    return 0
+  }
+}
+
+async function checkUpdate() {
+  if (!isNative || !navigator.onLine) return
+  try {
+    const { data } = await getAppVersion()
+    // versionCode=0 表示后台没配升级信息 —— 不打扰用户
+    if (!data || !data.versionCode) return
+    const cur = await currentVersionCode()
+    // cur=0 说明拿不到本机版本（老包没带 App 插件），此时也不提示，避免误报
+    if (cur > 0 && data.versionCode > cur) {
+      updateInfo.value = data
+      showUpdate.value = true
+    }
+  } catch { /* 静默失败，绝不影响正常使用 */ }
+}
+
+/**
+ * 下载并安装。
+ * 第一步先走「跳系统浏览器下载」——不依赖任何原生插件，最稳。
+ * （后续要改成 App 内静默下载 + 拉起安装器，需要自研一个 Capacitor 插件。）
+ */
+function doUpdate() {
+  const u = updateInfo.value
+  if (!u?.url) { window.__kbMsg?.warning('暂无下载地址，请联系管理员'); return }
+  downloading.value = true
+  window.open(u.url, '_blank', 'noopener,noreferrer')
+  setTimeout(() => { downloading.value = false }, 1200)
+}
+function laterUpdate() {
+  showUpdate.value = false
+  if (updateInfo.value?.force) window.__kbMsg?.warning('该版本为强制更新，请尽快升级')
+}
+
+// ---------- 前端热更（Capgo）：只换前端资源，不用发 APK ----------
+// 流程：改前端 → 打 zip 上传 → 后台配 app_bundle → 用户下次打开自动切新版。
+const updater = window.Capacitor?.Plugins?.CapacitorUpdater
+
+async function checkBundle() {
+  if (!isNative || !updater) return
+  // ⚠️ 必须最先调用：告知原生「本次启动成功」。不调的话 Capgo 会判定失败并回滚到上一版。
+  try { await updater.notifyAppReady() } catch { /* 老版本没有该插件，忽略 */ }
+  if (!navigator.onLine) return
+  try {
+    const { data } = await getAppBundle()
+    if (!data?.version || !data.url) return          // 后台没配 → 不热更
+    const cur = await updater.current()
+    if (cur?.bundle?.version === data.version) return // 已是最新
+    const b = await updater.download({ url: data.url, version: data.version })
+    await updater.set({ id: b.id })
+    // 不立刻 reload：留到下次冷启动生效，避免打断用户当前操作
+  } catch (e) {
+    console.warn('[热更] 检查失败（忽略，不影响使用）', e)
+  }
+}
+
+// ---------- Android 返回键 / 右滑手势 ----------
+// 不注册这个监听，返回键和「右滑返回」手势会走系统默认行为 = **直接退出应用**，
+// 用户在二级页（如账号资料）右滑就直接退出了，体验很糟。
+// 正确行为：有上一级就回上一级；已在根 Tab 才最小化（不杀进程）。
+const capApp = window.Capacitor?.Plugins?.App
+// 根 Tab 页：在这些页面按返回应「最小化」而不是再退
+const ROOT_TABS = ['/home', '/docs', '/messages', '/profile']
+let backListener = null
+
+function handleBack() {
+  const cur = route.path
+  // vue-router(createWebHistory) 会在 history.state.back 里记录上一条路由，
+  // 比 history.length 准（后者会把站外/首次进入也算进去）。
+  const canGoBack = !!(window.history.state && window.history.state.back)
+  // 不在根 Tab 且有上一级 → 回上一级（就是用户说的「滑动返回上一个页面」）
+  if (!ROOT_TABS.includes(cur) && canGoBack) {
+    router.back()
+    return
+  }
+  // 已是根 Tab（或没有上一级）→ 最小化（保持后台，用户切回来还在原处；比 exitApp 友好）
+  try { capApp?.minimizeApp?.() } catch { /* 老版本没有则忽略 */ }
+}
+
 onMounted(async () => {
+  if (isNative && capApp?.addListener) {
+    try {
+      backListener = await capApp.addListener('backButton', handleBack)
+    } catch { /* 插件不可用则忽略 */ }
+  }
   await auth.fetchMe()
   if (auth.loggedIn) notification.connect()
   // 页脚配置走公开接口，登录前也要拉（移动端登录页底部要展示备案信息）
   siteInfo.load()
   refreshPending()
   if (navigator.onLine) doSync()
+  checkBundle()
+  checkUpdate()
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
   window.addEventListener('kb:offline-pending-changed', onPendingChange)
@@ -81,6 +183,7 @@ onUnmounted(() => {
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
   window.removeEventListener('kb:offline-pending-changed', onPendingChange)
+  try { backListener?.remove?.() } catch { /* ignore */ }
 })
 
 watch(() => auth.loggedIn, (v) => {

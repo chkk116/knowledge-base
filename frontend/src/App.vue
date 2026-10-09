@@ -162,7 +162,7 @@ function toggleTheme() {
 //  - 所有登录用户：写文章、我的帖子
 //  - 管理类按细粒度权限归入「用户与权限」「内容管理」「站点设置」三个二级分组（ADMIN 隐式拥有全部，可见全部分组）
 const menus = computed(() => {
-  const base = [{ index: '/', title: '知识库首页', icon: 'HomeFilled' }]
+  const base = [{ index: '/', title: '知识库首页', icon: 'House' }]
   if (auth.loggedIn) {
     // 普通功能入口：受核心维护开关控制，关闭则不在侧边栏展示
     if (featureOpen('docs')) base.push(
@@ -252,9 +252,13 @@ function goHome() { router.push('/') }
 function goProfile() { router.push('/profile') }
 
 // 头像下拉：将权限码映射为中文名展示（ADMIN 已在上文单独显示「管理员」，此处只列普通用户细粒度权限）
-const permText = computed(() =>
-  auth.permissions.map(c => permLabel(c)).join('、')
-)
+// ⚠️ 只列前 3 项，其余折叠成「等 N 项」——把 20+ 个权限全拼出来会把下拉菜单撑到近 300px 宽，
+// 打开就占掉五分之一屏幕（用户反馈）。
+const permText = computed(() => {
+  const list = auth.permissions.map((c) => permLabel(c))
+  if (list.length <= 3) return list.join('、')
+  return list.slice(0, 3).join('、') + ` 等 ${list.length} 项`
+})
 
 // ---- 帮助中心：操作手册与规范（内联展示，同时作为知识库文档供 AI 检索）----
 const helpVisible = ref(false)
@@ -406,7 +410,7 @@ function openHelp() { helpVisible.value = true }
             <span class="avatar-cluster">
               <WornBadgeStrip v-if="auth.user?.wornBadges?.length"
                               :badge-ids="auth.user.wornBadges" :size="20" class="cluster-badges" />
-              <el-dropdown trigger="click">
+              <el-dropdown trigger="click" popper-class="kb-avatar-menu">
                 <span class="avatar">
                   <img v-if="auth.user?.avatar" :src="auth.user.avatar" alt="" class="avatar-img" />
                   <span v-else>{{ (auth.user?.displayName || auth.user?.username || '?').charAt(0) }}</span>
@@ -485,6 +489,14 @@ function openHelp() { helpVisible.value = true }
 
 <style>
 body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+/* 头像下拉菜单：Element Plus 的 dropdown 是 teleport 到 body 的，
+   scoped 样式选不中，必须放全局。限宽 + 允许换行，防止长昵称/权限把菜单撑开
+   （原来权限全列出来会撑到 355px ≈ 屏幕 1/4）。 */
+.kb-avatar-menu { min-width: 190px; max-width: 260px; }
+.kb-avatar-menu .el-dropdown-menu__item {
+  white-space: normal; line-height: 1.5; height: auto;
+  padding-top: 6px; padding-bottom: 6px;
+}
 .layout { height: 100vh; }
 .aside { background: #fff; border-right: 1px solid #e2e8f0; }
 .brand { font-weight: 700; font-size: 18px; color: #4f46e5; padding: 16px 20px; cursor: pointer; display: flex; align-items: center; gap: 8px; }

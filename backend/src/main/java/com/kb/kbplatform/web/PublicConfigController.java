@@ -186,4 +186,91 @@ public class PublicConfigController {
                 .matcher(json);
         return m.find() ? m.group(1) : "false";
     }
+
+    /** 提取指定键的布尔值，缺省 false */
+    private static boolean boolOfKey(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(true|false)")
+                .matcher(json);
+        return m.find() && "true".equals(m.group(1));
+    }
+
+    /** 提取指定键的整数，缺省 0 */
+    private static int intOf(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(\\d+)")
+                .matcher(json);
+        try {
+            return m.find() ? Integer.parseInt(m.group(1)) : 0;
+        } catch (NumberFormatException e) {
+            return 0;   // 管理员配成超大数时该免登录接口不能 500（外部复审 2026-10-09）
+        }
+    }
+
+    /**
+     * App 版本检查：GET /api/public/app-version（免登录）
+     *
+     * App 启动时拉取，用 versionCode 跟本地比对，决定是否提示升级。
+     * 数据源：SysSetting 的 app_version（JSON）——
+     *   { "versionCode": 2, "versionName": "1.1", "url": "https://.../知识库-v1.1.apk",
+     *     "notes": "更新说明", "force": false }
+     * 未配置时 versionCode=0，App 视为「未启用升级检查」，不打扰用户。
+     */
+    @GetMapping("/app-version")
+    public Map<String, Object> appVersion() {
+        Map<String, Object> r = new java.util.LinkedHashMap<>();
+        int code = 0;
+        String name = "", url = "", notes = "";
+        boolean force = false;
+        SysSetting s = settingRepo.findByKey("app_version").orElse(null);
+        if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
+            String v = s.getValue();
+            code = intOf(v, "versionCode");
+            String n = extractJsonString(v, "versionName");
+            if (n != null) name = n;
+            String u = extractJsonString(v, "url");
+            if (u != null) url = u;
+            String no = extractJsonString(v, "notes");
+            if (no != null) notes = no;
+            force = boolOfKey(v, "force");
+        }
+        r.put("versionCode", code);
+        r.put("versionName", name);
+        r.put("url", url);
+        r.put("notes", notes);
+        r.put("force", force);
+        return r;
+    }
+
+    /**
+     * 前端热更包信息：GET /api/public/app-bundle（免登录）
+     *
+     * App 启动时拉取，用 version 跟本地 bundle 版本比对，不同则下载 zip 并切换。
+     * 数据源：SysSetting 的 app_bundle（JSON）——
+     *   { "version": "20261009-1016", "url": "https://.../app-bundles/kb-app-xxx.zip",
+     *     "checksum": "sha256hex", "notes": "更新说明" }
+     * 未配置时 version 为空串，App 视为「未启用热更」，直接用内置资源。
+     */
+    @GetMapping("/app-bundle")
+    public Map<String, Object> appBundle() {
+        Map<String, Object> r = new java.util.LinkedHashMap<>();
+        String version = "", url = "", checksum = "", notes = "";
+        SysSetting s = settingRepo.findByKey("app_bundle").orElse(null);
+        if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
+            String v = s.getValue();
+            String a = extractJsonString(v, "version");
+            if (a != null) version = a;
+            String b = extractJsonString(v, "url");
+            if (b != null) url = b;
+            String c = extractJsonString(v, "checksum");
+            if (c != null) checksum = c;
+            String d = extractJsonString(v, "notes");
+            if (d != null) notes = d;
+        }
+        r.put("version", version);
+        r.put("url", url);
+        r.put("checksum", checksum);
+        r.put("notes", notes);
+        return r;
+    }
 }
