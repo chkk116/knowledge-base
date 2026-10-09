@@ -179,6 +179,13 @@ public class PublicConfigController {
         return null;
     }
 
+    /** 取 JSON 串里的 checksum 字段（缺失返回空串） */
+    private static String checksumOf(String json) {
+        if (json == null || json.isBlank()) return "";
+        String c = extractJsonString(json, "checksum");
+        return c == null ? "" : c;
+    }
+
     /** 提取布尔字段（形如 "enabled":true），缺省 false */
     private static String boolOf(String json) {
         java.util.regex.Matcher m = java.util.regex.Pattern
@@ -221,10 +228,12 @@ public class PublicConfigController {
         Map<String, Object> r = new java.util.LinkedHashMap<>();
         int code = 0;
         String name = "", url = "", notes = "";
+        String raw = "";
         boolean force = false;
         SysSetting s = settingRepo.findByKey("app_version").orElse(null);
         if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
             String v = s.getValue();
+            raw = v;
             code = intOf(v, "versionCode");
             String n = extractJsonString(v, "versionName");
             if (n != null) name = n;
@@ -238,6 +247,8 @@ public class PublicConfigController {
         r.put("versionName", name);
         r.put("url", url);
         r.put("notes", notes);
+        // 安装包 SHA-256：App 下载完成后强制比对，防止包体被替换（外部复审 2026-10-09）
+        r.put("checksum", checksumOf(raw));
         r.put("force", force);
         return r;
     }

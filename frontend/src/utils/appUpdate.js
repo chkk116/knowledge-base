@@ -6,6 +6,10 @@
  * 兜底：Web 端 / 没带该插件的老包 → 退回「用系统浏览器打开下载地址」。
  */
 import { openExternal } from './openExternal'
+// 静态 import：ALLOWED_HOSTS 必须同步就绪。原用动态 import().then() 异步加域名，
+// App 内置资源模式下 location.host 是 localhost，真实站点还没加进集合就被校验，
+// 会把合法更新地址判成「非法」→ 更新直接失败（2026-10-09 复查发现）。
+import { NATIVE_ORIGIN } from './runtimeBase'
 
 /** 当前环境是否支持应用内下载安装 */
 export function hasInAppInstaller() {
@@ -24,12 +28,11 @@ export function hasInAppInstaller() {
  * 允许的 host：当前站点（网页端）+ App 部署站点（内置资源模式下的 NATIVE_ORIGIN）。
  */
 const ALLOWED_HOSTS = (() => {
-  const hosts = new Set([location.host])
+  const hosts = new Set()
+  try { hosts.add(location.host) } catch { /* ignore */ }
   try {
-    // App 内置资源模式下 location.host 是 https://localhost，真实站点从 NATIVE_ORIGIN 取
-    import('./runtimeBase').then((m) => {
-      try { hosts.add(new URL(m.NATIVE_ORIGIN, location.href).host) } catch { /* 忽略 */ }
-    }).catch(() => {})
+    // App 内置资源模式下 location.host 是 localhost，真实站点从 NATIVE_ORIGIN 取
+    hosts.add(new URL(NATIVE_ORIGIN, location.href).host)
   } catch { /* ignore */ }
   return hosts
 })()
