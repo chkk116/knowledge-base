@@ -75,3 +75,6 @@ outputs/ipmac-*
 outputs/app-bundles/   # 热更 bundle：构建产物，只留在本地/发布渠道
 parts/   # 大文件上传测试分片
 backend/**/*.jar   # 后端 jar 构建产物
+outputs/publish-*.sh   # 发布脚本含服务器 IP/凭据配置，只留本地
+outputs/.deploykey
+.deploykey
