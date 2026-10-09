@@ -453,6 +453,8 @@ function startParticles() {
           <span @click="onForgot">忘记密码？</span>
           <i class="ft-sep">·</i>
           <span @click="router.push('/privacy')">隐私政策</span>
+          <i class="ft-sep">·</i>
+          <span @click="router.push('/disclaimer')">免责声明</span>
         </div>
       </div>
 

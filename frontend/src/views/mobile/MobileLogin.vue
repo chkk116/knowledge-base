@@ -263,7 +263,7 @@ onUnmounted(() => { if (particleCleanup) particleCleanup() })
       <div class="forgot"><span @click="onForgot">忘记密码？</span></div>
     </div>
 
-    <SiteFooter compact />
+    <SiteFooter compact :filing="false" />
 
     <transition name="sheet-up">
       <div v-if="showCaptcha" class="m-sheet-mask" @click.self="showCaptcha = false">

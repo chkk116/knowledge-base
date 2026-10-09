@@ -7,6 +7,7 @@ const routes = [
   { path: '/dev/mindmap-test', component: () => import('../views/DevMindmapTest.vue'), meta: { public: true, title: '导图测试' } },
   // 隐私政策：公网免登录可读（合规要求，登录页也要能打开）
   { path: '/privacy', component: () => import('../views/Privacy.vue'), meta: { public: true, title: '隐私政策' } },
+  { path: '/disclaimer', component: () => import('../views/Disclaimer.vue'), meta: { public: true, title: '免责声明' } },
   { path: '/dev/flowchart-test', component: () => import('../views/DevFlowchartTest.vue'), meta: { public: true, title: '流程图测试' } },
   { path: '/dev/sheet-test', component: () => import('../views/DevSheetTest.vue'), meta: { public: true, title: '电子表格测试' } },
   { path: '/dev/sheet-collab-proto', component: () => import('../views/DevSheetCollabProto.vue'), meta: { public: true, title: '表格协同原型' } },

@@ -21,7 +21,12 @@ defineProps({
   /** 移动端紧凑样式：字号更小、无上边框 */
   compact: { type: Boolean, default: false },
   /** 无边框极简变体：登录页等自带分隔线的页面用（显式 prop 优于父级覆盖子组件样式） */
-  plain: { type: Boolean, default: false }
+  plain: { type: Boolean, default: false },
+  /**
+   * 是否展示备案号。默认 true（网站底部必须展示，工信部要求）。
+   * App 端传 false —— 那是**网站备案**，不是 App 备案，挂在 App 里既不合规也误导用户。
+   */
+  filing: { type: Boolean, default: true }
 })
 
 const siteInfo = useSiteInfoStore()
@@ -32,7 +37,7 @@ const safeHref = (u) => /^https?:\/\//i.test(String(u || '').trim())
 
 <template>
   <footer v-if="siteInfo.visible" class="site-footer" :class="{ compact, plain }">
-    <div v-if="siteInfo.icpNo || siteInfo.policeNo" class="sf-line">
+    <div v-if="filing && (siteInfo.icpNo || siteInfo.policeNo)" class="sf-line">
       <a v-if="siteInfo.icpNo" class="sf-link" :href="ICP_URL" target="_blank" rel="noopener noreferrer">{{ siteInfo.icpNo }}</a>
       <span v-if="siteInfo.icpNo && siteInfo.policeNo" class="sf-sep">|</span>
       <a v-if="siteInfo.policeNo" class="sf-link sf-police"

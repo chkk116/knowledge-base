@@ -186,4 +186,29 @@ window.addEventListener('error', (e) => {
 })
 window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + ((e.reason && e.reason.stack) || e.reason)))
 
+// ---------- 跨域 iframe 登录态桥接（App 内的管理页） ----------
+// 场景：App 里「管理页」是 iframe 嵌本页 —— 父页跑在 Capacitor 的 https://localhost（本地包），
+// 子页（本页）跑在站点域名，**跨域 → localStorage 不共享** → 子页拿不到 kb_token
+// → 被路由守卫弹到登录页（用户明明在 App 里登录过了）。
+// 父页 MobileEmbed 会在 iframe 加载后 postMessage 一个 { type:'kb:auth', token }。
+// 安全：只接受受信任来源（Capacitor 本地容器 / 本站自身），其余一律忽略。
+;(function initAuthBridge() {
+  const TRUSTED = ['https://localhost', 'http://localhost', 'capacitor://localhost', location.origin]
+  window.addEventListener('message', (ev) => {
+    const d = ev.data
+    if (!d || d.type !== 'kb:auth' || typeof d.token !== 'string' || !d.token) return
+    if (!TRUSTED.includes(ev.origin)) return
+    let cur = ''
+    try { cur = localStorage.getItem('kb_token') || '' } catch { return }
+    if (cur === d.token) return                     // 同一个 token，什么都不用做（避免刷新循环）
+    try { localStorage.setItem('kb_token', d.token) } catch { return }
+    // 落盘后要让路由守卫重跑：停在登录页就直奔 redirect 目标，否则原地刷新
+    try {
+      const u = new URL(location.href)
+      if (u.pathname === '/login') location.replace(u.searchParams.get('redirect') || '/')
+      else location.reload()
+    } catch { location.reload() }
+  })
+})()
+
 app.use(createPinia()).use(router).mount('#app')

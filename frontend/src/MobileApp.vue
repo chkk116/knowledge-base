@@ -13,6 +13,8 @@ import { useAuthStore } from './store/auth'
 import { useNotificationStore } from './store/notification'
 import { useSiteInfoStore } from './store/siteInfo'
 import { syncOnReconnect, pendingCount } from './utils/offlineStore'
+import { openExternal } from './utils/openExternal'
+import { downloadAndInstall } from './utils/appUpdate'
 import { getAppVersion, getAppBundle } from './api/app'
 
 const route = useRoute()
@@ -72,6 +74,7 @@ const isNative = !!window.Capacitor?.isNativePlatform?.()
 const updateInfo = ref(null)      // { versionCode, versionName, url, notes, force }
 const showUpdate = ref(false)
 const downloading = ref(false)
+const progress = ref(-1)        // 应用内下载进度（-1=未知）
 
 /** 取当前安装包的 versionCode（来自 @capacitor/app 的 getInfo().build） */
 async function currentVersionCode() {
@@ -107,8 +110,17 @@ function doUpdate() {
   const u = updateInfo.value
   if (!u?.url) { window.__kbMsg?.warning('暂无下载地址，请联系管理员'); return }
   downloading.value = true
-  window.open(u.url, '_blank', 'noopener,noreferrer')
-  setTimeout(() => { downloading.value = false }, 1200)
+  progress.value = -1
+  // App 内：下载完直接拉起系统安装器（不再跳浏览器）。
+  // Web 端 / 老包没带 ApkInstaller 插件时，downloadAndInstall 内部会自动退回系统浏览器。
+  downloadAndInstall(u.url, (p) => { progress.value = p })
+    .then((r) => {
+      if (r.mode === 'in-app') window.__kbMsg?.success('下载完成，请在弹出的安装界面完成安装')
+    })
+    .catch((e) => {
+      window.__kbMsg?.error('更新失败：' + ((e && e.message) || e))
+    })
+    .finally(() => { downloading.value = false })
 }
 function laterUpdate() {
   showUpdate.value = false
@@ -244,6 +256,27 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
         </template>
       </button>
     </nav>
+
+    <!-- 应用内升级弹层：原生包启动时若发现更高 versionCode 则弹出。
+         force=true 时不给「稍后」按钮。Web 端不检查（checkUpdate 里已 return）。 -->
+    <div v-if="showUpdate" class="upd-mask">
+      <div class="upd-panel">
+        <div class="upd-title">发现新版本 {{ updateInfo?.versionName || '' }}</div>
+        <pre v-if="updateInfo?.notes" class="upd-notes">{{ updateInfo.notes }}</pre>
+        <!-- 应用内下载进度 -->
+        <div v-if="downloading" class="upd-prog">
+          <div class="upd-prog-bar"><i :style="{ width: progress >= 0 ? progress + '%' : '100%' }" :class="{ indet: progress < 0 }"></i></div>
+          <div class="upd-prog-txt">{{ progress >= 0 ? '正在下载 ' + progress + '%' : '正在下载…' }}</div>
+        </div>
+        <div class="upd-acts">
+          <button v-if="!updateInfo?.force" class="upd-btn ghost" :disabled="downloading" @click="laterUpdate">稍后</button>
+          <button class="upd-btn primary" :disabled="downloading" @click="doUpdate">
+            {{ downloading ? '下载中…' : '立即更新' }}
+          </button>
+        </div>
+        <div v-if="updateInfo?.force" class="upd-tip">该版本为强制更新，请尽快升级</div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -355,4 +388,45 @@ html.dark .net-act { color: #4c8dff; }   /* 深棕底上 #1677ff 对比度仅 ~3
 
 .slide-up-enter-active, .slide-up-leave-active { transition: opacity .2s, transform .2s; }
 .slide-up-enter-from, .slide-up-leave-to { opacity: 0; transform: translateY(10px); }
+
+/* ---------- 应用内升级弹层 ---------- */
+.upd-mask {
+  position: fixed; inset: 0; z-index: 3000;
+  background: var(--m-mask);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.upd-panel {
+  width: 100%; max-width: 320px;
+  background: var(--m-card);
+  border-radius: var(--m-radius-lg);
+  padding: 20px 18px 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .18);
+}
+.upd-title { font-size: 16.5px; font-weight: 600; color: var(--m-text); text-align: center; }
+.upd-notes {
+  margin: 12px 0 0; padding: 10px 12px;
+  background: var(--m-card-2); border-radius: var(--m-radius);
+  font-size: 13px; line-height: 1.7; color: var(--m-text-sub);
+  white-space: pre-wrap; word-break: break-word;
+  font-family: inherit; text-align: left;
+  max-height: 40vh; overflow-y: auto;
+}
+.upd-acts { display: flex; gap: 10px; margin-top: 16px; }
+.upd-btn {
+  flex: 1; height: 42px; border: none; border-radius: var(--m-radius);
+  font-size: 15px; font-family: inherit; cursor: pointer;
+}
+.upd-btn.ghost { background: var(--m-card-2); color: var(--m-text-sub); }
+.upd-btn.primary { background: var(--m-primary); color: #fff; font-weight: 600; }
+.upd-btn:disabled { opacity: .6; }
+.upd-tip { margin-top: 10px; font-size: 12px; color: var(--m-warn); text-align: center; }
+
+/* 应用内下载进度条 */
+.upd-prog { margin-top: 14px; }
+.upd-prog-bar { height: 6px; border-radius: 999px; background: var(--m-card-2); overflow: hidden; }
+.upd-prog-bar > i { display: block; height: 100%; background: var(--m-primary); border-radius: 999px; transition: width .2s ease; }
+.upd-prog-bar > i.indet { animation: upd-indet 1.1s ease-in-out infinite; }
+@keyframes upd-indet { 0% { opacity: .35 } 50% { opacity: 1 } 100% { opacity: .35 } }
+.upd-prog-txt { margin-top: 6px; font-size: 12px; color: var(--m-text-dim); text-align: center; }
 </style>

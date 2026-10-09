@@ -2,14 +2,16 @@
 /**
  * 移动端「关于」页
  *
- * 内容：应用标识与版本、检查更新、相关链接（隐私政策 / 开源仓库 / 官网）、备案与版权。
+ * 内容：应用标识与版本、检查更新、相关链接（隐私政策 / 开源仓库 / 官网）、版权。
  * 版本号取自原生 App 插件（@capacitor/app 的 getInfo），Web 端退化显示前端版本。
  */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { getAppVersion } from '../../api/app'
-import { useSiteInfoStore, ICP_URL, policeUrl } from '../../store/siteInfo'
+import { openExternal } from '../../utils/openExternal'
+import { downloadAndInstall } from '../../utils/appUpdate'
+import { useSiteInfoStore } from '../../store/siteInfo'
 
 const router = useRouter()
 const siteInfo = useSiteInfoStore()
@@ -47,13 +49,21 @@ async function checkUpdate() {
   if (checking.value) return
   checking.value = true
   try {
+    // 先确保拿到本机版本号再比对（onMounted 里的 loadInfo 是异步的，点太快可能还没回来）
+    if (!build.value) await loadInfo()
     const { data } = await getAppVersion()
     if (!data || !data.versionCode) {
-      window.__kbMsg?.info('当前已是最新版本')
+      window.__kbMsg?.info('后台尚未开启版本检查')
       return
     }
     const cur = Number(build.value || 0)
-    if (cur > 0 && data.versionCode > cur) {
+    // 读不到本机 versionCode：网页版没有原生插件；老包没带 @capacitor/app。
+    // 这种情况**不能**说"已是最新"（那是把"读不到"当成了"最新"），要如实告知。
+    if (!cur) {
+      window.__kbMsg?.warning('读不到本机版本号：网页版不支持检查更新，请在 App 内操作')
+      return
+    }
+    if (data.versionCode > cur) {
       try {
         await ElMessageBox.confirm(
           `发现新版本 ${data.versionName || ''}\n${data.notes || ''}`,
@@ -61,9 +71,16 @@ async function checkUpdate() {
           { confirmButtonText: '前往下载', cancelButtonText: '稍后', type: 'info' }
         )
       } catch { return }   // 用户选择稍后
-      if (data.url) window.open(data.url, '_blank', 'noopener,noreferrer')
+      if (data.url) {
+        try {
+          const r = await downloadAndInstall(data.url)
+          if (r.mode === 'in-app') window.__kbMsg?.success('下载完成，请在弹出的安装界面完成安装')
+        } catch (e) {
+          window.__kbMsg?.error('更新失败：' + ((e && e.message) || e))
+        }
+      }
     } else {
-      window.__kbMsg?.success('当前已是最新版本')
+      window.__kbMsg?.success(`当前已是最新版本（本机 Build ${cur}，线上 Build ${data.versionCode}）`)
     }
   } catch {
     window.__kbMsg?.error('检查更新失败，请稍后再试')
@@ -72,10 +89,21 @@ async function checkUpdate() {
   }
 }
 
-function openUrl(u) { if (u) window.open(u, '_blank', 'noopener,noreferrer') }
+function openUrl(u) { if (u) openExternal(u) }
+
+/** 版本自检：把「本机 / 线上」两个 Build 号都亮出来，便于一眼定位问题 */
+const remoteCode = ref(0)
+const remoteName = ref('')
+async function loadRemote() {
+  try {
+    const { data } = await getAppVersion()
+    if (data) { remoteCode.value = Number(data.versionCode || 0); remoteName.value = data.versionName || '' }
+  } catch { /* 拉不到就显示「未配置」 */ }
+}
 
 onMounted(() => {
   loadInfo()
+  loadRemote()
   siteInfo.load()
 })
 </script>
@@ -99,6 +127,13 @@ onMounted(() => {
           <el-icon v-else><Refresh /></el-icon>
           {{ checking ? '检查中…' : '检查更新' }}
         </button>
+
+        <!-- 版本自检：本机读不到的 Build 会显示「读不到」，线上没配则显示「未配置」 -->
+        <div class="vdiag">
+          <span>本机 Build <b :class="{ warn: !build }">{{ build || '读不到' }}</b></span>
+          <i></i>
+          <span>线上 Build <b :class="{ warn: !remoteCode }">{{ remoteCode || '未配置' }}</b>{{ remoteName ? '（' + remoteName + '）' : '' }}</span>
+        </div>
       </div>
 
       <!-- 链接 -->
@@ -107,17 +142,19 @@ onMounted(() => {
           <span class="row-t">隐私政策</span>
           <el-icon class="row-a"><Right /></el-icon>
         </button>
+        <button class="row" @click="router.push('/disclaimer')">
+          <span class="row-t">免责声明</span>
+          <el-icon class="row-a"><Right /></el-icon>
+        </button>
         <button v-for="l in links" :key="l.name" class="row" @click="openUrl(l.url)">
           <span class="row-t">{{ l.name }}</span>
           <el-icon class="row-a"><Right /></el-icon>
         </button>
       </div>
 
-      <!-- 备案与版权 -->
+      <!-- 版权（App 端不展示网站备案号：那是网站备案，App 备案是另一回事） -->
       <div class="legal">
-        <a v-if="siteInfo.icpNo" :href="ICP_URL" target="_blank" rel="noopener noreferrer" class="lk">{{ siteInfo.icpNo }}</a>
-        <a v-if="siteInfo.policeNo" :href="policeUrl(siteInfo.policeNo)" target="_blank" rel="noopener noreferrer" class="lk">{{ siteInfo.policeNo }}</a>
-        <div class="cp">© {{ new Date().getFullYear() }} 浅光雅致</div>
+        <div class="cp">© {{ new Date().getFullYear() }} 知识库</div>
       </div>
     </div>
   </div>
@@ -158,4 +195,13 @@ onMounted(() => {
 .legal { margin-top: 26px; text-align: center; font-size: 12px; line-height: 1.9; color: var(--m-text-dim); }
 .lk { color: var(--m-text-dim); text-decoration: none; display: block; }
 .cp { margin-top: 6px; }
+
+/* 版本自检 */
+.vdiag {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+  margin-top: 10px; font-size: 12px; color: var(--m-text-dim);
+}
+.vdiag b { color: var(--m-text-sub); font-weight: 600; }
+.vdiag b.warn { color: var(--m-warn); }
+.vdiag i { width: 1px; height: 11px; background: var(--m-border); }
 </style>

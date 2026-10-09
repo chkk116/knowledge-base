@@ -52,6 +52,28 @@ const CONF = {
 const conf = computed(() => CONF[route.params.kind] || { title: '页面', path: '/' })
 // iframe 内嵌桌面版页面：App 端必须用绝对地址，否则 Capacitor 会当成本地文件而 404
 const src = computed(() => resolveUrl(conf.value.path || '/'))
+
+const frameRef = ref(null)
+
+/**
+ * iframe 加载完成后，把登录态桥接给子页。
+ *
+ * 为什么需要：App 内父页跑在 Capacitor 的 https://localhost（本地包），
+ * 而 iframe 里是 部署站点地址 —— **跨域，localStorage 不共享**，
+ * 子页拿不到 kb_token，桌面端路由守卫就把用户弹到登录页（"明明登录了还要再登一次"）。
+ *
+ * 接收端在桌面端入口 `main.js` 的 initAuthBridge()，只信任 Capacitor 本地容器来源。
+ * Web 端（同源）不受影响：token 相同 → 子页收到后直接忽略。
+ */
+function onFrameLoad() {
+  loading.value = false
+  try {
+    const token = localStorage.getItem('kb_token') || ''
+    if (!token) return
+    const target = new URL(src.value, location.href).origin
+    frameRef.value?.contentWindow?.postMessage({ type: 'kb:auth', token }, target)
+  } catch { /* 解析失败就算了，最多是子页自己去登录 */ }
+}
 </script>
 
 <template>
@@ -63,7 +85,7 @@ const src = computed(() => resolveUrl(conf.value.path || '/'))
     </header>
     <div class="w-body">
       <div v-if="loading" class="w-load"><el-icon class="rot" :size="24"><Loading /></el-icon></div>
-      <iframe :src="src" class="w-frame" @load="loading = false" />
+      <iframe ref="frameRef" :src="src" class="w-frame" @load="onFrameLoad" />
     </div>
   </div>
 </template>

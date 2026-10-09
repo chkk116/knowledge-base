@@ -225,7 +225,7 @@ const groups = computed(() => {
     </div>
 
     <!-- 备案信息 + 仓库 + 版本（合规要求底部可见） -->
-    <SiteFooter compact />
+    <SiteFooter compact :filing="false" />
     <div style="height:16px"></div>
   </div>
 </template>
