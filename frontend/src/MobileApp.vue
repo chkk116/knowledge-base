@@ -96,6 +96,7 @@ async function checkUpdate() {
     // cur=0 说明拿不到本机版本（老包没带 App 插件），此时也不提示，避免误报
     if (cur > 0 && data.versionCode > cur) {
       updateInfo.value = data
+      // 强制更新但后台漏配 url：不能把用户永久挡在弹层里（doUpdate 只会弹 warning 无法关闭）
       showUpdate.value = true
     }
   } catch { /* 静默失败，绝不影响正常使用 */ }
@@ -108,7 +109,12 @@ async function checkUpdate() {
  */
 function doUpdate() {
   const u = updateInfo.value
-  if (!u?.url) { window.__kbMsg?.warning('暂无下载地址，请联系管理员'); return }
+  if (!u?.url) {
+    // force 弹层无法关闭：漏配 url 时必须解除锁死给逃生路径（外部复审 2026-10-09）
+    window.__kbMsg?.warning('暂无下载地址，更新配置异常')
+    showUpdate.value = false
+    return
+  }
   downloading.value = true
   progress.value = -1
   // App 内：下载完直接拉起系统安装器（不再跳浏览器）。

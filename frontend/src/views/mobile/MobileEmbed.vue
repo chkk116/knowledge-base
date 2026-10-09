@@ -70,7 +70,10 @@ function onFrameLoad() {
   try {
     const token = localStorage.getItem('kb_token') || ''
     if (!token) return
+    // targetOrigin 白名单：现在 CONF 都是站内路径，落点必然是本站；但若将来 CONF 误加外链，
+    // token 会被静默送给第三方——只在「iframe origin 等于本站」时才发送（外部复审 2026-10-09）
     const target = new URL(src.value, location.href).origin
+    if (target !== location.origin && target !== 'https://localhost') return
     frameRef.value?.contentWindow?.postMessage({ type: 'kb:auth', token }, target)
   } catch { /* 解析失败就算了，最多是子页自己去登录 */ }
 }

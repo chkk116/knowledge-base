@@ -11,6 +11,9 @@
  */
 export async function openExternal(url) {
   if (!url) return
+  // 只放行 http/https：url 来自站点配置，javascript:/intent:/file: 等协议在 WebView/系统浏览器
+  // 中行为不可控（外部复审 2026-10-09）
+  if (!/^https?:\/\//i.test(String(url).trim())) return
   const Browser = window.Capacitor?.Plugins?.Browser
   if (Browser?.open) {
     try {

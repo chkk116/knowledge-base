@@ -193,7 +193,8 @@ window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + (
 // 父页 MobileEmbed 会在 iframe 加载后 postMessage 一个 { type:'kb:auth', token }。
 // 安全：只接受受信任来源（Capacitor 本地容器 / 本站自身），其余一律忽略。
 ;(function initAuthBridge() {
-  const TRUSTED = ['https://localhost', 'http://localhost', 'capacitor://localhost', location.origin]
+  // http://localhost 在 Android 上用不到，收掉：白名单越宽，可注入 token 的来源越多（外部复审 2026-10-09）
+  const TRUSTED = ['https://localhost', 'capacitor://localhost', location.origin]
   window.addEventListener('message', (ev) => {
     const d = ev.data
     if (!d || d.type !== 'kb:auth' || typeof d.token !== 'string' || !d.token) return
@@ -205,8 +206,12 @@ window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + (
     // 落盘后要让路由守卫重跑：停在登录页就直奔 redirect 目标，否则原地刷新
     try {
       const u = new URL(location.href)
-      if (u.pathname === '/login') location.replace(u.searchParams.get('redirect') || '/')
-      else location.reload()
+      if (u.pathname === '/login') {
+        // open redirect 防护：只接受站内路径（单个 / 开头、非 //），其余回落首页（外部复审 2026-10-09）
+        let redirect = u.searchParams.get('redirect') || '/'
+        if (!redirect.startsWith('/') || redirect.startsWith('//')) redirect = '/'
+        location.replace(redirect)
+      } else location.reload()
     } catch { location.reload() }
   })
 })()

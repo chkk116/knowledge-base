@@ -29,7 +29,6 @@ const token = process.env.KB_TOKEN || ''
   console.log('   自动进入管理页:', okPath ? '✓ 是' : '✗ 否')
 
   // ③ 非受信任来源应被忽略（换一个不同 origin 的 iframe 发消息）
-  const before = await page.evaluate(() => localStorage.getItem('kb_token') ? 'has' : 'none')
   await page.evaluate(() => {
     // 造一个 about:blank 的 iframe（origin 为 "null"），从里面发消息
     const f = document.createElement('iframe')

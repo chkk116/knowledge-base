@@ -14,7 +14,8 @@ const BASE = process.env.KB_BASE || 'http://localhost:8080'   // 站点地址不
     console.log(`[${label}] ${page.url()}`);
     console.log('  标题:', /免责声明/.test(t) ? '✓ 有' : '✗ 无');
     console.log('  含 AI 免责:', /AI 生成的内容/.test(t) ? '✓' : '✗');
-    console.log('  含邮箱:', /zxc1275981466@qq.com/.test(t) ? '✓' : '✗');
+      const contact = process.env.KB_CONTACT_EMAIL || ''
+    console.log('  含联系邮箱:', contact ? (t.includes(contact) ? '✓' : '✗') : '(未设 KB_CONTACT_EMAIL，跳过)');
     console.log('  含运营主体:', /本站运营者/.test(t) ? '✓' : '✗');
     console.log('  段落数(含 h3):', (t.match(/(一|二|三|四|五|六|七|八|九|十)、/g) || []).length);
     if (errs.length) console.log('  ⚠️', errs.slice(0, 2).join(' | '));

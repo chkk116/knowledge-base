@@ -18,7 +18,30 @@ export function hasInAppInstaller() {
  * @param {(percent:number)=>void} [onProgress] 进度回调；percent=-1 表示总大小未知
  * @returns {Promise<{mode:'in-app'|'external'}>}
  */
+/**
+ * 更新包地址必须通过校验才交给原生安装器：这个 URL 最终以「安装未知应用」权限落成 APK，
+ * 若被改成 http://（中间人替换包体）或指向非自有域名，等同于远程代码执行（外部复审 2026-10-09）。
+ * 允许的 host：当前站点（网页端）+ App 部署站点（内置资源模式下的 NATIVE_ORIGIN）。
+ */
+const ALLOWED_HOSTS = (() => {
+  const hosts = new Set([location.host])
+  try {
+    // App 内置资源模式下 location.host 是 https://localhost，真实站点从 NATIVE_ORIGIN 取
+    import('../../utils/runtimeBase').then((m) => {
+      try { hosts.add(new URL(m.NATIVE_ORIGIN, location.href).host) } catch { /* 忽略 */ }
+    }).catch(() => {})
+  } catch { /* ignore */ }
+  return hosts
+})()
+
+function assertSafeUpdateUrl(url) {
+  const u = new URL(url, location.href)
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('非法的更新地址协议')
+  if (!ALLOWED_HOSTS.has(u.host)) throw new Error('非法的更新地址（host 不在允许列表）')
+}
+
 export async function downloadAndInstall(url, onProgress) {
+  assertSafeUpdateUrl(url)
   const P = window.Capacitor?.Plugins?.ApkInstaller
   if (!P?.downloadAndInstall) {
     await openExternal(url)
