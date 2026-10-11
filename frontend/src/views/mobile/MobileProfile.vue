@@ -107,43 +107,48 @@ const SETTING_GROUP = {
   ]
 }
 
-// 管理员分组：Web 端管理后台的常用入口（iframe 嵌桌面版页面，见 MobileEmbed.vue CONF）。
-// 仅管理员可见；权限差异（如 EXAM_MANAGE）后端仍会兜底拦截，这里只做入口展示。
-// 管理员入口（折叠区，默认收起）：按权限码过滤——ADMIN 全部可见，
-// 普通账号（含演示号）只看到被授予的项；一项都没有则整个区块不渲染。
-// 页面本体是 iframe 嵌桌面版管理页（见 MobileEmbed.vue 的 CONF 表）。
+// ---- 管理入口（App 端只保留「常用 + 核心维护」）----
+// 取舍依据（2026-10-11 用户反馈「管理页面不用这么多在 app 上」）：
+//   App 上只留「日常要点的」和「站点级核心配置」，其余重表格/低频管理页在桌面端用。
+//   被移出 App 的入口见 HIDDEN_IN_APP —— 需要恢复时把它挪回 ADMIN_ITEMS 即可（MobileEmbed 的 CONF 仍保留全部映射）。
 const ADMIN_ITEMS = [
+  // 常用：日常最常看的
   { label: '数据看板', icon: 'DataLine', color: 'blue', perm: 'STATS_VIEW', to: '/embed/adminstats' },
-  { label: '用户管理', icon: 'UserFilled', color: 'blue', perm: 'USER_MANAGE', to: '/manage/users' },
-  { label: '角色管理', icon: 'Avatar', color: 'blue', perm: 'USER_MANAGE', to: '/manage/roles' },
   { label: '内容管理', icon: 'Files', color: 'orange', perm: 'POST_MANAGE', to: '/embed/admindocs' },
   { label: '文章审核', icon: 'CircleCheckFilled', color: 'green', perm: 'DOC_REVIEW', to: '/embed/adminreview' },
-  { label: '培训管理', icon: 'Reading', color: 'orange', perm: 'COURSE_MANAGE', to: '/embed/admincourses' },
-  { label: '考试管理', icon: 'DocumentCopy', color: 'orange', perm: 'EXAM_MANAGE', to: '/embed/adminexams' },
-  { label: '分类标签', icon: 'CollectionTag', color: 'gray', perm: 'TAXONOMY_MANAGE', to: '/embed/admintaxonomy' },
   { label: '公告管理', icon: 'Bell', color: 'red', perm: 'ANNOUNCEMENT_MANAGE', to: '/embed/adminannounce' },
-  { label: '黑名单', icon: 'CircleCloseFilled', color: 'red', perm: 'BLACKLIST_MANAGE', to: '/embed/adminblacklist' },
-  { label: '资产管理', icon: 'Picture', color: 'orange', perm: 'ASSET_MANAGE', to: '/embed/adminassets' },
-  { label: '违禁词管理', icon: 'WarningFilled', color: 'red', perm: 'BANNED_WORDS_MANAGE', to: '/embed/adminbanned' },
-  { label: '共享文档管理', icon: 'DocumentCopy', color: 'blue', perm: 'SHARE_VIEW', to: '/embed/admindocshares' },
-  { label: '操作审计', icon: 'View', color: 'gray', perm: 'AUDIT_VIEW', to: '/embed/adminaudit' },
-  { label: '登录日志', icon: 'Clock', color: 'gray', perm: 'LOGIN_LOG_VIEW', to: '/embed/adminloginlogs' },
-  { label: '附件管理', icon: 'FolderOpened', color: 'blue', perm: 'ADMIN_VIEW', to: '/embed/adminfiles' },
-  { label: '检索测试', icon: 'Search', color: 'gray', perm: 'ADMIN_VIEW', to: '/embed/adminsearch' },
-  { label: '页脚设置', icon: 'Document', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminfooter' },
-  { label: '功能开关', icon: 'Setting', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminmaintain' },
-  { label: '水印设置', icon: 'EditPen', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminwatermark' },
-  { label: '外观设置', icon: 'Brush', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminappearance' },
-  { label: '登录页二维码', icon: 'Camera', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminloginqr' },
+  { label: '用户管理', icon: 'UserFilled', color: 'blue', perm: 'USER_MANAGE', to: '/manage/users' },
+  { label: '角色管理', icon: 'Avatar', color: 'blue', perm: 'USER_MANAGE', to: '/manage/roles' },
   { label: 'AI 模型管理', icon: 'MagicStick', color: 'green', perm: 'AI_MANAGE', to: '/manage/ai' }
 ]
-const adminOpen = ref(false)
-const adminItems = computed(() => (auth.isAdmin ? ADMIN_ITEMS : ADMIN_ITEMS.filter((it) => auth.hasPerm(it.perm))))
 
-// 分组顺序：我的内容 / 工具 / 管理（折叠，紧挨高频区而非退出登录，防误触）/ 设置
+// 核心维护（CORE_MAINTAIN）：站点级配置，改完立刻影响全站，属于"必须能在手机上应急改"的一类
+const MAINTAIN_ITEMS = [
+  { label: '页脚设置', icon: 'Document', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminfooter' },
+  { label: '功能开关', icon: 'Setting', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminmaintain' },
+  { label: '外观设置', icon: 'Brush', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminappearance' },
+  { label: '水印设置', icon: 'EditPen', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminwatermark' },
+  { label: '登录页二维码', icon: 'Camera', color: 'gray', perm: 'CORE_MAINTAIN', to: '/embed/adminloginqr' }
+]
+
+// App 端不再展示的管理入口（桌面端照旧可用）。保留清单便于日后按需恢复。
+const HIDDEN_IN_APP = [
+  '培训管理(COURSE_MANAGE)', '考试管理(EXAM_MANAGE)', '分类标签(TAXONOMY_MANAGE)',
+  '黑名单(BLACKLIST_MANAGE)', '资产管理(ASSET_MANAGE)', '违禁词管理(BANNED_WORDS_MANAGE)',
+  '共享文档管理(SHARE_VIEW)', '操作审计(AUDIT_VIEW)', '登录日志(LOGIN_LOG_VIEW)',
+  '附件管理(ADMIN_VIEW)', '检索测试(ADMIN_VIEW)'
+]
+
+const open = ref({})   // 折叠区展开状态（按标题存）
+const byPerm = (list) => (auth.isAdmin ? list : list.filter((it) => auth.hasPerm(it.perm)))
+const adminItems = computed(() => byPerm(ADMIN_ITEMS))
+const maintainItems = computed(() => byPerm(MAINTAIN_ITEMS))
+
+// 分组顺序：我的内容 / 工具 / 管理（折叠）/ 核心维护（折叠）/ 设置
 const groups = computed(() => {
   const list = [MY_GROUP, TOOL_GROUP]
-  if (adminItems.value.length) list.push({ title: '管理', collapsible: true })
+  if (adminItems.value.length) list.push({ title: '管理', collapsible: true, items: adminItems.value, hint: '日常常用' })
+  if (maintainItems.value.length) list.push({ title: '核心维护', collapsible: true, items: maintainItems.value, hint: '站点配置' })
   list.push(SETTING_GROUP)
   return list
 })
@@ -192,13 +197,14 @@ const groups = computed(() => {
     <!-- 分组列表（管理组是折叠区：收起只占一行，且位置在设置组之前、远离退出登录按钮） -->
     <div v-for="g in groups" :key="g.title" class="body">
       <template v-if="g.collapsible">
-        <button class="m-sec-title m-sec-btn" type="button" @click="adminOpen = !adminOpen">
-          <span>管理</span>
-          <span class="m-sec-count">{{ adminItems.length }}</span>
-          <el-icon class="sec-arrow" :class="{ open: adminOpen }"><Right /></el-icon>
+        <button class="m-sec-title m-sec-btn" type="button" @click="open[g.title] = !open[g.title]">
+          <span>{{ g.title }}</span>
+          <span v-if="g.hint" class="m-sec-hint">{{ g.hint }}</span>
+          <span class="m-sec-count">{{ g.items.length }}</span>
+          <el-icon class="sec-arrow" :class="{ open: open[g.title] }"><Right /></el-icon>
         </button>
-        <div v-show="adminOpen" class="m-card">
-          <button v-for="it in adminItems" :key="it.label" class="m-row" type="button" @click="go(it.to)">
+        <div v-show="open[g.title]" class="m-card">
+          <button v-for="it in g.items" :key="it.label" class="m-row" type="button" @click="go(it.to)">
             <span class="m-ico" :class="it.color"><el-icon><component :is="it.icon" /></el-icon></span>
             <span class="m-row-body"><span class="m-row-title">{{ it.label }}</span></span>
             <el-icon class="m-row-extra"><Right /></el-icon>
@@ -245,6 +251,7 @@ const groups = computed(() => {
   width: 100%; text-align: left; padding: 4px 2px;
   background: transparent; border: none; cursor: pointer;
 }
+.m-sec-hint { font-size: 11.5px; color: var(--m-text-dim); font-weight: 400; margin-left: 6px; }
 .m-sec-count {
   min-width: 18px; height: 18px; padding: 0 5px;
   border-radius: 9px; background: var(--m-primary); color: #fff;

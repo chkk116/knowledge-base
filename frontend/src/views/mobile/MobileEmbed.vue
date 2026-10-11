@@ -9,7 +9,7 @@
  */
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { resolveUrl } from '../../utils/runtimeBase'
+import { resolveUrl, NATIVE_ORIGIN } from '../../utils/runtimeBase'
 
 const route = useRoute()
 const router = useRouter()
@@ -67,13 +67,23 @@ const frameRef = ref(null)
  */
 function onFrameLoad() {
   loading.value = false
+  sendAuth()
+  // 兜底再发一次：子页若因时序/首次渲染慢没接住，第二次能补上
+  setTimeout(sendAuth, 1200)
+}
+
+function sendAuth() {
   try {
     const token = localStorage.getItem('kb_token') || ''
     if (!token) return
-    // targetOrigin 白名单：现在 CONF 都是站内路径，落点必然是本站；但若将来 CONF 误加外链，
-    // token 会被静默送给第三方——只在「iframe origin 等于本站」时才发送（外部复审 2026-10-09）
     const target = new URL(src.value, location.href).origin
-    if (target !== location.origin && target !== 'https://localhost') return
+    // ⚠️ 这里曾经写成 `target !== location.origin && target !== 'https://localhost'` —— 逻辑反了：
+    //    App 内父页跑在 Capacitor 本地包（origin = https://localhost），iframe 是**部署站**
+    //    （origin = NATIVE_ORIGIN），两者必然不同 → 直接 return → token 根本没发出去
+    //    → 所有 iframe 管理页都拿不到登录态、被弹到登录页（2026-10-11 用户报「页脚设置又跳登录」）。
+    //    正确判断：落点必须是「本站部署地址」或「同源」，二者之外才拒绝（防 CONF 误配外链把 token 送第三方）。
+    const site = new URL(NATIVE_ORIGIN, location.href).origin
+    if (target !== location.origin && target !== site) return
     frameRef.value?.contentWindow?.postMessage({ type: 'kb:auth', token }, target)
   } catch { /* 解析失败就算了，最多是子页自己去登录 */ }
 }

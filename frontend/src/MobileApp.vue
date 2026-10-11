@@ -469,12 +469,16 @@ html.dark .net-act { color: #4c8dff; }   /* 深棕底上 #1677ff 对比度仅 ~3
 
 /* 消息未读红点 */
 .dot {
-  position: absolute; top: -6px; left: 50%;
+  /* 定位：红点**中心**正好落在图标的右上角（Vant / Ant Design Mobile 的标准做法）。
+     用 right/top 而不是 left:%，好处是图标尺寸变了也不会错位、多位数（99+）向左自然伸展。
+     ⚠️ 曾经用 `left: 51%` + `line-height == height`：实测红点中心落在图标右边缘内侧 2.5px、
+     上边缘下方 2px（视觉偏左偏下），且数字会被行框下伸部顶偏（2026-10-11 两次修复）。 */
+  position: absolute; top: -8px; right: -8px;
   min-width: 16px; height: 16px; padding: 0 4px;
   box-sizing: border-box;
   border-radius: 9px; background: #ef4444; color: #fff;
   font-size: 10px; font-style: normal; font-weight: 600;
-  /* 用 flex 居中：原来靠 line-height == height，数字会被行框的下伸部顶偏（视觉偏上/偏左） */
+  /* flex 居中：line-height 居中会被行框下伸部影响 */
   display: inline-flex; align-items: center; justify-content: center;
   line-height: 1; letter-spacing: 0;
   font-variant-numeric: tabular-nums;
