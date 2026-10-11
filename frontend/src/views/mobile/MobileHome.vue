@@ -81,10 +81,14 @@ function openAnn(a) {
 }
 
 let homeLoadPending = false
+// ⚠️ 并发守卫必须用**独立的在途标志**，不能用 loading：loading 初值就是 true（首屏骨架屏），
+// 拿它判断会把「首次 load」直接吞掉 → 首页永远停在骨架屏（外部审查 batch 引入的回归）。
+let loadingNow = false
 async function load() {
   // 并发守卫（外部审查 2026-10-11）：online 事件与首屏加载并发时，两轮 load 同时写 refs
   // 互相踩踏。加载中则记一次「待重跑」，本轮结束后补跑一次。
-  if (loading.value) { homeLoadPending = true; return }
+  if (loadingNow) { homeLoadPending = true; return }
+  loadingNow = true
   loading.value = true
   // 概览 / 公告 / 精选文章：独立拉取，任一失败都不影响主页其它区块
   homeOverview().then((r) => { overview.value = r.data }).catch(() => {})
@@ -126,6 +130,7 @@ async function load() {
       fromCache.value = false
     }
   } finally {
+    loadingNow = false
     loading.value = false
     if (homeLoadPending) { homeLoadPending = false; load() }
   }

@@ -5,11 +5,20 @@
 
 package com.kb.kbplatform;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSObject;
@@ -47,6 +56,10 @@ import java.net.URL;
 public class ApkInstallerPlugin extends Plugin {
 
     private static final String TAG = "ApkInstaller";
+    /** 下载进度通知：渠道 + 通知 id（固定 id → 后续更新覆盖同一条，不会刷屏） */
+    private static final String CHANNEL_ID = "kb_app_update";
+    private static final int NOTIF_ID = 9001;
+    private static final int REQ_POST_NOTIF = 9101;
     /** 同一个包只允许一个下载任务在跑 */
     private volatile boolean downloading = false;
 
@@ -72,6 +85,10 @@ public class ApkInstallerPlugin extends Plugin {
             return;
         }
         downloading = true;
+        // 通知栏进度：先建渠道（Android 8+），再按需申请通知权限（Android 13+）。
+        // 被拒绝也不影响下载，只是通知栏不显示。
+        ensureChannel();
+        requestNotifPermissionIfNeeded();
 
         new Thread(() -> {
             try {
@@ -81,11 +98,13 @@ public class ApkInstallerPlugin extends Plugin {
                 res.put("size", apk.length());
                 res.put("launched", true);
                 launchInstall(apk);
+                showDoneNotification();
                 call.resolve(res);
             } catch (Exception e) {
                 JSObject err = new JSObject();
                 err.put("message", String.valueOf(e.getMessage()));
                 notifyListeners("downloadError", err);
+                showFailNotification(String.valueOf(e.getMessage()));
                 call.reject("下载失败：" + e.getMessage());
             } finally {
                 downloading = false;
@@ -156,8 +175,11 @@ public class ApkInstallerPlugin extends Plugin {
                     JSObject p = new JSObject();
                     p.put("received", received);
                     p.put("total", total);
-                    p.put("percent", total > 0 ? Math.round(received * 100.0 / total) : -1);
+                    int pct = total > 0 ? (int) Math.round(received * 100.0 / total) : -1;
+                    p.put("percent", pct);
                     notifyListeners("progress", p);
+                    // 系统通知栏同步显示进度（大厂 App 的通用做法）
+                    showProgressNotification(pct, received, total);
                 }
             }
             fos.flush();
@@ -173,6 +195,116 @@ public class ApkInstallerPlugin extends Plugin {
             }
         }
         return out;
+    }
+
+    // ---------------- 下载进度通知（通知栏） ----------------
+
+    /** 通知渠道：Android 8.0+ 必须先建渠道，否则通知不显示。IMPORTANCE_LOW = 不响铃不震动 */
+    private void ensureChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        try {
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null || nm.getNotificationChannel(CHANNEL_ID) != null) return;
+            NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "应用更新", NotificationManager.IMPORTANCE_LOW);
+            ch.setDescription("应用内更新包的下载进度");
+            ch.setShowBadge(false);
+            nm.createNotificationChannel(ch);
+        } catch (Exception ignore) { /* 建不了就退化为不显示通知 */ }
+    }
+
+    /** 是否允许发通知（Android 13+ 需运行时授权） */
+    private boolean canNotify() {
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                return ContextCompat.checkSelfPermission(getContext(), "android.permission.POST_NOTIFICATIONS")
+                        == PackageManager.PERMISSION_GRANTED;
+            }
+            return NotificationManagerCompat.from(getContext()).areNotificationsEnabled();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 开始下载时申请通知权限（用户拒绝也继续下载，只是没有通知栏进度） */
+    private void requestNotifPermissionIfNeeded() {
+        try {
+            if (Build.VERSION.SDK_INT < 33 || canNotify()) return;
+            if (getActivity() == null) return;
+            ActivityCompat.requestPermissions(getActivity(),
+                    new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_POST_NOTIF);
+        } catch (Exception ignore) { /* 申请失败不阻断下载 */ }
+    }
+
+    /** 点击通知回到 App */
+    private PendingIntent contentIntent() {
+        try {
+            Intent open = new Intent(getContext(), getActivity().getClass());
+            open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+            return PendingIntent.getActivity(getContext(), 0, open, flags);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 下载中：常驻进度条（固定 id → 覆盖更新同一条） */
+    private void showProgressNotification(int percent, long received, long total) {
+        if (!canNotify()) return;
+        try {
+            String size = total > 0
+                    ? String.format(java.util.Locale.US, "%.1f/%.1f MB", received / 1048576.0, total / 1048576.0)
+                    : "下载中";
+            NotificationCompat.Builder b = new NotificationCompat.Builder(getContext(), CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_sys_download)
+                    .setContentTitle("正在下载应用更新")
+                    .setContentText(percent >= 0 ? (percent + "%  ·  " + size) : size)
+                    .setOnlyAlertOnce(true)      // 进度刷新不重复响铃
+                    .setOngoing(true)            // 下载中不可划掉
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setProgress(100, Math.max(0, percent), percent < 0);
+            PendingIntent pi = contentIntent();
+            if (pi != null) b.setContentIntent(pi);
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(NOTIF_ID, b.build());
+        } catch (Exception ignore) { /* 通知失败不影响下载 */ }
+    }
+
+    /** 下载完成：去掉进度条、可划掉 */
+    private void showDoneNotification() {
+        if (!canNotify()) return;
+        try {
+            NotificationCompat.Builder b = new NotificationCompat.Builder(getContext(), CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle("更新包下载完成")
+                    .setContentText("正在打开安装界面…")
+                    .setAutoCancel(true)
+                    .setOngoing(false)
+                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                    .setProgress(0, 0, false);
+            PendingIntent pi = contentIntent();
+            if (pi != null) b.setContentIntent(pi);
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(NOTIF_ID, b.build());
+        } catch (Exception ignore) { /* ignore */ }
+    }
+
+    /** 下载失败 */
+    private void showFailNotification(String msg) {
+        if (!canNotify()) return;
+        try {
+            NotificationCompat.Builder b = new NotificationCompat.Builder(getContext(), CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_notify_error)
+                    .setContentTitle("更新失败")
+                    .setContentText(msg == null || msg.isEmpty() ? "请稍后重试" : msg)
+                    .setAutoCancel(true)
+                    .setOngoing(false)
+                    .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+            PendingIntent pi = contentIntent();
+            if (pi != null) b.setContentIntent(pi);
+            NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(NOTIF_ID, b.build());
+        } catch (Exception ignore) { /* ignore */ }
     }
 
     /** 构建期注入的更新域名白名单（strings.xml: kb_allowed_hosts，逗号分隔） */
