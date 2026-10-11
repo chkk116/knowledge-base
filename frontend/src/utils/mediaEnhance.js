@@ -66,6 +66,24 @@ export function enhanceVideos(container) {
 }
 
 /** 把正文里以 '/' 开头的媒体地址补成当前环境可用的绝对地址（App 端必需） */
+/**
+ * HTML **字符串**级的媒体地址绝对化（App 端专用）。
+ *
+ * 为什么需要它（和 absolutizeMedia 的区别）：
+ *  `absolutizeMedia()` 是「渲染完后改 DOM 属性」，在 Tiptap/ProseMirror 里**留不住** ——
+ *  ProseMirror 会把 DOM 同步回节点属性，改过的 src 又被还原成相对路径。
+ *  所以凡是用 Tiptap 渲染正文的地方（MobileDocView），必须在**灌入前**先把 HTML 里的地址改好。
+ *
+ * 网页端：resolveUrl 原样返回，本函数直接返回原串（无副作用）。
+ */
+export function absolutizeMediaHtml(html) {
+  if (!html || typeof html !== 'string') return html
+  return html.replace(
+    /(src|poster|data-full)="\/([^"]*)"/g,
+    (_full, attr, path) => attr + '="' + resolveUrl('/' + path) + '"'
+  )
+}
+
 export function absolutizeMedia(container) {
   if (!container) return
   const fix = (el, attr) => {

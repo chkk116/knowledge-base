@@ -9,7 +9,7 @@
  *  - 离线可读：优先用本地缓存，无网且无缓存给明确提示
  */
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { enhanceVideos, bindImgLightbox, absolutizeMedia } from '../../utils/mediaEnhance'
+import { enhanceVideos, bindImgLightbox, absolutizeMedia, absolutizeMediaHtml } from '../../utils/mediaEnhance'
 import { useRoute, useRouter } from 'vue-router'
 import { getShareDoc } from '../../api/docShare'
 import { getCachedDoc, cacheDoc } from '../../utils/offlineStore'
@@ -30,6 +30,8 @@ import TableCell from '@tiptap/extension-table-cell'
 import MindmapNode from '../../extensions/MindmapNode'
 import FlowchartNode from '../../extensions/FlowchartNode'
 import SpreadsheetNode from '../../extensions/SpreadsheetNode'
+import ImageNode from '../../extensions/ImageNode'
+import VideoNode from '../../extensions/VideoNode'
 
 const route = useRoute()
 const router = useRouter()
@@ -54,6 +56,10 @@ const editor = useEditor({
     TaskItem.configure({ nested: true }),
     Table, TableRow, TableHeader, TableCell,
     MindmapNode, FlowchartNode, SpreadsheetNode,
+    // ⚠️ 必须有这两个：StarterKit 不含 Image / Video 扩展，缺了它们正文里的
+    // <img> / <video> 会被 ProseMirror schema 直接丢掉 → App 里看不到图片和视频
+    // （网页端用 v-html 所以一直正常，2026-10-11 修）
+    ImageNode, VideoNode,
   ],
   editorProps: { attributes: { class: 'm-prose' } },
 })
@@ -105,7 +111,8 @@ onMounted(async () => {
 // 旧 proseRef 已随模板删除，必须改取 editor.view.dom，否则灯箱/视频增强/媒体绝对化全部失效（外部复审 2026-10-08）
 // 媒体增强（绝对化/视频/灯箱）内部已用 dataset 标记幂等，重复触发不会叠加监听
 watch(html, async (v) => {
-  if (editor.value && v) editor.value.commands.setContent(v, false)
+  // 先用字符串级绝对化：只靠 absolutizeMedia 改 DOM 会在 ProseMirror 的下次渲染被还原
+  if (editor.value && v) editor.value.commands.setContent(absolutizeMediaHtml(v), false)
   await nextTick()
   const el = editor.value ? editor.value.view.dom : null
   if (!el) return
