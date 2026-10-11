@@ -13,6 +13,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import { listMyShares, listShareDocs } from '../../api/docShare'
+import { homeOverview, listAnnouncements, listDocs } from '../../api/kb'
+import { getStats } from '../../utils/readStats'
 import { listQueuedDocs, listCachedDocs } from '../../utils/offlineStore'
 import { resolveDefaultSpaceId, mySpaces } from '../../utils/spaceResolver'
 import { resolveUrl } from '../../utils/runtimeBase'
@@ -26,6 +28,10 @@ const spaces = ref([])
 const offlineDocs = ref([])
 const fromCache = ref(false)   // 最近文档是否来自本地缓存（离线提示用）
 const spaceId = ref(null)
+const overview = ref(null)        // 平台概览（/docs/overview）
+const announcements = ref([])     // 公告
+const picks = ref([])             // 精选文章（公开文章，Web 首页那批）
+const stats = ref(getStats())     // 本机阅读统计
 
 const greet = computed(() => {
   const h = new Date().getHours()
@@ -50,8 +56,37 @@ function fmtTime(s) {
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
+// 金刚区入口：8 个（新增功能一律在这里露出，避免"加了但找不到"）
+const QUICKS = [
+  { label: '拍照建文档', icon: 'Camera', color: 'grad', to: '/capture' },
+  { label: '我的文档', icon: 'FolderOpened', color: 'blue', to: '/docs' },
+  { label: 'AI 问答', icon: 'MagicStick', color: 'cyan', to: '/ai' },
+  { label: '发现文章', icon: 'Compass', color: 'green', to: '/discover' },
+  { label: '搜索', icon: 'Search', color: 'gray', to: '/search' },
+  { label: '我的收藏', icon: 'Star', color: 'orange', to: '/favorites' },
+  { label: '离线内容', icon: 'Cloudy', color: 'purple', to: '/offline' },
+  { label: '我的数据', icon: 'TrendCharts', color: 'red', to: '/stats' },
+]
+
+function plain(html) {
+  return String(html || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** 公告：弹层看全文（移动端没有独立公告页） */
+function openAnn(a) {
+  if (!a) return
+  window.__kbMsgBox?.alert
+    ? window.__kbMsgBox.alert(plain(a.content) || '（无正文）', a.title || '公告', { confirmButtonText: '知道了' })
+    : window.__kbMsg?.info(a.title || '公告')
+}
+
 async function load() {
   loading.value = true
+  // 概览 / 公告 / 精选文章：独立拉取，任一失败都不影响主页其它区块
+  homeOverview().then((r) => { overview.value = r.data }).catch(() => {})
+  listAnnouncements().then((r) => { announcements.value = (r.data || []).filter((a) => a.enabled !== false) }).catch(() => {})
+  listDocs(0, 3, 'hot').then((r) => { picks.value = r.data?.content || [] }).catch(() => {})
+  stats.value = getStats()
   try {
     const [list, q] = await Promise.all([
       mySpaces(true).catch(() => []),
@@ -146,26 +181,40 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
       </button>
     </div>
 
-    <!-- 四宫格快捷入口 -->
+    <!-- 金刚区：8 个功能入口（新增的功能都放在这里，不用去二级页找） -->
     <div class="body">
       <div class="quicks">
-        <button class="quick" type="button" @click="router.push('/capture')">
-          <span class="q-ico grad"><el-icon :size="23"><Camera /></el-icon></span>
-          <span class="q-txt">拍照建文档</span>
-        </button>
-        <button class="quick" type="button" @click="router.push('/docs')">
-          <span class="q-ico blue"><el-icon :size="23"><FolderOpened /></el-icon></span>
-          <span class="q-txt">我的文档</span>
-        </button>
-        <button class="quick" type="button" @click="router.push('/ai')">
-          <span class="q-ico cyan"><el-icon :size="23"><MagicStick /></el-icon></span>
-          <span class="q-txt">AI 问答</span>
-        </button>
-        <button class="quick" type="button" @click="router.push('/search')">
-          <span class="q-ico green"><el-icon :size="23"><Search /></el-icon></span>
-          <span class="q-txt">搜索</span>
+        <button v-for="q in QUICKS" :key="q.label" class="quick" type="button" @click="router.push(q.to)">
+          <span class="q-ico" :class="q.color"><el-icon :size="23"><component :is="q.icon" /></el-icon></span>
+          <span class="q-txt">{{ q.label }}</span>
+          <i v-if="q.badge && q.badge.value" class="q-badge">{{ q.badge.value }}</i>
         </button>
       </div>
+    </div>
+
+    <!-- 数据概览：平台数据 + 本机阅读统计，点进「我的数据」 -->
+    <div class="body">
+      <button class="ovw" type="button" @click="router.push('/stats')">
+        <span class="ovw-item"><span class="ovw-num">{{ overview?.totalDocs ?? '—' }}</span><span class="ovw-lbl">文档</span></span>
+        <i></i>
+        <span class="ovw-item"><span class="ovw-num">{{ overview?.weekNew ?? '—' }}</span><span class="ovw-lbl">本周新增</span></span>
+        <i></i>
+        <span class="ovw-item"><span class="ovw-num">{{ stats.streak }}</span><span class="ovw-lbl">连续天数</span></span>
+        <i></i>
+        <span class="ovw-item"><span class="ovw-num">{{ stats.weekRead }}</span><span class="ovw-lbl">本周阅读</span></span>
+      </button>
+    </div>
+
+    <!-- 公告 -->
+    <div v-if="announcements.length" class="body">
+      <button class="ann" type="button" @click="openAnn(announcements[0])">
+        <span class="ann-ico"><el-icon><Bell /></el-icon></span>
+        <span class="ann-body">
+          <span class="ann-t">{{ announcements[0].title || '公告' }}</span>
+          <span class="ann-c">{{ plain(announcements[0].content) }}</span>
+        </span>
+        <el-icon class="ann-arrow"><Right /></el-icon>
+      </button>
     </div>
 
     <!-- 最近文档：横向滑动卡片 -->
@@ -221,6 +270,24 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
           <div>还没有文档空间</div>
           <button class="m-btn sm" style="margin-top:4px" @click="router.push('/capture')">拍照建第一篇</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 精选文章：Web 端首页那批公开文章，App 里从这里进 -->
+    <div v-if="picks.length" class="body">
+      <div class="m-sec-title">
+        精选文章
+        <button class="more" @click="router.push('/discover')">发现更多</button>
+      </div>
+      <div class="m-card">
+        <button v-for="pd in picks" :key="pd.id" class="m-row" type="button" @click="router.push('/post/' + pd.id)">
+          <span class="m-ico blue"><el-icon><Document /></el-icon></span>
+          <span class="m-row-body">
+            <span class="m-row-title">{{ pd.title || '未命名文档' }}</span>
+            <span class="m-row-desc">{{ pd.ownerName || '匿名' }} · {{ pd.views || 0 }} 次浏览 · {{ pd.likes || 0 }} 赞</span>
+          </span>
+          <el-icon class="m-row-extra"><Right /></el-icon>
+        </button>
       </div>
     </div>
 
@@ -318,7 +385,49 @@ html.dark .q-ico.blue { background: #12253d; color: #60a5fa; }
 html.dark .q-ico.orange { background: #3a2411; color: #fb923c; }
 html.dark .q-ico.green { background: #0e2e26; color: #34d399; }
 html.dark .q-ico.cyan { background: #0e2e33; color: #67e8f9; }
+.q-ico.gray { background: #f2f4f7; color: #667085; }
+.q-ico.purple { background: #f4f1ff; color: #7c5cff; }
+.q-ico.red { background: #fef2f2; color: #dc2626; }
+html.dark .q-ico.gray { background: #24262b; color: #98a2b3; }
+html.dark .q-ico.purple { background: #241f3d; color: #a78bfa; }
+html.dark .q-ico.red { background: #3a1c1c; color: #f87171; }
 .q-txt { font-size: 12px; color: var(--m-text-sub); line-height: 1.2; }
+.quick { position: relative; }
+.q-badge {
+  position: absolute; top: -4px; right: 50%; margin-right: -30px;
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: #ef4444; color: #fff; font-size: 10px; font-style: normal;
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 600;
+}
+
+/* ---------- 数据概览 ---------- */
+.ovw {
+  width: 100%; margin-top: 14px; padding: 13px 6px;
+  border: none; border-radius: var(--m-radius); background: var(--m-card);
+  box-shadow: var(--m-shadow); cursor: pointer;
+  display: flex; align-items: center; justify-content: space-around;
+}
+.ovw:active { background: var(--m-card-2); }
+.ovw-item { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.ovw-num { font-size: 17px; font-weight: 700; color: var(--m-text); font-variant-numeric: tabular-nums; }
+.ovw-lbl { font-size: 11px; color: var(--m-text-dim); }
+.ovw i { width: 1px; height: 20px; background: var(--m-border); }
+
+/* ---------- 公告 ---------- */
+.ann {
+  width: 100%; margin-top: 10px; padding: 11px 13px;
+  border: none; border-radius: var(--m-radius);
+  background: var(--m-primary-soft); color: var(--m-text);
+  display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer;
+}
+.ann-ico { flex: none; color: var(--m-primary); display: inline-flex; }
+.ann-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ann-t { font-size: 13.5px; font-weight: 600; color: var(--m-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ann-c {
+  font-size: 12px; color: var(--m-text-sub);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ann-arrow { flex: none; color: var(--m-text-dim); }
 
 /* ---------- 横向卡片 ---------- */
 .hscroll {

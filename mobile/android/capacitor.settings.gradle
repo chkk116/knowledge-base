@@ -13,3 +13,11 @@ project(':capacitor-app').projectDir = new File('../node_modules/@capacitor/app/
 // @capacitor/browser（用系统浏览器打开外链/APK 下载）—— 手工登记，勿跑 cap sync
 include ':capacitor-browser'
 project(':capacitor-browser').projectDir = new File('../node_modules/@capacitor/browser/android')
+
+// @capacitor/share（导出/分享：写文件 + 拉起系统分享）—— 手工登记，勿跑 cap sync
+include ':capacitor-share'
+project(':capacitor-share').projectDir = new File('../node_modules/@capacitor/share/android')
+
+// @capacitor/filesystem（导出/分享：写文件 + 拉起系统分享）—— 手工登记，勿跑 cap sync
+include ':capacitor-filesystem'
+project(':capacitor-filesystem').projectDir = new File('../node_modules/@capacitor/filesystem/android')

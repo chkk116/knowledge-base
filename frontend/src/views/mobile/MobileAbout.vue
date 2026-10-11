@@ -12,6 +12,7 @@ import { getAppVersion } from '../../api/app'
 import { openExternal } from '../../utils/openExternal'
 import { downloadAndInstall } from '../../utils/appUpdate'
 import { useSiteInfoStore } from '../../store/siteInfo'
+import { CHANGELOG, CURRENT_VERSION } from '../../changelog'
 
 const router = useRouter()
 const siteInfo = useSiteInfoStore()
@@ -101,6 +102,11 @@ async function loadRemote() {
   } catch { /* 拉不到就显示「未配置」 */ }
 }
 
+// 本版本更新说明（简洁列表；历史版本可展开）
+const current = CURRENT_VERSION
+const showLog = ref(false)
+const history = CHANGELOG.slice(1, 6)
+
 onMounted(() => {
   loadInfo()
   loadRemote()
@@ -133,6 +139,28 @@ onMounted(() => {
           <span>本机 Build <b :class="{ warn: !build }">{{ build || '读不到' }}</b></span>
           <i></i>
           <span>线上 Build <b :class="{ warn: !remoteCode }">{{ remoteCode || '未配置' }}</b>{{ remoteName ? '（' + remoteName + '）' : '' }}</span>
+        </div>
+      </div>
+
+      <!-- 本版本更新说明 -->
+      <div class="m-card sec">
+        <div class="log-head">
+          <span class="log-v">v{{ current.version }}</span>
+          <span class="log-t">{{ current.title }}</span>
+          <span class="log-d">{{ current.date }}</span>
+        </div>
+        <ul class="log-list">
+          <li v-for="(it, i) in current.items" :key="i">{{ it }}</li>
+        </ul>
+        <button v-if="history.length" class="log-more" type="button" @click="showLog = !showLog">
+          {{ showLog ? '收起历史版本' : '查看历史版本（' + history.length + '）' }}
+          <el-icon :size="13" :class="{ open: showLog }"><Right /></el-icon>
+        </button>
+        <div v-show="showLog" class="log-old">
+          <div v-for="h in history" :key="h.version" class="log-old-item">
+            <div class="log-old-head"><b>v{{ h.version }}</b><span>{{ h.date }}</span></div>
+            <ul><li v-for="(it, i) in h.items" :key="i">{{ it }}</li></ul>
+          </div>
         </div>
       </div>
 
@@ -195,6 +223,31 @@ onMounted(() => {
 .legal { margin-top: 26px; text-align: center; font-size: 12px; line-height: 1.9; color: var(--m-text-dim); }
 .lk { color: var(--m-text-dim); text-decoration: none; display: block; }
 .cp { margin-top: 6px; }
+
+/* 本版本更新说明 */
+.log-head { display: flex; align-items: baseline; gap: 8px; padding: 14px 0 8px; flex-wrap: wrap; }
+.log-v {
+  font-size: 12px; font-weight: 700; color: var(--m-primary);
+  background: var(--m-primary-soft); border-radius: 6px; padding: 2px 7px;
+}
+.log-t { font-size: 14.5px; font-weight: 600; color: var(--m-text); }
+.log-d { font-size: 12px; color: var(--m-text-dim); margin-left: auto; }
+.log-list { margin: 0; padding-left: 18px; }
+.log-list li { font-size: 13.5px; line-height: 1.85; color: var(--m-text-sub); }
+.log-more {
+  margin-top: 10px; width: 100%; height: 36px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--m-border); background: var(--m-card-2); color: var(--m-text-sub);
+  font-size: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+}
+.log-more .el-icon { transition: transform .2s; }
+.log-more .el-icon.open { transform: rotate(90deg); }
+.log-old { margin-top: 12px; border-top: 1px solid var(--m-border); }
+.log-old-item { padding: 10px 0; }
+.log-old-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.log-old-head b { font-size: 13px; color: var(--m-text); }
+.log-old-head span { font-size: 11.5px; color: var(--m-text-dim); }
+.log-old ul { margin: 0; padding-left: 18px; }
+.log-old li { font-size: 12.5px; line-height: 1.8; color: var(--m-text-dim); }
 
 /* 版本自检 */
 .vdiag {

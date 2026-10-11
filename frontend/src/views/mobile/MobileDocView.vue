@@ -13,6 +13,10 @@ import { enhanceVideos, bindImgLightbox, absolutizeMedia } from '../../utils/med
 import { useRoute, useRouter } from 'vue-router'
 import { getShareDoc } from '../../api/docShare'
 import { getCachedDoc, cacheDoc } from '../../utils/offlineStore'
+import { isBookmarked, toggleBookmark } from '../../utils/bookmarks'
+import { toWordHtml, toMarkdown, shareLink, qrDataUrl } from '../../utils/docExport'
+import { shareText, saveTextFile, safeName, copyText } from '../../utils/shareOut'
+import { recordDocOpen } from '../../utils/readStats'
 // 只读渲染用 Tiptap 实例：流程图 / 脑图 / 电子表格是 Vue 组件节点（NodeView），
 // v-html 渲染不出来（会显示成空白），必须走编辑器内核才能画出来。
 import { useEditor, EditorContent } from '@tiptap/vue-3'
@@ -82,6 +86,8 @@ onMounted(async () => {
     const { data } = await getShareDoc(spaceId, docId)
     doc.value = data
     cacheDoc(spaceId, data).catch(() => {})
+    // 本机阅读统计（「我的数据」页与首页概览用）
+    try { recordDocOpen(spaceId, docId, data.title, data.content) } catch { /* ignore */ }
   } catch (e) {
     // 离线 / 失败：读缓存
     const c = await getCachedDoc(spaceId, docId).catch(() => null)
@@ -112,6 +118,75 @@ function onScroll(e) {
   scrolled.value = e.target.scrollTop > 32
 }
 
+// ---------- 更多操作（导出 / 分享 / 收藏 / 历史版本） ----------
+const showMore = ref(false)
+const qrSrc = ref('')
+const bookmarked = ref(false)
+
+function openMore() {
+  bookmarked.value = isBookmarked(spaceId, docId)
+  showMore.value = true
+}
+
+function goEdit() {
+  showMore.value = false
+  router.push(`/doc/${spaceId}/${docId}/edit`)
+}
+
+function doFav() {
+  const on = toggleBookmark({
+    spaceId, docId,
+    title: doc.value?.title || '未命名文档',
+    spaceName: doc.value?.spaceName || '',
+  })
+  bookmarked.value = on
+  showMore.value = false
+  window.__kbMsg?.success(on ? '已加入收藏' : '已取消收藏')
+}
+
+/** 导出文件：原生走「写缓存 + 系统分享」，Web 走下载 */
+async function exportAs(kind) {
+  showMore.value = false
+  const title = doc.value?.title || 'document'
+  const body = doc.value?.content || ''
+  if (!body) { window.__kbMsg?.warning('文档内容为空'); return }
+  try {
+    const r = kind === 'word'
+      ? await saveTextFile({ filename: safeName(title, 'doc'), content: toWordHtml(title, body), mime: 'application/msword' })
+      : await saveTextFile({ filename: safeName(title, 'md'), content: toMarkdown(body, title), mime: 'text/markdown' })
+    if (r === 'share') window.__kbMsg?.success('已打开分享面板，可保存到文件或用 WPS 打开')
+    else if (r === 'download') window.__kbMsg?.success('已开始下载')
+    else window.__kbMsg?.error('导出失败，请重试')
+  } catch (e) {
+    window.__kbMsg?.error('导出失败：' + ((e && e.message) || e))
+  }
+}
+
+function link() { return shareLink(spaceId, docId) }
+
+async function doShare() {
+  showMore.value = false
+  const r = await shareText({ title: doc.value?.title || '知识库文档', text: doc.value?.title || '', url: link() })
+  if (r === 'copy') window.__kbMsg?.success('链接已复制到剪贴板')
+  else if (!r) window.__kbMsg?.error('分享失败')
+}
+
+async function doCopyLink() {
+  showMore.value = false
+  const ok = await copyText(link())
+  ok ? window.__kbMsg?.success('链接已复制') : window.__kbMsg?.error('复制失败')
+}
+
+async function doQr() {
+  showMore.value = false
+  try { qrSrc.value = await qrDataUrl(link()) } catch { window.__kbMsg?.error('二维码生成失败') }
+}
+
+function doVersions() {
+  showMore.value = false
+  router.push(`/versions/${spaceId}/${docId}`)
+}
+
 function fmtDate(s) {
   if (!s) return ''
   const d = new Date(s)
@@ -125,8 +200,8 @@ function fmtDate(s) {
     <header class="dv-head" :class="{ solid: scrolled }">
       <button class="m-header-act" @click="router.back()"><el-icon :size="20"><ArrowLeft /></el-icon></button>
       <div class="dv-title" :class="{ show: scrolled }">{{ doc?.title || '' }}</div>
-      <button class="m-header-act" @click="router.push(`/doc/${spaceId}/${docId}/edit`)">
-        <el-icon><EditPen /></el-icon>
+      <button class="m-header-act" @click="openMore">
+        <el-icon><MoreFilled /></el-icon>
       </button>
     </header>
 
@@ -163,11 +238,46 @@ function fmtDate(s) {
       </div>
     </div>
 
-    <!-- 底部编辑条 -->
-    <div v-if="doc" class="m-actionbar">
+    <!-- 底部操作条：收藏 + 编辑 -->
+    <div v-if="doc" class="m-actionbar bar">
+      <button class="bar-fav" :class="{ on: bookmarked }" @click="doFav">
+        <el-icon :size="19"><component :is="bookmarked ? 'StarFilled' : 'Star'" /></el-icon>
+      </button>
       <button class="m-btn" @click="router.push(`/doc/${spaceId}/${docId}/edit`)">
         <el-icon><EditPen /></el-icon> 编辑这篇文档
       </button>
+    </div>
+
+    <!-- 更多操作面板 -->
+    <transition name="sheet-up">
+      <div v-if="showMore" class="m-sheet-mask" @click="showMore = false">
+        <div class="m-sheet" @click.stop>
+          <div class="m-sheet-grip"></div>
+          <div class="m-sheet-title">更多操作</div>
+          <button class="m-sheet-item" @click="goEdit"><span class="mi"><el-icon><EditPen /></el-icon></span>编辑这篇文档</button>
+          <button class="m-sheet-item" @click="doFav">
+            <span class="mi"><el-icon><component :is="bookmarked ? 'StarFilled' : 'Star'" /></el-icon></span>
+            {{ bookmarked ? '取消收藏' : '收藏（稍后读）' }}
+          </button>
+          <button class="m-sheet-item" @click="exportAs('word')"><span class="mi"><el-icon><Download /></el-icon></span>导出为 Word</button>
+          <button class="m-sheet-item" @click="exportAs('md')"><span class="mi"><el-icon><Notebook /></el-icon></span>导出为 Markdown</button>
+          <button class="m-sheet-item" @click="doShare"><span class="mi"><el-icon><Share /></el-icon></span>分享 / 发送给…</button>
+          <button class="m-sheet-item" @click="doCopyLink"><span class="mi"><el-icon><Link /></el-icon></span>复制链接</button>
+          <button class="m-sheet-item" @click="doQr"><span class="mi"><el-icon><Picture /></el-icon></span>分享二维码</button>
+          <button class="m-sheet-item" @click="doVersions"><span class="mi"><el-icon><Clock /></el-icon></span>历史版本</button>
+          <button class="m-sheet-item cancel" @click="showMore = false">取消</button>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 二维码 -->
+    <div v-if="qrSrc" class="qr-mask" @click="qrSrc = ''">
+      <div class="qr-box" @click.stop>
+        <div class="qr-t">{{ doc?.title || '分享文档' }}</div>
+        <img :src="qrSrc" alt="二维码" />
+        <div class="qr-d">用手机扫码打开（需登录且有访问权限）</div>
+        <button class="qr-btn" @click="doCopyLink">复制链接</button>
+      </div>
     </div>
 
     <!-- 图片灯箱：点正文图片全屏预览，点任意处关闭 -->
@@ -199,6 +309,34 @@ function fmtDate(s) {
 .dv-title.show { opacity: 1; }
 
 .dv-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* 底部条：收藏按钮 + 编辑按钮 */
+.bar { display: flex; align-items: center; gap: 10px; }
+.bar .m-btn { flex: 1 1 auto; }
+.bar-fav {
+  flex: none; width: 48px; height: 48px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--m-border); background: var(--m-card); color: var(--m-text-dim);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.bar-fav.on { color: var(--m-warn); border-color: var(--m-warn); }
+
+/* 更多面板里的图标 */
+.mi { display: inline-flex; width: 22px; color: var(--m-text-sub); }
+
+/* 二维码弹层 */
+.qr-mask { position: fixed; inset: 0; z-index: 2500; background: var(--m-mask); display: grid; place-items: center; padding: 24px; }
+.qr-box {
+  background: var(--m-card); border-radius: 16px; padding: 20px 20px 18px;
+  text-align: center; width: 100%; max-width: 300px;
+}
+.qr-t { font-size: 15px; font-weight: 600; color: var(--m-text); margin-bottom: 14px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.qr-box img { width: 200px; height: 200px; display: block; margin: 0 auto; border-radius: 8px; }
+.qr-d { margin-top: 12px; font-size: 12px; color: var(--m-text-dim); line-height: 1.6; }
+.qr-btn {
+  margin-top: 14px; width: 100%; height: 40px; border-radius: 10px; border: none;
+  background: var(--m-primary); color: #fff; font-size: 14.5px; cursor: pointer;
+}
 .dv-h1 { font-size: 23px; line-height: 1.35; margin: 4px 0 8px; letter-spacing: -.4px; }
 .dv-meta { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--m-text-dim); margin-bottom: 18px; }
 /* 图块提示条 */

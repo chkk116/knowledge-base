@@ -113,11 +113,13 @@ console.log('== 3. 插件类源文件是否存在 ==')
 const nm = path.join(MOBILE, 'node_modules')
 const appJava = path.join(MOBILE, 'android/app/src/main/java')
 for (const p of list) {
-  const cls = String(p.classpath).split('.').pop() + '.java'
+  // 插件可能是 Java 也可能是 Kotlin（如 @capacitor/filesystem 8.x 是 .kt）
   const base = p.pkg ? nm : appJava
-  findFile(base, cls)
+  const cls = String(p.classpath).split('.').pop()
+  const hit = ['java', 'kt'].map((ext) => findFile(base, cls + '.' + ext)).find(Boolean)
+  hit
     ? ok(`${p.classpath} 源文件在（${p.pkg ? 'node_modules' : 'app 源码'}）`)
-    : bad(`${p.classpath} 找不到 ${cls}`)
+    : bad(`${p.classpath} 找不到 ${cls}.java/.kt`)
 }
 
 const apk = process.argv[2]

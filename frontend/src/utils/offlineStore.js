@@ -198,6 +198,13 @@ export async function clearCache() {
   await tx(STORE_CACHE, 'readwrite', (s) => wrap(s.clear()))
 }
 
+/** 删除单篇文档的离线缓存（「离线内容」页按条移除用） */
+export async function removeCachedDoc(spaceId, docId) {
+  await tx(STORE_CACHE, 'readwrite', (s) => wrap(s.delete(spaceId + ':' + docId)))
+  notify()
+  return true
+}
+
 export async function cachedCount() {
   try {
     const all = await tx(STORE_CACHE, 'readonly', (s) => wrap(s.getAll()))

@@ -305,10 +305,10 @@ html.dark .m-chip.red { background: #3d1a1a; color: #f87171; }
 @keyframes kb-skel { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 
 /* 富文本阅读区（文档详情用） */
-.m-prose { font-size: 15.5px; line-height: 1.78; color: var(--m-text); word-break: break-word; }
-.m-prose h1 { font-size: 21px; margin: 20px 0 10px; }
-.m-prose h2 { font-size: 18px; margin: 18px 0 9px; }
-.m-prose h3 { font-size: 16.5px; margin: 16px 0 8px; }
+.m-prose { font-size: var(--m-prose-fs, 15.5px); line-height: 1.78; color: var(--m-text); word-break: break-word; }
+.m-prose h1 { font-size: 1.35em; margin: 20px 0 10px; }
+.m-prose h2 { font-size: 1.16em; margin: 18px 0 9px; }
+.m-prose h3 { font-size: 1.06em; margin: 16px 0 8px; }
 .m-prose p { margin: 10px 0; }
 .m-prose img { max-width: 100%; height: auto; border-radius: 12px; display: block; margin: 12px 0; }
 .m-prose ul, .m-prose ol { padding-left: 22px; margin: 10px 0; }

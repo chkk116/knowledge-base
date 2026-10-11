@@ -56,6 +56,17 @@ const routes = [
   // 保留在移动端路由里，是为了让通知、个人中心里的入口都能落地，不出现死链。
   { path: '/embed/:kind', component: () => import('../views/mobile/MobileEmbed.vue'), meta: { title: '功能' } },
 
+  // 发现（公开文章流）/ 文章详情
+  { path: '/discover', component: () => import('../views/mobile/MobileDiscover.vue'), meta: { title: '发现' } },
+  { path: '/post/:id', component: () => import('../views/mobile/MobilePostView.vue'), meta: { title: '文章' } },
+  // 新增工具页
+  { path: '/stats', component: () => import('../views/mobile/MobileStats.vue'), meta: { title: '我的数据' } },
+  { path: '/favorites', component: () => import('../views/mobile/MobileFavorites.vue'), meta: { title: '我的收藏' } },
+  { path: '/offline', component: () => import('../views/mobile/MobileOffline.vue'), meta: { title: '离线内容' } },
+  { path: '/appearance', component: () => import('../views/mobile/MobileAppearance.vue'), meta: { title: '外观' } },
+  { path: '/lock', component: () => import('../views/mobile/MobileLock.vue'), meta: { title: '应用锁' } },
+  { path: '/versions/:spaceId/:docId', component: () => import('../views/mobile/MobileVersions.vue'), meta: { title: '历史版本' } },
+
   { path: '/', redirect: '/home' },
   { path: '/:pathMatch(.*)*', redirect: '/home' }
 ]

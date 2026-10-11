@@ -43,7 +43,10 @@ import {
   Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading,
   MagicStick,   // AI 问答入口图标
   Paperclip,    // AI 页「上传附件」按钮（此前漏注册 → 图标空白）
-  DataLine, Avatar, CollectionTag, Brush   // 「我的」页管理员分组图标
+  DataLine, Avatar, CollectionTag, Brush,  // 「我的」页管理员分组图标
+  // 新增功能页用到的图标（缺一个就会渲染成空白，务必与 icons 对象同步）
+  Download, Share, Link, TrendCharts, Cloudy, Unlock, Key,
+  Compass, StarFilled, Guide, Odometer, Medal, Notebook, Aim, Histogram
 } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -55,6 +58,10 @@ import './mobile.css'
 // 标记「当前跑的是移动端入口」：Web 版 Login.vue 复用时据此把登录后
 // 重定向改到移动端首页（桌面路由在移动端包里不存在）
 window.__KB_MOBILE__ = true
+
+// 个性化外观（主题色 / 正文字号）：写 <html> 内联 CSS 变量，只影响移动端
+import { applyMobileTheme } from './utils/mobileTheme'
+applyMobileTheme()
 
 // 主题：与桌面端共用 localStorage('kb_theme')，手机 / 电脑切换保持一致
 const savedTheme = localStorage.getItem('kb_theme')
@@ -83,7 +90,9 @@ const icons = {
   Right, Edit, Files, Promotion, View, Lock, UserFilled, Calendar, Trophy, Reading,
   MagicStick,   // AI 问答入口图标
   Paperclip,    // AI 页「上传附件」按钮（此前漏注册 → 图标空白）
-  DataLine, Avatar, CollectionTag, Brush   // 「我的」页管理员分组图标
+  DataLine, Avatar, CollectionTag, Brush,
+  Download, Share, Link, TrendCharts, Cloudy, Unlock, Key,
+  Compass, StarFilled, Guide, Odometer, Medal, Notebook, Aim, Histogram
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)

@@ -16,6 +16,8 @@ import { syncOnReconnect, pendingCount } from './utils/offlineStore'
 import { openExternal } from './utils/openExternal'
 import { downloadAndInstall } from './utils/appUpdate'
 import { getAppVersion, getAppBundle } from './api/app'
+import { shouldLock, verifyPin, getLockConfig } from './utils/appLock'
+import { parseNotes, changelogOf } from './changelog'
 
 const route = useRoute()
 const router = useRouter()
@@ -75,6 +77,56 @@ const updateInfo = ref(null)      // { versionCode, versionName, url, notes, for
 const showUpdate = ref(false)
 const downloading = ref(false)
 const progress = ref(-1)        // 应用内下载进度（-1=未知）
+
+// ---------- 应用锁（PIN）----------
+const locked = ref(false)
+const pin = ref('')
+const pinErr = ref('')
+const shaking = ref(false)
+const pinLen = ref(getLockConfig().len || 4)
+let bgAt = 0                     // 进入后台的时刻（用于「超时自动锁定」）
+
+/** 更新说明条目：优先用后台下发的 notes，缺失则回落到前端内置 CHANGELOG */
+const updateNotes = computed(() => {
+  const fromServer = parseNotes(updateInfo.value?.notes)
+  if (fromServer.length) return fromServer
+  return changelogOf(updateInfo.value?.versionName)?.items || []
+})
+
+function pressKey(k) {
+  if (shaking.value) return
+  if (k === 'del') { pin.value = pin.value.slice(0, -1); pinErr.value = ''; return }
+  if (pin.value.length >= pinLen.value) return
+  pin.value += k
+  pinErr.value = ''
+  if (pin.value.length === pinLen.value) setTimeout(submitPin, 80)
+}
+
+async function submitPin() {
+  const ok = await verifyPin(pin.value).catch(() => false)
+  if (ok) {
+    locked.value = false
+    pin.value = ''
+    pinErr.value = ''
+    return
+  }
+  pinErr.value = '密码不正确，请重试'
+  shaking.value = true
+  setTimeout(() => { shaking.value = false; pin.value = '' }, 420)
+}
+
+/** 从后台切回：超过设定时间则重新锁定 */
+function onAppStateChange(st) {
+  if (!st) return
+  if (!st.isActive) { bgAt = Date.now(); return }
+  const t = Number(getLockConfig().timeout ?? 60)
+  if (shouldLock() && bgAt && Date.now() - bgAt > t * 1000) {
+    pinLen.value = getLockConfig().len || 4
+    pin.value = ''
+    locked.value = true
+  }
+  bgAt = 0
+}
 
 /** 取当前安装包的 versionCode（来自 @capacitor/app 的 getInfo().build） */
 async function currentVersionCode() {
@@ -179,6 +231,11 @@ function handleBack() {
 }
 
 onMounted(async () => {
+  // 冷启动锁定（仅在已开启应用锁且本机有登录态时）
+  if (shouldLock()) {
+    pinLen.value = getLockConfig().len || 4
+    locked.value = true
+  }
   if (isNative && capApp?.addListener) {
     try {
       backListener = await capApp.addListener('backButton', handleBack)
@@ -195,6 +252,8 @@ onMounted(async () => {
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
   window.addEventListener('kb:offline-pending-changed', onPendingChange)
+  // 前后台切换：配合「自动锁定」超时
+  try { capApp?.addListener?.('appStateChange', onAppStateChange) } catch { /* 老包无该事件 */ }
 })
 
 onUnmounted(() => {
@@ -267,13 +326,33 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
          force=true 时不给「稍后」按钮。Web 端不检查（checkUpdate 里已 return）。 -->
     <div v-if="showUpdate" class="upd-mask">
       <div class="upd-panel">
-        <div class="upd-title">发现新版本 {{ updateInfo?.versionName || '' }}</div>
-        <pre v-if="updateInfo?.notes" class="upd-notes">{{ updateInfo.notes }}</pre>
+        <!-- 头部：图标 + 标题 + 版本号徽标 -->
+        <div class="upd-head">
+          <span class="upd-ico"><el-icon :size="22"><Download /></el-icon></span>
+          <div class="upd-head-txt">
+            <div class="upd-title">发现新版本</div>
+            <div class="upd-ver">
+              <span class="upd-badge">v{{ updateInfo?.versionName || '—' }}</span>
+              <span v-if="updateInfo?.versionCode" class="upd-build">Build {{ updateInfo.versionCode }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 更新说明：按条目渲染（不再用 pre 原样输出） -->
+        <div class="upd-body">
+          <div class="upd-body-t">更新内容</div>
+          <ul v-if="updateNotes.length" class="upd-list">
+            <li v-for="(n, i) in updateNotes" :key="i">{{ n }}</li>
+          </ul>
+          <div v-else class="upd-none">本次更新优化了使用体验与稳定性</div>
+        </div>
+
         <!-- 应用内下载进度 -->
         <div v-if="downloading" class="upd-prog">
           <div class="upd-prog-bar"><i :style="{ width: progress >= 0 ? progress + '%' : '100%' }" :class="{ indet: progress < 0 }"></i></div>
           <div class="upd-prog-txt">{{ progress >= 0 ? '正在下载 ' + progress + '%' : '正在下载…' }}</div>
         </div>
+
         <div class="upd-acts">
           <button v-if="!updateInfo?.force" class="upd-btn ghost" :disabled="downloading" @click="laterUpdate">稍后</button>
           <button class="upd-btn primary" :disabled="downloading" @click="doUpdate">
@@ -281,6 +360,31 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
           </button>
         </div>
         <div v-if="updateInfo?.force" class="upd-tip">该版本为强制更新，请尽快升级</div>
+      </div>
+    </div>
+
+    <!-- 应用锁：冷启动 / 超时切回时盖在最上层 -->
+    <div v-if="locked" class="lock-mask">
+      <div class="lock-box" :class="{ shake: shaking }">
+        <span class="lock-ico"><el-icon :size="26"><Lock /></el-icon></span>
+        <div class="lock-t">请输入密码</div>
+        <div class="lock-d">已开启应用锁，解锁后可继续使用</div>
+
+        <div class="lock-dots">
+          <i v-for="i in pinLen" :key="i" :class="{ on: pin.length > i - 1 }"></i>
+        </div>
+        <div class="lock-err">{{ pinErr }}</div>
+
+        <div class="lock-pad">
+          <button v-for="k in ['1','2','3','4','5','6','7','8','9']" :key="k" class="lk" type="button"
+                  @click="pressKey(k)">{{ k }}</button>
+          <span class="lk ph"></span>
+          <button class="lk" type="button" @click="pressKey('0')">0</button>
+          <button class="lk del" type="button" @click="pressKey('del')">
+            <el-icon :size="19"><Delete /></el-icon>
+          </button>
+        </div>
+        <div class="lock-hint">忘记密码？清除应用数据后重新登录即可重设</div>
       </div>
     </div>
   </div>
@@ -365,11 +469,15 @@ html.dark .net-act { color: #4c8dff; }   /* 深棕底上 #1677ff 对比度仅 ~3
 
 /* 消息未读红点 */
 .dot {
-  position: absolute; top: -5px; left: 51%;
-  min-width: 15px; height: 15px; padding: 0 3px;
-  border-radius: 8px; background: #ef4444; color: #fff;
-  font-size: 9.5px; font-style: normal; line-height: 15px;
-  text-align: center; font-weight: 600;
+  position: absolute; top: -6px; left: 50%;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 9px; background: #ef4444; color: #fff;
+  font-size: 10px; font-style: normal; font-weight: 600;
+  /* 用 flex 居中：原来靠 line-height == height，数字会被行框的下伸部顶偏（视觉偏上/偏左） */
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 1; letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
   box-shadow: 0 0 0 2px var(--m-tabbar-bg);
 }
 
@@ -409,15 +517,28 @@ html.dark .net-act { color: #4c8dff; }   /* 深棕底上 #1677ff 对比度仅 ~3
   padding: 20px 18px 16px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, .18);
 }
-.upd-title { font-size: 16.5px; font-weight: 600; color: var(--m-text); text-align: center; }
-.upd-notes {
-  margin: 12px 0 0; padding: 10px 12px;
-  background: var(--m-card-2); border-radius: var(--m-radius);
-  font-size: 13px; line-height: 1.7; color: var(--m-text-sub);
-  white-space: pre-wrap; word-break: break-word;
-  font-family: inherit; text-align: left;
-  max-height: 40vh; overflow-y: auto;
+/* 弹层头部：图标 + 标题 + 版本徽标 */
+.upd-head { display: flex; align-items: center; gap: 12px; }
+.upd-ico {
+  flex: none; width: 44px; height: 44px; border-radius: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--m-primary-soft); color: var(--m-primary);
 }
+.upd-head-txt { flex: 1 1 auto; min-width: 0; }
+.upd-title { font-size: 16.5px; font-weight: 600; color: var(--m-text); }
+.upd-ver { margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.upd-badge {
+  font-size: 11.5px; font-weight: 700; color: var(--m-primary);
+  background: var(--m-primary-soft); border-radius: 6px; padding: 2px 7px;
+}
+.upd-build { font-size: 11.5px; color: var(--m-text-dim); }
+
+/* 更新内容：条目列表 */
+.upd-body { margin-top: 14px; background: var(--m-card-2); border-radius: var(--m-radius); padding: 12px 14px; max-height: 40vh; overflow-y: auto; }
+.upd-body-t { font-size: 12px; font-weight: 600; color: var(--m-text-dim); margin-bottom: 6px; }
+.upd-list { margin: 0; padding-left: 18px; }
+.upd-list li { font-size: 13.5px; line-height: 1.8; color: var(--m-text-sub); }
+.upd-none { font-size: 13.5px; color: var(--m-text-sub); }
 .upd-acts { display: flex; gap: 10px; margin-top: 16px; }
 .upd-btn {
   flex: 1; height: 42px; border: none; border-radius: var(--m-radius);
@@ -435,4 +556,54 @@ html.dark .net-act { color: #4c8dff; }   /* 深棕底上 #1677ff 对比度仅 ~3
 .upd-prog-bar > i.indet { animation: upd-indet 1.1s ease-in-out infinite; }
 @keyframes upd-indet { 0% { opacity: .35 } 50% { opacity: 1 } 100% { opacity: .35 } }
 .upd-prog-txt { margin-top: 6px; font-size: 12px; color: var(--m-text-dim); text-align: center; }
+
+/* ---------- 应用锁 ---------- */
+.lock-mask {
+  position: fixed; inset: 0; z-index: 3200;
+  background: var(--m-bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 0 28px calc(env(safe-area-inset-bottom) + 16px);
+}
+.lock-box { width: 100%; max-width: 320px; text-align: center; }
+.lock-box.shake { animation: lock-shake .4s; }
+@keyframes lock-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(5px); }
+}
+.lock-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 58px; height: 58px; border-radius: 20px;
+  background: var(--m-primary-soft); color: var(--m-primary);
+}
+.lock-t { margin-top: 14px; font-size: 18px; font-weight: 600; color: var(--m-text); }
+.lock-d { margin-top: 5px; font-size: 12.5px; color: var(--m-text-dim); }
+
+.lock-dots { display: flex; justify-content: center; gap: 14px; margin: 26px 0 6px; }
+.lock-dots i {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: transparent; border: 1.5px solid var(--m-border);
+  transition: background .15s, border-color .15s, transform .15s;
+}
+.lock-dots i.on { background: var(--m-primary); border-color: var(--m-primary); transform: scale(1.08); }
+.lock-err { height: 18px; font-size: 12.5px; color: var(--m-danger); }
+
+.lock-pad {
+  margin-top: 14px;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.lk {
+  height: 58px; border-radius: 16px; cursor: pointer;
+  border: none; background: var(--m-card); color: var(--m-text);
+  font-size: 22px; font-weight: 500; font-family: inherit;
+  box-shadow: var(--m-shadow);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.lk:active { background: var(--m-card-2); transform: scale(.97); }
+.lk.ph { background: transparent; box-shadow: none; pointer-events: none; }
+.lk.del { color: var(--m-text-sub); font-size: 18px; }
+.lock-hint { margin-top: 22px; font-size: 12px; color: var(--m-text-dim); line-height: 1.7; }
 </style>
