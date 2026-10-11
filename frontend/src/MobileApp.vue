@@ -18,6 +18,7 @@ import { downloadAndInstall, assertSafeAssetUrl } from './utils/appUpdate'
 import { getAppVersion, getAppBundle } from './api/app'
 import { shouldLock, verifyPin, getLockConfig } from './utils/appLock'
 import { parseNotes, changelogOf } from './changelog'
+import { dlActive, dlPercent, dlDone, restoreUpdateState, dismissUpdateState, updateProgressText } from './utils/updateProgress'
 
 const route = useRoute()
 const router = useRouter()
@@ -92,6 +93,9 @@ const updateNotes = computed(() => {
   if (fromServer.length) return fromServer
   return changelogOf(updateInfo.value?.versionName)?.items || []
 })
+
+// 下载横幅文案（状态在 utils/updateProgress.js，切页/刷新都保留）
+const dlText = computed(() => updateProgressText())
 
 function pressKey(k) {
   if (shaking.value) return
@@ -237,6 +241,8 @@ function handleBack() {
 }
 
 onMounted(async () => {
+  // 刷新/冷启动后恢复「更新下载中」横幅（下载在原生后台线程，没被中断）
+  restoreUpdateState()
   // 冷启动锁定（仅在已开启应用锁且本机有登录态时）
   if (shouldLock()) {
     pinLen.value = getLockConfig().len || 4
@@ -301,6 +307,24 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
         <button v-if="online && !syncing" class="net-act" @click="doSync">立即同步</button>
       </div>
     </transition>
+
+    <!-- 应用更新下载横幅：常驻在内容区之上，切页 / WebView 刷新都不丢
+         （下载跑在原生后台线程，JS 监听会丢但下载不会中断） -->
+    <div v-if="dlActive || dlDone" class="upd-bar" :class="{ done: dlDone }">
+      <span class="ub-ico">
+        <el-icon><component :is="dlDone ? 'CircleCheckFilled' : 'Download'" /></el-icon>
+      </span>
+      <span class="ub-body">
+        <span class="ub-t">{{ dlDone ? '更新包下载完成' : '正在下载更新' }}</span>
+        <span class="ub-d">{{ dlText }}</span>
+        <span v-if="dlActive" class="ub-bar">
+          <i :style="{ width: dlPercent >= 0 ? dlPercent + '%' : '100%' }" :class="{ indet: dlPercent < 0 }"></i>
+        </span>
+      </span>
+      <button class="ub-x" type="button" @click="dismissUpdateState">
+        <el-icon :size="15"><Close /></el-icon>
+      </button>
+    </div>
 
     <div class="m-view">
       <router-view v-slot="{ Component }">
@@ -418,6 +442,30 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+}
+
+/* ---------- 应用更新下载横幅 ---------- */
+.upd-bar {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  background: var(--m-primary-soft); color: var(--m-text);
+  border-bottom: 1px solid var(--m-border);
+}
+.upd-bar.done { background: #ecfdf5; }
+html.dark .upd-bar.done { background: #0e2e26; }
+.ub-ico { flex: none; color: var(--m-primary); display: inline-flex; }
+.upd-bar.done .ub-ico { color: #059669; }
+.ub-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ub-t { font-size: 13px; font-weight: 600; color: var(--m-text); }
+.ub-d { font-size: 11.5px; color: var(--m-text-sub); }
+.ub-bar { margin-top: 3px; height: 4px; border-radius: 999px; background: var(--m-card); overflow: hidden; }
+.ub-bar > i { display: block; height: 100%; background: var(--m-primary); border-radius: 999px; transition: width .2s ease; }
+.ub-bar > i.indet { animation: ub-indet 1.1s ease-in-out infinite; }
+@keyframes ub-indet { 0% { opacity: .35 } 50% { opacity: 1 } 100% { opacity: .35 } }
+.ub-x {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; border: none;
+  background: transparent; color: var(--m-text-dim);
+  display: grid; place-items: center; cursor: pointer;
 }
 
 /* ---------- 离线 / 待同步提示条 ---------- */

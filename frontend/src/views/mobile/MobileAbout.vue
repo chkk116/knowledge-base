@@ -74,7 +74,8 @@ async function checkUpdate() {
       } catch { return }   // 用户选择稍后
       if (data.url) {
         try {
-          const r = await downloadAndInstall(data.url)
+          // ⚠️ 必须传 checksum：appUpdate 里是 fail-closed，缺值会直接抛「缺少完整性校验值」
+          const r = await downloadAndInstall(data.url, undefined, data.checksum)
           if (r.mode === 'in-app') window.__kbMsg?.success('下载完成，请在弹出的安装界面完成安装')
         } catch (e) {
           window.__kbMsg?.error('更新失败：' + ((e && e.message) || e))

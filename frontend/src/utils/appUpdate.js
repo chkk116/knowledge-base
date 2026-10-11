@@ -6,6 +6,7 @@
  * 兜底：Web 端 / 没带该插件的老包 → 退回「用系统浏览器打开下载地址」。
  */
 import { openExternal } from './openExternal'
+import { beginUpdate, setUpdateProgress, finishUpdate, failUpdate } from './updateProgress'
 // 静态 import：ALLOWED_HOSTS 必须同步就绪。原用动态 import().then() 异步加域名，
 // App 内置资源模式下 location.host 是 localhost，真实站点还没加进集合就被校验，
 // 会把合法更新地址判成「非法」→ 更新直接失败（2026-10-09 复查发现）。
@@ -61,16 +62,24 @@ export async function downloadAndInstall(url, onProgress, checksum) {
     return { mode: 'external' }
   }
 
+  // 进度同时写进全局状态：App 壳的常驻横幅 + 「消息」页都能看到，
+  // 切页/刷新也不会丢（下载在原生后台线程，不受 WebView 影响）
+  const ver = String(url).split('/').pop() || ''
+  beginUpdate(ver)
+
   const handles = []
   try {
     if (P.addListener) {
       handles.push(await P.addListener('progress', (d) => {
-        onProgress?.(typeof d?.percent === 'number' ? d.percent : -1)
+        const p = typeof d?.percent === 'number' ? d.percent : -1
+        setUpdateProgress(p)
+        onProgress?.(p)
       }))
       handles.push(await P.addListener('needInstallPermission', () => {
         window.__kbMsg?.warning('请先允许本应用「安装未知应用」，再回来重新点更新')
       }))
       handles.push(await P.addListener('downloadError', (d) => {
+        failUpdate()
         if (d?.message) window.__kbMsg?.error('下载出错：' + d.message)
       }))
     }
@@ -78,7 +87,11 @@ export async function downloadAndInstall(url, onProgress, checksum) {
 
   try {
     await P.downloadAndInstall({ url, checksum })
+    finishUpdate()
     return { mode: 'in-app' }
+  } catch (e) {
+    failUpdate()
+    throw e
   } finally {
     handles.forEach((h) => { try { h?.remove?.() } catch { /* ignore */ } })
   }

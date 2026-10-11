@@ -9,6 +9,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotificationStore } from '../../store/notification'
 import { notificationList, notificationRead, notificationReadAll } from '../../api/kb'
+import { dlActive, dlPercent, dlDone } from '../../utils/updateProgress'
 
 const router = useRouter()
 const n = useNotificationStore()
@@ -16,6 +17,13 @@ const n = useNotificationStore()
 const loading = ref(true)
 const items = ref([])
 const filter = ref('all')   // all | unread
+
+// 应用更新下载：置顶一条本地条目，方便随时看到进度（不依赖服务端通知）
+const dlShow = computed(() => dlActive.value || dlDone.value)
+const dlDesc = computed(() =>
+  dlActive.value ? (dlPercent.value >= 0 ? `正在下载 ${dlPercent.value}%` : '正在下载…')
+                 : '下载完成，请在弹出的安装界面完成安装')
+function dlTap() { router.push('/about') }
 
 const shown = computed(() =>
   filter.value === 'unread' ? items.value.filter((i) => !i.read) : items.value
@@ -131,6 +139,20 @@ watch(() => n.version, load)
             <div class="m-skel" style="height:12px;width:80%;margin-top:8px"></div>
           </div>
         </div>
+      </div>
+
+      <!-- 应用更新：置顶（本地状态，不走服务端通知） -->
+      <div v-if="dlShow" class="m-card" style="margin-bottom:10px">
+        <button class="m-row msg" type="button" @click="dlTap">
+          <span class="m-ico blue"><el-icon><component :is="dlDone ? 'CircleCheckFilled' : 'Download'" /></el-icon></span>
+          <span class="m-row-body">
+            <span class="mr-top">
+              <span class="m-row-title">应用更新</span>
+              <span class="mr-time">{{ dlActive ? '进行中' : '已完成' }}</span>
+            </span>
+            <span class="m-row-desc">{{ dlDesc }}</span>
+          </span>
+        </button>
       </div>
 
       <div v-else-if="shown.length" class="m-card">
