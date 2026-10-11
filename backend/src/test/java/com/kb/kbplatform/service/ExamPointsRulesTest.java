@@ -51,7 +51,9 @@ class ExamPointsRulesTest {
         courseRepo = Mockito.mock(CourseRepository.class);
         svc = new ExamService(questionRepo, optionRepo, paperRepo, pqRepo, recordRepo, answerRepo, authService,
                 courseRepo, Mockito.mock(CourseChapterRepository.class), Mockito.mock(LearningProgressRepository.class),
-                Mockito.mock(CourseService.class), Mockito.mock(NotificationService.class));
+                Mockito.mock(CourseService.class), Mockito.mock(NotificationService.class),
+                // settleExpired 用到的 TransactionTemplate：本测试只走 submit()，给个 mock 即可
+                Mockito.mock(org.springframework.transaction.support.TransactionTemplate.class));
 
         // 一道 10 分的单选题，正确选项 A
         Question q = new Question();
