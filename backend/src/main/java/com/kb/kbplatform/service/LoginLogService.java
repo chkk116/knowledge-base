@@ -45,13 +45,11 @@ public class LoginLogService {
         }
     }
 
-    /** 客户端 IP：优先 X-Forwarded-For 首个地址（经 Nginx 反代时 RemoteAddr 是代理地址） */
+    /** 客户端 IP：统一解析口径（X-Real-IP → XFF 首段 → RemoteAddr），见 security.ClientIp */
     private String clientIp(HttpServletRequest request) {
         try {
             if (request == null) return null;
-            String ip = request.getHeader("X-Forwarded-For");
-            if (ip != null && !ip.isBlank()) return ip.split(",")[0].trim();
-            return request.getRemoteAddr();
+            return com.kb.kbplatform.security.ClientIp.resolve(request);
         } catch (Exception e) {
             return null;
         }

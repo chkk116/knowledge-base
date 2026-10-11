@@ -58,12 +58,16 @@ public class RateLimitService {
      * @param windowMillis 滑动窗口大小（毫秒）
      * @return true=放行，false=已达上限
      */
-    public synchronized boolean allow(String key, int max, long windowMillis) {
+    public boolean allow(String key, int max, long windowMillis) {
         long now = System.currentTimeMillis();
         Deque<Long> q = store.computeIfAbsent(key, k -> new ArrayDeque<>());
-        q.removeIf(t -> now - t > windowMillis);
-        if (q.size() >= max) return false;
-        q.addLast(now);
-        return true;
+        // 只锁单个 key 的队列（外部审查 2026-10-11：原全局 synchronized 会把登录/注册/验证码
+        // 等所有维度串行化，高并发下成为全局瓶颈）。computeIfAbsent 保证同 key 拿到同一把监视器。
+        synchronized (q) {
+            q.removeIf(t -> now - t > windowMillis);
+            if (q.size() >= max) return false;
+            q.addLast(now);
+            return true;
+        }
     }
 }

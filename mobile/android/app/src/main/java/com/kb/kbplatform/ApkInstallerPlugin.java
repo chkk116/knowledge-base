@@ -63,8 +63,14 @@ public class ApkInstallerPlugin extends Plugin {
         }
         // 固定服务端文件名：不采信 JS 侧传入的 fileName（../ 或绝对路径会穿越出缓存目录）
         final String fileName = "kb-update.apk";
-        // SHA-256 校验值（十六进制，来自后端 SysSetting）：非空时下载完成后强制比对，不匹配即删除重试
+        // SHA-256 校验值（十六进制，来自后端 SysSetting）：缺值一律拒绝（fail-closed）。
+        // 外部审查 2026-10-11：空值不再当作「免校验」，否则被注入的 JS 可传自己的
+        // APK + 配套哈希绕过完整性校验。
         final String checksum = call.getString("checksum");
+        if (checksum == null || checksum.trim().isEmpty()) {
+            call.reject("更新包缺少 SHA-256 校验值，已拒绝安装");
+            return;
+        }
         downloading = true;
 
         new Thread(() -> {
@@ -109,6 +115,13 @@ public class ApkInstallerPlugin extends Plugin {
     private File download(String url, String fileName, String expectedSha256) throws Exception {
         // 原生层白名单兜底：只允许 https（JS 侧已校验，这里防未来新增调用点漏检）
         if (!url.startsWith("https://")) throw new Exception("更新地址必须为 HTTPS");
+        // 原生层域名白名单：host 必须在构建期注入的 kb_allowed_hosts 内。
+        // 这是最后一道防线——WebView 内被注入的 JS 可以绕过 JS 侧校验直接调桥，
+        // 只有原生自己持有的白名单才拦得住（外部审查 2026-10-11）。
+        java.util.Set<String> allowed = allowedHosts();
+        String host = new URL(url).getHost();
+        if (allowed.isEmpty()) throw new Exception("App 未配置允许的更新域名（KB_ALLOWED_HOSTS），已拒绝下载");
+        if (!allowed.contains(host)) throw new Exception("更新地址域名不在白名单内");
         File dir = new File(getContext().getCacheDir(), "update");
         if (!dir.exists() && !dir.mkdirs()) throw new Exception("无法创建缓存目录");
         File out = new File(dir, fileName);
@@ -160,6 +173,21 @@ public class ApkInstallerPlugin extends Plugin {
             }
         }
         return out;
+    }
+
+    /** 构建期注入的更新域名白名单（strings.xml: kb_allowed_hosts，逗号分隔） */
+    private java.util.Set<String> allowedHosts() {
+        java.util.Set<String> set = new java.util.HashSet<>();
+        try {
+            int id = getContext().getResources().getIdentifier("kb_allowed_hosts", "string", getContext().getPackageName());
+            if (id != 0) {
+                for (String h : getContext().getString(id).split(",")) {
+                    String t = h.trim().toLowerCase();
+                    if (!t.isEmpty()) set.add(t);
+                }
+            }
+        } catch (Exception ignore) { /* 缺资源 = 空 = fail-closed */ }
+        return set;
     }
 
     private static String sha256Hex(File f) throws Exception {

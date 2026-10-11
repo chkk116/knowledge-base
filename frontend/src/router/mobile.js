@@ -103,35 +103,48 @@ function hasLocalToken() {
   try { return !!localStorage.getItem('kb_token') } catch { return false }
 }
 
+// 权限页兜底：未拿到服务端确认的身份时（离线 / 超时 / 校验异常），
+// 权限页必须粗检——无缓存身份一律拒入（外部审查 2026-10-11：原实现手输 URL 可绕过 perm 检查）
+function permGate(to, auth) {
+  return !to.meta.perm || auth.isAdmin || auth.hasPerm(to.meta.perm)
+}
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (to.meta.public) return true
 
-  // 离线：跳过服务端校验，直接放行（TabBar / 缓存文档仍可用）
+  // 离线：跳过服务端校验；权限页用缓存身份粗检，无缓存一律拒入（fail-closed）
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    if (hasLocalToken() || auth.loggedIn) return true
-    return { path: '/login', query: { redirect: to.fullPath } }
+    if (!(hasLocalToken() || auth.loggedIn)) return { path: '/login', query: { redirect: to.fullPath } }
+    if (!permGate(to, auth)) return { path: '/profile' }
+    return true
   }
 
   // 校验登录态。加超时兜底：连不上服务器（弱网 / onLine 误判为在线）时
   // axios 要等满 15s 超时才 reject，期间路由一直挂起 → 白屏「打不开」。
   // 到点即用本地 token / 缓存状态放行，真正的 401 仍由 axios 拦截器统一登出。
+  // ensureAuth 自身 reject（网络异常）也不能让守卫整体 reject —— 同样走本地兜底
   let authTimer
-  await Promise.race([
-    ensureAuth(),
-    new Promise((resolve) => { authTimer = setTimeout(resolve, AUTH_WAIT_MS) })
-  ])
+  try {
+    await Promise.race([
+      ensureAuth(),
+      new Promise((resolve) => { authTimer = setTimeout(resolve, AUTH_WAIT_MS) })
+    ])
+  } catch { /* 网络异常：按「校验未完成」走下面的本地 token 兜底 */ }
   clearTimeout(authTimer)
   // fetchMe 成功 → user 已就绪，正常放行
   if (auth.user) {
-    // 细粒度权限页：入口按 hasPerm 过滤，这里再兜一层（防手输 URL）
-    if (to.meta.perm && !auth.isAdmin && !auth.hasPerm(to.meta.perm)) return { path: '/profile' }
+    if (!permGate(to, auth)) return { path: '/profile' }
     return true
   }
   // 本地有 token 但校验没成功：多半是网络抖动而非真的未登录。
   // 继续放行，让页面自己处理接口错误（避免"网络一抖就被踢回登录页"）；
   // 真 401 由 axios 拦截器派发 kb-unauthorized 统一登出。
-  if (hasLocalToken()) return true
+  // 权限页例外：无缓存身份 fail-closed，不让手输 URL 摸进权限页
+  if (hasLocalToken()) {
+    if (!permGate(to, auth)) return { path: '/profile' }
+    return true
+  }
   return { path: '/login', query: { redirect: to.fullPath } }
 })
 

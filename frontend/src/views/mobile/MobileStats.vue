@@ -90,7 +90,7 @@ onMounted(() => {
         <div class="m-sec-title">最近 14 天阅读</div>
         <div class="bars">
           <div v-for="(d, i) in s.series" :key="d.day" class="bar-wrap">
-            <div class="bar" :style="{ height: Math.max(3, Math.round((d.docs / s.maxSeries) * 56)) + 'px' }"
+            <div class="bar" :style="{ height: Math.max(3, Math.round((d.docs / Math.max(1, s.maxSeries || 0)) * 56)) + 'px' }"
                  :class="{ zero: !d.docs }"></div>
             <div class="bar-lbl">{{ i % 3 === 0 || i === s.series.length - 1 ? d.md : '' }}</div>
           </div>

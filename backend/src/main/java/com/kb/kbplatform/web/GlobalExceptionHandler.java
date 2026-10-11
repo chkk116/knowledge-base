@@ -73,6 +73,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
 
+    /** 空指针（多为公开接口缺登录属性/配置缺失等状态不完整）：外部审查 2026-10-11 指出
+     *  公开前缀下此类异常会裸 500。统一收敛为 400 + 泛化文案，堆栈只进服务端日志。 */
+    @ExceptionHandler(NullPointerException.class)
+    public ResponseEntity<Map<String, Object>> handleNpe(NullPointerException e) {
+        log.warn("NullPointerException：{}", e.getMessage());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", "请求参数或状态不完整");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException e) {
         Map<String, Object> body = new LinkedHashMap<>();

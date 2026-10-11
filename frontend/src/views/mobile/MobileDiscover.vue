@@ -46,7 +46,7 @@ function fmtTime(s) {
 }
 
 async function load(reset = false) {
-  if (loading.value) return
+  if (loading.value) { if (reset) discoverPendingReset = true; return }
   if (reset) { page.value = 0; items.value = []; finished.value = false }
   if (finished.value) return
   loading.value = true
@@ -61,9 +61,13 @@ async function load(reset = false) {
     finished.value = true
   } finally {
     loading.value = false
+    if (discoverPendingReset) { discoverPendingReset = false; load(true) }
   }
 }
 
+// 外部审查 2026-10-11：切换排序/分类时若上一轮 load 还在途，load(true) 会被 loading
+// 守卫吞掉——筛选状态已变但结果不刷新。记 pending，本轮结束后补跑 reset。
+let discoverPendingReset = false
 function switchSort(s) { if (sort.value === s) return; sort.value = s; load(true) }
 function switchCat(c) { if (cat.value === c) return; cat.value = c; load(true) }
 

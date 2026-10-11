@@ -47,9 +47,7 @@ public class AuditService {
             ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
             if (attrs == null) return null;
             HttpServletRequest req = attrs.getRequest();
-            String ip = req.getHeader("X-Forwarded-For");
-            if (ip != null && !ip.isBlank()) return ip.split(",")[0].trim();
-            return req.getRemoteAddr();
+            return com.kb.kbplatform.security.ClientIp.resolve(req);
         } catch (Exception e) {
             return null;
         }

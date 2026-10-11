@@ -8,7 +8,7 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { getLockConfig, setPin, verifyPin, disableLock, setLockTimeout, isValidPin } from '../../utils/appLock'
+import { getLockConfig, setPin, verifyPin, disableLock, setLockTimeout, isValidPin, clearLegacyLock } from '../../utils/appLock'
 
 const router = useRouter()
 const cfg = ref(getLockConfig())
@@ -46,7 +46,7 @@ async function askPin(title) {
 async function onEnable() {
   const pin = await askPin('开启应用锁')
   if (!pin || !isValidPin(pin)) return
-  await setPin(pin)
+  try { await setPin(pin) } catch (e) { window.__kbMsg?.error('开启失败：' + (e?.message || e)); return }
   cfg.value = getLockConfig()
   window.__kbMsg?.success('应用锁已开启')
 }
@@ -57,10 +57,12 @@ async function onChange() {
     inputType: 'password', inputPlaceholder: '当前密码',
   }).catch(() => null)
   if (!cur) return
-  if (!(await verifyPin(cur.value))) { window.__kbMsg?.error('密码不正确'); return }
+  try {
+    if (!(await verifyPin(cur.value))) { window.__kbMsg?.error('密码不正确'); return }
+  } catch (e) { window.__kbMsg?.error(e?.message || '校验失败'); return }
   const pin = await askPin('设置新密码')
   if (!pin) return
-  await setPin(pin)
+  try { await setPin(pin) } catch (e) { window.__kbMsg?.error('设置失败：' + (e?.message || e)); return }
   cfg.value = getLockConfig()
   window.__kbMsg?.success('密码已更新')
 }
@@ -71,8 +73,25 @@ async function onDisable() {
     inputType: 'password', inputPlaceholder: '当前密码', type: 'warning',
   }).catch(() => null)
   if (!r) return
-  if (!(await verifyPin(r.value))) { window.__kbMsg?.error('密码不正确'); return }
-  disableLock()
+  try {
+    await disableLock(r.value)
+  } catch (e) {
+    const msg = e?.message || '关闭失败'
+    // 旧版 FNV 哈希存量：算法升级后需重置一次（旧哈希无法校验明文 PIN）
+    if (msg.includes('算法已升级')) {
+      try {
+        await ElMessageBox.confirm('旧版密码格式无法直接校验，需重置应用锁（关闭后可重新开启）', '应用锁升级', {
+          confirmButtonText: '重置并关闭', cancelButtonText: '暂不', type: 'warning',
+        })
+      } catch { return }
+      clearLegacyLock()
+      cfg.value = getLockConfig()
+      window.__kbMsg?.success('已重置，应用锁已关闭')
+      return
+    }
+    window.__kbMsg?.error(msg)
+    return
+  }
   cfg.value = getLockConfig()
   window.__kbMsg?.success('应用锁已关闭')
 }

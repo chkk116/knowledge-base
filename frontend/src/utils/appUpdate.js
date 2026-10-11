@@ -39,12 +39,22 @@ const ALLOWED_HOSTS = (() => {
 
 function assertSafeUpdateUrl(url) {
   const u = new URL(url, location.href)
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('非法的更新地址协议')
+  // 只放行 https：http 会被中间人替换包体，原生层同样强制 https，两层口径保持一致
+  // （外部审查 2026-10-11：原实现放行 http，插件缺失走 openExternal 时绕过原生防线）
+  if (u.protocol !== 'https:') throw new Error('非法的更新地址协议（仅允许 https）')
   if (!ALLOWED_HOSTS.has(u.host)) throw new Error('非法的更新地址（host 不在允许列表）')
+}
+
+/** 更新包/热更包等自托管资源地址的统一校验（更新链路各调用点共用，防未来新增调用点漏检） */
+export function assertSafeAssetUrl(url) {
+  assertSafeUpdateUrl(url)
 }
 
 export async function downloadAndInstall(url, onProgress, checksum) {
   assertSafeUpdateUrl(url)
+  // fail-closed：缺 checksum 一律拒绝安装，不再降级为「跳过校验」
+  // （外部审查 2026-10-11：checksum || '' 会让原生层把空串当成「免校验」直装）
+  if (!checksum) throw new Error('更新包缺少完整性校验值（checksum），已拒绝安装')
   const P = window.Capacitor?.Plugins?.ApkInstaller
   if (!P?.downloadAndInstall) {
     await openExternal(url)
@@ -67,7 +77,7 @@ export async function downloadAndInstall(url, onProgress, checksum) {
   } catch { /* 监听注册失败不影响主流程 */ }
 
   try {
-    await P.downloadAndInstall({ url, checksum: checksum || '' })
+    await P.downloadAndInstall({ url, checksum })
     return { mode: 'in-app' }
   } finally {
     handles.forEach((h) => { try { h?.remove?.() } catch { /* ignore */ } })

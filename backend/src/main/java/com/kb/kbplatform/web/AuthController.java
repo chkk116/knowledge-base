@@ -70,17 +70,19 @@ public class AuthController {
                                      jakarta.servlet.http.HttpServletRequest request) {
         // 抗爆破第一道：IP + 用户名双维滑动窗口限流（滑动验证码为前端判定，脚本可绕过，
         // 服务端限流才是真闸门）。IP 10 次/10 分钟；单用户名 5 次/10 分钟。
-        String ip = request.getRemoteAddr();
+        String ip = com.kb.kbplatform.security.ClientIp.resolve(request);
         if (!rateLimit.allow("login:ip:" + ip, 10, 10L * 60 * 1000)) {
             throw new BizException("登录尝试过于频繁，请 10 分钟后再试");
-        }
-        String uname = r.username == null ? "" : r.username.trim().toLowerCase();
-        if (!uname.isEmpty() && !rateLimit.allow("login:user:" + uname, 5, 10L * 60 * 1000)) {
-            throw new BizException("该账号登录尝试过于频繁，请 10 分钟后再试");
         }
         // 再校验滑动验证码票据（一次性 + 必须已完成滑动），失败直接拒绝，避免对密码做无谓校验
         if (!captchaService.consume(r.captchaToken)) {
             throw new BizException("请先完成滑动验证或刷新后重试");
+        }
+        // 用户名维度限流：放在验证码通过之后（外部审查 2026-10-11：原先在验证码前计数，
+        // 攻击者刷验证码失败就能烧掉目标账号的登录窗口 = 变相远程锁号）。IP 维度仍在最前。
+        String uname = r.username == null ? "" : r.username.trim().toLowerCase();
+        if (!uname.isEmpty() && !rateLimit.allow("login:user:" + uname, 5, 10L * 60 * 1000)) {
+            throw new BizException("该账号登录尝试过于频繁，请 10 分钟后再试");
         }
         // 登录日志：成功/失败都记（失败含原因）。用户名原样记录，便于排查爆破来源。
         String logName = r.username == null ? "" : r.username.trim();
@@ -133,7 +135,7 @@ public class AuthController {
     /** 获取登录滑动拼图：返回 { token, bg, piece, w, h, pieceW, pieceH, pieceY }（正确缺口坐标仅存服务端） */
     @GetMapping("/captcha")
     public Map<String, Object> captcha(jakarta.servlet.http.HttpServletRequest request) {
-        String ip = request.getRemoteAddr();
+        String ip = com.kb.kbplatform.security.ClientIp.resolve(request);
         if (!rateLimit.allow("captcha:ip:" + ip, 60, 60L * 1000)) {
             throw new BizException("验证码请求过于频繁，请稍后再试");
         }
@@ -144,11 +146,8 @@ public class AuthController {
     @PostMapping("/captcha/slide")
     public Map<String, Object> captchaSlide(@RequestBody Map<String, Object> body,
                                             jakarta.servlet.http.HttpServletRequest request) {
-        // 真实客户端 IP：经 Nginx 等反代时 RemoteAddr 是代理地址（会让全站共享一个 IP 被锁），
-        // 优先取 X-Forwarded-For 首个地址；环回地址由 CaptchaService 免锁定。
-        String ip = request.getHeader("X-Forwarded-For");
-        if (ip == null || ip.isBlank()) ip = request.getRemoteAddr();
-        else ip = ip.split(",")[0].trim();
+        // 统一客户端 IP 解析（X-Real-IP → XFF 首段 → RemoteAddr）；环回地址由 CaptchaService 免锁定。
+        String ip = com.kb.kbplatform.security.ClientIp.resolve(request);
         if (!rateLimit.allow("slide:ip:" + ip, 30, 60L * 1000)) {
             return slideFail("验证过于频繁，请稍后再试");
         }
@@ -269,7 +268,7 @@ public class AuthController {
     public Map<String, Object> register(@RequestBody RegisterRequest r,
                                         jakarta.servlet.http.HttpServletRequest request) {
         // 抗刷：同一 IP 每小时最多注册 10 次，缓解批量注册与用户名枚举
-        String ip = request.getRemoteAddr();
+        String ip = com.kb.kbplatform.security.ClientIp.resolve(request);
         if (!rateLimit.allow("register:" + ip, 10, 60L * 60 * 1000)) {
             throw new BizException("注册过于频繁，请稍后再试");
         }

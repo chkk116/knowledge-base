@@ -14,7 +14,7 @@ import { useNotificationStore } from './store/notification'
 import { useSiteInfoStore } from './store/siteInfo'
 import { syncOnReconnect, pendingCount } from './utils/offlineStore'
 import { openExternal } from './utils/openExternal'
-import { downloadAndInstall } from './utils/appUpdate'
+import { downloadAndInstall, assertSafeAssetUrl } from './utils/appUpdate'
 import { getAppVersion, getAppBundle } from './api/app'
 import { shouldLock, verifyPin, getLockConfig } from './utils/appLock'
 import { parseNotes, changelogOf } from './changelog'
@@ -103,14 +103,15 @@ function pressKey(k) {
 }
 
 async function submitPin() {
-  const ok = await verifyPin(pin.value).catch(() => false)
+  // verifyPin 可能抛业务错误（失败锁定 / 旧算法需重设），把 message 透给用户而不是吞成「密码不正确」
+  const ok = await verifyPin(pin.value).catch((e) => { pinErr.value = e?.message || ''; return false })
   if (ok) {
     locked.value = false
     pin.value = ''
     pinErr.value = ''
     return
   }
-  pinErr.value = '密码不正确，请重试'
+  if (!pinErr.value) pinErr.value = '密码不正确，请重试'
   shaking.value = true
   setTimeout(() => { shaking.value = false; pin.value = '' }, 420)
 }
@@ -197,6 +198,10 @@ async function checkBundle() {
   try {
     const { data } = await getAppBundle()
     if (!data?.version || !data.url) return          // 后台没配 → 不热更
+    // fail-closed：热更包同样是「能执行任意 JS」的载荷，URL 必须过域名白名单，
+    // 缺 checksum 一律跳过本次热更（外部审查 2026-10-11；签名验签为后续增强项）
+    if (!data.checksum) { console.warn('[热更] 后端未提供 checksum，跳过本次热更'); return }
+    try { assertSafeAssetUrl(data.url) } catch (e) { console.warn('[热更] 地址校验未通过，跳过：', e?.message || e); return }
     const cur = await updater.current()
     if (cur?.bundle?.version === data.version) return // 已是最新
     const b = await updater.download({ url: data.url, version: data.version, checksum: data.checksum })
@@ -215,6 +220,7 @@ const capApp = window.Capacitor?.Plugins?.App
 // 根 Tab 页：在这些页面按返回应「最小化」而不是再退
 const ROOT_TABS = ['/home', '/docs', '/messages', '/profile']
 let backListener = null
+let appStateListener = null
 
 function handleBack() {
   const cur = route.path
@@ -252,8 +258,9 @@ onMounted(async () => {
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
   window.addEventListener('kb:offline-pending-changed', onPendingChange)
-  // 前后台切换：配合「自动锁定」超时
-  try { capApp?.addListener?.('appStateChange', onAppStateChange) } catch { /* 老包无该事件 */ }
+  // 前后台切换：配合「自动锁定」超时（外部审查 2026-10-11：返回值未捕获导致
+  // onUnmounted 无从移除，监听器泄漏）
+  try { appStateListener = await capApp?.addListener?.('appStateChange', onAppStateChange) } catch { /* 老包无该事件 */ }
 })
 
 onUnmounted(() => {
@@ -261,6 +268,7 @@ onUnmounted(() => {
   window.removeEventListener('offline', onOffline)
   window.removeEventListener('kb:offline-pending-changed', onPendingChange)
   try { backListener?.remove?.() } catch { /* ignore */ }
+  try { appStateListener?.remove?.() } catch { /* ignore */ }
 })
 
 watch(() => auth.loggedIn, (v) => {

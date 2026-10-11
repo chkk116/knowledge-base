@@ -15,6 +15,8 @@ import java.util.List;
 
 public interface ExamRecordRepository extends JpaRepository<ExamRecord, Long> {
     List<ExamRecord> findByUserIdOrderByStartedAtDesc(Long userId);
+    /** 同一试卷的参加次数（含进行中），用于开考次数上限（外部审查 2026-10-11） */
+    long countByUserIdAndPaperId(Long userId, Long paperId);
     void deleteByUserId(Long userId);   // 自助注销：清空本人考试记录
     /** 该用户此前是否已通过过这门试卷（用于结业证书通知去重，避免重考反复推送） */
     boolean existsByUserIdAndPaperIdAndPassedTrue(Long userId, Long paperId);

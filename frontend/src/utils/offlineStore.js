@@ -256,6 +256,9 @@ export async function syncOnReconnect() {
 
 /** 手动重试单条（用户点「重试」按钮）：清零次数后再同步 */
 export async function retryOne(localId) {
+  // 外部审查 2026-10-11：原实现先清零 tries 再调 syncOnReconnect——若已有同步在跑会
+  // 立即 return 0，tries 白清、用户重试静默丢失。改为等本轮同步结束后再重试（上限 30s）。
+  for (let i = 0; i < 60 && syncing; i++) await new Promise((r) => setTimeout(r, 500))
   await updateQueuedDoc(localId, { tries: 0, lastError: '' })
   return syncOnReconnect()
 }

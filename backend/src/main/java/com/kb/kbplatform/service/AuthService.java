@@ -116,8 +116,10 @@ public class AuthService {
         }
         // 每日登录发分（当天已登录过则不再重复发，避免刷分）
         LocalDate today = LocalDate.now();
+        int pointsNow = u.getPoints();
         if (!today.equals(u.getLastLoginDate())) {
-            awardPoints(u.getId(), LOGIN_POINTS, "LOGIN", "每日登录");
+            // awardPoints 返回原子增量后的新余额；u 里是进方法时的旧值（首登会少 5 分）
+            pointsNow = awardPoints(u.getId(), LOGIN_POINTS, "LOGIN", "每日登录");
             u.setLastLoginDate(today);
         }
         userRepo.save(u);
@@ -138,7 +140,7 @@ public class AuthService {
         m.put("avatar", u.getAvatar() == null ? "" : u.getAvatar());
         m.put("email", u.getEmail() == null ? "" : u.getEmail());
         m.put("bio", u.getBio() == null ? "" : u.getBio());
-        m.put("points", u.getPoints());
+        m.put("points", pointsNow);
         m.put("createdAt", u.getCreatedAt() == null ? "" : u.getCreatedAt().toString());
         m.put("aiPersona", u.getAiPersona() == null ? "" : u.getAiPersona());
         m.put("departmentId", u.getDepartmentId());

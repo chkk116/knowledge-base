@@ -80,7 +80,11 @@ function openAnn(a) {
     : window.__kbMsg?.info(a.title || '公告')
 }
 
+let homeLoadPending = false
 async function load() {
+  // 并发守卫（外部审查 2026-10-11）：online 事件与首屏加载并发时，两轮 load 同时写 refs
+  // 互相踩踏。加载中则记一次「待重跑」，本轮结束后补跑一次。
+  if (loading.value) { homeLoadPending = true; return }
   loading.value = true
   // 概览 / 公告 / 精选文章：独立拉取，任一失败都不影响主页其它区块
   homeOverview().then((r) => { overview.value = r.data }).catch(() => {})
@@ -123,6 +127,7 @@ async function load() {
     }
   } finally {
     loading.value = false
+    if (homeLoadPending) { homeLoadPending = false; load() }
   }
 }
 

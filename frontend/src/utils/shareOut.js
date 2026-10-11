@@ -123,7 +123,10 @@ export async function saveTextFile({ filename, content, mime = 'text/plain' }) {
             await Share.share({ title: filename, files: [uri], dialogTitle: '保存 / 分享' })
             return 'share'
           } catch (e) {
+            // 用户主动取消 → 视为已交给用户处理；非 cancel（权限/网络等）→ 落回浏览器下载，
+            // 不再穿透到下一行把「分享失败」误报成成功（外部审查 2026-10-11）
             if (/cancel/i.test(String(e?.message || e))) return 'share'
+            return downloadBlob(filename, content, mime) ? 'download' : false
           }
         }
         return 'share'

@@ -57,10 +57,8 @@ const editor = useEditor({
   ],
   editorProps: { attributes: { class: 'm-prose' } },
 })
-// 内容到位后灌进编辑器（setContent 第二个参数 false = 不触发 update/协同）
-watch(html, (v) => {
-  if (editor.value && v) editor.value.commands.setContent(v, false)
-})
+// 内容到位后灌进编辑器——与下方媒体增强合并为单个 watch（外部审查 2026-10-11：
+// 两个 watch 各自触发时 setContent 与 nextTick 后的增强存在时序竞争）
 onBeforeUnmount(() => { try { editor.value?.destroy() } catch { /* ignore */ } })
 
 // 正文里的图块类型——本页 v-html 渲染不了（它们是 Vue 组件节点），需要去编辑器看
@@ -105,7 +103,9 @@ onMounted(async () => {
 // 正文渲染后：图片点开放大 + 视频增强（16:9 占位防跳变、倍速/全屏/画中画控制条）
 // 渲染根是 Tiptap 的 ProseMirror DOM（EditorContent），不是旧 v-html 容器——
 // 旧 proseRef 已随模板删除，必须改取 editor.view.dom，否则灯箱/视频增强/媒体绝对化全部失效（外部复审 2026-10-08）
-watch(html, async () => {
+// 媒体增强（绝对化/视频/灯箱）内部已用 dataset 标记幂等，重复触发不会叠加监听
+watch(html, async (v) => {
+  if (editor.value && v) editor.value.commands.setContent(v, false)
   await nextTick()
   const el = editor.value ? editor.value.view.dom : null
   if (!el) return

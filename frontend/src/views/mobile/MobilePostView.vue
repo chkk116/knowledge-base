@@ -87,20 +87,30 @@ async function onFav() {
   } catch { window.__kbMsg?.warning('操作失败，请稍后重试') }
 }
 
-onMounted(async () => {
+async function loadDoc(curId) {
+  loading.value = true
+  doc.value = null
+  related.value = []
   try {
-    const { data } = await getDoc(id)
+    const { data } = await getDoc(curId)
     doc.value = data
     likeCount.value = data?.likes || 0
     // 收藏 / 点赞状态（失败不阻塞阅读）
-    myFavoriteIds().then((r) => { faved.value = (r.data || []).map(Number).includes(id) }).catch(() => {})
-    myLikeIds().then((r) => { liked.value = (r.data || []).map(Number).includes(id) }).catch(() => {})
-    getRelatedDocs(id, 5).then((r) => { related.value = r.data || [] }).catch(() => {})
+    myFavoriteIds().then((r) => { faved.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
+    myLikeIds().then((r) => { liked.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
+    getRelatedDocs(curId, 5).then((r) => { related.value = r.data || [] }).catch(() => {})
   } catch (e) {
     window.__kbMsg?.error('无法打开文章：' + (e.response?.data?.error || e.message || '未知错误'))
   } finally {
     loading.value = false
   }
+}
+onMounted(() => loadDoc(id))
+// 组件复用（相关文章跳转 /post/1 → /post/2 同组件）时路由参数不会重跑 setup，
+// id 固化会让全部接口打错文章——监听参数变化重新拉取（外部审查 2026-10-11）
+watch(() => route.params.id, (nv, ov) => {
+  const nid = Number(nv)
+  if (nv != null && nid && nid !== Number(ov)) loadDoc(nid)
 })
 </script>
 

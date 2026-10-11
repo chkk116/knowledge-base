@@ -52,6 +52,10 @@ public class CaptchaService {
     private static final long IP_LOCK_MILLIS = 10 * 60 * 1000L;  // 锁定 10 分钟
     // IP → 失败计数（failCount 达到上限后 lockUntil 生效）
     private final ConcurrentHashMap<String, IpStat> ipStats = new ConcurrentHashMap<>();
+    // 内存上限（外部审查 2026-10-11：store/ipStats 无上限，高频刷 /captcha 可注入数百万
+    // Entry 直到 OOM）。到达上限直接拒绝签发，而非继续注入。
+    private static final int MAX_STORE = 100_000;
+    private static final int MAX_IP_STATS = 50_000;
 
     // 画布与拼块尺寸（需与前端展示尺寸一致）
     static final int W = 320, H = 160;
@@ -105,6 +109,10 @@ public class CaptchaService {
     public Map<String, Object> generate() {
         long now = System.currentTimeMillis();
         store.entrySet().removeIf(en -> en.getValue().expireAt < now); // 顺带清理过期
+        ipStats.entrySet().removeIf(en -> en.getValue().lockUntil < now); // 顺带清理过期 IP 统计
+        if (store.size() >= MAX_STORE || ipStats.size() >= MAX_IP_STATS) {
+            throw new com.kb.kbplatform.service.BizException("验证码服务繁忙，请稍后再试");
+        }
 
         // correctX ∈ [PIECE_W+12, W-PIECE_W-12]，correctY ∈ [12, H-PIECE_H-12]
         int cx = PIECE_W + 12 + random.nextInt(W - 2 * PIECE_W - 24);

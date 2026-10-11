@@ -243,15 +243,14 @@ public class AdminService {
     /** 规范化权限码串：仅保留白名单内的码，去重、去空、逗号分隔；非法内容丢弃 */
     private String normalizePerms(String perms) {
         if (perms == null || perms.isBlank()) return "";
-        StringBuilder sb = new StringBuilder();
+        // Set 精确去重（外部审查 2026-10-11：原 sb.indexOf 子串匹配会把 "STATS_VIEW" 与
+        // "STATS_VIEW_EXTENDED" 之类误判为已存在；用有序 Set 顺便保持原顺序）
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
         for (String p : perms.split(",")) {
             String t = p.trim().toUpperCase();
-            if (Perm.WHITELIST.contains(t) && sb.indexOf(t) < 0) {
-                if (sb.length() > 0) sb.append(",");
-                sb.append(t);
-            }
+            if (Perm.WHITELIST.contains(t)) seen.add(t);
         }
-        return sb.toString();
+        return String.join(",", seen);
     }
 
     // ---- 请求 DTO ----

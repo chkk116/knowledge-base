@@ -66,6 +66,12 @@ public class CourseService {
                 .orElseThrow(() -> new IllegalArgumentException("课程不存在"));
         fillOwner(course);
         List<CourseChapter> chapters = chapterRepo.findByCourseIdOrderBySortOrderAscIdAsc(id);
+        // 历史数据读时净化（外部审查 2026-10-11）：写入侧净化只覆盖增量，存量章节仍带
+        // 未清洗内容走前端 v-html。HtmlSanitizer 为白名单幂等清洗，读侧再过一遍即可
+        // 兜住历史数据，无需迁移脚本；对已净化内容是恒等变换。
+        for (CourseChapter ch : chapters) {
+            ch.setContent(com.kb.kbplatform.security.HtmlSanitizer.sanitize(ch.getContent()));
+        }
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("course", course);
         res.put("chapters", chapters);

@@ -312,11 +312,15 @@ public class DocumentService {
         int views = repo.findViewsById(id);               // 标量查询取最新浏览量（绕过一级缓存）
         d.setViews(views);
         if (!d.isHot() && views >= HOT_THRESHOLD) {
-            d.setHot(true);
-            authService.awardPoints(d.getOwnerId(), AuthService.HOT_POINTS, "HOT",
-                    "热帖奖励（浏览达 " + HOT_THRESHOLD + "）");
+            // 外部审查 2026-10-11：不再 repo.save(d) 整体写回——那会把 get(id) 读到的旧实体
+            // 盖掉并发编辑（标题/内容丢失）。hot 用原子 UPDATE 翻转，只有翻成功的请求发奖励。
+            if (repo.markHotIfNot(id) > 0) {
+                d.setHot(true);
+                authService.awardPoints(d.getOwnerId(), AuthService.HOT_POINTS, "HOT",
+                        "热帖奖励（浏览达 " + HOT_THRESHOLD + "）");
+            }
         }
-        return repo.save(d);
+        return d;
     }
 
     /** 管理员用：不校验归属，直接改 */
@@ -501,10 +505,7 @@ public class DocumentService {
     }
 
     private int nextSortOrder(Long parentId) {
-        return repo.findByStatusOrderBySortOrderAscIdAsc("PUBLISHED").stream()
-                .filter(x -> Objects.equals(x.getParentId(), parentId))
-                .mapToInt(Document::getSortOrder)
-                .max().orElse(0) + 1;
+        return repo.maxSortOrderByParent(parentId) + 1;   // 外部审查 2026-10-11：DB 聚合替代全表加载
     }
 
     /** 版本历史：取单个版本 */

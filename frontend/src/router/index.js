@@ -4,15 +4,18 @@ import { featureMap } from '../api/features'
 
 const routes = [
   { path: '/', component: () => import('../views/Home.vue'), meta: { title: '知识库', maintenance: 'docs' } },
-  { path: '/dev/mindmap-test', component: () => import('../views/DevMindmapTest.vue'), meta: { public: true, title: '导图测试' } },
   // 隐私政策：公网免登录可读（合规要求，登录页也要能打开）
   { path: '/privacy', component: () => import('../views/Privacy.vue'), meta: { public: true, title: '隐私政策' } },
   { path: '/disclaimer', component: () => import('../views/Disclaimer.vue'), meta: { public: true, title: '免责声明' } },
-  // 开发调试页：生产构建不注册（免登录 public 路由不该出现在生产站点，外部复审 2026-10-09）
-  ...(import.meta.env.DEV ? [{ path: '/dev/flowchart-test', component: () => import('../views/DevFlowchartTest.vue'), meta: { public: true, title: '流程图测试' } }] : []),
-  { path: '/dev/sheet-test', component: () => import('../views/DevSheetTest.vue'), meta: { public: true, title: '电子表格测试' } },
-  { path: '/dev/sheet-collab-proto', component: () => import('../views/DevSheetCollabProto.vue'), meta: { public: true, title: '表格协同原型' } },
-  { path: '/dev/vueflow-test', component: () => import('../views/DevVueFlowTest.vue'), meta: { public: true, title: 'Vue Flow 原型' } },
+  // 开发调试页：生产构建不注册（免登录 public 路由不该出现在生产站点，外部复审 2026-10-09；
+  // 外部审查 2026-10-11：补齐 mindmap/sheet/sheet-collab/vueflow 四个漏网的调试页）
+  ...(import.meta.env.DEV ? [
+    { path: '/dev/flowchart-test', component: () => import('../views/DevFlowchartTest.vue'), meta: { public: true, title: '流程图测试' } },
+    { path: '/dev/mindmap-test', component: () => import('../views/DevMindmapTest.vue'), meta: { public: true, title: '导图测试' } },
+    { path: '/dev/sheet-test', component: () => import('../views/DevSheetTest.vue'), meta: { public: true, title: '电子表格测试' } },
+    { path: '/dev/sheet-collab-proto', component: () => import('../views/DevSheetCollabProto.vue'), meta: { public: true, title: '表格协同原型' } },
+    { path: '/dev/vueflow-test', component: () => import('../views/DevVueFlowTest.vue'), meta: { public: true, title: 'Vue Flow 原型' } },
+  ] : []),
   { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true, title: '登录' } },
   { path: '/post/:id', component: () => import('../views/PostDetail.vue'), meta: { title: '文档详情', maintenance: 'docs' } },
   // 独立阅读窗口：用 window.open 在桌面弹出真实浏览器窗口，public 以免新窗口被守卫踢回登录
@@ -141,10 +144,13 @@ router.beforeEach(async (to) => {
   // （真 401 由 axios 拦截器统一登出；持 token 者放行，页面自行兜底）
   let authTimer
   const hasLocalToken = !!localStorage.getItem('kb_token')
-  await Promise.race([
-    ensureAuth(),
-    new Promise((resolve) => { authTimer = setTimeout(resolve, 6000) })
-  ])
+  // ensureAuth 自身 reject（网络异常）不能让守卫整体 reject —— 走下面的本地兜底
+  try {
+    await Promise.race([
+      ensureAuth(),
+      new Promise((resolve) => { authTimer = setTimeout(resolve, 6000) })
+    ])
+  } catch { /* 网络异常：按「校验超时」走本地 token 兜底 */ }
   clearTimeout(authTimer)
   if (!auth.loggedIn) {
     // 没有本地 token = 确实未登录；有 token 而校验超时 = 放行（弱网兜底）

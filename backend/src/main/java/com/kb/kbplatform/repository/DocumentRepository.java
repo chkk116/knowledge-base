@@ -212,6 +212,17 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     @Query("SELECT d.views FROM Document d WHERE d.id = :id")
     Integer findViewsById(@Param("id") Long id);
 
+    /** 原子把 hot 翻为 true（仅当仍为 false），返回受影响行数（外部审查 2026-10-11：
+     *  并发双请求会同时读到 hot=false 造成热帖奖励双发；只有翻成功的那次发分） */
+    @Modifying
+    @Query("UPDATE Document d SET d.hot = true WHERE d.id = :id AND d.hot = false")
+    int markHotIfNot(@Param("id") Long id);
+
+    /** 指定父节点下已发布文档的最大 sortOrder（外部审查 2026-10-11：
+     *  原 nextSortOrder 全表加载后内存过滤取 max，量大时是性能瓶颈） */
+    @Query("SELECT COALESCE(MAX(d.sortOrder), 0) FROM Document d WHERE d.status = 'PUBLISHED' AND d.parentId = :parentId")
+    int maxSortOrderByParent(@Param("parentId") Long parentId);
+
     // ---------- 回收站（native 查询，绕过 @SQLRestriction 的 deleted=false 过滤） ----------
 
     /** 全部已软删除文档（管理员回收站），按删除时间倒序 */

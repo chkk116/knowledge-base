@@ -40,7 +40,8 @@ public class ExamService {
                        ExamRecordRepository recordRepo, ExamAnswerRepository answerRepo,
                        AuthService authService, CourseRepository courseRepo,
                        CourseChapterRepository chapterRepo, LearningProgressRepository progressRepo,
-                       CourseService courseService, NotificationService notificationService) {
+                       CourseService courseService, NotificationService notificationService,
+                       org.springframework.transaction.support.TransactionTemplate txTemplate) {
         this.questionRepo = questionRepo;
         this.optionRepo = optionRepo;
         this.paperRepo = paperRepo;
@@ -53,6 +54,7 @@ public class ExamService {
         this.progressRepo = progressRepo;
         this.courseService = courseService;
         this.notificationService = notificationService;
+        this.txTemplate = txTemplate;
     }
 
     // ===================== 学员侧 =====================
@@ -116,6 +118,11 @@ public class ExamService {
     public ExamRecord start(Long userId, Long paperId) {
         ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
         if (!"PUBLISHED".equals(paper.getStatus())) throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
+        // 考试次数上限（外部审查 2026-10-11）：同一试卷不限次重考可反复刷通过记录/积分，
+        // 上限 10 次（含进行中）。到限后联系管理员删除记录重置。
+        if (recordRepo.countByUserIdAndPaperId(userId, paperId) >= 10) {
+            throw new ResponseStatusException(BAD_REQUEST, "该试卷考试次数已达上限（10 次），如需重考请联系管理员");
+        }
         // #4 复用进行中记录：避免刷新/重连产生孤儿记录。
         // 但已超时的进行中记录不能再复用（否则等于把限时考试变成不限时）：
         // 就地按「超时未交」结算关闭，再新建一条记录（F07）。
@@ -163,15 +170,20 @@ public class ExamService {
     }
 
     /** 超时未交的记录按 0 分关闭（不判分、不发分），避免永久占位导致无法重新考试 */
-    @Transactional(rollbackFor = Exception.class)
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
+
     protected void settleExpired(ExamRecord rec) {
-        rec.setScore(0);
-        rec.setPassed(false);
-        rec.setSubmittedAt(LocalDateTime.now());
-        if (rec.getStartedAt() != null) {
-            rec.setDurationSec((int) Math.max(0, Duration.between(rec.getStartedAt(), rec.getSubmittedAt()).getSeconds()));
-        }
-        recordRepo.save(rec);
+        // 外部审查 2026-10-11：protected + 同类自调用，@Transactional 注解不被 AOP 拦截——
+        // 改用 TransactionTemplate 显式包裹，保证结算原子性（将来内部加多步写也不裸奔）
+        txTemplate.executeWithoutResult(st -> {
+            rec.setScore(0);
+            rec.setPassed(false);
+            rec.setSubmittedAt(LocalDateTime.now());
+            if (rec.getStartedAt() != null) {
+                rec.setDurationSec((int) Math.max(0, Duration.between(rec.getStartedAt(), rec.getSubmittedAt()).getSeconds()));
+            }
+            recordRepo.save(rec);
+        });
     }
 
     /** 提交试卷并自动阅卷（客观题判分，主观题记 0 待人工）；首次提交且及格时奖励考试积分。
@@ -264,6 +276,9 @@ public class ExamService {
         Map<Long, List<QuestionOption>> optMap = new LinkedHashMap<>();
         for (Question q : qs) optMap.put(q.getId(), optionRepo.findByQuestionIdOrderByLabelAsc(q.getId()));
 
+        // 成绩回顾的答案披露策略（外部审查 2026-10-11）：未交卷的进行中记录不下发
+        // 正确答案/解析/判定，防止「边考边拉成绩接口对题」。
+        boolean reveal = rec.getSubmittedAt() != null;
         List<Map<String, Object>> items = new ArrayList<>();
         for (ExamAnswer ea : eas) {
             Question q = qMap.get(ea.getQuestionId());
@@ -274,15 +289,17 @@ public class ExamService {
             m.put("type", q.getType());
             m.put("content", q.getContent());
             m.put("userAnswer", ea.getAnswer());
-            m.put("correct", ea.isCorrect());
-            m.put("score", ea.getScore());
-            m.put("analysis", q.getAnalysis());
+            if (reveal) {
+                m.put("correct", ea.isCorrect());
+                m.put("score", ea.getScore());
+                m.put("analysis", q.getAnalysis());
+            }
             List<Map<String, Object>> opts = new ArrayList<>();
             for (QuestionOption o : optMap.get(q.getId())) {
                 Map<String, Object> om = new LinkedHashMap<>();
                 om.put("label", o.getLabel());
                 om.put("content", o.getContent());
-                om.put("isCorrect", o.isCorrect());
+                if (reveal) om.put("isCorrect", o.isCorrect());
                 opts.add(om);
             }
             m.put("options", opts);

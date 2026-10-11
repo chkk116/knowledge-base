@@ -11,12 +11,17 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import tools.jackson.databind.JsonNode;
+
 import java.util.Map;
 
 /**
  * 公开站点配置（未登录可读）。
  * 登录页在未认证状态下也要渲染二维码等内容，故把 SysSetting 里 login_qrcodes 的
  * 白名单字段公开下发；其余设置项仍走 /api/admin/settings/*（需登录）。
+ *
+ * JSON 解析统一走 Jackson 树（外部审查 2026-10-11：原正则提取不处理转义——
+ * 值含引号/反斜杠时截断残缺下发；boolOf 误扫嵌套同名键；公开接口解析异常绝不 500）。
  */
 @RestController
 @RequestMapping("/api/public")
@@ -26,11 +31,54 @@ public class PublicConfigController {
     private static final String DEF_WX = "https://www.example.com/wx-miniapp";
     private static final String DEF_SUPPORT = "https://www.example.com/support";
 
+    /** Spring Boot 4 的 Jackson 3 坐标是 tools.jackson.*（com.fasterxml 不在 classpath）；
+     *  JsonMapper 线程安全，静态复用（与 AdminSettingsController 同口径） */
+    private static final tools.jackson.databind.json.JsonMapper JSON =
+            tools.jackson.databind.json.JsonMapper.builder().build();
+
     private final SysSettingRepository settingRepo;
 
     public PublicConfigController(SysSettingRepository settingRepo) {
         this.settingRepo = settingRepo;
     }
+
+    // ---------------- JSON 树读取工具（全部容错，坏配置一律走缺省值） ----------------
+
+    /** SysSetting 的 JSON 串 → 树；空/坏 JSON 返回 null（公开接口不能 500） */
+    private static JsonNode parse(String json) {
+        if (json == null || json.isBlank()) return null;
+        try { return JSON.readTree(json); } catch (Exception e) { return null; }
+    }
+
+    /** 字符串字段（含数字等其他标量的 asText 兜底），缺失/空返回 null */
+    private static String str(JsonNode n, String key) {
+        JsonNode v = n == null ? null : n.get(key);
+        if (v == null || v.isNull()) return null;
+        String s = v.isTextual() ? v.textValue() : v.asText();
+        return (s == null || s.isBlank()) ? null : s;
+    }
+
+    /** 布尔字段，缺失/类型不符返回 null */
+    private static Boolean bool(JsonNode n, String key) {
+        JsonNode v = n == null ? null : n.get(key);
+        return (v == null || !v.isBoolean()) ? null : v.booleanValue();
+    }
+
+    /** 正整数字段，越界/缺失返回 null（防管理员配超大值 → 500，外部复审 2026-10-09） */
+    private static Integer intClamped(JsonNode n, String key) {
+        JsonNode v = n == null ? null : n.get(key);
+        if (v == null || !v.isNumber()) return null;
+        long x = v.longValue();
+        return (x > 0 && x <= Integer.MAX_VALUE) ? (int) x : null;
+    }
+
+    /** 数组字段原样下发（重新序列化，转义由 Jackson 保证），缺失/非数组返回 null */
+    private static String arrayRaw(JsonNode n, String key) {
+        JsonNode v = n == null ? null : n.get(key);
+        return (v == null || !v.isArray()) ? null : v.toString();
+    }
+
+    private static String nvl(String v) { return v == null ? "" : v; }
 
     /** 登录页二维码地址：GET /api/public/login-config
      *  items 为可个性化二维码列表（2026-10-06）：[{label, content, image}]，label=下方文字，
@@ -43,30 +91,22 @@ public class PublicConfigController {
         Map<String, Object> r = new java.util.LinkedHashMap<>();
         SysSetting s = settingRepo.findByKey("login_qrcodes").orElse(null);
         if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
-            // 仅字符串字段，用正则提取即可（Boot 4 默认 Jackson 3 = tools.jackson，避免引入旧包依赖）
-            String wxV = extractJsonString(s.getValue(), "wxUrl");
-            String supV = extractJsonString(s.getValue(), "supportUrl");
-            if (wxV != null && !wxV.isBlank()) wx = wxV;
-            if (supV != null && !supV.isBlank()) support = supV;
-            String wxImg = extractJsonString(s.getValue(), "wxImage");
-            if (wxImg != null && !wxImg.isBlank()) r.put("wxImage", wxImg);
-            String supImg = extractJsonString(s.getValue(), "supportImage");
-            if (supImg != null && !supImg.isBlank()) r.put("supportImage", supImg);
-            // 个性化二维码列表：原样下发 JSON 数组字符串，由前端解析（内容含任意文本，不做转义处理）
-            String items = extractJsonArray(s.getValue(), "items");
+            JsonNode n = parse(s.getValue());
+            String wxV = str(n, "wxUrl");
+            String supV = str(n, "supportUrl");
+            if (wxV != null) wx = wxV;
+            if (supV != null) support = supV;
+            String wxImg = str(n, "wxImage");
+            if (wxImg != null) r.put("wxImage", wxImg);
+            String supImg = str(n, "supportImage");
+            if (supImg != null) r.put("supportImage", supImg);
+            // 个性化二维码列表：原样下发 JSON 数组，由前端解析
+            String items = arrayRaw(n, "items");
             if (items != null && !items.isBlank()) r.put("items", items);
         }
         r.put("wxUrl", wx);
         r.put("supportUrl", support);
         return r;
-    }
-
-    /** 极简提取 JSON 字符串字段值（形如 "key":"value"），不含转义处理——value 由前端 JSON.stringify 生成，URL/文本场景足够 */
-    private static String extractJsonString(String json, String key) {
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"")
-                .matcher(json);
-        return m.find() ? m.group(1) : null;
     }
 
     /**
@@ -85,41 +125,18 @@ public class PublicConfigController {
         String raw = null;
         SysSetting s = settingRepo.findByKey("site_info").orElse(null);
         if (s != null && s.getValue() != null && !s.getValue().isBlank()) raw = s.getValue();
-        r.put("enabled", raw == null ? "false" : boolOf(raw));
-        r.put("icpNo", raw == null ? "" : nvl(extractJsonString(raw, "icpNo")));
-        r.put("policeNo", raw == null ? "" : nvl(extractJsonString(raw, "policeNo")));
+        JsonNode n = parse(raw);
+        Boolean en = bool(n, "enabled");   // 顶层字段精确读取，不再误扫嵌套 enabled（外部审查 2026-10-11）
+        r.put("enabled", Boolean.TRUE.equals(en) ? "true" : "false");
+        r.put("icpNo", nvl(str(n, "icpNo")));
+        r.put("policeNo", nvl(str(n, "policeNo")));
         // 自定义展示内容：整段数组原样下发，前端 JSON.parse 后渲染
-        String items = raw == null ? null : extractJsonArray(raw, "items");
+        String items = arrayRaw(n, "items");
         r.put("items", items == null ? "[]" : items);
         // 以下两个是早期版本的固定字段，保留下发仅供前端做一次性迁移（新配置不再写入）
-        r.put("giteeUrl", raw == null ? "" : nvl(extractJsonString(raw, "giteeUrl")));
-        r.put("copyright", raw == null ? "" : nvl(extractJsonString(raw, "copyright")));
+        r.put("giteeUrl", nvl(str(n, "giteeUrl")));
+        r.put("copyright", nvl(str(n, "copyright")));
         return r;
-    }
-
-    private static String nvl(String v) { return v == null ? "" : v; }
-
-    /** 提取 JSON 数字字段（形如 "key":123） */
-    private static Integer extractJsonNumber(String json, String key) {
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(\\d+)")
-                .matcher(json);
-        if (!m.find()) return null;
-        try {
-            long v = Long.parseLong(m.group(1));
-            // 公开下发的阈值是前端展示/比较用，裁到 int 正数域，防超大值 NumberFormatException → 500
-            return (v > 0 && v <= Integer.MAX_VALUE) ? (int) v : null;
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    /** 提取 JSON 布尔字段（形如 "key":true） */
-    private static Boolean extractJsonBool(String json, String key) {
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"" + key + "\"\\s*:\\s*(true|false)")
-                .matcher(json);
-        return m.find() ? Boolean.valueOf(m.group(1)) : null;
     }
 
     /**
@@ -137,81 +154,15 @@ public class PublicConfigController {
         r.put("textThreshold", Integer.valueOf(8000));
         SysSetting s = settingRepo.findByKey("ai_cost_guard").orElse(null);
         if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
-            String raw = s.getValue();
-            Boolean en = extractJsonBool(raw, "enabled");
+            JsonNode n = parse(s.getValue());
+            Boolean en = bool(n, "enabled");
             if (en != null) r.put("enabled", en);
-            Integer it = extractJsonNumber(raw, "imageThreshold");
-            if (it != null && it.intValue() > 0) r.put("imageThreshold", it);
-            Integer tt = extractJsonNumber(raw, "textThreshold");
-            if (tt != null && tt.intValue() > 0) r.put("textThreshold", tt);
+            Integer it = intClamped(n, "imageThreshold");
+            if (it != null) r.put("imageThreshold", it);
+            Integer tt = intClamped(n, "textThreshold");
+            if (tt != null) r.put("textThreshold", tt);
         }
         return r;
-    }
-
-    /**
-     * 提取 JSON 数组字段的原始文本（形如 "items":[...]）。
-     * 用括号深度扫描而非贪婪正则：条目文字里可能出现 ] 或 [，正则会截错。
-     * 找不到或不成对时返回 null（调用方退化为 []）。
-     */
-    private static String extractJsonArray(String json, String key) {
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"" + key + "\"\\s*:\\s*\\[")
-                .matcher(json);
-        if (!m.find()) return null;
-        int start = m.end() - 1;          // 指向 '['
-        int depth = 0;
-        boolean inStr = false, esc = false;
-        for (int i = start; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (inStr) {
-                if (esc) esc = false;
-                else if (c == '\\') esc = true;
-                else if (c == '"') inStr = false;
-                continue;
-            }
-            if (c == '"') { inStr = true; continue; }
-            if (c == '[') depth++;
-            else if (c == ']') {
-                depth--;
-                if (depth == 0) return json.substring(start, i + 1);
-            }
-        }
-        return null;
-    }
-
-    /** 取 JSON 串里的 checksum 字段（缺失返回空串） */
-    private static String checksumOf(String json) {
-        if (json == null || json.isBlank()) return "";
-        String c = extractJsonString(json, "checksum");
-        return c == null ? "" : c;
-    }
-
-    /** 提取布尔字段（形如 "enabled":true），缺省 false */
-    private static String boolOf(String json) {
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"enabled\"\\s*:\\s*(true|false)")
-                .matcher(json);
-        return m.find() ? m.group(1) : "false";
-    }
-
-    /** 提取指定键的布尔值，缺省 false */
-    private static boolean boolOfKey(String json, String key) {
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(true|false)")
-                .matcher(json);
-        return m.find() && "true".equals(m.group(1));
-    }
-
-    /** 提取指定键的整数，缺省 0 */
-    private static int intOf(String json, String key) {
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(\\d+)")
-                .matcher(json);
-        try {
-            return m.find() ? Integer.parseInt(m.group(1)) : 0;
-        } catch (NumberFormatException e) {
-            return 0;   // 管理员配成超大数时该免登录接口不能 500（外部复审 2026-10-09）
-        }
     }
 
     /**
@@ -228,27 +179,24 @@ public class PublicConfigController {
         Map<String, Object> r = new java.util.LinkedHashMap<>();
         int code = 0;
         String name = "", url = "", notes = "";
-        String raw = "";
+        JsonNode n = null;
         boolean force = false;
         SysSetting s = settingRepo.findByKey("app_version").orElse(null);
         if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
-            String v = s.getValue();
-            raw = v;
-            code = intOf(v, "versionCode");
-            String n = extractJsonString(v, "versionName");
-            if (n != null) name = n;
-            String u = extractJsonString(v, "url");
-            if (u != null) url = u;
-            String no = extractJsonString(v, "notes");
-            if (no != null) notes = no;
-            force = boolOfKey(v, "force");
+            n = parse(s.getValue());
+            Integer c = intClamped(n, "versionCode");
+            if (c != null) code = c;
+            name = nvl(str(n, "versionName"));
+            url = nvl(str(n, "url"));
+            notes = nvl(str(n, "notes"));
+            force = Boolean.TRUE.equals(bool(n, "force"));
         }
         r.put("versionCode", code);
         r.put("versionName", name);
         r.put("url", url);
         r.put("notes", notes);
         // 安装包 SHA-256：App 下载完成后强制比对，防止包体被替换（外部复审 2026-10-09）
-        r.put("checksum", checksumOf(raw));
+        r.put("checksum", nvl(str(n, "checksum")));
         r.put("force", force);
         return r;
     }
@@ -265,23 +213,12 @@ public class PublicConfigController {
     @GetMapping("/app-bundle")
     public Map<String, Object> appBundle() {
         Map<String, Object> r = new java.util.LinkedHashMap<>();
-        String version = "", url = "", checksum = "", notes = "";
         SysSetting s = settingRepo.findByKey("app_bundle").orElse(null);
-        if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
-            String v = s.getValue();
-            String a = extractJsonString(v, "version");
-            if (a != null) version = a;
-            String b = extractJsonString(v, "url");
-            if (b != null) url = b;
-            String c = extractJsonString(v, "checksum");
-            if (c != null) checksum = c;
-            String d = extractJsonString(v, "notes");
-            if (d != null) notes = d;
-        }
-        r.put("version", version);
-        r.put("url", url);
-        r.put("checksum", checksum);
-        r.put("notes", notes);
+        JsonNode n = (s == null) ? null : parse(s.getValue());
+        r.put("version", nvl(str(n, "version")));
+        r.put("url", nvl(str(n, "url")));
+        r.put("checksum", nvl(str(n, "checksum")));
+        r.put("notes", nvl(str(n, "notes")));
         return r;
     }
 }

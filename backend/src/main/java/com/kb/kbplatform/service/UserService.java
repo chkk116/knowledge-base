@@ -55,7 +55,8 @@ public class UserService {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", u.getId());
-        m.put("username", u.getUsername());
+        // 不下发 username（登录名）：卡片是公开接口，对外身份只有 displayName
+        // （外部审查 2026-10-11；前端展示均已 displayName 优先）
         m.put("displayName", u.getDisplayName());
         m.put("avatar", u.getAvatar());
         m.put("bio", u.getBio());

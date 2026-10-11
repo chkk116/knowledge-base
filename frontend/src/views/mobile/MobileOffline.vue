@@ -62,13 +62,21 @@ async function delQueued(it) {
       confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
     })
   } catch { return }
-  await removeQueuedDoc(it.localId)
-  await load()
+  try {
+    await removeQueuedDoc(it.localId)
+    await load()
+  } catch (e) {
+    window.__kbMsg?.error('删除失败：' + ((e && e.message) || e))
+  }
 }
 
 async function delCached(it) {
-  await removeCachedDoc(it.spaceId, it.docId)
-  await load()
+  try {
+    await removeCachedDoc(it.spaceId, it.docId)
+    await load()
+  } catch (e) {
+    window.__kbMsg?.error('删除失败：' + ((e && e.message) || e))
+  }
 }
 
 async function clearAllCache() {

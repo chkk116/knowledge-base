@@ -55,33 +55,39 @@ async function snapshot() {
   } finally { saving.value = false }
 }
 
+const restoring = ref(false)
+const removing = ref(false)
 async function restore(v) {
+  if (restoring.value) return
   try {
     await ElMessageBox.confirm(`将文档恢复到 ${fmt(v.createdAt)} 的版本？当前内容会被替换`, '恢复历史版本', {
       confirmButtonText: '恢复', cancelButtonText: '取消', type: 'warning',
     })
   } catch { return }
+  restoring.value = true
   try {
     await restoreShareDocVersion(spaceId, docId, v.id)
     window.__kbMsg?.success('已恢复')
     router.back()
   } catch (e) {
     window.__kbMsg?.error('恢复失败：' + (e.response?.data?.error || e.message || ''))
-  }
+  } finally { restoring.value = false }
 }
 
 async function remove(v) {
+  if (removing.value) return
   try {
     await ElMessageBox.confirm('删除这个历史版本快照？不影响文档当前内容', '删除快照', {
       confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
     })
   } catch { return }
+  removing.value = true
   try {
     await deleteShareDocVersion(spaceId, docId, v.id)
     await load()
   } catch (e) {
     window.__kbMsg?.error('删除失败：' + (e.response?.data?.error || e.message || ''))
-  }
+  } finally { removing.value = false }
 }
 
 const empty = computed(() => !loading.value && !list.value.length)

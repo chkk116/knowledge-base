@@ -13,14 +13,15 @@ CREATE DATABASE IF NOT EXISTS kb
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
--- 应用账号（host 覆盖 localhost / 127.0.0.1 / %，避免 Windows 下 JDBC 把 localhost 当 TCP 时连不上）
+-- 应用账号（host 覆盖 localhost / 127.0.0.1，避免 Windows 下 JDBC 把 localhost 当 TCP 时连不上）
+-- ⚠️ 外部审查 2026-10-11：不再创建 'kb'@'%'（任意主机可连 + 弱密码 = 生产裸奔）。
+--    生产部署请改强密码并只授权应用所在主机；密码需与 application.yml 的 spring.datasource.password 一致。
+--    生产/演示环境可用环境变量注入，勿把真实密码写进本文件。
 CREATE USER IF NOT EXISTS 'kb'@'localhost' IDENTIFIED BY 'kb';
 CREATE USER IF NOT EXISTS 'kb'@'127.0.0.1' IDENTIFIED BY 'kb';
-CREATE USER IF NOT EXISTS 'kb'@'%'         IDENTIFIED BY 'kb';
 
 ALTER USER 'kb'@'localhost'   IDENTIFIED BY 'kb';
 ALTER USER 'kb'@'127.0.0.1'   IDENTIFIED BY 'kb';
-ALTER USER 'kb'@'%'           IDENTIFIED BY 'kb';
 
 GRANT ALL PRIVILEGES ON kb.* TO 'kb'@'localhost';
 GRANT ALL PRIVILEGES ON kb.* TO 'kb'@'127.0.0.1';
