@@ -10,8 +10,10 @@
  */
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getDoc, getRelatedDocs, toggleLike, myLikeIds, toggleFavorite, myFavoriteIds } from '../../api/kb'
-import { enhanceVideos, bindImgLightbox, absolutizeMedia } from '../../utils/mediaEnhance'
+import { getDoc, getRelatedDocs, toggleLike, myLikeIds, toggleFavorite, myFavoriteIds,
+  getComments, addComment, deleteComment, toggleCommentLike, myCommentLikes,
+  getUserCard, followUser, unfollowUser } from '../../api/kb'
+import { enhanceVideos, bindImgLightbox, absolutizeMedia, absolutizeMediaHtml } from '../../utils/mediaEnhance'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import TaskList from '@tiptap/extension-task-list'
@@ -23,6 +25,8 @@ import TableCell from '@tiptap/extension-table-cell'
 import MindmapNode from '../../extensions/MindmapNode'
 import FlowchartNode from '../../extensions/FlowchartNode'
 import SpreadsheetNode from '../../extensions/SpreadsheetNode'
+import ImageNode from '../../extensions/ImageNode'
+import VideoNode from '../../extensions/VideoNode'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,10 +51,14 @@ const editor = useEditor({
     TaskList, TaskItem.configure({ nested: true }),
     Table, TableRow, TableHeader, TableCell,
     MindmapNode, FlowchartNode, SpreadsheetNode,
+    // ⚠️ 必须有：StarterKit 不含 Image/Video，缺了它们正文里的 <img>/<video> 会被
+    // ProseMirror schema 丢掉 → App 里文章看不到图片和视频（同 MobileDocView，2026-10-11 修）
+    ImageNode, VideoNode,
   ],
   editorProps: { attributes: { class: 'm-prose' } },
 })
-watch(html, (v) => { if (editor.value && v) editor.value.commands.setContent(v, false) })
+// 灌入前先做字符串级绝对化（只靠 absolutizeMedia 改 DOM 会被 ProseMirror 还原）
+watch(html, (v) => { if (editor.value && v) editor.value.commands.setContent(absolutizeMediaHtml(v), false) })
 onBeforeUnmount(() => { try { editor.value?.destroy() } catch { /* ignore */ } })
 
 watch(html, async () => {
@@ -61,6 +69,88 @@ watch(html, async () => {
   enhanceVideos(el)
   bindImgLightbox(el, (src) => { if (src) lightboxSrc.value = src })
 }, { immediate: true })
+
+// ---------- 评论 ----------
+const comments = ref([])
+const commentText = ref('')
+const commentLikes = ref([])   // 我点过赞的评论 id
+const sending = ref(false)
+const cmtRef = ref(null)
+
+async function loadComments(curId) {
+  try {
+    const [{ data }, likes] = await Promise.all([
+      getComments(curId),
+      myCommentLikes().catch(() => ({ data: [] })),
+    ])
+    comments.value = data || []
+    commentLikes.value = (likes?.data || []).map(Number)
+  } catch { comments.value = [] }
+}
+
+async function sendComment() {
+  const t = (commentText.value || '').trim()
+  if (!t) { window.__kbMsg?.warning('请输入评论内容'); return }
+  if (sending.value) return
+  sending.value = true
+  try {
+    await addComment(id, t)
+    commentText.value = ''
+    await loadComments(id)
+    window.__kbMsg?.success('评论已发表')
+  } catch (e) {
+    window.__kbMsg?.error('评论失败：' + (e?.response?.data?.error || e.message || '未知错误'))
+  } finally { sending.value = false }
+}
+
+async function removeComment(cid) {
+  try { await deleteComment(cid); await loadComments(id); window.__kbMsg?.success('已删除') }
+  catch { window.__kbMsg?.warning('删除失败') }
+}
+
+async function likeComment(c) {
+  try {
+    const { data } = await toggleCommentLike(c.id)
+    c.likes = data?.likes ?? c.likes
+    const set = new Set(commentLikes.value)
+    if (data?.liked) set.add(Number(c.id)); else set.delete(Number(c.id))
+    commentLikes.value = [...set]
+  } catch { /* ignore */ }
+}
+
+function isMine(c) {
+  const me = Number(localStorage.getItem('kb_user_id') || 0)
+  return !!me && Number(c.userId || c.ownerId || 0) === me
+}
+
+function scrollToComments() {
+  const el = cmtRef.value
+  if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// ---------- 关注作者 ----------
+const authorCard = ref(null)
+const following = ref(false)
+
+async function loadAuthor() {
+  const uid = doc.value?.ownerId
+  if (!uid) return
+  try {
+    const { data } = await getUserCard(uid)
+    authorCard.value = data
+    following.value = !!data?.isFollowing
+  } catch { /* 拿不到就不显示关注按钮 */ }
+}
+
+async function toggleFollow() {
+  const uid = authorCard.value?.id || doc.value?.ownerId
+  if (!uid) return
+  try {
+    if (following.value) await unfollowUser(uid); else await followUser(uid)
+    following.value = !following.value
+    window.__kbMsg?.success(following.value ? '已关注' : '已取消关注')
+  } catch { window.__kbMsg?.warning('操作失败，请稍后重试') }
+}
 
 function fmtDate(s) {
   if (!s) return ''
@@ -99,6 +189,9 @@ async function loadDoc(curId) {
     myFavoriteIds().then((r) => { faved.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
     myLikeIds().then((r) => { liked.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
     getRelatedDocs(curId, 5).then((r) => { related.value = r.data || [] }).catch(() => {})
+    loadComments(curId).catch(() => {})
+    // 作者信息要等 doc 落库后再取（依赖 doc.ownerId）
+    nextTick(loadAuthor).catch(() => {})
   } catch (e) {
     window.__kbMsg?.error('无法打开文章：' + (e.response?.data?.error || e.message || '未知错误'))
   } finally {
@@ -140,6 +233,8 @@ watch(() => route.params.id, (nv, ov) => {
           <div class="pv-meta">
             <span v-if="doc.category" class="m-chip gray">{{ doc.category }}</span>
             <span>{{ doc.ownerName || '匿名' }}</span>
+            <button v-if="authorCard?.id" class="follow-mini" :class="{ on: following }"
+                    type="button" @click="toggleFollow">{{ following ? '已关注' : '关注' }}</button>
             <span class="dot">·</span>
             <span>{{ fmtDate(doc.updatedAt || doc.createdAt) }}</span>
             <span class="dot">·</span>
@@ -150,6 +245,33 @@ watch(() => route.params.id, (nv, ov) => {
         <div class="body">
           <EditorContent :editor="editor" />
           <p v-if="!html" style="color:var(--m-text-dim)">（空文档）</p>
+        </div>
+
+        <!-- 评论 -->
+        <div ref="cmtRef" class="body">
+          <div class="m-sec-title">评论<span v-if="comments.length"> ({{ comments.length }})</span></div>
+          <div class="m-card">
+            <div class="cmt-input">
+              <textarea v-model="commentText" rows="2" maxlength="500" placeholder="写下你的评论…"></textarea>
+              <button class="m-btn sm" :disabled="sending" @click="sendComment">{{ sending ? '发送中…' : '发送' }}</button>
+            </div>
+            <div v-if="!comments.length" class="cmt-empty">还没有评论，来说两句吧</div>
+            <div v-for="c in comments" :key="c.id" class="cmt">
+              <div class="cmt-top">
+                <span class="cmt-name">{{ c.userName || c.ownerName || '匿名' }}</span>
+                <span class="cmt-time">{{ fmtDate(c.createdAt) }}</span>
+              </div>
+              <div class="cmt-text">{{ c.content }}</div>
+              <div class="cmt-acts">
+                <button class="cmt-act" :class="{ on: commentLikes.includes(Number(c.id)) }"
+                        type="button" @click="likeComment(c)">
+                  <el-icon :size="14"><component :is="commentLikes.includes(Number(c.id)) ? 'StarFilled' : 'Star'" /></el-icon>
+                  <span>{{ c.likes || 0 }}</span>
+                </button>
+                <button v-if="isMine(c)" class="cmt-act" type="button" @click="removeComment(c.id)">删除</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 相关推荐 -->
@@ -186,6 +308,10 @@ watch(() => route.params.id, (nv, ov) => {
       <button class="bar-btn" :class="{ on: faved }" @click="onFav">
         <el-icon :size="19"><component :is="faved ? 'Check' : 'CollectionTag'" /></el-icon>
         <span>{{ faved ? '已收藏' : '收藏' }}</span>
+      </button>
+      <button class="bar-btn" type="button" @click="scrollToComments">
+        <el-icon :size="19"><ChatDotRound /></el-icon>
+        <span>{{ comments.length || '评论' }}</span>
       </button>
     </div>
 
@@ -224,6 +350,33 @@ watch(() => route.params.id, (nv, ov) => {
   border: 1px solid var(--m-border); background: var(--m-card); color: var(--m-text-sub); font-size: 14.5px;
 }
 .bar-btn.on { color: var(--m-warn); border-color: var(--m-warn); background: var(--m-card); }
+
+/* ---------- 关注 / 评论 ---------- */
+.follow-mini {
+  margin-left: 6px; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--m-primary); background: transparent; color: var(--m-primary);
+  font-size: 11.5px; cursor: pointer;
+}
+.follow-mini.on { border-color: var(--m-border); color: var(--m-text-dim); }
+
+.cmt-input { padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.cmt-input textarea {
+  width: 100%; box-sizing: border-box; resize: none; padding: 9px 10px;
+  border: 1px solid var(--m-border); border-radius: 8px; background: var(--m-card-2);
+  color: var(--m-text); font-size: 14.5px; font-family: inherit;
+}
+.cmt-empty { padding: 4px 12px 14px; font-size: 13px; color: var(--m-text-dim); text-align: center; }
+.cmt { padding: 10px 12px; border-top: 1px solid var(--m-border); }
+.cmt-top { display: flex; align-items: baseline; gap: 8px; }
+.cmt-name { font-size: 13.5px; font-weight: 600; color: var(--m-text); }
+.cmt-time { font-size: 11.5px; color: var(--m-text-dim); }
+.cmt-text { margin-top: 4px; font-size: 14px; line-height: 1.65; color: var(--m-text-sub); white-space: pre-wrap; word-break: break-word; }
+.cmt-acts { margin-top: 6px; display: flex; gap: 14px; }
+.cmt-act {
+  display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent;
+  color: var(--m-text-dim); font-size: 12.5px; cursor: pointer; padding: 0;
+}
+.cmt-act.on { color: var(--m-warn); }
 
 .kb-lightbox { position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, .92); display: grid; place-items: center; }
 .kb-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
