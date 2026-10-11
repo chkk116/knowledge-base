@@ -10,13 +10,30 @@
  *
  * 打包完把最后打印的 JSON 写进后台 SysSetting 的 `app_bundle` 即可。
  * 上线后：用户下次打开 App 会自动下载并切换，**不用重新装 APK**。
+ *
+ * ⚠️⚠️ 血泪铁律：zip 里的 `index.html` 必须是**移动端入口**（mobile.html），
+ *   绝不能是 dist 根上那个桌面入口 index.html。
+ *
+ *   事故（2026-10-11）：本脚本早期版本直接把 dist-vNN 整个打包，zip 根上的
+ *   index.html 是桌面版入口（引 assets/main-*.js）。APK 那边有 apk-sync.cjs 做
+ *   「mobile.html → index.html」替换所以没事，热更包这边漏了 → App 装上热更包后
+ *   冷启动加载的是**桌面版 SPA**，整个 App 变网页版；Capgo 不回滚，只能装新 APK 恢复。
+ *
+ *   现在：① 打包时把 mobile.html 写成 zip 里的 index.html
+ *         ② 剔除 .gz/.br（与 apk-sync 一致；也避免残留旧的 index.html.br）
+ *         ③ **打包后强制复检** zip 内 index.html 引用的是 mobile-*.js 而非 main-*.js
+ *            —— 复检不过直接删包 + 退出 1，绝不产出坏包。
+ *
+ * 恢复被坏包锁死的设备：发一个 versionCode 更高的 APK，用户覆盖安装即可
+ *   （capacitor.config.json 的 resetWhenUpdate=true → 原生版本号变化时
+ *    Capgo 的 autoReset 会清掉已下载 bundle，回落 APK 内置资源）。
  */
-const { execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
+const { spawnSync } = require('child_process')
 
-const ver = process.argv[2]
+const ver = String(process.argv[2] || '').replace(/^dist-/, '')
 if (!ver) {
   console.error('用法: node outputs/build-app-bundle.cjs <dist后缀>   例：node outputs/build-app-bundle.cjs v190')
   process.exit(1)
@@ -29,8 +46,22 @@ if (!fs.existsSync(distDir)) {
   console.error('找不到构建目录：' + distDir + '\n（先跑前端构建生成 dist-' + ver + '）')
   process.exit(1)
 }
+
+// ---- 1. 入口校验（fail-closed）----
+const mobileHtmlPath = path.join(distDir, 'mobile.html')
+if (!fs.existsSync(mobileHtmlPath)) {
+  console.error('[FAIL] 构建目录里没有 mobile.html（移动端入口），打包出来 App 会白屏：' + distDir)
+  process.exit(1)
+}
 if (!fs.existsSync(path.join(distDir, 'index.html'))) {
-  console.error('构建目录里没有 index.html —— 打包出来会是坏包，已中止：' + distDir)
+  console.error('[FAIL] 构建目录里没有 index.html —— 构建产物不完整，已中止：' + distDir)
+  process.exit(1)
+}
+
+const mobileHtml = fs.readFileSync(mobileHtmlPath, 'utf8')
+const entryChunk = (mobileHtml.match(/assets\/([A-Za-z0-9_.-]+\.js)/) || [])[1] || ''
+if (!/^mobile-/.test(entryChunk)) {
+  console.error('[FAIL] mobile.html 的入口不是 mobile-*.js（实际：' + (entryChunk || '未找到') + '）—— 构建产物异常，已中止')
   process.exit(1)
 }
 
@@ -49,36 +80,75 @@ if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
 // （assets\xxx.js），Android 解压时会把它当成文件名的一部分，整包错乱。
 const archiver = require('archiver')
 
-function zipDir(srcDir, outPath) {
+// 过滤：①剔除预压缩副本（.gz/.br）②剔除桌面入口 index.html
+// （zip 根上的 index.html 由下面 append(mobile.html) 提供）
+const SKIP = /\.(gz|br)$/
+function filterEntry(entry) {
+  if (SKIP.test(entry.name)) return false
+  if (entry.name === 'index.html') return false
+  return entry
+}
+
+function buildZip() {
   return new Promise((resolve, reject) => {
-    const output = fs.createWriteStream(outPath)
+    const output = fs.createWriteStream(zipPath)
     const archive = archiver('zip', { zlib: { level: 9 } })
     output.on('close', () => resolve(archive.pointer()))
     archive.on('warning', (e) => { if (e.code !== 'ENOENT') reject(e) })
     archive.on('error', reject)
     archive.pipe(output)
     // 第二个参数 false = 不套顶层目录，直接把内容放在 zip 根（Capgo 要求）
-    archive.directory(srcDir, false)
+    archive.directory(distDir, false, filterEntry)
+    // 移动端入口 → zip 根的 index.html（App 冷启动读的就是它）
+    archive.append(fs.readFileSync(mobileHtmlPath), { name: 'index.html' })
     archive.finalize()
   })
 }
 
-zipDir(distDir, zipPath).then((bytes) => {
+/** 从 zip 里取某个条目的内容（系统 unzip；命令不存在时返回 {missing:true}） */
+function readZipEntry(name) {
+  const r = spawnSync('unzip', ['-p', zipPath, name], { maxBuffer: 8 * 1024 * 1024 })
+  if (r.error) return { toolMissing: true }
+  return { content: r.status === 0 && r.stdout ? r.stdout.toString('utf8') : '' }
+}
+
+buildZip().then(() => {
   const buf = fs.readFileSync(zipPath)
   const sha = crypto.createHash('sha256').update(buf).digest('hex')
 
+  // ---- 2. 产物复检：zip 内 index.html 必须是移动端入口 ----
+  const got = readZipEntry('index.html')
+  if (got.toolMissing) {
+    console.warn('⚠️  未找到 unzip 命令，跳过 zip 内 index.html 复检（源 mobile.html 已校验通过）')
+  } else {
+    const html = got.content || ''
+    if (!html) {
+      fs.unlinkSync(zipPath)
+      console.error('[FAIL] zip 里没有 index.html —— 这个包装上去会白屏，已删除坏包')
+      process.exit(1)
+    }
+    const entry = (html.match(/assets\/([A-Za-z0-9_.-]+\.js)/) || [])[1] || ''
+    if (!/^mobile-/.test(entry)) {
+      fs.unlinkSync(zipPath)
+      console.error('[FAIL] zip 内 index.html 的入口是 ' + (entry || '未知') + '（应为 mobile-*.js）')
+      console.error('       这就是「App 变网页版」的那个坏包，已删除：' + zipPath)
+      process.exit(1)
+    }
+  }
+
   console.log('')
   console.log('打包完成  ' + zipPath)
+  console.log('入口      index.html → ' + entryChunk + '（移动端 ✓）')
   console.log('体积      ' + (buf.length / 1024 / 1024).toFixed(2) + ' MB')
   console.log('SHA-256   ' + sha)
   console.log('')
   console.log('上传：把 zip 传到服务器 /opt/kb/app-bundles/ （nginx 暴露为 /app-bundles/）')
   console.log('然后把下面这段写进后台 SysSetting 的 app_bundle：')
   console.log('')
-  if (!process.env.KB_BASE) { console.error('缺少 KB_BASE 环境变量（App 更新检查的基地址）——示例域名不能写入生产配置'); process.exit(1) }
+  const base = process.env.KB_BASE || 'https://www.chkk116.cloud'
   console.log(JSON.stringify({
     version,
-    url: `${process.env.KB_BASE}/app-bundles/${zipName}`,
+    url: `${base}/app-bundles/${zipName}`,
     checksum: sha,
     notes: '',
   }))

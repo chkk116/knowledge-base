@@ -8,6 +8,10 @@
  * 表现为：`window.Capacitor.Plugins.App` 为 undefined，返回键 / 热更 / 外链全部静默失效。
  * **必须显式检查。**
  *
+ * 背景（2026-10-11 踩坑）：APK / 热更包里的 `index.html` 必须是**移动端入口**
+ * （引 assets/mobile-*.js），不能是桌面入口（assets/main-*.js）。搞错的话 App
+ * 冷启动会加载桌面版 SPA —— 整个 App 变成网页版。同样属于「构建成功但产物错」。
+ *
  * 用法：
  *   node outputs/check-native-plugins.cjs                 # 查工程配置
  *   node outputs/check-native-plugins.cjs <apk路径>        # 顺便查打出来的 APK
@@ -152,6 +156,20 @@ if (apk && fs.existsSync(apk)) {
           ? ok(`${p.classpath} 在 dex 内`)
           : bad(`${p.classpath} 不在 dex 内`)
       }
+    }
+
+    // App 冷启动读的就是 assets/public/index.html —— 必须是移动端入口，
+    // 否则整个 App 会渲染桌面版 SPA（2026-10-11 热更包踩过这个坑）。
+    console.log('== 6. APK 内 index.html 是否为移动端入口 ==')
+    const idx = entries.find((x) => x.name === 'assets/public/index.html')
+    if (!idx) {
+      bad('APK 里没有 assets/public/index.html')
+    } else {
+      const html = entryData(buf, idx).toString('utf8')
+      const entry = (html.match(/assets\/([A-Za-z0-9_.-]+\.js)/) || [])[1] || ''
+      const isMobileEntry = entry.indexOf('mobile-') === 0
+      if (isMobileEntry) ok(`index.html → ${entry}（移动端 ✓）`)
+      else bad(`index.html → ${entry || '未知'}（应为 mobile-*.js；是桌面入口会让 App 变网页版）`)
     }
   }
 }
