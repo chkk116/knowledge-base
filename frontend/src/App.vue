@@ -525,7 +525,7 @@ function openHelp() { helpVisible.value = true }
         <div class="tabbar-scroll">
           <div v-for="t in tabs" :key="t.path" class="tab" :class="{ on: t.path === route.path }"
                @click="goTab(t.path)" @contextmenu="openTabMenu($event, t)">
-            <span v-if="t.pinned" class="tab-dot"></span>
+            <span v-if="t.path === route.path" class="tab-dot"></span>
             <span class="tab-txt">{{ t.title }}</span>
             <span v-if="!t.pinned" class="tab-x" title="关闭" @click.stop="closeTab(t.path)">×</span>
           </div>
