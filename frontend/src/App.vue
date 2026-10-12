@@ -170,6 +170,14 @@ function closeTab(path) {
 loadTabs()
 watch(() => route.fullPath, () => { addTab(route) }, { immediate: true })
 
+// 顶栏全局搜索
+const globalQ = ref('')
+function doGlobalSearch() {
+  const q = (globalQ.value || '').trim()
+  if (!q) return
+  router.push({ path: '/search', query: { q } })
+}
+
 // 小窗阅读：图片点开放大 + 视频增强（16:9 占位/倍速/全屏/画中画），样式在全局 responsive.css
 const rfRef = ref(null)
 const readerLightbox = ref('')
@@ -425,6 +433,12 @@ function openHelp() { helpVisible.value = true }
           </el-button>
           <div class="crumb">{{ route.meta.title || '知识库' }}</div>
         </div>
+        <!-- 顶栏全局搜索：回车跳「搜索结果」页 -->
+        <div class="head-search">
+          <el-icon class="hs-ico" :size="16"><Search /></el-icon>
+          <input v-model="globalQ" class="hs-input" placeholder="搜索知识库 / 作者名…"
+                 @keyup.enter="doGlobalSearch" />
+        </div>
         <div class="right">
           <el-button class="help-btn" text circle title="帮助中心" @click="openHelp">
             <el-icon size="18"><InfoFilled /></el-icon>
@@ -545,9 +559,13 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
   padding-top: 6px; padding-bottom: 6px;
 }
 .layout { height: 100vh; }
-.aside { background: #fff; border-right: 1px solid #e2e8f0; }
-.brand { font-weight: 700; font-size: 18px; color: #4f46e5; padding: 16px 20px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-.brand-ico { width: 36px; height: 36px; object-fit: contain; display: block; flex-shrink: 0; }
+.aside { background: #fff; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; }
+.brand {
+  flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
+  padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid #f2f4f8; letter-spacing: .3px;
+}
+.brand-ico { width: 34px; height: 34px; object-fit: contain; display: block; flex-shrink: 0; }
 /* 折叠态：把 logo 放在一个浅灰圆角按钮容器里（与菜单项同尺寸/圆角），
    logo 再缩到 22px：实心图要比 24px 线型图标小半号才视觉等重，
    避免彩色实心 logo 直接压在灰色线型图标上造成的不协调 */
@@ -557,13 +575,14 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
   margin: 8px 6px;
   border-radius: 8px;
   background: #f1f5f9;
+  border-bottom: none;
   transition: background-color .15s;
 }
 .aside.collapsed .brand:hover { background: #e2e8f0; }
 html.dark .aside.collapsed .brand { background: #23234a; }
 html.dark .aside.collapsed .brand:hover { background: #2a2a35; }
 .aside.collapsed .brand-ico { width: 22px; height: 22px; }
-.menu { border-right: none; padding: 8px; background: transparent; }
+.menu { border-right: none; padding: 10px 8px; background: transparent; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
 /* 彩色拟物图标：与文字保持间距；收起态居中不带外边距 */
 .menu .mi { margin-right: 10px; }
 .menu .el-sub-menu__title .mi { margin-right: 10px; }
@@ -578,7 +597,7 @@ html.dark .menu .el-sub-menu__title { color: #c3c4d8; }
 html.dark .menu .el-sub-menu__title:hover { background: #23234a; color: #a5b4fc; }
 
 /* 菜单项：圆角 pill。过渡只用 background/color，无重排重绘 */
-.menu .el-menu-item { height: 38px; line-height: 38px; margin: 2px 0; border-radius: 8px; color: #475569; position: relative; transition: background-color .15s, color .15s; }
+.menu .el-menu-item { height: 40px; line-height: 40px; margin: 2px 0; border-radius: 8px; color: #475569; position: relative; transition: background-color .15s, color .15s; }
 html.dark .menu .el-menu-item { color: #b7b8cd; }
 .menu .el-menu-item:hover { background: #f1f5f9; color: #4f46e5; }
 html.dark .menu .el-menu-item:hover { background: #23234a; color: #a5b4fc; }
@@ -595,13 +614,33 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
 
 /* 整栏折叠(64px) */
 .aside.collapsed .menu { padding: 8px 6px; }
-.header { display: flex; align-items: center; justify-content: space-between; background: #fff; border-bottom: 1px solid #e2e8f0; overflow: visible; }
+.header { display: flex; align-items: center; background: #fff; border-bottom: 1px solid #eef1f6; overflow: visible; }
 /* 顶栏右侧所有元素统一垂直居中（含不同尺寸的圆形按钮、弹层、头像、徽章组），
    避免「铃铛 32px + 头像 38px + 徽章 20px」混排时各按自己的 inline-baseline 漂移 */
-.right { display: inline-flex; align-items: center; gap: 4px; }
-.head-left { display: flex; align-items: center; gap: 8px; }
-.fold-btn { padding: 6px; }
+.right { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.head-left { display: flex; align-items: center; gap: 8px; flex: none; }
+.fold-btn { padding: 6px; color: #64748b; }
+.fold-btn:hover { background: var(--el-color-primary-light-9); color: var(--el-color-primary); }
 .crumb { font-weight: 600; color: #0f172a; }
+
+/* 顶栏全局搜索（回车跳「搜索结果」） */
+.head-search {
+  flex: 0 1 440px; margin: 0 auto; display: flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 14px; border-radius: 999px;
+  background: #f4f6fa; border: 1px solid transparent;
+  transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+.head-search:focus-within { background: #fff; border-color: var(--el-color-primary-light-5); box-shadow: var(--kb-ring); }
+.hs-ico { color: #9aa3b2; flex: none; }
+.hs-input {
+  flex: 1 1 auto; min-width: 0; border: none; outline: none; background: transparent;
+  font-size: 13.5px; color: var(--kb-txt); font-family: inherit;
+}
+.hs-input::placeholder { color: #a2aab8; }
+@media (max-width: 1000px) { .head-search { display: none; } }
+html.dark .head-search { background: #23232e; }
+html.dark .head-search:focus-within { background: #1b1b24; border-color: #3a3a6b; }
+html.dark .fold-btn { color: #b4b8c2; }
 /* 头像 + 佩戴徽章组成的 inline-flex 单元，与其它按钮同一基线；
    没佩戴时 cluster 内只剩头像一个子节点，结构稳定 */
 .avatar-cluster { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; flex: none; }
