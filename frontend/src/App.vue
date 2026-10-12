@@ -167,6 +167,39 @@ function closeTab(path) {
     if (next) router.push(next.path)
   }
 }
+// 可关闭的标签数（首页固定不可关）
+const closableCount = computed(() => tabs.value.filter((t) => !t.pinned).length)
+/** 一键关闭全部（保留首页） */
+function closeAllTabs() {
+  if (!closableCount.value) return
+  tabs.value = tabs.value.filter((t) => t.pinned)
+  saveTabs()
+  if (route.path !== '/') router.push('/')
+}
+/** 关闭其他（保留首页与目标页） */
+function closeOtherTabs(path) {
+  tabs.value = tabs.value.filter((t) => t.pinned || t.path === path)
+  saveTabs()
+  if (route.path !== path) router.push(path)
+}
+/** 关闭右侧（保留首页、目标页及其左侧） */
+function closeRightTabs(path) {
+  const i = tabs.value.findIndex((t) => t.path === path)
+  if (i < 0) return
+  tabs.value = tabs.value.filter((t, idx) => idx <= i || t.pinned)
+  saveTabs()
+  if (!tabs.value.some((t) => t.path === route.path)) router.push(path)
+}
+// 标签右键菜单（关闭其他 / 关闭右侧 / 全部关闭）
+const tabMenu = ref({ open: false, x: 0, y: 0, path: '' })
+function openTabMenu(e, t) {
+  e.preventDefault()
+  tabMenu.value = { open: true, x: e.clientX, y: e.clientY, path: t.path }
+}
+function closeTabMenu() { tabMenu.value.open = false }
+function onDocClickTabMenu() { if (tabMenu.value.open) closeTabMenu() }
+onMounted(() => document.addEventListener('click', onDocClickTabMenu))
+onUnmounted(() => document.removeEventListener('click', onDocClickTabMenu))
 loadTabs()
 watch(() => route.fullPath, () => { addTab(route) }, { immediate: true })
 
@@ -489,13 +522,32 @@ function openHelp() { helpVisible.value = true }
 
       <!-- 顶部多标签页：首页固定，其余可关闭（参考中后台常见交互） -->
       <nav v-if="tabs.length" class="tabbar">
-        <div v-for="t in tabs" :key="t.path" class="tab" :class="{ on: t.path === route.path }"
-             @click="goTab(t.path)">
-          <span v-if="t.pinned" class="tab-dot"></span>
-          <span class="tab-txt">{{ t.title }}</span>
-          <span v-if="!t.pinned" class="tab-x" title="关闭" @click.stop="closeTab(t.path)">×</span>
+        <div class="tabbar-scroll">
+          <div v-for="t in tabs" :key="t.path" class="tab" :class="{ on: t.path === route.path }"
+               @click="goTab(t.path)" @contextmenu="openTabMenu($event, t)">
+            <span v-if="t.pinned" class="tab-dot"></span>
+            <span class="tab-txt">{{ t.title }}</span>
+            <span v-if="!t.pinned" class="tab-x" title="关闭" @click.stop="closeTab(t.path)">×</span>
+          </div>
         </div>
+        <!-- 一键关闭全部（有可关标签时出现）；右键任意标签可「关闭其他 / 关闭右侧」 -->
+        <button v-if="closableCount" class="tab-clear" type="button"
+                title="一键关闭全部标签页" @click="closeAllTabs">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <path d="M4 7h16M9 7V5.2A1.2 1.2 0 0 1 10.2 4h3.6A1.2 1.2 0 0 1 15 5.2V7M6.2 7l.9 11.4A2 2 0 0 0 9.1 20h5.8a2 2 0 0 0 2-1.6L17.8 7"
+                  fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>全部关闭</span>
+        </button>
       </nav>
+
+      <!-- 标签右键菜单 -->
+      <div v-if="tabMenu.open" class="tab-menu" :style="{ left: tabMenu.x + 'px', top: tabMenu.y + 'px' }"
+           @click.stop>
+        <button type="button" @click="closeOtherTabs(tabMenu.path); closeTabMenu()">关闭其他标签</button>
+        <button type="button" @click="closeRightTabs(tabMenu.path); closeTabMenu()">关闭右侧标签</button>
+        <button type="button" class="danger" @click="closeAllTabs(); closeTabMenu()">全部关闭</button>
+      </div>
 
       <el-main class="main">
         <!-- 演示账号横幅：全局提示当前处于「只读演示」状态，写操作会被拒绝 -->
@@ -666,11 +718,14 @@ html.dark .fold-btn { color: #b4b8c2; }
    ⚠️ 别把页脚挪到 el-main 外面常驻底部：内容区可用高度被砍掉约 90px，观感像"压缩"。 */
 /* ---------- 顶部多标签页 ---------- */
 .tabbar {
-  flex: none; display: flex; align-items: center; gap: 6px;
-  padding: 7px 16px; background: #fff; border-bottom: 1px solid #eef1f6;
-  overflow-x: auto; overflow-y: hidden;
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px 7px 16px; background: #fff; border-bottom: 1px solid #eef1f6;
 }
-.tabbar::-webkit-scrollbar { height: 0; }
+.tabbar-scroll {
+  flex: 1 1 auto; display: flex; align-items: center; gap: 6px;
+  overflow-x: auto; overflow-y: hidden; min-width: 0;
+}
+.tabbar-scroll::-webkit-scrollbar { height: 0; }
 .tab {
   flex: none; display: inline-flex; align-items: center; gap: 7px;
   height: 30px; padding: 0 12px; border-radius: 8px;
@@ -678,10 +733,8 @@ html.dark .fold-btn { color: #b4b8c2; }
   border: 1px solid transparent; transition: background-color .15s, color .15s, border-color .15s;
 }
 .tab:hover { background: #f3f4f8; color: #374151; }
-.tab.on {
-  background: var(--el-color-primary-light-9); color: var(--el-color-primary-dark-2);
-  font-weight: 600; border-color: var(--el-color-primary-light-7);
-}
+/* 只有「当前选中」的标签高亮，其余保持素色 */
+.tab.on { background: var(--el-color-primary-light-9); color: var(--el-color-primary-dark-2); font-weight: 600; }
 .tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--el-color-primary); flex: none; }
 .tab-x {
   display: inline-flex; align-items: center; justify-content: center;
@@ -689,11 +742,40 @@ html.dark .fold-btn { color: #b4b8c2; }
   font-size: 14px; line-height: 1; color: #9aa3b2; transition: background-color .15s, color .15s;
 }
 .tab-x:hover { background: #e5e7eb; color: #ef4444; }
+/* 一键关闭全部 */
+.tab-clear {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  height: 30px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid #eef1f6; background: #fff; color: #64748b;
+  font-size: 13px; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s;
+}
+.tab-clear:hover { background: #fff1f2; border-color: #fecdd3; color: #e11d48; }
+/* 标签右键菜单 */
+.tab-menu {
+  position: fixed; z-index: 3000; min-width: 150px; padding: 6px;
+  background: #fff; border: 1px solid #eef1f6; border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, .16);
+}
+.tab-menu button {
+  display: block; width: 100%; text-align: left; border: none; background: transparent;
+  padding: 8px 12px; border-radius: 7px; font-size: 13.5px; color: #374151; cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.tab-menu button:hover { background: #f3f4f8; color: var(--el-color-primary); }
+.tab-menu button.danger { color: #e11d48; }
+.tab-menu button.danger:hover { background: #fff1f2; }
 html.dark .tabbar { background: #17171f; border-bottom-color: #26262f; }
 html.dark .tab { color: #b4b8c2; }
 html.dark .tab:hover { background: #23232e; color: #d6d7e0; }
-html.dark .tab.on { background: #232347; color: #a5b4fc; border-color: #3a3a6b; }
+html.dark .tab.on { background: #232347; color: #a5b4fc; }
 html.dark .tab-x:hover { background: #2f2f3d; color: #f87171; }
+html.dark .tab-clear { background: #1e1e28; border-color: #2c2c36; color: #b4b8c2; }
+html.dark .tab-clear:hover { background: #2a1a1a; border-color: #5b2b2b; color: #f87171; }
+html.dark .tab-menu { background: #1e1e28; border-color: #2c2c36; }
+html.dark .tab-menu button { color: #c7c8d4; }
+html.dark .tab-menu button:hover { background: #26262f; color: #a5b4fc; }
+html.dark .tab-menu button.danger { color: #f87171; }
+html.dark .tab-menu button.danger:hover { background: #2a1a1a; }
 
 .main { padding: 20px 20px 4px; display: flex; flex-direction: column; }
 /* width:100% 必须加：flex 纵向容器的子项若只靠 stretch，遇到根元素自带
