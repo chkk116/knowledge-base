@@ -472,9 +472,15 @@ const loadOrg = async () => {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
+  /* 页头做成独立圆角卡片（贴合参考图「统一配置中心」页头卡），避免灰底上留大片空灰 */
+  background: #fff;
+  border: 1px solid #eef1f6;
+  border-radius: 12px;
+  padding: 16px 18px;
 }
+html.dark .page-head { background: #1c1c26; border-color: #2c2c36; }
 .head-icon {
   width: 46px; height: 46px;
   border-radius: 12px;
