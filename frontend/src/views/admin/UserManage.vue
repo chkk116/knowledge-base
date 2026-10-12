@@ -282,7 +282,9 @@ const loadOrg = async () => {
           <el-button type="primary" @click="openAdd">新增用户</el-button>
         </div>
       </div>
+    </el-card>
 
+    <el-card shadow="never" class="panel table-panel">
       <el-table v-stack-table :data="users" class="user-table">
         <!-- 用户：头像 + 用户名 + 昵称 合并展示（手机上信息密度更友好） -->
         <el-table-column label="用户" min-width="200">
@@ -493,15 +495,15 @@ const loadOrg = async () => {
 }
 .stat span { font-size: 12px; color: #94a3b8; }
 
-/* ===== 面板 ===== */
-.panel { border-radius: 12px; border-color: #e2e8f0; }
+/* ===== 面板（分区圆角卡片：工具栏、表格各自独立一框） ===== */
+.panel { border-radius: 12px; border-color: #eef1f6; margin-bottom: 16px; }
+.panel :deep(.el-card__body) { padding: 16px 18px; }
+.table-panel :deep(.el-card__body) { padding: 4px 4px 12px; }
 
-/* 工具栏 */
+/* 工具栏（独立卡片内，无需再画分隔虚线） */
 .toolbar {
   display: flex; align-items: center; gap: 12px;
   flex-wrap: wrap;
-  padding-bottom: 14px; margin-bottom: 6px;
-  border-bottom: 1px dashed #e2e8f0;
 }
 .seg-row {
   display: inline-flex; gap: 4px;

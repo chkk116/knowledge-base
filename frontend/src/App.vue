@@ -134,6 +134,42 @@ function toggleMenu() {
 // 窄屏下点菜单跳转后自动收起抽屉（否则菜单挡住内容）
 watch(() => route.fullPath, () => { drawerOpen.value = false })
 
+// ---------------- 顶部多标签页（中后台常见交互） ----------------
+// 首页固定不可关；其余按访问顺序累积，sessionStorage 持久化（刷新/切页不丢）。
+const HOME_TAB = { path: '/', title: '首页', pinned: true }
+const TABS_KEY = 'kb_tabs'
+const tabs = ref([{ ...HOME_TAB }])
+function loadTabs() {
+  try {
+    const arr = JSON.parse(sessionStorage.getItem(TABS_KEY) || 'null')
+    if (Array.isArray(arr)) {
+      tabs.value = [{ ...HOME_TAB }, ...arr.filter((t) => t && t.path && t.path !== '/' && t.path !== '/login')]
+    }
+  } catch { /* ignore */ }
+}
+function saveTabs() {
+  try { sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs.value.filter((t) => !t.pinned))) } catch { /* ignore */ }
+}
+function addTab(r) {
+  if (barePage.value || !r?.path || r.path === '/') return
+  if (tabs.value.some((t) => t.path === r.path)) return
+  tabs.value.push({ path: r.path, title: r.meta?.title || '页面' })
+  saveTabs()
+}
+function goTab(path) { if (path !== route.path) router.push(path) }
+function closeTab(path) {
+  const i = tabs.value.findIndex((t) => t.path === path)
+  if (i < 0 || tabs.value[i].pinned) return
+  tabs.value.splice(i, 1)
+  saveTabs()
+  if (route.path === path) {
+    const next = tabs.value[i] || tabs.value[i - 1] || tabs.value[0]
+    if (next) router.push(next.path)
+  }
+}
+loadTabs()
+watch(() => route.fullPath, () => { addTab(route) }, { immediate: true })
+
 // 小窗阅读：图片点开放大 + 视频增强（16:9 占位/倍速/全屏/画中画），样式在全局 responsive.css
 const rfRef = ref(null)
 const readerLightbox = ref('')
@@ -437,6 +473,16 @@ function openHelp() { helpVisible.value = true }
         </div>
       </el-header>
 
+      <!-- 顶部多标签页：首页固定，其余可关闭（参考中后台常见交互） -->
+      <nav v-if="tabs.length" class="tabbar">
+        <div v-for="t in tabs" :key="t.path" class="tab" :class="{ on: t.path === route.path }"
+             @click="goTab(t.path)">
+          <span v-if="t.pinned" class="tab-dot"></span>
+          <span class="tab-txt">{{ t.title }}</span>
+          <span v-if="!t.pinned" class="tab-x" title="关闭" @click.stop="closeTab(t.path)">×</span>
+        </div>
+      </nav>
+
       <el-main class="main">
         <!-- 演示账号横幅：全局提示当前处于「只读演示」状态，写操作会被拒绝 -->
         <div v-if="auth.isDemo" class="demo-banner">
@@ -579,6 +625,37 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
        根元素假想高度 100% + 页脚超出容器 → 触发 flex **收缩**，卡片/表格被压缩。
        basis 0% 时假想总高恰好占满、永不触发收缩，故不会再压扁；min-height:auto 兜底内容高度。
    ⚠️ 别把页脚挪到 el-main 外面常驻底部：内容区可用高度被砍掉约 90px，观感像"压缩"。 */
+/* ---------- 顶部多标签页 ---------- */
+.tabbar {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  padding: 7px 16px; background: #fff; border-bottom: 1px solid #eef1f6;
+  overflow-x: auto; overflow-y: hidden;
+}
+.tabbar::-webkit-scrollbar { height: 0; }
+.tab {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 12px; border-radius: 8px;
+  font-size: 13px; color: #6b7280; cursor: pointer; user-select: none;
+  border: 1px solid transparent; transition: background-color .15s, color .15s, border-color .15s;
+}
+.tab:hover { background: #f3f4f8; color: #374151; }
+.tab.on {
+  background: var(--el-color-primary-light-9); color: var(--el-color-primary-dark-2);
+  font-weight: 600; border-color: var(--el-color-primary-light-7);
+}
+.tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--el-color-primary); flex: none; }
+.tab-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-left: -1px; border-radius: 5px;
+  font-size: 14px; line-height: 1; color: #9aa3b2; transition: background-color .15s, color .15s;
+}
+.tab-x:hover { background: #e5e7eb; color: #ef4444; }
+html.dark .tabbar { background: #17171f; border-bottom-color: #26262f; }
+html.dark .tab { color: #b4b8c2; }
+html.dark .tab:hover { background: #23232e; color: #d6d7e0; }
+html.dark .tab.on { background: #232347; color: #a5b4fc; border-color: #3a3a6b; }
+html.dark .tab-x:hover { background: #2f2f3d; color: #f87171; }
+
 .main { padding: 20px 20px 4px; display: flex; flex-direction: column; }
 /* width:100% 必须加：flex 纵向容器的子项若只靠 stretch，遇到根元素自带
    max-width + margin:0 auto 的页面（收藏/排行/勋章/考试等）会被**收缩成内容宽**
