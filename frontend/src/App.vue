@@ -97,8 +97,6 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
 
 // 登录页 / 独立阅读窗口：独立整页，不带侧边栏与顶栏
 const barePage = computed(() => route.path === '/login' || route.path.startsWith('/reader/'))
-// 灰画布（浮动卡片）只用于后台管理页；主页等内容页保持原来的白底
-const grayCanvas = computed(() => route.path.startsWith('/admin'))
 
 // 未读通知数（顶栏铃铛红点，来自 SSE 实时推送，详见 store/notification）
 function goNotifications() { router.push('/notifications') }
@@ -499,7 +497,7 @@ function openHelp() { helpVisible.value = true }
         </div>
       </nav>
 
-      <el-main class="main" :class="{ canvas: grayCanvas }">
+      <el-main class="main">
         <!-- 演示账号横幅：全局提示当前处于「只读演示」状态，写操作会被拒绝 -->
         <div v-if="auth.isDemo" class="demo-banner">
           <el-icon><InfoFilled /></el-icon>
@@ -560,21 +558,8 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
   white-space: normal; line-height: 1.5; height: auto;
   padding-top: 6px; padding-bottom: 6px;
 }
-/* 浮动面板式布局：灰色画布 + 侧边栏 / 内容区各自悬浮圆角面板（四周脱离窗口边缘） */
-.layout { height: 100vh; box-sizing: border-box; background: #eef1f6; padding: 8px; gap: 8px; }
-.aside {
-  background: #fff; border: none; border-radius: 16px;
-  display: flex; flex-direction: column; overflow: hidden;
-  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
-}
-/* 右侧内容区（顶栏 / 标签页 / 正文）整体一张圆角面板 */
-.layout > .el-container {
-  border-radius: 16px; overflow: hidden; background: #fff;
-  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
-}
-html.dark .layout { background: #0e0e12; }
-html.dark .aside { background: #17171f; }
-html.dark .layout > .el-container { background: #17171f; }
+.layout { height: 100vh; }
+.aside { background: #fff; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; }
 .brand {
   flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
   padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;
@@ -711,9 +696,6 @@ html.dark .tab.on { background: #232347; color: #a5b4fc; border-color: #3a3a6b; 
 html.dark .tab-x:hover { background: #2f2f3d; color: #f87171; }
 
 .main { padding: 20px 20px 4px; display: flex; flex-direction: column; }
-/* 后台管理页：内容区底色改灰画布，让白卡「浮」出来、卡片间空隙为灰（其余页面保持白底） */
-.main.canvas { background: #eef1f6; }
-html.dark .main.canvas { background: #0e0e12; }
 /* width:100% 必须加：flex 纵向容器的子项若只靠 stretch，遇到根元素自带
    max-width + margin:0 auto 的页面（收藏/排行/勋章/考试等）会被**收缩成内容宽**
    （实测 /favorites 根被压到 311px），表现为「页面被压扁/从手机宽度往外延伸」。
@@ -784,14 +766,10 @@ html.dark .help-content code { background: #23234a; }
 .aside-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 1999; }
 
 @media (max-width: 1024px) {
-  /* 窄屏：侧栏改覆盖式抽屉、内容满宽 —— 取消浮动留边与圆角 */
-  .layout { padding: 0; gap: 0; background: transparent; }
-  .layout > .el-container { border-radius: 0; box-shadow: none; }
   .layout .aside {
     position: fixed !important;
     left: 0; top: 0; bottom: 0;
     z-index: 2000;
-    border-radius: 0;
     transform: translateX(-100%);
     transition: transform .26s cubic-bezier(.4, 0, .2, 1);
     box-shadow: 0 8px 30px rgba(0, 0, 0, .18);

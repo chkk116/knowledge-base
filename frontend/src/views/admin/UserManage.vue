@@ -282,9 +282,7 @@ const loadOrg = async () => {
           <el-button type="primary" @click="openAdd">新增用户</el-button>
         </div>
       </div>
-    </el-card>
 
-    <el-card shadow="never" class="panel table-panel">
       <el-table v-stack-table :data="users" class="user-table">
         <!-- 用户：头像 + 用户名 + 昵称 合并展示（手机上信息密度更友好） -->
         <el-table-column label="用户" min-width="200">
@@ -472,15 +470,9 @@ const loadOrg = async () => {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
   flex-wrap: wrap;
-  /* 页头做成独立圆角卡片（贴合参考图「统一配置中心」页头卡），避免灰底上留大片空灰 */
-  background: #fff;
-  border: 1px solid #eef1f6;
-  border-radius: 12px;
-  padding: 16px 18px;
 }
-html.dark .page-head { background: #1c1c26; border-color: #2c2c36; }
 .head-icon {
   width: 46px; height: 46px;
   border-radius: 12px;
@@ -501,19 +493,15 @@ html.dark .page-head { background: #1c1c26; border-color: #2c2c36; }
 }
 .stat span { font-size: 12px; color: #94a3b8; }
 
-/* ===== 面板（分区圆角卡片：工具栏、表格各自独立一框） ===== */
-.um-page { display: flex; flex-direction: column; }
-.panel { border-radius: 12px; border-color: #eef1f6; margin-bottom: 16px; }
-.panel :deep(.el-card__body) { padding: 16px 18px; }
-/* 表格卡填满剩余高度：盒子铺满，灰底只留在卡片与卡片之间的缝隙里（不再出现大片灰） */
-.table-panel { flex: 1 1 auto; display: flex; flex-direction: column; }
-.table-panel :deep(.el-card__body) { flex: 1 1 auto; display: flex; flex-direction: column; padding: 4px 4px 12px; }
-.table-panel .foot { margin-top: auto; }
+/* ===== 面板 ===== */
+.panel { border-radius: 12px; border-color: #e2e8f0; }
 
-/* 工具栏（独立卡片内，无需再画分隔虚线） */
+/* 工具栏 */
 .toolbar {
   display: flex; align-items: center; gap: 12px;
   flex-wrap: wrap;
+  padding-bottom: 14px; margin-bottom: 6px;
+  border-bottom: 1px dashed #e2e8f0;
 }
 .seg-row {
   display: inline-flex; gap: 4px;
