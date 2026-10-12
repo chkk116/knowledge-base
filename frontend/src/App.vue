@@ -558,8 +558,21 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
   white-space: normal; line-height: 1.5; height: auto;
   padding-top: 6px; padding-bottom: 6px;
 }
-.layout { height: 100vh; }
-.aside { background: #fff; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; }
+/* 浮动面板式布局：灰色画布 + 侧边栏 / 内容区各自悬浮圆角面板（四周脱离窗口边缘） */
+.layout { height: 100vh; box-sizing: border-box; background: #eef1f6; padding: 8px; gap: 8px; }
+.aside {
+  background: #fff; border: none; border-radius: 16px;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+}
+/* 右侧内容区（顶栏 / 标签页 / 正文）整体一张圆角面板 */
+.layout > .el-container {
+  border-radius: 16px; overflow: hidden; background: #fff;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+}
+html.dark .layout { background: #0e0e12; }
+html.dark .aside { background: #17171f; }
+html.dark .layout > .el-container { background: #17171f; }
 .brand {
   flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
   padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;
@@ -766,10 +779,14 @@ html.dark .help-content code { background: #23234a; }
 .aside-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 1999; }
 
 @media (max-width: 1024px) {
+  /* 窄屏：侧栏改覆盖式抽屉、内容满宽 —— 取消浮动留边与圆角 */
+  .layout { padding: 0; gap: 0; background: transparent; }
+  .layout > .el-container { border-radius: 0; box-shadow: none; }
   .layout .aside {
     position: fixed !important;
     left: 0; top: 0; bottom: 0;
     z-index: 2000;
+    border-radius: 0;
     transform: translateX(-100%);
     transition: transform .26s cubic-bezier(.4, 0, .2, 1);
     box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
