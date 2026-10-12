@@ -496,9 +496,13 @@ const loadOrg = async () => {
 .stat span { font-size: 12px; color: #94a3b8; }
 
 /* ===== 面板（分区圆角卡片：工具栏、表格各自独立一框） ===== */
+.um-page { display: flex; flex-direction: column; }
 .panel { border-radius: 12px; border-color: #eef1f6; margin-bottom: 16px; }
 .panel :deep(.el-card__body) { padding: 16px 18px; }
-.table-panel :deep(.el-card__body) { padding: 4px 4px 12px; }
+/* 表格卡填满剩余高度：盒子铺满，灰底只留在卡片与卡片之间的缝隙里（不再出现大片灰） */
+.table-panel { flex: 1 1 auto; display: flex; flex-direction: column; }
+.table-panel :deep(.el-card__body) { flex: 1 1 auto; display: flex; flex-direction: column; padding: 4px 4px 12px; }
+.table-panel .foot { margin-top: auto; }
 
 /* 工具栏（独立卡片内，无需再画分隔虚线） */
 .toolbar {
