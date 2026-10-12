@@ -97,6 +97,8 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
 
 // 登录页 / 独立阅读窗口：独立整页，不带侧边栏与顶栏
 const barePage = computed(() => route.path === '/login' || route.path.startsWith('/reader/'))
+// 灰画布（浮动卡片）只用于后台管理页；主页等内容页保持原来的白底
+const grayCanvas = computed(() => route.path.startsWith('/admin'))
 
 // 未读通知数（顶栏铃铛红点，来自 SSE 实时推送，详见 store/notification）
 function goNotifications() { router.push('/notifications') }
@@ -497,7 +499,7 @@ function openHelp() { helpVisible.value = true }
         </div>
       </nav>
 
-      <el-main class="main">
+      <el-main class="main" :class="{ canvas: grayCanvas }">
         <!-- 演示账号横幅：全局提示当前处于「只读演示」状态，写操作会被拒绝 -->
         <div v-if="auth.isDemo" class="demo-banner">
           <el-icon><InfoFilled /></el-icon>
@@ -708,9 +710,10 @@ html.dark .tab:hover { background: #23232e; color: #d6d7e0; }
 html.dark .tab.on { background: #232347; color: #a5b4fc; border-color: #3a3a6b; }
 html.dark .tab-x:hover { background: #2f2f3d; color: #f87171; }
 
-/* 内容区底色 = 灰画布：让内部白卡「浮」出来，卡片间空隙为灰色（贴合参考图，边界清晰） */
-.main { padding: 20px 20px 4px; display: flex; flex-direction: column; background: #eef1f6; }
-html.dark .main { background: #0e0e12; }
+.main { padding: 20px 20px 4px; display: flex; flex-direction: column; }
+/* 后台管理页：内容区底色改灰画布，让白卡「浮」出来、卡片间空隙为灰（其余页面保持白底） */
+.main.canvas { background: #eef1f6; }
+html.dark .main.canvas { background: #0e0e12; }
 /* width:100% 必须加：flex 纵向容器的子项若只靠 stretch，遇到根元素自带
    max-width + margin:0 auto 的页面（收藏/排行/勋章/考试等）会被**收缩成内容宽**
    （实测 /favorites 根被压到 311px），表现为「页面被压扁/从手机宽度往外延伸」。
