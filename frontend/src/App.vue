@@ -582,7 +582,7 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
 html.dark .aside.collapsed .brand { background: #23234a; }
 html.dark .aside.collapsed .brand:hover { background: #2a2a35; }
 .aside.collapsed .brand-ico { width: 22px; height: 22px; }
-.menu { border-right: none; padding: 10px 8px; background: transparent; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+.menu { border-right: none; padding: 10px; background: transparent; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
 /* 彩色拟物图标：与文字保持间距；收起态居中不带外边距 */
 .menu .mi { margin-right: 10px; }
 .menu .el-sub-menu__title .mi { margin-right: 10px; }
@@ -591,21 +591,21 @@ html.dark .aside.collapsed .brand:hover { background: #2a2a35; }
 html.dark .aside { background: #14142b; border-right-color: #26264a; }
 
 /* 二级分组（el-sub-menu）标题：圆角 pill + 加粗，作为层级锚点 */
-.menu .el-sub-menu__title { height: 40px; line-height: 40px; margin: 2px 0; border-radius: 8px; color: #334155; font-weight: 600; transition: background-color .15s, color .15s; }
+.menu .el-sub-menu__title { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 10px; color: #334155; font-weight: 600; transition: background-color .15s, color .15s; }
 html.dark .menu .el-sub-menu__title { color: #c3c4d8; }
 .menu .el-sub-menu__title:hover { background: #f1f5f9; color: #4f46e5; }
 html.dark .menu .el-sub-menu__title:hover { background: #23234a; color: #a5b4fc; }
 
 /* 菜单项：圆角 pill。过渡只用 background/color，无重排重绘 */
-.menu .el-menu-item { height: 40px; line-height: 40px; margin: 2px 0; border-radius: 8px; color: #475569; position: relative; transition: background-color .15s, color .15s; }
+.menu .el-menu-item { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 10px; color: #475569; position: relative; transition: background-color .15s, color .15s; }
 html.dark .menu .el-menu-item { color: #b7b8cd; }
 .menu .el-menu-item:hover { background: #f1f5f9; color: #4f46e5; }
 html.dark .menu .el-menu-item:hover { background: #23234a; color: #a5b4fc; }
 
 /* 激活项：浅蓝 pill + 左侧指示条（深蓝） */
-.menu .el-menu-item.is-active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+/* 激活项：浅靛紫圆角胶囊（去左侧指示条 → 整体更圆润，贴合参考图） */
+.menu .el-menu-item.is-active { background: #eff0fe; color: #4f46e5; font-weight: 600; }
 html.dark .menu .el-menu-item.is-active { background: #23234a; color: #a5b4fc; }
-.menu .el-menu-item.is-active::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 16px; border-radius: 0 3px 3px 0; background: #4f46e5; }
 
 /* 二级子项：缩进 + 左侧引导线，制造树形层次 */
 .menu .el-sub-menu .el-menu-item { padding-left: 44px !important; min-width: auto; }
