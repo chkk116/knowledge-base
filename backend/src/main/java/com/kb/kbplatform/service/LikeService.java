@@ -7,9 +7,11 @@ package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.Document;
 import com.kb.kbplatform.domain.PostLike;
+import com.kb.kbplatform.domain.SharedDocLike;
 import com.kb.kbplatform.domain.User;
 import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.repository.LikeRepository;
+import com.kb.kbplatform.repository.SharedLikeRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -28,13 +30,16 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class LikeService {
 
     private final LikeRepository likeRepo;
+    private final SharedLikeRepository sharedLikeRepo;
     private final DocumentRepository docRepo;
     private final UserRepository userRepo;
     private final NotificationService notificationService;
 
-    public LikeService(LikeRepository likeRepo, DocumentRepository docRepo,
-                       UserRepository userRepo, NotificationService notificationService) {
+    public LikeService(LikeRepository likeRepo, SharedLikeRepository sharedLikeRepo,
+                       DocumentRepository docRepo, UserRepository userRepo,
+                       NotificationService notificationService) {
         this.likeRepo = likeRepo;
+        this.sharedLikeRepo = sharedLikeRepo;
         this.docRepo = docRepo;
         this.userRepo = userRepo;
         this.notificationService = notificationService;
@@ -90,5 +95,46 @@ public class LikeService {
         return docRepo.findByStatusAndIdIn("PUBLISHED", new ArrayList<>(ids)).stream()
                 .sorted(Comparator.comparing(Document::getUpdatedAt).reversed())
                 .collect(Collectors.toList());
+    }
+
+    // ===================== 空间文档（SharedDocument）点赞 =====================
+    // 独立表 kb_shared_like，不与 kb_like 混用（生产 ddl-auto=validate，结构需稳定）。
+
+    /**
+     * 切换空间文档点赞：已赞则取消（返回 false），未赞则点赞（返回 true）。
+     * 并发双击的重复插入由 (userId, docId) 唯一约束拦下，按"已点赞"返回。
+     * @param ownerId 空间文档所有者 id（用于点赞通知，可为 null，等于本人则不通知）
+     */
+    @Transactional(noRollbackFor = DataIntegrityViolationException.class)
+    public boolean toggleShared(Long userId, Long docId, Long ownerId) {
+        boolean liked;
+        if (sharedLikeRepo.existsByUserIdAndDocId(userId, docId)) {
+            sharedLikeRepo.deleteByUserIdAndDocId(userId, docId);
+            liked = false;
+        } else {
+            try {
+                sharedLikeRepo.saveAndFlush(new SharedDocLike(userId, docId));
+            } catch (DataIntegrityViolationException e) {
+                return true;   // 并发双击：另一请求已插入，本次不重复计数
+            }
+            liked = true;
+        }
+        if (liked && ownerId != null && !ownerId.equals(userId)) {
+            String username = userRepo.findById(userId).map(User::getUsername).orElse("用户");
+            notificationService.notifyLike(docId, ownerId, userId, username, "你分享的文档");
+        }
+        return liked;
+    }
+
+    /** 空间文档当前点赞数（直接 COUNT 表，不依赖文档上的冗余计数字段） */
+    public int sharedLikeCount(Long docId) {
+        return (int) sharedLikeRepo.countByDocId(docId);
+    }
+
+    /** 我点过赞的空间文档 id 集合（用于前端标记 👍 填充态） */
+    public Set<Long> mySharedLikeIds(Long userId) {
+        return sharedLikeRepo.findByUserId(userId).stream()
+                .map(SharedDocLike::getDocId)
+                .collect(Collectors.toSet());
     }
 }

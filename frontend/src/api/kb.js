@@ -151,6 +151,18 @@ export const toggleLike = (docId) =>
 export const myLikeIds = () =>
   api.get('/likes/mine/ids')
 
+// 通用点赞（跨对象类型：DOC 帖子 / SDOC 空间文档），返回 { liked, likes }
+export const toggleLikeGeneric = (targetType, targetId, ownerId) =>
+  api.post('/likes', { targetType, targetId, ownerId })
+
+// 某对象当前点赞数（进入页面取初始值）
+export const likeCountGeneric = (targetType, targetId) =>
+  api.get('/likes/count', { params: { targetType, targetId } })
+
+// 我点过赞的某类型对象 id 列表（用于标记 👍 填充态）
+export const myLikeIdsGeneric = (targetType) =>
+  api.get('/likes/mine/ids', { params: { targetType } })
+
 // ---- 通知（站内信 / @提醒）----
 export const notificationList = () =>
   api.get('/notifications')

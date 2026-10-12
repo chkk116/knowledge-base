@@ -12,6 +12,11 @@ import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { enhanceVideos, bindImgLightbox, absolutizeMedia, absolutizeMediaHtml } from '../../utils/mediaEnhance'
 import { useRoute, useRouter } from 'vue-router'
 import { getShareDoc } from '../../api/docShare'
+import {
+  getCommentsGeneric, addCommentGeneric, deleteComment, toggleCommentLike, myCommentLikes,
+  getUserCard, followUser, unfollowUser,
+  toggleLikeGeneric, likeCountGeneric, myLikeIdsGeneric,
+} from '../../api/kb'
 import { getCachedDoc, cacheDoc } from '../../utils/offlineStore'
 import { isBookmarked, toggleBookmark } from '../../utils/bookmarks'
 import { toWordHtml, toMarkdown, shareLink, qrDataUrl } from '../../utils/docExport'
@@ -92,6 +97,10 @@ onMounted(async () => {
     cacheDoc(spaceId, data).catch(() => {})
     // 本机阅读统计（「我的数据」页与首页概览用）
     try { recordDocOpen(spaceId, docId, data.title, data.content) } catch { /* ignore */ }
+    // 社交：评论 / 关注作者 / 点赞状态（失败不阻塞阅读）
+    loadComments().catch(() => {})
+    loadAuthor().catch(() => {})
+    loadLikeState().catch(() => {})
   } catch (e) {
     // 离线 / 失败：读缓存
     const c = await getCachedDoc(spaceId, docId).catch(() => null)
@@ -123,6 +132,107 @@ watch(html, async (v) => {
 
 function onScroll(e) {
   scrolled.value = e.target.scrollTop > 32
+}
+
+// ---------- 评论（空间文档走通用评论接口，targetType=SDOC） ----------
+const SDOC_TARGET = 'SDOC'   // 评论挂载对象类型 & 文档点赞对象类型，均为 SDOC
+const comments = ref([])
+const commentText = ref('')
+const commentLikes = ref([])   // 我点过赞的评论 id
+const sending = ref(false)
+const cmtRef = ref(null)
+
+async function loadComments() {
+  try {
+    const [{ data }, likes] = await Promise.all([
+      getCommentsGeneric(SDOC_TARGET, docId),
+      myCommentLikes().catch(() => ({ data: [] })),
+    ])
+    comments.value = data || []
+    commentLikes.value = (likes?.data || []).map(Number)
+  } catch { comments.value = [] }
+}
+
+async function sendComment() {
+  const t = (commentText.value || '').trim()
+  if (!t) { window.__kbMsg?.warning('请输入评论内容'); return }
+  if (sending.value) return
+  sending.value = true
+  try {
+    await addCommentGeneric(SDOC_TARGET, docId, t)
+    commentText.value = ''
+    await loadComments()
+    window.__kbMsg?.success('评论已发表')
+  } catch (e) {
+    window.__kbMsg?.error('评论失败：' + (e?.response?.data?.error || e.message || '未知错误'))
+  } finally { sending.value = false }
+}
+
+async function removeComment(cid) {
+  try { await deleteComment(cid); await loadComments(); window.__kbMsg?.success('已删除') }
+  catch { window.__kbMsg?.warning('删除失败') }
+}
+
+async function likeComment(c) {
+  try {
+    const { data } = await toggleCommentLike(c.id)
+    c.likes = data?.likes ?? c.likes
+    const set = new Set(commentLikes.value)
+    if (data?.liked) set.add(Number(c.id)); else set.delete(Number(c.id))
+    commentLikes.value = [...set]
+  } catch { /* ignore */ }
+}
+
+function isMine(c) {
+  const me = Number(localStorage.getItem('kb_user_id') || 0)
+  return !!me && Number(c.userId || 0) === me
+}
+
+function scrollToComments() {
+  cmtRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+}
+
+// ---------- 关注作者 ----------
+const authorCard = ref(null)
+const following = ref(false)
+async function loadAuthor() {
+  const uid = doc.value?.ownerId
+  if (!uid) return
+  try {
+    const { data } = await getUserCard(uid)
+    authorCard.value = data
+    following.value = !!data?.isFollowing
+  } catch { /* 拿不到就不显示关注按钮 */ }
+}
+async function toggleFollow() {
+  const uid = authorCard.value?.id || doc.value?.ownerId
+  if (!uid) return
+  try {
+    if (following.value) await unfollowUser(uid); else await followUser(uid)
+    following.value = !following.value
+    window.__kbMsg?.success(following.value ? '已关注' : '已取消关注')
+  } catch { window.__kbMsg?.warning('操作失败，请稍后重试') }
+}
+
+// ---------- 点赞（空间文档通用点赞，targetType=SDOC） ----------
+const liked = ref(false)
+const likeCount = ref(0)
+async function onLike() {
+  try {
+    const { data } = await toggleLikeGeneric(SDOC_TARGET, docId, doc.value?.ownerId)
+    liked.value = !!data?.liked
+    likeCount.value = data?.likes ?? likeCount.value
+  } catch { window.__kbMsg?.warning('操作失败，请稍后重试') }
+}
+async function loadLikeState() {
+  try {
+    const [mine, cnt] = await Promise.all([
+      myLikeIdsGeneric(SDOC_TARGET).catch(() => ({ data: [] })),
+      likeCountGeneric(SDOC_TARGET, docId).catch(() => ({ data: { likes: 0 } })),
+    ])
+    liked.value = (mine?.data || []).map(Number).includes(docId)
+    likeCount.value = cnt?.data?.likes ?? 0
+  } catch { /* ignore */ }
 }
 
 // ---------- 更多操作（导出 / 分享 / 收藏 / 历史版本） ----------
@@ -226,6 +336,10 @@ function fmtDate(s) {
         <div class="body">
           <h1 class="dv-h1">{{ doc.title || '未命名文档' }}</h1>
           <div class="dv-meta">
+            <span>{{ doc.ownerName || '匿名' }}</span>
+            <button v-if="authorCard?.id" class="follow-mini" :class="{ on: following }"
+                    type="button" @click="toggleFollow">{{ following ? '已关注' : '关注' }}</button>
+            <span class="dot">·</span>
             <span>{{ fmtDate(doc.updatedAt || doc.createdAt) }}</span>
             <span v-if="fromCache" class="m-chip orange">离线缓存</span>
           </div>
@@ -235,6 +349,34 @@ function fmtDate(s) {
           <EditorContent :editor="editor" />
           <p v-if="!html" style="color:var(--m-text-dim)">（空文档）</p>
         </div>
+
+        <!-- 评论 -->
+        <div ref="cmtRef" class="body">
+          <div class="m-sec-title">评论<span v-if="comments.length"> ({{ comments.length }})</span></div>
+          <div class="m-card">
+            <div class="cmt-input">
+              <textarea v-model="commentText" rows="2" maxlength="500" placeholder="写下你的评论…"></textarea>
+              <button class="m-btn sm" :disabled="sending" @click="sendComment">{{ sending ? '发送中…' : '发送' }}</button>
+            </div>
+            <div v-if="!comments.length" class="cmt-empty">还没有评论，来说两句吧</div>
+            <div v-for="c in comments" :key="c.id" class="cmt">
+              <div class="cmt-top">
+                <span class="cmt-name">{{ c.username || c.userName || '匿名' }}</span>
+                <span class="cmt-time">{{ fmtDate(c.createdAt) }}</span>
+              </div>
+              <div class="cmt-text">{{ c.content }}</div>
+              <div class="cmt-acts">
+                <button class="cmt-act" :class="{ on: commentLikes.includes(Number(c.id)) }"
+                        type="button" @click="likeComment(c)">
+                  <el-icon :size="14"><component :is="commentLikes.includes(Number(c.id)) ? 'StarFilled' : 'Star'" /></el-icon>
+                  <span>{{ c.likes || 0 }}</span>
+                </button>
+                <button v-if="isMine(c)" class="cmt-act" type="button" @click="removeComment(c.id)">删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div style="height:90px"></div>
       </template>
 
@@ -245,13 +387,19 @@ function fmtDate(s) {
       </div>
     </div>
 
-    <!-- 底部操作条：收藏 + 编辑 -->
-    <div v-if="doc" class="m-actionbar bar">
-      <button class="bar-fav" :class="{ on: bookmarked }" @click="doFav">
-        <el-icon :size="19"><component :is="bookmarked ? 'StarFilled' : 'Star'" /></el-icon>
+    <!-- 底部操作条：点赞 + 收藏 + 评论 -->
+    <div v-if="doc" class="m-actionbar pv-bar">
+      <button class="bar-btn" :class="{ on: liked }" @click="onLike">
+        <el-icon :size="19"><component :is="liked ? 'StarFilled' : 'Star'" /></el-icon>
+        <span>{{ likeCount || '点赞' }}</span>
       </button>
-      <button class="m-btn" @click="router.push(`/doc/${spaceId}/${docId}/edit`)">
-        <el-icon><EditPen /></el-icon> 编辑这篇文档
+      <button class="bar-btn" :class="{ on: bookmarked }" @click="doFav">
+        <el-icon :size="19"><component :is="bookmarked ? 'StarFilled' : 'Star'" /></el-icon>
+        <span>{{ bookmarked ? '已收藏' : '收藏' }}</span>
+      </button>
+      <button class="bar-btn" type="button" @click="scrollToComments">
+        <el-icon :size="19"><ChatDotRound /></el-icon>
+        <span>{{ comments.length || '评论' }}</span>
       </button>
     </div>
 
@@ -370,4 +518,45 @@ function fmtDate(s) {
   width: 38px; height: 38px; border-radius: 50%; border: none;
   background: rgba(255, 255, 255, .16); color: #fff; font-size: 20px;
 }
+
+/* 元信息分隔点 */
+.dv-meta .dot { opacity: .5; }
+
+/* 底部条：点赞 / 收藏 / 评论 */
+.pv-bar { gap: 10px; }
+.bar-btn {
+  flex: 1 1 0; height: 44px; border-radius: 12px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid var(--m-border); background: var(--m-card); color: var(--m-text-sub); font-size: 14.5px;
+}
+.bar-btn.on { color: var(--m-warn); border-color: var(--m-warn); background: var(--m-card); }
+
+/* 关注作者 */
+.follow-mini {
+  margin-left: 6px; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--m-primary); background: transparent; color: var(--m-primary);
+  font-size: 11.5px; cursor: pointer;
+}
+.follow-mini.on { border-color: var(--m-border); color: var(--m-text-dim); }
+
+/* 评论区 */
+.m-sec-title { padding: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--m-text); }
+.cmt-input { padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.cmt-input textarea {
+  width: 100%; box-sizing: border-box; resize: none; padding: 9px 10px;
+  border: 1px solid var(--m-border); border-radius: 8px; background: var(--m-card-2);
+  color: var(--m-text); font-size: 14.5px; font-family: inherit;
+}
+.cmt-empty { padding: 4px 12px 14px; font-size: 13px; color: var(--m-text-dim); text-align: center; }
+.cmt { padding: 10px 12px; border-top: 1px solid var(--m-border); }
+.cmt-top { display: flex; align-items: baseline; gap: 8px; }
+.cmt-name { font-size: 13.5px; font-weight: 600; color: var(--m-text); }
+.cmt-time { font-size: 11.5px; color: var(--m-text-dim); }
+.cmt-text { margin-top: 4px; font-size: 14px; line-height: 1.65; color: var(--m-text-sub); white-space: pre-wrap; word-break: break-word; }
+.cmt-acts { margin-top: 6px; display: flex; gap: 14px; }
+.cmt-act {
+  display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent;
+  color: var(--m-text-dim); font-size: 12.5px; cursor: pointer; padding: 0;
+}
+.cmt-act.on { color: var(--m-warn); }
 </style>

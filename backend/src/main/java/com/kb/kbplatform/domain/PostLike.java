@@ -9,8 +9,10 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 /**
- * 点赞记录：用户对某篇文档的点赞关系。
+ * 点赞记录：用户对某篇文档（知识库帖子，Document）的点赞关系。
  * (userId, docId) 唯一，防止重复点赞；实体名用 PostLike 避免与 JPQL 关键字 LIKE 冲突。
+ * ⚠️ 空间文档（SharedDocument）的点赞走独立的 {@link SharedDocLike} 表，
+ *    不在此表——保持本表结构稳定（生产 ddl-auto=validate，改动需手动迁移）。
  */
 @Entity
 @Table(name = "kb_like",
