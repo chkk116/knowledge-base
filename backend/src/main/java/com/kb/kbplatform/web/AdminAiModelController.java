@@ -74,6 +74,7 @@ public class AdminAiModelController {
     /** 智谱走 open.bigmodel.cn 的 v4 端点，model id 一律小写；5.x 起是推理模型，注意 thinking 会吃 token */
     static final List<Map<String, Object>> ZHIPU_MODELS = List.of(
             mv("glm-5.3", "GLM-5.3（最新旗舰）"),
+            mv("glm-5.3-flash", "GLM-5.3-Flash（旗舰快速版·约9倍性价比/多模态）"),
             mv("glm-5.2", "GLM-5.2"),
             mv("glm-5.1", "GLM-5.1（上一代旗舰，长程任务）"),
             mv("glm-5", "GLM-5（5 系首代）"),
