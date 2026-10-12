@@ -1,4 +1,5 @@
 <script setup>
+import { Operation } from '@element-plus/icons-vue'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -134,9 +135,12 @@ onMounted(load)
 <template>
   <div class="maintain">
     <div class="head">
+      <div class="head-left">
+      <div class="head-icon"><el-icon :size="22"><Operation /></el-icon></div>
       <div>
         <h2>功能开关</h2>
         <p class="sub">逐功能管理对外开放状态与维护信息。关闭后入口隐藏并跳转「敬请期待」，可随时重新开启或编辑维护公告。</p>
+      </div>
       </div>
       <el-tag type="info" effect="plain">已开启 {{ enabledCount }} / {{ items.length }}</el-tag>
     </div>
@@ -287,4 +291,9 @@ html.dark .admin-link { color: #a5b4fc; }
   .group :deep(.el-table .cell) { padding-left: 6px; padding-right: 6px; }
   .group :deep(.el-table .cell > .el-button) { margin-left: 4px; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.head-left { display: flex; align-items: flex-start; gap: 14px; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #dcfce7; color: #16a34a; }
+html.dark .head-icon { background: rgb(22 163 74 / .2); color: #86efac; }
 </style>

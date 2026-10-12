@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, Picture, Headset } from '@element-plus/icons-vue'
+import { Loading, Picture, Headset, Paperclip } from '@element-plus/icons-vue'
 import PageBar from '../../components/PageBar.vue'
 import { listOrphanFiles, deleteOrphanFile } from '../../api/admin'
 import { errMsg } from '../../utils/errMsg'
@@ -134,8 +134,11 @@ onMounted(load)
 <template>
   <div class="attach">
     <div class="attach-header">
-      <h2>附件管理</h2>
+      <div class="head-left">
+        <div class="head-icon"><el-icon :size="22"><Paperclip /></el-icon></div>
+        <h2>附件管理</h2>
       <span class="tip">未被任何文档引用的上传文件（孤儿文件）。建议定期清理以节省磁盘。</span>
+      </div>
       <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
     </div>
 
@@ -252,4 +255,9 @@ html.dark .thumb { border-color: var(--el-border-color); }
   .attach-loading { padding: 40px 12px; font-size: 13px; }
   :deep(.el-table) { font-size: 13px; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.head-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #e0f2fe; color: #0284c7; }
+html.dark .head-icon { background: rgb(2 132 199 / .18); color: #7dd3fc; }
 </style>

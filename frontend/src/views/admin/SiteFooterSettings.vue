@@ -16,6 +16,7 @@
  */
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Document } from '@element-plus/icons-vue'
 import { useSiteInfoStore, ICP_URL, policeUrl } from '../../store/siteInfo'
 import { APP_VERSION } from '../../utils/appInfo'
 
@@ -64,11 +65,14 @@ async function clearAll() {
 <template>
   <div class="sf-page">
     <div class="page-head">
-      <h2>页脚设置</h2>
-      <p class="sub">
-        网站底部展示的备案信息与自定义内容。留空即不显示；全部为空时页脚整体隐藏（本地开发默认如此）。
-        版本号由构建自动生成，无需填写。
-      </p>
+      <div class="head-icon"><el-icon :size="22"><Document /></el-icon></div>
+      <div class="head-text">
+        <h2>页脚设置</h2>
+        <p class="sub">
+          网站底部展示的备案信息与自定义内容。留空即不显示；全部为空时页脚整体隐藏（本地开发默认如此）。
+          版本号由构建自动生成，无需填写。
+        </p>
+      </div>
     </div>
 
     <el-card class="cfg" shadow="never">
@@ -170,9 +174,12 @@ async function clearAll() {
 
 <style scoped>
 .sf-page { max-width: 900px; }
-.page-head { margin-bottom: 18px; }
-.page-head h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
-.page-head .sub { margin: 6px 0 0; font-size: 13px; line-height: 1.7; color: var(--el-text-color-secondary); }
+.page-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #ffedd5; color: #ea580c; }
+html.dark .head-icon { background: rgb(234 88 12 / .2); color: #fdba74; }
+.head-text { flex: 1; min-width: 220px; }
+.head-text h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--el-text-color-primary); }
+.head-text .sub { margin: 6px 0 0; font-size: 13px; line-height: 1.7; color: var(--el-text-color-secondary); }
 .card-title { font-weight: 600; }
 .cfg { margin-bottom: 16px; }
 .cfg :deep(.el-form-item) { margin-bottom: 18px; }

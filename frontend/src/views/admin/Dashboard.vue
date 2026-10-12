@@ -400,11 +400,12 @@ const canOpen = (a) => !!(a && a.docId)
 .dash-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .dash-title { display: flex; align-items: center; gap: 14px; }
 .dt-icon {
-  width: 44px; height: 44px; border-radius: 8px; color: #fff; font-size: 22px;
+  width: 44px; height: 44px; border-radius: 12px; font-size: 22px;
   display: flex; align-items: center; justify-content: center;
-  background: #6366f1;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, .08);
+  background: #e0e7ff; color: #4f46e5;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .06);
 }
+html.dark .dt-icon { background: rgb(79 70 229 / .2); color: #a5b4fc; }
 .dt-txt h2 { margin: 0; font-size: 22px; color: #0f172a; letter-spacing: .5px; }
 html.dark .dt-txt h2 { color: #f1f5f9; }
 .dt-txt .sub { margin: 3px 0 0; font-size: 13px; color: #94a3b8; }

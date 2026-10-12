@@ -1,4 +1,5 @@
 <script setup>
+import { Brush } from '@element-plus/icons-vue'
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../../api/request'
@@ -90,8 +91,11 @@ async function save() {
 <template>
   <div class="ap-page">
     <div class="page-head">
-      <h2>外观设置</h2>
+      <div class="head-icon"><el-icon :size="22"><Brush /></el-icon></div>
+      <div class="head-text">
+        <h2>外观设置</h2>
       <p class="sub">自定义站点 Logo（侧栏顶部的知识库图标）与个人资料页背景图，全站生效。清除后恢复系统内置默认。</p>
+      </div>
     </div>
 
     <div class="ap-grid">
@@ -164,4 +168,10 @@ async function save() {
 @media (max-width: 640px) {
   .ap-page { padding: 12px; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.page-head { display: flex; align-items: flex-start; gap: 14px; }
+.head-text { flex: 1; min-width: 0; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #f3e8ff; color: #9333ea; }
+html.dark .head-icon { background: rgb(147 51 234 / .2); color: #d8b4fe; }
 </style>

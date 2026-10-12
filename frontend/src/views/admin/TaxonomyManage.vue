@@ -1,4 +1,5 @@
 <script setup>
+import { PriceTag } from '@element-plus/icons-vue'
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -90,8 +91,13 @@ onMounted(load)
 
 <template>
   <div class="tax">
-    <h2>分类与标签管理</h2>
+    <div class="head-left">
+      <div class="head-icon"><el-icon :size="22"><PriceTag /></el-icon></div>
+      <div class="head-text">
+        <h2>分类与标签管理</h2>
     <p class="tip">分类支持层级（树）；标签用于正文聚合与筛选。规范后的分类/标签会出现在发帖选择与首页筛选中。</p>
+      </div>
+    </div>
     <div class="cols">
       <section class="card">
         <div class="hd">分类树</div>
@@ -176,4 +182,10 @@ html.dark .tg .x:hover { color: #f87171; }
   .tag-add { flex-wrap: wrap; }
   .tag-add :deep(.el-input) { width: 100%; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.head-left { display: flex; align-items: flex-start; gap: 14px; }
+.head-text { flex: 1; min-width: 0; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #ccfbf1; color: #0d9488; }
+html.dark .head-icon { background: rgb(13 148 136 / .2); color: #5eead4; }
 </style>

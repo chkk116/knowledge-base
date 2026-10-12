@@ -1,4 +1,5 @@
 <script setup>
+import { Iphone } from '@element-plus/icons-vue'
 /**
  * 登录页二维码设置（2026-10-06 改版：items 个性化列表）
  *
@@ -146,8 +147,11 @@ async function save() {
 <template>
   <div class="lq-page">
     <div class="page-head">
-      <h2>登录页二维码</h2>
+      <div class="head-icon"><el-icon :size="22"><Iphone /></el-icon></div>
+      <div class="head-text">
+        <h2>登录页二维码</h2>
       <p class="sub">登录页左下角的二维码区完全可个性化：数量不限，每项可自定义下方文字、扫码内容（链接或任意文本），或直接上传现成二维码图片。保存后即时生效，无需重启。</p>
+      </div>
     </div>
 
     <div class="lq-grid">
@@ -272,4 +276,10 @@ async function save() {
   .actions { flex-direction: column; }
   .actions .el-button { width: 100%; margin-left: 0 !important; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.page-head { display: flex; align-items: flex-start; gap: 14px; }
+.head-text { flex: 1; min-width: 0; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #ffe4e6; color: #e11d48; }
+html.dark .head-icon { background: rgb(225 29 72 / .18); color: #fda4af; }
 </style>

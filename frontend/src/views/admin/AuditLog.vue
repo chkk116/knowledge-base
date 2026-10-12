@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import {
   UserFilled, Delete, EditPen, Switch, Key, Coin,
   DocumentAdd, DocumentDelete, Lock, Unlock, Select, Close, Search,
-  DocumentCopy, User, FolderOpened, Reading,
+  DocumentCopy, User, FolderOpened, Reading, Tickets,
 } from '@element-plus/icons-vue'
 import { listAudit } from '../../api/admin'
 import { errMsg } from '../../utils/errMsg'
@@ -131,8 +131,11 @@ onMounted(load)
 <template>
   <div class="audit">
     <div class="audit-header">
-      <h2>操作审计</h2>
+      <div class="head-left">
+        <div class="head-icon"><el-icon :size="22"><Tickets /></el-icon></div>
+        <h2>操作审计</h2>
       <span class="tip">记录管理员的关键操作（用户 / 文档 / 共享空间管理、权限变更、重置密码等）</span>
+      </div>
     </div>
 
     <el-tabs v-model="domain" class="seg" @tab-change="onDomain">
@@ -255,4 +258,9 @@ html.dark .expand { color: var(--el-text-color-regular); }
   .expand { padding: 6px 12px; font-size: 12px; line-height: 1.7; }
   :deep(.el-table) { font-size: 13px; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.head-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #e0e7ff; color: #4f46e5; }
+html.dark .head-icon { background: rgb(79 70 229 / .2); color: #a5b4fc; }
 </style>

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { View, Hide, Top } from '@element-plus/icons-vue'
+import { View, Hide, Top, Bell } from '@element-plus/icons-vue'
 import { errMsg } from '../../utils/errMsg'
 import {
   listAnnouncementsAdmin,
@@ -148,7 +148,10 @@ onMounted(load)
 <template>
   <div class="ann-manage">
     <div class="ann-header">
-      <h2>公告管理</h2>
+      <div class="head-left">
+        <div class="head-icon"><el-icon :size="22"><Bell /></el-icon></div>
+        <h2>公告管理</h2>
+      </div>
       <el-button type="primary" @click="openCreate">新建公告</el-button>
     </div>
 
@@ -262,4 +265,9 @@ html.dark .st.off { background: #23232e; }
   .st { font-size: 12px; padding: 2px 8px; }
   :deep(.el-table) { font-size: 13px; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.head-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #fef3c7; color: #d97706; }
+html.dark .head-icon { background: rgb(217 119 6 / .2); color: #fcd34d; }
 </style>

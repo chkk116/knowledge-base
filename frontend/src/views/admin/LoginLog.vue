@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { Search, CircleCheck, CircleClose, Key } from '@element-plus/icons-vue'
 import { listLoginLogs } from '../../api/admin'
 import { errMsg } from '../../utils/errMsg'
 
@@ -71,8 +71,11 @@ onMounted(load)
 <template>
   <div class="ll">
     <div class="ll-header">
-      <h2>登录日志</h2>
+      <div class="head-left">
+        <div class="head-icon"><el-icon :size="22"><Key /></el-icon></div>
+        <h2>登录日志</h2>
       <span class="tip">记录每次登录尝试（成功 / 失败及原因），用于安全审计与异常登录排查</span>
+      </div>
     </div>
 
     <!-- 搜索条：用户名 + 结果 + 时间范围 -->
@@ -183,4 +186,9 @@ html.dark .expand { color: var(--el-text-color-regular); }
   .expand { padding: 6px 12px; font-size: 12px; line-height: 1.7; }
   :deep(.el-table) { font-size: 13px; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.head-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #ede9fe; color: #7c3aed; }
+html.dark .head-icon { background: rgb(124 58 237 / .2); color: #c4b5fd; }
 </style>

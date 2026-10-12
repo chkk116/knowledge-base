@@ -1,4 +1,5 @@
 <script setup>
+import { Stamp } from '@element-plus/icons-vue'
 import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useWatermarkStore, buildContent } from '../../store/watermark'
@@ -21,8 +22,11 @@ function reset() {
 <template>
   <div class="wm-page">
     <div class="page-head">
-      <h2>全局水印设置</h2>
+      <div class="head-icon"><el-icon :size="22"><Stamp /></el-icon></div>
+      <div class="head-text">
+        <h2>全局水印设置</h2>
       <p class="sub">开启后，全站页面将叠加半透明水印，显示当前登录用户与时间，用于内部资料防泄密。配置由管理员统一设置、全员生效。</p>
+      </div>
     </div>
 
     <div class="wm-grid">
@@ -162,4 +166,10 @@ function reset() {
   .actions { flex-direction: column; }
   .actions .el-button { width: 100%; margin-left: 0 !important; }
 }
+
+/* 页头彩色图标徽章（与用户管理页统一） */
+.page-head { display: flex; align-items: flex-start; gap: 14px; }
+.head-text { flex: 1; min-width: 0; }
+.head-icon { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #e2e8f0; color: #475569; }
+html.dark .head-icon { background: rgb(71 85 105 / .25); color: #cbd5e1; }
 </style>
