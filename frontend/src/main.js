@@ -94,6 +94,7 @@ import App from './App.vue'
 import router from './router'
 import { stackTable } from './utils/stackTable'
 import './theme.css'
+import './ui-polish.css'
 import './responsive.css'
 
 // 初始化主题：localStorage('kb_theme') 优先，否则跟随系统偏好
