@@ -41,8 +41,10 @@ import VideoNode from '../../extensions/VideoNode'
 const route = useRoute()
 const router = useRouter()
 
-const spaceId = Number(route.params.spaceId)
-const docId = Number(route.params.docId)
+// let + watch 同步：组件复用切换文档时同步参数并重载（外部审查 2026-10-12：
+// 原 const 固化，复用后全接口打错目标）
+let spaceId = Number(route.params.spaceId)
+let docId = Number(route.params.docId)
 
 const doc = ref(null)
 const loading = ref(true)
@@ -90,28 +92,42 @@ function openInEditor() {
 // 图片灯箱：点正文图片全屏看原图
 const lightboxSrc = ref('')
 
-onMounted(async () => {
+// 文档加载抽成函数，供 onMounted 与路由参数 watch 复用（外部审查 2026-10-12：
+// 原 spaceId/docId 是 setup 时固化的 const，组件复用切换文档后全接口打错目标）
+async function loadDoc(sid, did) {
+  loading.value = true
   try {
-    const { data } = await getShareDoc(spaceId, docId)
+    const { data } = await getShareDoc(sid, did)
     doc.value = data
-    cacheDoc(spaceId, data).catch(() => {})
+    cacheDoc(sid, data).catch(() => {})
     // 本机阅读统计（「我的数据」页与首页概览用）
-    try { recordDocOpen(spaceId, docId, data.title, data.content) } catch { /* ignore */ }
+    try { recordDocOpen(sid, did, data.title, data.content) } catch { /* ignore */ }
     // 社交：评论 / 关注作者 / 点赞状态（失败不阻塞阅读）
     loadComments().catch(() => {})
     loadAuthor().catch(() => {})
     loadLikeState().catch(() => {})
   } catch (e) {
     // 离线 / 失败：读缓存
-    const c = await getCachedDoc(spaceId, docId).catch(() => null)
+    const c = await getCachedDoc(sid, did).catch(() => null)
     if (c) {
-      doc.value = { id: docId, title: c.title, content: c.html, updatedAt: c.updatedAt }
+      doc.value = { id: did, title: c.title, content: c.html, updatedAt: c.updatedAt }
       fromCache.value = true
     } else {
       window.__kbMsg?.error('无法打开文档：' + (e.response?.data?.error || e.message || '未知错误'))
     }
   } finally {
     loading.value = false
+  }
+}
+onMounted(() => loadDoc(spaceId, docId))
+// 组件复用（/doc/1/2 → /doc/1/3）时同步参数并重载
+watch([() => route.params.spaceId, () => route.params.docId], ([ns, nd]) => {
+  const sid = Number(ns)
+  const did = Number(nd)
+  if (sid && did && (sid !== spaceId || did !== docId)) {
+    spaceId = sid
+    docId = did
+    loadDoc(sid, did)
   }
 })
 
@@ -245,8 +261,17 @@ function openMore() {
   showMore.value = true
 }
 
+// 编辑入口按权限显示（外部审查 2026-10-12）：无权限用户点击也会被服务端拒绝，
+// 但入口本身不该暴露。当前用 ownerId 比对（保守：仅所有者可见）；
+// TODO: 后续由后端详情接口下发 canEdit（空间成员 EDITOR 角色）后替换为权限判断。
+const canEditDoc = computed(() => {
+  const oid = doc.value?.ownerId
+  const me = Number(localStorage.getItem('kb_user_id') || 0)
+  return !!oid && !!me && Number(oid) === me
+})
 function goEdit() {
   showMore.value = false
+  if (!canEditDoc.value) { window.__kbMsg?.warning('你没有编辑这篇文档的权限'); return }
   router.push(`/doc/${spaceId}/${docId}/edit`)
 }
 
@@ -409,7 +434,7 @@ function fmtDate(s) {
         <div class="m-sheet" @click.stop>
           <div class="m-sheet-grip"></div>
           <div class="m-sheet-title">更多操作</div>
-          <button class="m-sheet-item" @click="goEdit"><span class="mi"><el-icon><EditPen /></el-icon></span>编辑这篇文档</button>
+          <button v-if="canEditDoc" class="m-sheet-item" @click="goEdit"><span class="mi"><el-icon><EditPen /></el-icon></span>编辑这篇文档</button>
           <button class="m-sheet-item" @click="doFav">
             <span class="mi"><el-icon><component :is="bookmarked ? 'StarFilled' : 'Star'" /></el-icon></span>
             {{ bookmarked ? '取消收藏' : '收藏（稍后读）' }}

@@ -29,6 +29,8 @@ export default Node.create({
             ? el.querySelector('source').getAttribute('src')
             : '') ||
           '',
+        // 空 src 省略属性：否则 Tiptap 输出 src="" 会让浏览器对当前页发起伪请求
+        renderHTML: (attrs) => (attrs.src ? { src: attrs.src } : {}),
       },
       poster: {
         default: '',

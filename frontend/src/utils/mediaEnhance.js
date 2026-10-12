@@ -76,11 +76,21 @@ export function enhanceVideos(container) {
  *
  * 网页端：resolveUrl 原样返回，本函数直接返回原串（无副作用）。
  */
+// HTML 属性值转义：resolveUrl 结果拼进属性前必须转义，否则 URL 里的引号/尖括号
+// 会破坏属性边界（外部审查 2026-10-12）
+function escAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
 export function absolutizeMediaHtml(html) {
   if (!html || typeof html !== 'string') return html
   return html.replace(
     /(src|poster|data-full)="\/([^"]*)"/g,
-    (_full, attr, path) => attr + '="' + resolveUrl('/' + path) + '"'
+    (_full, attr, path) => {
+      // 协议相对地址（//host/x）不能被拼成站内路径——DOM 版 absolutizeMedia 有 // 守卫，
+      // HTML 字符串版原来漏了（外部审查 2026-10-12）
+      if (path.startsWith('/')) return _full
+      return attr + '="' + escAttr(resolveUrl('/' + path)) + '"'
+    }
   )
 }
 

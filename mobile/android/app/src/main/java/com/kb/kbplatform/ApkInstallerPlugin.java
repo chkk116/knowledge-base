@@ -61,7 +61,10 @@ public class ApkInstallerPlugin extends Plugin {
     private static final int NOTIF_ID = 9001;
     private static final int REQ_POST_NOTIF = 9101;
     /** 同一个包只允许一个下载任务在跑 */
-    private volatile boolean downloading = false;
+    /** 下载任务互斥：AtomicBoolean 保证 check-then-act 原子性
+     * （外部审查 2026-10-12：volatile 只保证可见性，并发调用会双下载写同一文件） */
+    private final java.util.concurrent.atomic.AtomicBoolean downloading =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     @PluginMethod
     public void downloadAndInstall(final PluginCall call) {
@@ -70,7 +73,7 @@ public class ApkInstallerPlugin extends Plugin {
             call.reject("缺少下载地址");
             return;
         }
-        if (downloading) {
+        if (!downloading.compareAndSet(false, true)) {
             call.reject("已有下载任务在进行中");
             return;
         }
@@ -84,7 +87,6 @@ public class ApkInstallerPlugin extends Plugin {
             call.reject("更新包缺少 SHA-256 校验值，已拒绝安装");
             return;
         }
-        downloading = true;
         // 通知栏进度：先建渠道（Android 8+），再按需申请通知权限（Android 13+）。
         // 被拒绝也不影响下载，只是通知栏不显示。
         ensureChannel();
@@ -107,7 +109,7 @@ public class ApkInstallerPlugin extends Plugin {
                 showFailNotification(String.valueOf(e.getMessage()));
                 call.reject("下载失败：" + e.getMessage());
             } finally {
-                downloading = false;
+                downloading.set(false);
             }
         }, "kb-apk-download").start();
     }
@@ -120,7 +122,20 @@ public class ApkInstallerPlugin extends Plugin {
             call.reject("缺少文件路径");
             return;
         }
+        // 外部审查 2026-10-12：filePath 由 JS 传入，必须校验规范化后位于本插件自己的
+        // 缓存目录内——否则被注入的 JS 可让本应用安装设备上任意 APK。
+        File dir = new File(getContext().getCacheDir(), "update");
         File f = new File(path);
+        try {
+            String dirCanon = dir.getCanonicalPath() + File.separator;
+            if (!f.getCanonicalPath().startsWith(dirCanon)) {
+                call.reject("非法的安装包路径");
+                return;
+            }
+        } catch (Exception e) {
+            call.reject("路径校验失败");
+            return;
+        }
         if (!f.exists()) {
             call.reject("安装包不存在，请重新下载");
             return;
@@ -131,28 +146,49 @@ public class ApkInstallerPlugin extends Plugin {
 
     // ---------------- 内部实现 ----------------
 
+    /**
+     * 打开连接并手动处理重定向（外部审查 2026-10-12）。
+     * 原来一刀切 setInstanceFollowRedirects(false) 又无手动处理，CDN 类 301/302 地址
+     * 直接报「HTTP 3xx」失败。这里手动跟随，但**每一跳都重新校验 https + 域名白名单**，
+     * 防止 https→http 降级或跨域重定向绕过 URL 校验（简单放开自动跟随会作废该防线）。
+     */
+    private HttpURLConnection openValidated(String urlStr) throws Exception {
+        String cur = urlStr;
+        for (int hop = 0; hop < 4; hop++) {
+            if (!cur.startsWith("https://")) throw new Exception("更新地址必须为 HTTPS");
+            // 原生层域名白名单：host 必须在构建期注入的 kb_allowed_hosts 内。
+            // 这是最后一道防线——WebView 内被注入的 JS 可以绕过 JS 侧校验直接调桥，
+            // 只有原生自己持有的白名单才拦得住（外部审查 2026-10-11）。
+            java.util.Set<String> allowed = allowedHosts();
+            String host = new URL(cur).getHost();
+            if (allowed.isEmpty()) throw new Exception("App 未配置允许的更新域名（KB_ALLOWED_HOSTS），已拒绝下载");
+            if (!allowed.contains(host)) throw new Exception("更新地址域名不在白名单内");
+            HttpURLConnection c = (HttpURLConnection) new URL(cur).openConnection();
+            c.setConnectTimeout(20_000);
+            c.setReadTimeout(60_000);
+            // 禁止自动跟随重定向：由本方法按上面的口径逐跳校验
+            c.setInstanceFollowRedirects(false);
+            c.connect();
+            int code = c.getResponseCode();
+            String loc = c.getHeaderField("Location");
+            if (code >= 300 && code < 400 && loc != null && !loc.isBlank()) {
+                c.disconnect();
+                cur = new URL(new URL(cur), loc).toString();   // 相对 Location 基于当前 URL 解析
+                continue;
+            }
+            return c;
+        }
+        throw new Exception("重定向次数过多");
+    }
+
     private File download(String url, String fileName, String expectedSha256) throws Exception {
-        // 原生层白名单兜底：只允许 https（JS 侧已校验，这里防未来新增调用点漏检）
-        if (!url.startsWith("https://")) throw new Exception("更新地址必须为 HTTPS");
-        // 原生层域名白名单：host 必须在构建期注入的 kb_allowed_hosts 内。
-        // 这是最后一道防线——WebView 内被注入的 JS 可以绕过 JS 侧校验直接调桥，
-        // 只有原生自己持有的白名单才拦得住（外部审查 2026-10-11）。
-        java.util.Set<String> allowed = allowedHosts();
-        String host = new URL(url).getHost();
-        if (allowed.isEmpty()) throw new Exception("App 未配置允许的更新域名（KB_ALLOWED_HOSTS），已拒绝下载");
-        if (!allowed.contains(host)) throw new Exception("更新地址域名不在白名单内");
         File dir = new File(getContext().getCacheDir(), "update");
         if (!dir.exists() && !dir.mkdirs()) throw new Exception("无法创建缓存目录");
         File out = new File(dir, fileName);
         if (out.exists() && !out.delete()) throw new Exception("无法覆盖旧安装包");
 
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setConnectTimeout(20_000);
-        conn.setReadTimeout(60_000);
-        // 禁止自动跟随重定向：防 https→http 降级或跨域重定向绕过 URL 校验
-        conn.setInstanceFollowRedirects(false);
-        conn.connect();
-
+        // 手动跟随重定向（每跳验 https + 白名单），见 openValidated
+        HttpURLConnection conn = openValidated(url);
         int code = conn.getResponseCode();
         if (code < 200 || code >= 300) {
             conn.disconnect();

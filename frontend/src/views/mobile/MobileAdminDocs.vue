@@ -49,7 +49,8 @@ async function load(reset = false) {
     const rows = Array.isArray(data) ? data : (data.content || [])
     docs.value = reset ? rows : [...docs.value, ...rows]
     page.value = p + 1
-    hasMore.value = !data.last
+    // 数组响应（非分页结构）时没有 last 字段，恒真会导致无限「加载更多」（外部审查 2026-10-12）
+    hasMore.value = Array.isArray(data) ? false : !data.last
   } catch (e) {
     window.__kbMsg?.error(e?.response?.data?.error || '加载失败')
   } finally {

@@ -6,7 +6,9 @@
 package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.domain.Document;
+import com.kb.kbplatform.domain.SharedDocument;
 import com.kb.kbplatform.domain.User;
+import com.kb.kbplatform.repository.SharedDocumentRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.LikeService;
@@ -32,10 +34,12 @@ public class LikeController {
 
     private final LikeService svc;
     private final UserRepository userRepo;
+    private final SharedDocumentRepository sharedDocRepo;
 
-    public LikeController(LikeService svc, UserRepository userRepo) {
+    public LikeController(LikeService svc, UserRepository userRepo, SharedDocumentRepository sharedDocRepo) {
         this.svc = svc;
         this.userRepo = userRepo;
+        this.sharedDocRepo = sharedDocRepo;
     }
 
     /** 切换点赞：返回 { liked: true/false, likes: 当前点赞数 } */
@@ -58,7 +62,11 @@ public class LikeController {
                 return Map.of("liked", liked, "likes", svc.likeCount(req.targetId));
             }
             case "SDOC" -> {                      // 空间文档：独立表
-                liked = svc.toggleShared(uid, req.targetId, req.ownerId);
+                // 外部审查 2026-10-12：ownerId 一律由服务端按 targetId 反查真实属主，
+                // 不再采信客户端入参——否则可定向给任意 userId 触发点赞通知（骚扰面）。
+                Long realOwner = sharedDocRepo.findById(req.targetId)
+                        .map(SharedDocument::getOwnerId).orElse(null);
+                liked = svc.toggleShared(uid, req.targetId, realOwner);
                 return Map.of("liked", liked, "likes", svc.sharedLikeCount(req.targetId));
             }
             default -> throw new ResponseStatusException(
@@ -96,7 +104,7 @@ public class LikeController {
     public static class LikeReq {
         @NotBlank public String targetType;   // DOC / SDOC
         @NotNull public Long targetId;        // 被点赞对象 id
-        public Long ownerId;                  // 所有者 id（用于通知，可选）
+        public Long ownerId;                  // 【已废弃·不再采信】属主由服务端反查（外部审查 2026-10-12）
     }
 
     /** 从令牌解析当前用户 id（强制登录） */

@@ -237,7 +237,11 @@ function handleBack() {
     return
   }
   // 已是根 Tab（或没有上一级）→ 最小化（保持后台，用户切回来还在原处；比 exitApp 友好）
-  try { capApp?.minimizeApp?.() } catch { /* 老版本没有则忽略 */ }
+  // 老包无 minimizeApp 插件时也给用户反馈，不要静默无行为（外部审查 2026-10-12）
+  try {
+    if (capApp?.minimizeApp) capApp.minimizeApp()
+    else window.__kbMsg?.info('当前版本不支持最小化，请从系统任务栏切换')
+  } catch { /* 插件调用失败则忽略 */ }
 }
 
 onMounted(async () => {

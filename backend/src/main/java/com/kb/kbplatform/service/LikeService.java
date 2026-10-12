@@ -53,8 +53,11 @@ public class LikeService {
         Document d = docRepo.findById(docId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "文档不存在"));
         boolean liked;
-        if (likeRepo.existsByUserIdAndDocId(userId, docId)) {
-            likeRepo.deleteByUserIdAndDocId(userId, docId);
+        // unlike 路径原子化（外部审查 2026-10-12）：原 exists→delete→decrement 三步非原子，
+        // 并发双击会双扣计数。改用 delete 受影响行数做判据——只有真正删掉行的请求才扣减，
+        // 第二个并发请求删 0 行走点赞分支（重复插入由唯一约束拦下按已赞返回）。
+        long removed = likeRepo.deleteByUserIdAndDocId(userId, docId);
+        if (removed > 0) {
             docRepo.decrementLikes(docId);
             liked = false;
         } else {
@@ -108,8 +111,9 @@ public class LikeService {
     @Transactional(noRollbackFor = DataIntegrityViolationException.class)
     public boolean toggleShared(Long userId, Long docId, Long ownerId) {
         boolean liked;
-        if (sharedLikeRepo.existsByUserIdAndDocId(userId, docId)) {
-            sharedLikeRepo.deleteByUserIdAndDocId(userId, docId);
+        // 同上：delete 行数做原子判据，并发双击不会两次删除/两次触发通知
+        long removed = sharedLikeRepo.deleteByUserIdAndDocId(userId, docId);
+        if (removed > 0) {
             liked = false;
         } else {
             try {

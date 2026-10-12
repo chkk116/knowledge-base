@@ -42,14 +42,21 @@ async function run(fn, okMsg) {
   catch (e) { window.__kbMsg?.error(e?.response?.data?.error || '操作失败') }
   finally { busy.value = false }
 }
-const toggleEnabled = () => run(
-  () => updateAnnouncement(active.value.id, { enabled: !active.value.enabled }),
-  active.value.enabled ? '已停用' : '已启用'
-)
-const togglePin = () => run(
-  () => updateAnnouncement(active.value.id, { pinned: !active.value.pinned }),
-  active.value.pinned ? '已取消置顶' : '已置顶'
-)
+// active.value 空值守卫（外部审查 2026-10-12：doDelete 有守卫，两个 toggle 原来没有）
+const toggleEnabled = () => {
+  if (!active.value) return
+  run(
+    () => updateAnnouncement(active.value.id, { enabled: !active.value.enabled }),
+    active.value.enabled ? '已停用' : '已启用'
+  )
+}
+const togglePin = () => {
+  if (!active.value) return
+  run(
+    () => updateAnnouncement(active.value.id, { pinned: !active.value.pinned }),
+    active.value.pinned ? '已取消置顶' : '已置顶'
+  )
+}
 const doDelete = () => {
   if (busy.value || !active.value) return
   ElMessageBox.confirm(`确定删除公告《${active.value.title || ''}》？`, '删除公告', {

@@ -49,18 +49,19 @@ async function approve(d) {
 
 function reject(d) {
   if (busy.value) return
+  // busy 置位提前到弹窗打开时：否则弹窗挂着期间还能点其他审核操作，互斥失效（外部审查 2026-10-12）
+  busy.value = true
   ElMessageBox.prompt('请填写驳回理由（将退回作者草稿，作者可见）', '驳回文章', {
     confirmButtonText: '驳回', cancelButtonText: '取消', inputType: 'textarea',
     inputAttrs: { maxlength: 200, rows: 3 },
-  }).then(({ value }) => {
-    busy.value = true
-    return rejectDoc(d.id, value || '').then(() => {
+  }).then(({ value }) =>
+    rejectDoc(d.id, value || '').then(() => {
       window.__kbMsg?.success('已驳回')
       list.value = list.value.filter((x) => x.id !== d.id)
     }).catch((e) => {
       window.__kbMsg?.error(e?.response?.data?.error || '驳回失败')
-    }).finally(() => { busy.value = false })
-  }).catch(() => {})
+    })
+  ).catch(() => {}).finally(() => { busy.value = false })
 }
 
 const fmtDate = (s) => (s ? String(s).slice(0, 10) : '—')

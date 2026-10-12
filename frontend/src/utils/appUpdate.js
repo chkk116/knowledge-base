@@ -30,11 +30,15 @@ export function hasInAppInstaller() {
  */
 const ALLOWED_HOSTS = (() => {
   const hosts = new Set()
-  try { hosts.add(location.host) } catch { /* ignore */ }
+  try { hosts.add(location.host) } catch (e) { console.error('[更新] 无法获取当前站点 host：', e) }
   try {
     // App 内置资源模式下 location.host 是 localhost，真实站点从 NATIVE_ORIGIN 取
     hosts.add(new URL(NATIVE_ORIGIN, location.href).host)
-  } catch { /* ignore */ }
+  } catch (e) {
+    // 外部审查 2026-10-12：解析失败不能再静默——否则白名单只剩 localhost，
+    // 所有合法更新被拒且没有任何排查线索
+    console.error('[更新] NATIVE_ORIGIN 解析失败，更新地址白名单可能不完整：', e)
+  }
   return hosts
 })()
 

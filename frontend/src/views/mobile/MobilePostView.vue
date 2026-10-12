@@ -30,7 +30,9 @@ import VideoNode from '../../extensions/VideoNode'
 
 const route = useRoute()
 const router = useRouter()
-const id = Number(route.params.id)
+// let：路由参数变化时同步（外部审查 2026-10-12：原 const 导致复用组件后
+// 点赞/评论/收藏仍打旧文章 id——上一轮只重载了数据没同步这个变量）
+let id = Number(route.params.id)
 
 const doc = ref(null)
 const loading = ref(true)
@@ -57,11 +59,10 @@ const editor = useEditor({
   ],
   editorProps: { attributes: { class: 'm-prose' } },
 })
-// 灌入前先做字符串级绝对化（只靠 absolutizeMedia 改 DOM 会被 ProseMirror 还原）
-watch(html, (v) => { if (editor.value && v) editor.value.commands.setContent(absolutizeMediaHtml(v), false) })
-onBeforeUnmount(() => { try { editor.value?.destroy() } catch { /* ignore */ } })
-
-watch(html, async () => {
+// 灌入 + 增强合并为单个 watch（外部审查 2026-10-12：两个 watch 各自触发时
+// setContent 与 nextTick 后的增强存在时序竞争，与 DocView 同口径）
+watch(html, async (v) => {
+  if (editor.value && v) editor.value.commands.setContent(absolutizeMediaHtml(v), false)
   await nextTick()
   const el = editor.value ? editor.value.view.dom : null
   if (!el) return
@@ -69,6 +70,7 @@ watch(html, async () => {
   enhanceVideos(el)
   bindImgLightbox(el, (src) => { if (src) lightboxSrc.value = src })
 }, { immediate: true })
+onBeforeUnmount(() => { try { editor.value?.destroy() } catch { /* ignore */ } })
 
 // ---------- 评论 ----------
 const comments = ref([])
@@ -177,25 +179,30 @@ async function onFav() {
   } catch { window.__kbMsg?.warning('操作失败，请稍后重试') }
 }
 
+// 加载代次：快速切换文章时，旧文章的慢响应不得覆盖新文章状态（外部审查 2026-10-12）
+let docLoadSeq = 0
 async function loadDoc(curId) {
+  const seq = ++docLoadSeq
   loading.value = true
   doc.value = null
   related.value = []
   try {
     const { data } = await getDoc(curId)
+    if (seq !== docLoadSeq) return
     doc.value = data
     likeCount.value = data?.likes || 0
-    // 收藏 / 点赞状态（失败不阻塞阅读）
-    myFavoriteIds().then((r) => { faved.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
-    myLikeIds().then((r) => { liked.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
-    getRelatedDocs(curId, 5).then((r) => { related.value = r.data || [] }).catch(() => {})
-    loadComments(curId).catch(() => {})
+    // 收藏 / 点赞状态（失败不阻塞阅读；慢响应不得跨代次覆盖）
+    myFavoriteIds().then((r) => { if (seq === docLoadSeq) faved.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
+    myLikeIds().then((r) => { if (seq === docLoadSeq) liked.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
+    getRelatedDocs(curId, 5).then((r) => { if (seq === docLoadSeq) related.value = r.data || [] }).catch(() => {})
+    if (seq === docLoadSeq) loadComments(curId).catch(() => {})
     // 作者信息要等 doc 落库后再取（依赖 doc.ownerId）
-    nextTick(loadAuthor).catch(() => {})
+    if (seq === docLoadSeq) nextTick(loadAuthor).catch(() => {})
   } catch (e) {
+    if (seq !== docLoadSeq) return
     window.__kbMsg?.error('无法打开文章：' + (e.response?.data?.error || e.message || '未知错误'))
   } finally {
-    loading.value = false
+    if (seq === docLoadSeq) loading.value = false
   }
 }
 onMounted(() => loadDoc(id))
@@ -203,7 +210,10 @@ onMounted(() => loadDoc(id))
 // id 固化会让全部接口打错文章——监听参数变化重新拉取（外部审查 2026-10-11）
 watch(() => route.params.id, (nv, ov) => {
   const nid = Number(nv)
-  if (nv != null && nid && nid !== Number(ov)) loadDoc(nid)
+  if (nv != null && nid && nid !== Number(ov)) {
+    id = nid
+    loadDoc(nid)
+  }
 })
 </script>
 

@@ -13,7 +13,8 @@ public interface SharedLikeRepository extends JpaRepository<SharedDocLike, Long>
 
     boolean existsByUserIdAndDocId(Long userId, Long docId);
 
-    void deleteByUserIdAndDocId(Long userId, Long docId);
+    /** 删除并返回受影响行数：unlike 原子化判据（外部审查 2026-10-12） */
+    long deleteByUserIdAndDocId(Long userId, Long docId);
 
     long countByDocId(Long docId);
 

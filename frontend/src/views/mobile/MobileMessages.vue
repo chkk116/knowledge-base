@@ -86,21 +86,25 @@ function routeOf(it) {
   const t = String(it.type || '')
   if (t.startsWith('SHARE_')) return '/docs'
   if (t === 'COMMENT' || t === 'COMMENT_MENTION' || t === 'COMMENT_REPLY' || t === 'LIKE') {
-    return it.docId ? `/embed/post` : null
+    // 直接 deep-link 到文章详情页（外部审查 2026-10-12：原跳 /embed/post 是 path:null
+    // 的死页，用户点开是空白）
+    return it.docId ? `/post/${it.docId}` : null
   }
   if (t.startsWith('AVATAR_') || t === 'CERTIFICATE') return '/profile'
   return null
 }
 
 async function openItem(it) {
-  if (!it.read) { try { await notificationRead(it.id) } catch { /* 忽略 */ } it.read = true }
+  // 乐观更新失败回退：接口失败就不置本地已读，避免「显示已读但服务端仍推未读」的不一致
+  if (!it.read) { try { await notificationRead(it.id); it.read = true } catch { /* 失败保持未读 */ } }
   const to = routeOf(it)
   if (to) router.push(to)
   else window.__kbMsg?.info(it.summary || titleOf(it))
 }
 
 async function readAll() {
-  try { await notificationReadAll() } catch { /* 忽略 */ }
+  // 失败不本地置已读（外部审查 2026-10-12）
+  try { await notificationReadAll() } catch { return }
   items.value.forEach((i) => { i.read = true })
   n.setUnread(0)
   window.__kbMsg?.success('已全部标记为已读')
