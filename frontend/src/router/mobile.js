@@ -51,6 +51,9 @@ const routes = [
   { path: '/manage/users', component: () => import('../views/mobile/MobileAdminUsers.vue'), meta: { title: '用户管理', perm: 'USER_MANAGE' } },
   { path: '/manage/roles', component: () => import('../views/mobile/MobileAdminRoles.vue'), meta: { title: '角色管理', perm: 'USER_MANAGE' } },
   { path: '/manage/ai', component: () => import('../views/mobile/MobileAdminAi.vue'), meta: { title: 'AI 模型管理', perm: 'AI_MANAGE' } },
+  { path: '/manage/docs', component: () => import('../views/mobile/MobileAdminDocs.vue'), meta: { title: '内容管理', perm: 'POST_MANAGE' } },
+  { path: '/manage/review', component: () => import('../views/mobile/MobileAdminReview.vue'), meta: { title: '文章审核', perm: 'DOC_REVIEW' } },
+  { path: '/manage/announce', component: () => import('../views/mobile/MobileAdminAnnounce.vue'), meta: { title: '公告管理', perm: 'ANNOUNCEMENT_MANAGE' } },
 
   // 低频二级功能：用嵌入页承接（见 MobileEmbed.vue 的说明）。
   // 保留在移动端路由里，是为了让通知、个人中心里的入口都能落地，不出现死链。

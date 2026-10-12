@@ -114,9 +114,9 @@ const SETTING_GROUP = {
 const ADMIN_ITEMS = [
   // 常用：日常最常看的
   { label: '数据看板', icon: 'DataLine', color: 'blue', perm: 'STATS_VIEW', to: '/embed/adminstats' },
-  { label: '内容管理', icon: 'Files', color: 'orange', perm: 'POST_MANAGE', to: '/embed/admindocs' },
-  { label: '文章审核', icon: 'CircleCheckFilled', color: 'green', perm: 'DOC_REVIEW', to: '/embed/adminreview' },
-  { label: '公告管理', icon: 'Bell', color: 'red', perm: 'ANNOUNCEMENT_MANAGE', to: '/embed/adminannounce' },
+  { label: '内容管理', icon: 'Files', color: 'orange', perm: 'POST_MANAGE', to: '/manage/docs' },
+  { label: '文章审核', icon: 'CircleCheckFilled', color: 'green', perm: 'DOC_REVIEW', to: '/manage/review' },
+  { label: '公告管理', icon: 'Bell', color: 'red', perm: 'ANNOUNCEMENT_MANAGE', to: '/manage/announce' },
   { label: '用户管理', icon: 'UserFilled', color: 'blue', perm: 'USER_MANAGE', to: '/manage/users' },
   { label: '角色管理', icon: 'Avatar', color: 'blue', perm: 'USER_MANAGE', to: '/manage/roles' },
   { label: 'AI 模型管理', icon: 'MagicStick', color: 'green', perm: 'AI_MANAGE', to: '/manage/ai' }
