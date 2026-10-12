@@ -7,6 +7,7 @@ import { useWatermarkStore, buildContent } from './store/watermark'
 import { useSiteInfoStore } from './store/siteInfo'
 import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import SiteFooter from './components/SiteFooter.vue'
+import MenuIcon from './components/MenuIcon.vue'
 import { useNotificationStore } from './store/notification'
 import { reader, closeReader, startDrag, startResize, clampToViewport } from './store/reader'
 import { enhanceVideos, bindImgLightbox, absolutizeMedia } from './utils/mediaEnhance'
@@ -362,16 +363,16 @@ function openHelp() { helpVisible.value = true }
         <template v-for="m in menus" :key="m.index">
           <el-sub-menu v-if="m.children" :index="m.index">
             <template #title>
-              <el-icon><component :is="m.icon" /></el-icon>
+              <MenuIcon :name="m.icon" :size="20" />
               <span>{{ m.title }}</span>
             </template>
             <el-menu-item v-for="c in m.children" :key="c.index" :index="c.index" class="sub-item">
-              <el-icon><component :is="c.icon" /></el-icon>
+              <MenuIcon :name="c.icon" :size="18" />
               <span>{{ c.title }}</span>
             </el-menu-item>
           </el-sub-menu>
           <el-menu-item v-else :index="m.index">
-            <el-icon><component :is="m.icon" /></el-icon>
+            <MenuIcon :name="m.icon" :size="20" />
             <span>{{ m.title }}</span>
           </el-menu-item>
         </template>
@@ -517,6 +518,11 @@ html.dark .aside.collapsed .brand { background: #23234a; }
 html.dark .aside.collapsed .brand:hover { background: #2a2a35; }
 .aside.collapsed .brand-ico { width: 22px; height: 22px; }
 .menu { border-right: none; padding: 8px; background: transparent; }
+/* 彩色拟物图标：与文字保持间距；收起态居中不带外边距 */
+.menu .mi { margin-right: 10px; }
+.menu .el-sub-menu__title .mi { margin-right: 10px; }
+.aside.collapsed .menu .mi,
+.aside.collapsed .menu .el-sub-menu__title .mi { margin-right: 0; }
 html.dark .aside { background: #14142b; border-right-color: #26264a; }
 
 /* 二级分组（el-sub-menu）标题：圆角 pill + 加粗，作为层级锚点 */
