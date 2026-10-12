@@ -17,14 +17,23 @@ const STALE_MS = 30 * 60 * 1000   // 超过 30 分钟视为过期状态
 
 export const dlActive = ref(false)    // 正在下载
 export const dlPercent = ref(-1)      // -1 = 未知（原生还没报第一个进度）
+export const dlSpeed = ref(0)         // 字节/秒（0 = 未知），原生 progress 事件带出
 export const dlVersion = ref('')      // 目标版本名
 export const dlDone = ref(false)      // 刚下载完，等待系统安装界面
+
+/** 速度格式化：≥1MB/s 用 MB/s，否则 KB/s */
+export function fmtSpeed(bps) {
+  const n = Number(bps) || 0
+  if (n <= 0) return ''
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB/s' : Math.round(n / 1024) + ' KB/s'
+}
 
 function persist() {
   try {
     sessionStorage.setItem(KEY, JSON.stringify({
       active: dlActive.value,
       percent: dlPercent.value,
+      speed: dlSpeed.value,
       version: dlVersion.value,
       done: dlDone.value,
       at: Date.now(),
@@ -37,12 +46,14 @@ export function beginUpdate(version = '') {
   dlActive.value = true
   dlDone.value = false
   dlPercent.value = -1
+  dlSpeed.value = 0
   dlVersion.value = version || ''
   persist()
 }
 
-export function setUpdateProgress(p) {
+export function setUpdateProgress(p, speed) {
   dlPercent.value = typeof p === 'number' ? p : -1
+  if (typeof speed === 'number' && speed > 0) dlSpeed.value = speed
   persist()
 }
 
@@ -69,6 +80,7 @@ export function restoreUpdateState() {
     dlActive.value = !!o.active
     dlDone.value = !!o.done
     dlPercent.value = typeof o.percent === 'number' ? o.percent : -1
+    dlSpeed.value = typeof o.speed === 'number' ? o.speed : 0
     dlVersion.value = o.version || ''
   } catch { /* 坏数据忽略 */ }
 }
@@ -82,7 +94,11 @@ export function dismissUpdateState() {
 
 /** 文案：给横幅/消息页共用 */
 export function updateProgressText() {
-  if (dlActive.value) return dlPercent.value >= 0 ? `正在下载 ${dlPercent.value}%` : '正在下载…'
+  if (dlActive.value) {
+    const sp = fmtSpeed(dlSpeed.value)
+    const base = dlPercent.value >= 0 ? `正在下载 ${dlPercent.value}%` : '正在下载…'
+    return sp ? `${base} · ${sp}` : base
+  }
   if (dlDone.value) return '下载完成，请在弹出的安装界面完成安装'
   return ''
 }

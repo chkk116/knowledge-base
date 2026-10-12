@@ -201,21 +201,33 @@ public class ApkInstallerPlugin extends Plugin {
             byte[] buf = new byte[64 * 1024];
             long received = 0;
             long lastEmit = 0;
+            // 下载速度：按区间增量算瞬时速度，再做指数平滑（0.7 旧 + 0.3 新）防抖动
+            long lastBytes = 0;
+            long lastSpeedTs = System.currentTimeMillis();
+            double speedBps = 0;
             int n;
             while ((n = in.read(buf)) > 0) {
                 fos.write(buf, 0, n);
                 received += n;
                 long now = System.currentTimeMillis();
                 if (now - lastEmit > 200) {          // 节流，别把桥打爆
+                    long dt = now - lastSpeedTs;
+                    if (dt > 0) {
+                        double inst = (received - lastBytes) * 1000.0 / dt;
+                        speedBps = speedBps <= 0 ? inst : speedBps * 0.7 + inst * 0.3;
+                    }
+                    lastBytes = received;
+                    lastSpeedTs = now;
                     lastEmit = now;
                     JSObject p = new JSObject();
                     p.put("received", received);
                     p.put("total", total);
                     int pct = total > 0 ? (int) Math.round(received * 100.0 / total) : -1;
                     p.put("percent", pct);
+                    p.put("speed", Math.round(speedBps));   // 字节/秒（供 JS 侧展示）
                     notifyListeners("progress", p);
-                    // 系统通知栏同步显示进度（大厂 App 的通用做法）
-                    showProgressNotification(pct, received, total);
+                    // 系统通知栏同步显示进度 + 速度（大厂 App 的通用做法）
+                    showProgressNotification(pct, received, total, speedBps);
                 }
             }
             fos.flush();
@@ -284,17 +296,24 @@ public class ApkInstallerPlugin extends Plugin {
         }
     }
 
-    /** 下载中：常驻进度条（固定 id → 覆盖更新同一条） */
-    private void showProgressNotification(int percent, long received, long total) {
+    /** 下载中：常驻进度条（固定 id → 覆盖更新同一条），文案含百分比 / 大小 / 速度 / 剩余时间 */
+    private void showProgressNotification(int percent, long received, long total, double speedBps) {
         if (!canNotify()) return;
         try {
             String size = total > 0
                     ? String.format(java.util.Locale.US, "%.1f/%.1f MB", received / 1048576.0, total / 1048576.0)
                     : "下载中";
+            String speed = fmtSpeed(speedBps);
+            String eta = fmtEta(received, total, speedBps);
+            StringBuilder sb = new StringBuilder();
+            if (percent >= 0) sb.append(percent).append("%  ·  ");
+            sb.append(size);
+            if (!speed.isEmpty()) sb.append("  ·  ").append(speed);
+            if (!eta.isEmpty()) sb.append("  ·  剩 ").append(eta);
             NotificationCompat.Builder b = new NotificationCompat.Builder(getContext(), CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.stat_sys_download)
                     .setContentTitle("正在下载应用更新")
-                    .setContentText(percent >= 0 ? (percent + "%  ·  " + size) : size)
+                    .setContentText(sb.toString())
                     .setOnlyAlertOnce(true)      // 进度刷新不重复响铃
                     .setOngoing(true)            // 下载中不可划掉
                     .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -304,6 +323,25 @@ public class ApkInstallerPlugin extends Plugin {
             NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(NOTIF_ID, b.build());
         } catch (Exception ignore) { /* 通知失败不影响下载 */ }
+    }
+
+    /** 速度格式化：≥1MB/s 显示 MB/s，否则 KB/s */
+    private static String fmtSpeed(double bps) {
+        if (bps <= 0) return "";
+        if (bps >= 1048576) return String.format(java.util.Locale.US, "%.1f MB/s", bps / 1048576.0);
+        return String.format(java.util.Locale.US, "%.0f KB/s", bps / 1024.0);
+    }
+
+    /** 剩余时间估算：剩余字节 / 速度；<1s 或速度未知时返回空 */
+    private static String fmtEta(long received, long total, double bps) {
+        if (bps <= 0 || total <= 0 || received >= total) return "";
+        long secs = (long) Math.ceil((total - received) / bps);
+        if (secs <= 0) return "";
+        if (secs < 60) return secs + "s";
+        long m = secs / 60, s = secs % 60;
+        if (m < 60) return m + "m" + (s > 0 ? s + "s" : "");
+        long h = m / 60; m = m % 60;
+        return h + "h" + (m > 0 ? m + "m" : "");
     }
 
     /** 下载完成：去掉进度条、可划掉 */

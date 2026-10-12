@@ -1,3 +1,6 @@
 # 依赖与构建产物
 node_modules/
 dist*/
+
+# 本地环境覆盖（含 App 打包用的 VITE_NATIVE_ORIGIN 真实域名，按约定不入库）
+.env*.local

@@ -76,8 +76,9 @@ export async function downloadAndInstall(url, onProgress, checksum) {
     if (P.addListener) {
       handles.push(await P.addListener('progress', (d) => {
         const p = typeof d?.percent === 'number' ? d.percent : -1
-        setUpdateProgress(p)
-        onProgress?.(p)
+        const sp = typeof d?.speed === 'number' ? d.speed : 0
+        setUpdateProgress(p, sp)
+        onProgress?.(p, sp)
       }))
       handles.push(await P.addListener('needInstallPermission', () => {
         window.__kbMsg?.warning('请先允许本应用「安装未知应用」，再回来重新点更新')
