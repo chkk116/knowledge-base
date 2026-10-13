@@ -24,4 +24,7 @@ public interface AnnouncementRepository extends JpaRepository<Announcement, Long
 
     /** 后台：分页版（同上排序） */
     Page<Announcement> findAllByOrderByPinnedDescSortOrderAscUpdatedAtDesc(Pageable pageable);
+
+    /** 后台：按启用状态分页（同上排序），status tabs 服务端过滤用 */
+    Page<Announcement> findByEnabledOrderByPinnedDescSortOrderAscUpdatedAtDesc(boolean enabled, Pageable pageable);
 }

@@ -25,6 +25,7 @@ const DEFS = `
   <linearGradient id="mi-orange" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FDBA74"/><stop offset="1" stop-color="#F97316"/></linearGradient>
   <linearGradient id="mi-rose" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FDA4AF"/><stop offset="1" stop-color="#E11D48"/></linearGradient>
   <linearGradient id="mi-cyan" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#67E8F9"/><stop offset="1" stop-color="#0891B2"/></linearGradient>
+  <linearGradient id="mi-teal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2DD4BF"/><stop offset="1" stop-color="#0D9488"/></linearGradient>
   <linearGradient id="mi-slate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#A9B6C9"/><stop offset="1" stop-color="#5B6B84"/></linearGradient>
   <linearGradient id="mi-pink" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F9A8D4"/><stop offset="1" stop-color="#DB2777"/></linearGradient>
 `

@@ -23,12 +23,6 @@ const form = ref({ id: null, title: '', content: '', pinned: false, enabled: tru
 const isEdit = computed(() => !!form.value.id)
 const statusTab = ref('all')   // all | enabled | disabled
 
-const visibleItems = computed(() =>
-  statusTab.value === 'all'
-    ? items.value
-    : items.value.filter((r) => (statusTab.value === 'enabled') === r.enabled),
-)
-
 const relTime = (iso) => {
   if (!iso) return '-'
   const t = new Date(iso)
@@ -46,7 +40,9 @@ const rowClass = ({ row }) => (row.pinned ? 'pinned-row' : '')
 const load = async () => {
   loading.value = true
   try {
-    const { data } = await listAnnouncementsAdmin({ page: page.value - 1, size: size.value })
+    const params = { page: page.value - 1, size: size.value }
+    if (statusTab.value !== 'all') params.enabled = statusTab.value === 'enabled'   // 服务端过滤，跨页统计才准
+    const { data } = await listAnnouncementsAdmin(params)
     items.value = data.content || []
     total.value = data.totalElements || 0
   } catch (e) {
@@ -115,8 +111,8 @@ const remove = async (row) => {
     await deleteAnnouncement(row.id)
     ElMessage.success('已删除')
     await load()
-    // 删的是当前页最后一条时回退一页，避免停在空页码（列表有前端 tab 筛选，按可见项判断）
-    if (visibleItems.value.length === 0 && page.value > 1) { page.value--; await load() }
+    // 删的是当前页最后一条时回退一页，避免停在空页码
+    if (items.value.length === 0 && page.value > 1) { page.value--; await load() }
   } catch (e) {
     if (e !== 'cancel') ElMessage.error('删除失败')
   }
@@ -161,7 +157,7 @@ onMounted(load)
       <el-tab-pane label="禁用" name="disabled" />
     </el-tabs>
 
-    <el-table v-stack-table :data="visibleItems" border style="width: 100%" row-key="id" :row-class-name="rowClass" v-loading="loading">
+    <el-table v-stack-table :data="items" border style="width: 100%" row-key="id" :row-class-name="rowClass" v-loading="loading">
       <el-table-column prop="id" label="ID" width="70"  class-name="stack-hide" />
       <el-table-column label="标题" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">

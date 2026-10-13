@@ -33,11 +33,12 @@ public class AnnouncementAdminController {
     @GetMapping
     public Page<Map<String, Object>> list(@RequestAttribute("kbUser") TokenClaims c,
                                           @RequestParam(required = false, defaultValue = "0") int page,
-                                          @RequestParam(required = false, defaultValue = "15") int size) {
+                                          @RequestParam(required = false, defaultValue = "15") int size,
+                                          @RequestParam(required = false) Boolean enabled) {
         requirePerm(c);
         if (page < 0) page = 0;
         if (size <= 0 || size > 100) size = 15;
-        return svc.pageAll(PageRequest.of(page, size)).map(svc::toMap);
+        return svc.pageAll(enabled, PageRequest.of(page, size)).map(svc::toMap);
     }
 
     @PostMapping

@@ -35,9 +35,11 @@ public class AnnouncementService {
         return repo.findAllByOrderByPinnedDescSortOrderAscUpdatedAtDesc();
     }
 
-    /** 后台：全部公告（分页） */
-    public Page<Announcement> pageAll(Pageable pageable) {
-        return repo.findAllByOrderByPinnedDescSortOrderAscUpdatedAtDesc(pageable);
+    /** 后台：全部公告（分页）；enabled 为 null 时不过滤（status tabs 服务端过滤） */
+    public Page<Announcement> pageAll(Boolean enabled, Pageable pageable) {
+        return enabled == null
+                ? repo.findAllByOrderByPinnedDescSortOrderAscUpdatedAtDesc(pageable)
+                : repo.findByEnabledOrderByPinnedDescSortOrderAscUpdatedAtDesc(enabled, pageable);
     }
 
     @Transactional(rollbackFor = Exception.class)

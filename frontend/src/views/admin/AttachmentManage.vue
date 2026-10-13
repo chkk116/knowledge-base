@@ -60,7 +60,10 @@ const relTime = (ts) => {
   return t.toLocaleDateString('zh-CN', { hour12: false })
 }
 
+// 请求代次守卫：快速切换类型 tab / 搜索 / 翻页时，慢响应不得覆盖新数据
+let loadSeq = 0
 const load = async () => {
+  const seq = ++loadSeq
   loading.value = true
   try {
     const { data } = await listOrphanFiles({
@@ -69,15 +72,16 @@ const load = async () => {
       kind: kindTab.value,
       q: search.value.trim() || undefined,
     })
+    if (seq !== loadSeq) return   // 已有更新的请求，丢弃本次响应
     files.value = data?.content || []
     total.value = data?.total || 0
     imageCount.value = data?.imageCount || 0
     audioCount.value = data?.audioCount || 0
     selected.value = []
   } catch (e) {
-    ElMessage.error(errMsg(e, '加载失败'))
+    if (seq === loadSeq) ElMessage.error(errMsg(e, '加载失败'))
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 

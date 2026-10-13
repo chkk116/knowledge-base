@@ -254,8 +254,8 @@ export const listAnnouncements = () =>
 export const homeOverview = () =>
   api.get('/docs/overview')
 
-export const listAnnouncementsAdmin = () =>
-  api.get('/admin/announcements')
+export const listAnnouncementsAdmin = (params) =>
+  api.get('/admin/announcements', { params })
 
 export const createAnnouncement = (payload) =>
   api.post('/admin/announcements', payload)

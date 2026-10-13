@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   UserFilled, Delete, EditPen, Switch, Key, Coin,
@@ -20,17 +20,7 @@ const domain = ref('all')   // all | user | doc
 const actor = ref('')               // 操作人（模糊）
 const dateRange = ref([])           // [开始Date, 结束Date]
 
-const USER_ACTIONS = new Set([
-  'CREATE_USER', 'DELETE_USER', 'UPDATE_USER', 'TOGGLE_USER', 'RESET_PWD', 'ADJUST_POINTS', 'UPDATE_USER_QUOTA',
-])
-
 const USER_QUOTA_ACTIONS = new Set(['UPDATE_USER_QUOTA'])
-
-const SHARE_ACTIONS = new Set([
-  'CREATE_SHARE_SPACE', 'UPDATE_SHARE_SPACE', 'DELETE_SHARE_SPACE', 'UPDATE_SHARE_CAPACITY',
-  'UPDATE_SHARE_MEMBER',
-  'CREATE_SHARE_DOC', 'UPDATE_SHARE_DOC', 'DELETE_SHARE_DOC',
-])
 
 const SHARE_SPACE_ACTIONS = new Set(['CREATE_SHARE_SPACE', 'UPDATE_SHARE_SPACE', 'DELETE_SHARE_SPACE', 'UPDATE_SHARE_CAPACITY'])
 const SHARE_MEMBER_ACTIONS = new Set(['UPDATE_SHARE_MEMBER'])
@@ -61,14 +51,7 @@ const ACTION_META = {
 }
 const meta = (a) => ACTION_META[a] || { label: a, icon: EditPen, color: '#64748b', bg: '#f1f5f9' }
 
-// 客户端的领域分组（用户 / 文档 / 共享空间）过滤，作用于当前页数据
-const filtered = computed(() => {
-  if (domain.value === 'all') return logs.value
-  if (domain.value === 'user') return logs.value.filter((l) => USER_ACTIONS.has(l.action))
-  if (domain.value === 'doc') return logs.value.filter((l) => !USER_ACTIONS.has(l.action) && !SHARE_ACTIONS.has(l.action))
-  if (domain.value === 'share') return logs.value.filter((l) => SHARE_ACTIONS.has(l.action))
-  return logs.value
-})
+// 域分组（用户/文档/共享空间）过滤已下沉服务端（domain 参数），分页计数才准确
 
 const subGroup = (action) => {
   if (USER_QUOTA_ACTIONS.has(action)) return { label: '配额', color: '#f59e0b' }
@@ -102,6 +85,7 @@ const load = async () => {
   loading.value = true
   try {
     const params = { page: page.value - 1, size: size.value }
+    if (domain.value !== 'all') params.domain = domain.value              // 服务端过滤
     if (actor.value.trim()) params.actor = actor.value.trim()
     if (dateRange.value && dateRange.value.length === 2) {
       params.start = fmt(dateRange.value[0])                       // 当天 00:00:00
@@ -158,7 +142,7 @@ onMounted(load)
       <el-button @click="onReset">重置</el-button>
     </div>
 
-    <el-table v-stack-table :data="filtered" border stripe v-loading="loading" style="width: 100%">
+    <el-table v-stack-table :data="logs" border stripe v-loading="loading" style="width: 100%">
       <el-table-column type="expand" width="44">
         <template #default="{ row }">
           <div class="expand">
