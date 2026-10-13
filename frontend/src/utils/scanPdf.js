@@ -9,6 +9,8 @@
  *   const blob = buildPdfBlob(pages)
  */
 
+import { createEncryptor, toHexString } from './pdfCrypto'
+
 /** 把图片文件压成适合放进 PDF 的 JPEG（限制最长边，控制体积） */
 export function prepareImage(file, maxSide = 1600, quality = 0.82) {
   return new Promise((resolve, reject) => {
@@ -47,7 +49,7 @@ const A4_H = 841.89
 const enc = (s) => new TextEncoder().encode(s)
 
 /** 用「一页一张 JPEG」组装最小可用的 PDF Blob */
-export function buildPdfBlob(pages) {
+export function buildPdfBlob(pages, opts = {}) {
   if (!pages || !pages.length) throw new Error('没有可导出的页面')
   const chunks = []
   let len = 0
@@ -58,6 +60,10 @@ export function buildPdfBlob(pages) {
     offsets[num] = len
     push(enc(`${num} 0 obj\n${body}\n`))
   }
+
+  // 口令非空则启用标准加密（RC4 40-bit）
+  const crypt = createEncryptor(opts.password, opts.ownerPassword, opts.permissions ?? -60)
+  const encStream = (num, gen, bytes) => (crypt ? crypt.encryptObject(num, gen, bytes) : bytes)
 
   push(enc('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'))
 
@@ -84,27 +90,40 @@ export function buildPdfBlob(pages) {
     startObj(pageNum, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${A4_W} ${A4_H}] ` +
       `/Resources << /XObject << /Im0 ${imgNum} 0 R >> >> /Contents ${contentNum} 0 R >>`)
 
+    const cBytes = encStream(contentNum, 0, enc(content))
     offsets[contentNum] = len
-    push(enc(`${contentNum} 0 obj\n<< /Length ${content.length} >>\nstream\n`))
-    push(enc(content))
+    push(enc(`${contentNum} 0 obj\n<< /Length ${cBytes.length} >>\nstream\n`))
+    push(cBytes)
     push(enc('\nendstream\nendobj\n'))
 
+    const iBytes = encStream(imgNum, 0, p.bytes)
     offsets[imgNum] = len
     push(enc(`${imgNum} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} ` +
-      `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.bytes.length} >>\nstream\n`))
-    push(p.bytes)
+      `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${iBytes.length} >>\nstream\n`))
+    push(iBytes)
     push(enc('\nendstream\nendobj\n'))
   })
 
+  // 加密字典（若有）
+  let encryptNum = 0
+  if (crypt) {
+    encryptNum = 3 + pages.length * 3
+    startObj(encryptNum, crypt.dict)
+  }
+
   // xref
-  const total = 3 + pages.length * 3
+  const total = 3 + pages.length * 3 + (crypt ? 1 : 0)
   const xrefStart = len
   let xref = `xref\n0 ${total}\n0000000000 65535 f \n`
   for (let n = 1; n < total; n++) {
     xref += String(offsets[n] || 0).padStart(10, '0') + ' 00000 n \n'
   }
   push(enc(xref))
-  push(enc(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`))
+
+  const idHex = crypt ? toHexString(crypt.idBytes) : ''
+  const idPart = crypt ? ` /ID [<${idHex}> <${idHex}>]` : ''
+  const encPart = crypt ? ` /Encrypt ${encryptNum} 0 R` : ''
+  push(enc(`trailer\n<< /Size ${total} /Root 1 0 R${encPart}${idPart} >>\nstartxref\n${xrefStart}\n%%EOF\n`))
 
   return new Blob(chunks, { type: 'application/pdf' })
 }

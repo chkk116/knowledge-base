@@ -20,6 +20,8 @@ import { computed, onMounted, onUnmounted, ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { createShareDoc, ocrImportShareDoc } from '../../api/docShare'
 import { prepareImage, buildPdfBlob, revokePages } from '../../utils/scanPdf'
+import MobileScanEditor from './MobileScanEditor.vue'
+import { applyWatermark, buildLongImage, toCanvas, toJpegPage } from '../../utils/scanEnhance'
 import { uploadFile } from '../../api/file'
 import { enqueueDoc } from '../../utils/offlineStore'
 import { mySpaces, resolveDefaultSpaceId, rememberSpace, personalSpace } from '../../utils/spaceResolver'
@@ -33,6 +35,12 @@ const cameraInput = ref(null)
 const stage = ref('pick')        // pick | preview | review | scan
 // ---- 多页扫描（导出 PDF）----
 const scanPages = ref([])        // [{ file, url, w, h, bytes }]
+// ---- 扫描增强（借鉴全能扫描王）----
+const scanTitle = ref('')        // 扫描件名称（导出文件名 / 批量管理）
+const editingIndex = ref(-1)     // 正在编辑的页下标（-1 = 未编辑）
+const exportSheet = ref(false)   // 导出选项面板
+const wmText = ref('')           // 水印文字（空 = 不加）
+const pdfPwd = ref('')           // PDF 打开密码（空 = 不加密）
 const scanCamera = ref(null)
 const scanAlbum = ref(null)
 const exporting = ref(false)
@@ -151,31 +159,102 @@ function movePage(i, d) {
   ;[arr[i], arr[j]] = [arr[j], arr[i]]
 }
 
+/** 扫描件文件名（优先用用户命名，否则时间戳） */
+function scanFileName(ext) {
+  const base = (scanTitle.value || '').trim().replace(/[\\/:*?"<>|]/g, '_')
+  return (base || `scan-${Date.now()}`) + ext
+}
+
+/** 上传 → 拿链接 → 优先系统分享，否则新窗口打开 */
+async function uploadAndShare(blob, filename) {
+  statusText.value = '正在上传…'
+  const f = new File([blob], filename, { type: blob.type })
+  const { data } = await uploadFile(f)
+  if (data?.errno !== 0 || !data?.data?.url) throw new Error(data?.message || '上传失败')
+  const url = data.data.url
+  const abs = url.startsWith('http') ? url : location.origin + url
+  if (navigator.share) {
+    try { await navigator.share({ title: scanTitle.value || '扫描件', url: abs }); return } catch (e) { /* 用户取消则继续兜底 */ }
+  }
+  window.open(abs, '_blank')
+}
+
+/** 按水印设置烘焙每一页（水印烧进图片，任何阅读器都能看到） */
+async function bakePages() {
+  const out = []
+  for (const p of scanPages.value) {
+    let cv = await toCanvas(p.url, 2000)
+    const wm = wmText.value.trim()
+    if (wm) cv = applyWatermark(cv, wm, { opacity: 0.16 })
+    out.push(await toJpegPage(cv, 0.85))
+  }
+  return out
+}
+
 /** 生成 PDF → 上传取链接（App 内 blob 下载不便，走链接可直接用系统浏览器打开/分享） */
 async function exportPdf() {
   if (!scanPages.value.length || exporting.value) return
   exporting.value = true
   statusText.value = '正在生成 PDF…'
+  let baked = []
   try {
-    const blob = buildPdfBlob(scanPages.value)
-    statusText.value = '正在上传…'
-    const f = new File([blob], `scan-${Date.now()}.pdf`, { type: 'application/pdf' })
-    const { data } = await uploadFile(f)
-    if (data?.errno !== 0 || !data?.data?.url) throw new Error(data?.message || '上传失败')
-    const url = data.data.url
-    // 优先系统分享（手机可发微信/存文件），否则新窗口打开
-    const abs = url.startsWith('http') ? url : location.origin + url
-    if (navigator.share) {
-      try { await navigator.share({ title: '扫描件', url: abs }); return } catch (e) { /* 用户取消则继续兜底 */ }
+    baked = await bakePages()
+    const blob = buildPdfBlob(baked, { password: pdfPwd.value.trim() })
+    await uploadAndShare(blob, scanFileName('.pdf'))
+    window.__kbMsg?.success(pdfPwd.value.trim() ? '加密 PDF 已生成' : 'PDF 已生成')
+    exportSheet.value = false
+  } catch (err) {
+    window.__kbMsg?.error(err?.response?.data?.error || err.message || '导出失败')
+  } finally {
+    revokePages(baked)
+    exporting.value = false
+    statusText.value = ''
+  }
+}
+
+/** 导出长图：多页纵向拼接成一张图（分享/存档都方便） */
+async function exportLongImage() {
+  if (!scanPages.value.length || exporting.value) return
+  exporting.value = true
+  statusText.value = '正在拼接长图…'
+  try {
+    const cvs = []
+    for (const p of scanPages.value) {
+      let cv = await toCanvas(p.url, 1600)
+      const wm = wmText.value.trim()
+      if (wm) cv = applyWatermark(cv, wm, { opacity: 0.16 })
+      cvs.push(cv)
     }
-    window.open(abs, '_blank')
-    window.__kbMsg?.success('PDF 已生成')
+    const longCv = buildLongImage(cvs, 16)
+    const page = await toJpegPage(longCv, 0.9)
+    statusText.value = '正在上传…'
+    await uploadAndShare(new Blob([page.bytes], { type: 'image/jpeg' }), scanFileName('.jpg'))
+    window.__kbMsg?.success('长图已生成')
+    exportSheet.value = false
   } catch (err) {
     window.__kbMsg?.error(err?.response?.data?.error || err.message || '导出失败')
   } finally {
     exporting.value = false
     statusText.value = ''
   }
+}
+
+/* ---------- 单页编辑（裁剪 / 矫正 / 旋转 / 滤镜） ---------- */
+
+function openEditor(i) {
+  if (busy.value || exporting.value) return
+  editingIndex.value = i
+}
+
+/** 编辑器回写：替换该页（旧 blob URL 释放） */
+function onEditDone(page) {
+  const i = editingIndex.value
+  if (i < 0 || i >= scanPages.value.length) { editingIndex.value = -1; return }
+  const old = scanPages.value[i]
+  if (old?.url && String(old.url).startsWith('blob:')) URL.revokeObjectURL(old.url)
+  scanPages.value[i] = { ...old, ...page }
+  editingIndex.value = -1
+  window.__kbMsg?.success('已保存本页')
 }
 
 /** 逐页识别后合成一篇文档（走 review 阶段让用户确认） */
@@ -412,15 +491,17 @@ onMounted(prewarm)
     <!-- 阶段：多页扫描（导出 PDF / 批量识别） -->
     <div v-if="stage === 'scan'" class="stage">
       <div class="pick-hint">
-        <div class="ph-title">已添加 {{ scanPages.length }} 页</div>
-        <div class="ph-sub">可继续拍照或从相册追加；导出 PDF 会按当前顺序合成</div>
+        <input v-model="scanTitle" class="scan-name" type="text" maxlength="40"
+               placeholder="给这份扫描件起个名字（可选）" />
+        <div class="ph-sub">已添加 {{ scanPages.length }} 页 · 点任意一页可裁剪 / 矫正 / 滤镜</div>
       </div>
 
       <div class="scan-grid">
-        <div v-for="(p, i) in scanPages" :key="i" class="scan-item">
+        <div v-for="(p, i) in scanPages" :key="i" class="scan-item" @click="openEditor(i)">
           <img :src="p.url" alt="" />
           <span class="scan-idx">{{ i + 1 }}</span>
-          <div class="scan-ops">
+          <span class="scan-edit">编辑</span>
+          <div class="scan-ops" @click.stop>
             <button type="button" :disabled="i === 0" @click="movePage(i, -1)">↑</button>
             <button type="button" :disabled="i === scanPages.length - 1" @click="movePage(i, 1)">↓</button>
             <button type="button" class="del" @click="removePage(i)">×</button>
@@ -439,8 +520,8 @@ onMounted(prewarm)
       </div>
 
       <div class="scan-actions">
-        <button class="m-btn" :disabled="!scanPages.length || exporting || busy" @click="exportPdf">
-          <el-icon><Document /></el-icon>{{ exporting ? '导出中…' : '导出 PDF' }}
+        <button class="m-btn" :disabled="!scanPages.length || exporting || busy" @click="exportSheet = true">
+          <el-icon><Download /></el-icon>{{ exporting ? '导出中…' : '导出（PDF / 长图）' }}
         </button>
         <button class="m-btn ghost" :disabled="!scanPages.length || busy" @click="recognizeAll">
           <el-icon><EditPen /></el-icon>识别全部并入库
@@ -544,6 +625,39 @@ onMounted(prewarm)
         </div>
       </div>
     </transition>
+
+    <!-- 导出选项（水印 / 密码 / PDF 或长图） -->
+    <transition name="sheet-up">
+      <div v-if="exportSheet" class="m-sheet-mask" @click="exportSheet = false">
+        <div class="m-sheet" @click.stop>
+          <div class="ex-h">导出扫描件</div>
+          <div class="ex-field">
+            <span class="ex-label">水印文字</span>
+            <input v-model="wmText" class="ex-input" type="text" maxlength="20" placeholder="留空 = 不加" />
+          </div>
+          <div class="ex-field">
+            <span class="ex-label">PDF 密码</span>
+            <input v-model="pdfPwd" class="ex-input" type="text" maxlength="32" placeholder="留空 = 不加密" />
+          </div>
+          <div class="ex-hint">
+            共 {{ scanPages.length }} 页{{ wmText.trim() ? ' · 含水印' : '' }}{{ pdfPwd.trim() ? ' · 已加密' : '' }}
+          </div>
+          <button class="m-btn" :disabled="exporting" @click="exportPdf">
+            <el-icon><Document /></el-icon>{{ exporting ? '导出中…' : '导出 PDF' }}
+          </button>
+          <button class="m-btn ghost" :disabled="exporting" @click="exportLongImage">
+            <el-icon><Picture /></el-icon>导出长图（拼成一张）
+          </button>
+          <button class="m-sheet-item cancel" type="button" @click="exportSheet = false">取消</button>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 单页编辑器（全屏） -->
+    <div v-if="editingIndex >= 0 && scanPages[editingIndex]" class="se-overlay">
+      <MobileScanEditor :page="scanPages[editingIndex]"
+                        @done="onEditDone" @cancel="editingIndex = -1" />
+    </div>
   </div>
 </template>
 
@@ -709,4 +823,32 @@ html.dark .pb-ico.gray { background: #2a2a42; color: #9aa0ae; }
 .stage-actions { display: flex; gap: 10px; margin-top: 22px; }
 .stage-actions .m-btn { flex: 1 1 0; width: auto; }
 .rot { animation: kb-rot 1s linear infinite; }
+
+/* ---------- 扫描增强（命名 / 编辑入口 / 导出面板） ---------- */
+.scan-name {
+  width: 100%; box-sizing: border-box; height: 40px; padding: 0 12px;
+  border: 1px solid var(--m-border); border-radius: 11px; background: var(--m-card-2);
+  color: var(--m-text); font-size: 14px; font-family: inherit; margin-bottom: 8px;
+}
+.scan-name:focus { border-color: var(--m-primary); background: var(--m-card); outline: none; }
+
+.scan-item { position: relative; cursor: pointer; }
+.scan-edit {
+  position: absolute; left: 4px; bottom: 4px;
+  padding: 1px 7px; border-radius: 7px;
+  background: rgba(0, 0, 0, .55); color: #fff; font-size: 10.5px;
+}
+
+.se-overlay { position: fixed; inset: 0; z-index: 3000; background: var(--m-bg); }
+
+.ex-h { font-size: 15px; font-weight: 600; color: var(--m-text); padding: 4px 4px 12px; }
+.ex-field { display: flex; align-items: center; gap: 10px; padding: 6px 4px; }
+.ex-label { flex: none; width: 72px; font-size: 13.5px; color: var(--m-text-sub); }
+.ex-input {
+  flex: 1 1 auto; min-width: 0; height: 40px; padding: 0 12px;
+  border: 1px solid var(--m-border); border-radius: 10px; background: var(--m-card-2);
+  color: var(--m-text); font-size: 14px; font-family: inherit;
+}
+.ex-input:focus { border-color: var(--m-primary); background: var(--m-card); outline: none; }
+.ex-hint { font-size: 12px; color: var(--m-text-dim); padding: 6px 4px 12px; }
 </style>
