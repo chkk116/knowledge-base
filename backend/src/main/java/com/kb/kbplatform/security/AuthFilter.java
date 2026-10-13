@@ -64,7 +64,8 @@ public class AuthFilter implements Filter {
         boolean publicRequest = isPublic(path, method);
         String auth = req.getHeader("Authorization");
         if (!publicRequest && (auth == null || !auth.startsWith("Bearer "))) {
-            // EventSource 无法自定义请求头：SSE 通知流允许通过 ?token= 查询参数传递令牌
+            // SSE 通知流兜底：前端已改为 fetch + Authorization 头（M11），此处保留 ?token= 查询参数
+            // 仅兼容改造前打开的旧标签页（EventSource 无法自定义请求头）
             if (path.equals("/api/notifications/stream")) {
                 String q = req.getParameter("token");
                 if (q != null && !q.isBlank()) auth = "Bearer " + q;

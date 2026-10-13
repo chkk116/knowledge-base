@@ -39,11 +39,12 @@ public class NotificationController {
         return Map.of("count", svc.unreadCount(c.userId()));
     }
 
-    /** 实时通知流（SSE）：前端用 EventSource 长连接监听；EventSource 无法自定义请求头，
-     *  故令牌通过 ?token= 查询参数传递（AuthFilter 已支持该路径从 query 取令牌）。 */
+    /** 实时通知流（SSE）：前端用 fetch 流式读取长连接监听（Authorization 头带令牌，
+     *  避免 token 进 URL 落日志/历史——外部审查 2026-10-13 M11）。
+     *  AuthFilter 仍保留 ?token= 查询参数兜底：兼容改造前打开的旧标签页（EventSource 无法自定义头）。 */
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestAttribute("kbUser") TokenClaims c) {
-        return sse.register(c.userId(), 30L * 60 * 1000);   // 30 分钟超时；连接断开后 EventSource 自动重连
+        return sse.register(c.userId(), 30L * 60 * 1000);   // 30 分钟超时；连接断开后前端按退避重连
     }
 
     /** 登录用户：标记单条已读 */

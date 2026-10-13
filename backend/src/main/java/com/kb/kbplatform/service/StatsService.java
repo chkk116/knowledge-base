@@ -52,6 +52,7 @@ public class StatsService {
 
     public Map<String, Object> getStats() {
         LocalDateTime today = LocalDate.now().atStartOfDay();
+        LocalDateTime tomorrow = today.plusDays(1);
         LocalDateTime yesterday = today.minusDays(1);
         Map<String, Object> m = new LinkedHashMap<>();
         // 文档
@@ -60,26 +61,28 @@ public class StatsService {
         m.put("docPending", docRepo.countByStatus("PENDING"));
         m.put("docDraft", docRepo.countByStatus("DRAFT"));
         m.put("docBlocked", docRepo.countByStatus("BLOCKED"));
-        m.put("docToday", docRepo.countByCreatedAtAfter(today));
-        m.put("docYesterday", docRepo.countByCreatedAtBetween(yesterday, today));
+        // 半开区间 [today, tomorrow) / [yesterday, today)（外部审查 2026-10-13：BETWEEN 闭区间
+        // 会把「今日 00:00:00」整点的记录同时算进昨日与今日，造成跨日重复计数）
+        m.put("docToday", docRepo.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(today, tomorrow));
+        m.put("docYesterday", docRepo.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(yesterday, today));
         m.put("viewsTotal", docRepo.sumViews());
         // 用户
         m.put("userTotal", userRepo.count());
         m.put("userAdmin", userRepo.countByRoleAndEnabled("ADMIN", true));   // 已注销/停用不计入
         m.put("userBlocked", userRepo.countByEnabledFalse());
-        m.put("userToday", userRepo.countByCreatedAtAfter(today));
-        m.put("userYesterday", userRepo.countByCreatedAtBetween(yesterday, today));
+        m.put("userToday", userRepo.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(today, tomorrow));
+        m.put("userYesterday", userRepo.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(yesterday, today));
         // 互动
         m.put("commentTotal", commentRepo.count());
         m.put("likeTotal", likeRepo.count());
         m.put("favTotal", favRepo.count());
         m.put("notiTotal", notiRepo.count());
-        m.put("commentToday", commentRepo.countByCreatedAtAfter(today));
-        m.put("commentYesterday", commentRepo.countByCreatedAtBetween(yesterday, today));
+        m.put("commentToday", commentRepo.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(today, tomorrow));
+        m.put("commentYesterday", commentRepo.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(yesterday, today));
         // 近 7 天趋势（含今日，共 7 个点；不含昨日环比基准之外的更多历史）
-        m.put("docTrend7", trend7(docRepo::countByCreatedAtBetween));
-        m.put("userTrend7", trend7(userRepo::countByCreatedAtBetween));
-        m.put("commentTrend7", trend7(commentRepo::countByCreatedAtBetween));
+        m.put("docTrend7", trend7(docRepo::countByCreatedAtGreaterThanEqualAndCreatedAtLessThan));
+        m.put("userTrend7", trend7(userRepo::countByCreatedAtGreaterThanEqualAndCreatedAtLessThan));
+        m.put("commentTrend7", trend7(commentRepo::countByCreatedAtGreaterThanEqualAndCreatedAtLessThan));
         m.put("trendLabels", trendLabels());
         // 排行榜
         m.put("topDocs", topDocs());

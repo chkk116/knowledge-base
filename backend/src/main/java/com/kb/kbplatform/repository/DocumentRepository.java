@@ -69,6 +69,10 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     /** 时间区间内新增文档数（看板：近7天趋势 / 昨日环比） */
     long countByCreatedAtBetween(java.time.LocalDateTime from, java.time.LocalDateTime to);
 
+    /** 半开区间 [from, to) 新增文档数（外部审查 2026-10-13：BETWEEN 闭区间会把边界时刻
+     *  「今日 00:00:00」同时计入昨日与今日，导致跨日重复计数） */
+    long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(java.time.LocalDateTime from, java.time.LocalDateTime to);
+
     /** 热门文章 TopN（看板排行，按浏览量倒序） */
     List<Document> findTop5ByStatusOrderByViewsDesc(String status);
 

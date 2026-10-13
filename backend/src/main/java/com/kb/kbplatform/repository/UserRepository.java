@@ -44,6 +44,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     long countByEnabledFalse();
     long countByCreatedAtAfter(java.time.LocalDateTime t);
     long countByCreatedAtBetween(java.time.LocalDateTime from, java.time.LocalDateTime to);
+    /** 半开区间 [from, to) 计数（外部审查 2026-10-13：替代 BETWEEN 闭区间，避免跨日边界重复计数） */
+    long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(java.time.LocalDateTime from, java.time.LocalDateTime to);
 
     /** 积分排行中「排在我前面」的人数（points 降序、同名按 username 升序），用于计算当前用户名次；
      *  避免为求名次而全表加载所有用户到内存（原 ranking 接口的全表扫描隐患） */

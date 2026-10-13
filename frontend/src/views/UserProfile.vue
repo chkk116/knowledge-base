@@ -26,6 +26,12 @@ const following = ref([])
 const followers = ref([])
 const loading = ref(false)
 const badges = ref([])
+// 关注/粉丝列表分页（后端不再下发 username 登录名，展示名缺省时用「用户」兜底）
+const PAGE_SIZE = 50
+const followingPage = ref(0)
+const followersPage = ref(0)
+const followingMore = ref(false)
+const followersMore = ref(false)
 
 const levelInfo = computed(() => card.value ? getLevel(card.value.points || 0) : null)
 
@@ -46,14 +52,28 @@ const loadArticles = async (id) => {
   loading.value = true
   try { articles.value = (await getUserArticles(id, 0, 20)).data.content || [] } catch (e) { articles.value = [] } finally { loading.value = false }
 }
-const loadFollowing = async (id) => {
+const loadFollowing = async (id, append = false) => {
   loading.value = true
-  try { following.value = (await getUserFollowing(id)).data || [] } catch (e) { following.value = [] } finally { loading.value = false }
+  const page = append ? followingPage.value + 1 : 0
+  try {
+    const list = (await getUserFollowing(id, page, PAGE_SIZE)).data || []
+    following.value = append ? following.value.concat(list) : list
+    followingPage.value = page
+    followingMore.value = list.length >= PAGE_SIZE
+  } catch (e) { if (!append) following.value = [] } finally { loading.value = false }
 }
-const loadFollowers = async (id) => {
+const loadFollowers = async (id, append = false) => {
   loading.value = true
-  try { followers.value = (await getUserFollowers(id)).data || [] } catch (e) { followers.value = [] } finally { loading.value = false }
+  const page = append ? followersPage.value + 1 : 0
+  try {
+    const list = (await getUserFollowers(id, page, PAGE_SIZE)).data || []
+    followers.value = append ? followers.value.concat(list) : list
+    followersPage.value = page
+    followersMore.value = list.length >= PAGE_SIZE
+  } catch (e) { if (!append) followers.value = [] } finally { loading.value = false }
 }
+const loadMoreFollowing = (id) => loadFollowing(id, true)
+const loadMoreFollowers = (id) => loadFollowers(id, true)
 
 const switchTab = (t) => {
   activeTab.value = t
@@ -213,12 +233,13 @@ onMounted(loadAppearance)
         <ul class="user-list" v-else-if="activeTab === 'following'">
           <li v-for="u in following" :key="u.id" @click="goUser(u.id)">
             <img v-if="u.avatar" class="ava" :src="u.avatar" alt="" />
-            <span v-else class="ava none">{{ (u.displayName || u.username || '?').slice(0, 1) }}</span>
+            <span v-else class="ava none">{{ (u.displayName || '用户').slice(0, 1) }}</span>
             <div class="uinfo">
-              <span class="nm">{{ u.displayName || u.username }}</span>
+              <span class="nm">{{ u.displayName || '用户' }}</span>
               <span class="ub" v-if="u.bio">{{ u.bio }}</span>
             </div>
           </li>
+          <li v-if="followingMore && !loading" class="more"><button type="button" @click="loadMoreFollowing(Number(route.params.id))">加载更多</button></li>
           <li v-if="!loading && !following.length" class="empty">还没有关注任何人</li>
         </ul>
 
@@ -226,12 +247,13 @@ onMounted(loadAppearance)
         <ul class="user-list" v-else-if="activeTab === 'followers'">
           <li v-for="u in followers" :key="u.id" @click="goUser(u.id)">
             <img v-if="u.avatar" class="ava" :src="u.avatar" alt="" />
-            <span v-else class="ava none">{{ (u.displayName || u.username || '?').slice(0, 1) }}</span>
+            <span v-else class="ava none">{{ (u.displayName || '用户').slice(0, 1) }}</span>
             <div class="uinfo">
-              <span class="nm">{{ u.displayName || u.username }}</span>
+              <span class="nm">{{ u.displayName || '用户' }}</span>
               <span class="ub" v-if="u.bio">{{ u.bio }}</span>
             </div>
           </li>
+          <li v-if="followersMore && !loading" class="more"><button type="button" @click="loadMoreFollowers(Number(route.params.id))">加载更多</button></li>
           <li v-if="!loading && !followers.length" class="empty">还没有粉丝</li>
         </ul>
       </main>
@@ -331,6 +353,14 @@ onMounted(loadAppearance)
 .uinfo .nm { font-weight: 600; color: #1e293b; font-size: 14px; }
 .uinfo .ub { color: #94a3b8; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.user-list li.more { justify-content: center; padding: 14px 4px; cursor: default; }
+.user-list li.more:hover { background: transparent; }
+.user-list li.more button {
+  padding: 6px 18px; font-size: 13px; color: #4f46e5; background: transparent;
+  border: 0.5px solid #c7d2fe; border-radius: 8px; cursor: pointer;
+  transition: background .15s;
+}
+.user-list li.more button:hover { background: #eef2ff; }
 .empty { color: #94a3b8; font-size: 14px; padding: 20px 0; text-align: center; }
 .loading { max-width: 920px; margin: 40px auto; text-align: center; color: #94a3b8; }
 

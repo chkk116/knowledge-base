@@ -39,6 +39,9 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     /** 时间区间内新增评论数（看板：近7天趋势 / 昨日环比） */
     long countByCreatedAtBetween(LocalDateTime from, LocalDateTime to);
 
+    /** 半开区间 [from, to) 新增评论数（外部审查 2026-10-13：替代 BETWEEN 闭区间，避免跨日边界重复计数） */
+    long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
+
     /** 指定时间之后新增的评论数（看板：今日新增评论） */
     long countByCreatedAtAfter(LocalDateTime t);
 

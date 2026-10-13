@@ -11,12 +11,17 @@ import com.kb.kbplatform.repository.DocSubscriptionRepository;
 import com.kb.kbplatform.repository.NotificationRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -28,6 +33,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @Service
 public class NotificationService {
 
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
     private static final Pattern MENTION = Pattern.compile("@([\\w一-龥]+)");
 
     private final NotificationRepository repo;
@@ -212,7 +218,15 @@ public class NotificationService {
         }
     }
 
-    /** 文档更新：通知全部订阅者（更新者本人不通知自己）。由 DocumentService 在文档更新后调用 */
+    /**
+     * 文档更新：通知全部订阅者（更新者本人不通知自己）。由 DocumentService 在文档更新后调用。
+     *
+     * 外部审查 2026-10-13（M6）：原实现逐订阅者 save + 逐用户 count 未读，热门文档上千订阅者时
+     * 会把文档保存请求阻塞数秒。现改为：
+     *  - 通知行一次 saveAll 批量写入；
+     *  - 未读数用一条分组查询算完所有接收者，再逐连接推送；
+     *  - 入口 notifyDocUpdateAsync 走 @Async 线程池，彻底移出请求线程。
+     */
     public void notifyDocUpdate(Long docId, String docTitle, Long editorId, String editorUsername) {
         if (docId == null) return;
         List<Long> userIds;
@@ -222,18 +236,42 @@ public class NotificationService {
             return;   // 订阅查询失败不影响文档更新主流程
         }
         if (userIds == null || userIds.isEmpty()) return;
+        List<Long> targets = userIds.stream()
+                .filter(uid -> uid != null && !Objects.equals(uid, editorId))
+                .distinct().toList();
+        if (targets.isEmpty()) return;
         String t = clipTitle(docTitle);
         String actor = actorName(editorUsername);
-        for (Long uid : userIds) {
-            if (uid == null || Objects.equals(uid, editorId)) continue;
+        List<Notification> batch = new ArrayList<>(targets.size());
+        for (Long uid : targets) {
             Notification n = new Notification();
             n.setUserId(uid);
             n.setType("DOC_UPDATE");
             n.setActor(actor);
             n.setDocId(docId);
             n.setSummary("你订阅的《" + t + "》有更新");
-            saveAndPush(n);
+            batch.add(n);
         }
+        repo.saveAll(batch);
+        // 一条分组查询取全部接收者未读数，再逐连接推送（推送是纯内存 SSE 发送，开销可忽略）
+        Map<Long, Long> counts = new HashMap<>();
+        try {
+            for (Object[] row : repo.countUnreadByUserIds(targets)) {
+                counts.put((Long) row[0], (Long) row[1]);
+            }
+        } catch (Exception e) {
+            log.warn("订阅推送未读数批量查询失败 doc={}: {}", docId, e.getMessage());
+        }
+        for (Long uid : targets) {
+            sse.pushUnread(uid, counts.getOrDefault(uid, 0L));
+        }
+    }
+
+    /** 订阅推送的异步入口：移到线程池执行，文档保存请求不再等待上千订阅者的通知写入（M6）。
+     *  线程池见 AsyncConfig；队列满时 CallerRunsPolicy 回退请求线程执行，保证不丢通知。 */
+    @org.springframework.scheduling.annotation.Async
+    public void notifyDocUpdateAsync(Long docId, String docTitle, Long editorId, String editorUsername) {
+        notifyDocUpdate(docId, docTitle, editorId, editorUsername);
     }
 
     /** 结业证书颁发通知学员 */

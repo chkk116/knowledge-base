@@ -204,11 +204,11 @@ export const unfollowUser = (id) =>
 export const getUserArticles = (id, page = 0, size = 5) =>
   api.get('/users/' + id + '/articles', { params: { page, size } })
 
-// 我关注的人 / 我的粉丝（访客个人主页的关注流）
-export const getUserFollowing = (id) =>
-  api.get('/users/' + id + '/following')
-export const getUserFollowers = (id) =>
-  api.get('/users/' + id + '/followers')
+// 我关注的人 / 我的粉丝（访客个人主页的关注流，分页）
+export const getUserFollowing = (id, page = 0, size = 50) =>
+  api.get('/users/' + id + '/following', { params: { page, size } })
+export const getUserFollowers = (id, page = 0, size = 50) =>
+  api.get('/users/' + id + '/followers', { params: { page, size } })
 
 // ---- 徽章 / 勋章体系 ----
 // 当前登录用户的徽章墙：{ badges:[{id,name,desc,icon,color,tier,metric,threshold,current,earned,progress}], earned, total }

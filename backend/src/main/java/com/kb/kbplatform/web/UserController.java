@@ -58,15 +58,23 @@ public class UserController {
         return Map.of("ok", true, "following", false);
     }
 
-    /** 我关注的人（公开，分页） */
+    /** 我关注的人（公开，分页）：默认每页 50，最大 100，按关注时间倒序 */
     @GetMapping("/{id}/following")
-    public List<Map<String, Object>> following(@PathVariable Long id) {
-        return svc.listFollowing(id);
+    public List<Map<String, Object>> following(@PathVariable Long id,
+                                               @RequestParam(required = false, defaultValue = "0") int page,
+                                               @RequestParam(required = false, defaultValue = "50") int size) {
+        if (page < 0) page = 0;
+        if (size <= 0 || size > 100) size = 50;
+        return svc.listFollowing(id, page, size);
     }
 
-    /** 我的粉丝（公开） */
+    /** 我的粉丝（公开，分页）：默认每页 50，最大 100，按关注时间倒序 */
     @GetMapping("/{id}/followers")
-    public List<Map<String, Object>> followers(@PathVariable Long id) {
-        return svc.listFollowers(id);
+    public List<Map<String, Object>> followers(@PathVariable Long id,
+                                               @RequestParam(required = false, defaultValue = "0") int page,
+                                               @RequestParam(required = false, defaultValue = "50") int size) {
+        if (page < 0) page = 0;
+        if (size <= 0 || size > 100) size = 50;
+        return svc.listFollowers(id, page, size);
     }
 }

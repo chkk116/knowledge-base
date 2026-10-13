@@ -170,27 +170,28 @@ public class MeiliSearchClient {
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> search(String q, String category) {
         if (!enabled) throw new MeiliUnavailableException("Meilisearch 未启用");
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("q", q);
-        body.put("limit", 50);
-        Map<String, Object> resp;
-        try {
-            resp = client.post()
-                    .uri("/indexes/{uid}/search", indexUid)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .body(Map.class);
-        } catch (Exception e) {
-            throw new MeiliUnavailableException(e);
+        // 外部审查 2026-10-13（M7）：原实现固定 limit=50 再在 Java 里过滤分类——目标分类的文档
+        // 若整体 relevance 排在 50 名之外会被直接丢掉（召回丢失）。现优先把分类条件下推 Meili
+        // （filter 在排序前生效，limit 50 全部留给命中分类的文档）；仅当索引未把 category 设为
+        // filterable（老部署返回错误）时，才回退「放大 limit + 客户端过滤」的旧行为。
+        boolean hasCat = category != null && !category.isBlank();
+        List<Map<String, Object>> hits;
+        if (hasCat) {
+            try {
+                hits = rawSearch(q, 50, "category = \"" + escapeFilterValue(category) + "\"");
+            } catch (MeiliUnavailableException e) {
+                log.info("Meili 分类条件下推不可用（{}），回退客户端过滤（limit 放大至 200）", e.getMessage());
+                hits = rawSearch(q, 200, null);
+            }
+        } else {
+            hits = rawSearch(q, 50, null);
         }
-        if (resp == null) return Collections.emptyList();
-        List<Map<String, Object>> hits = (List<Map<String, Object>>) resp.getOrDefault("hits", Collections.emptyList());
+        if (hits.isEmpty()) return Collections.emptyList();
         String kw = q.toLowerCase();
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> hit : hits) {
             String cat = str(hit.get("category"));
-            if (category != null && !category.isBlank() && !category.equals(cat)) continue; // 分类筛选在客户端做，避免依赖服务端 filterable 配置
+            if (category != null && !category.isBlank() && !category.equals(cat)) continue; // 双重保险：服务端已过滤，客户端再兜一层
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", longOf(hit.get("id")));
             row.put("title", str(hit.get("title")));
@@ -203,6 +204,33 @@ public class MeiliSearchClient {
             out.add(row);
         }
         return out;
+    }
+
+    /** 单次 Meili 搜索请求：filter 为 null 时不下推条件；任何网络/协议错误抛 MeiliUnavailableException */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> rawSearch(String q, int limit, String filter) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("q", q);
+        body.put("limit", limit);
+        if (filter != null) body.put("filter", filter);
+        Map<String, Object> resp;
+        try {
+            resp = client.post()
+                    .uri("/indexes/{uid}/search", indexUid)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(Map.class);
+        } catch (Exception e) {
+            throw new MeiliUnavailableException(e);
+        }
+        if (resp == null) return Collections.emptyList();
+        return (List<Map<String, Object>>) resp.getOrDefault("hits", Collections.emptyList());
+    }
+
+    /** Meili filter 字符串字面量转义：反斜杠与双引号 */
+    private static String escapeFilterValue(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     /** 文档 → Meili 文档（content 存纯文本，搜索/摘要都更干净） */

@@ -339,9 +339,10 @@ public class DocumentService {
         meili.sync(saved);
         promoteChildrenIfHidden(saved, previousStatus);
         auditDoc("UPDATE_DOC", editorId, saved.getId(), saved.getTitle(), "更新文档《" + clip(saved.getTitle()) + "》");
-        // 订阅推送：仅已发布文档的更新才推送，避免草稿反复编辑骚扰订阅者
+        // 订阅推送：仅已发布文档的更新才推送，避免草稿反复编辑骚扰订阅者。
+        // 走异步入口（M6）：热门文档上千订阅者的通知写入不阻塞本次保存请求。
         if ("PUBLISHED".equals(saved.getStatus())) {
-            notificationService.notifyDocUpdate(saved.getId(), saved.getTitle(), editorId, usernameOf(editorId));
+            notificationService.notifyDocUpdateAsync(saved.getId(), saved.getTitle(), editorId, usernameOf(editorId));
         }
         return saved;
     }
@@ -383,9 +384,10 @@ public class DocumentService {
         }
         if (enteredReview) notifyReviewSubmit(saved, ownerId);
         auditDoc("UPDATE_DOC", ownerId, saved.getId(), saved.getTitle(), "更新文档《" + clip(saved.getTitle()) + "》");
-        // 订阅推送：仅仍处于已发布状态的更新才推送（重审中的不再推）
+        // 订阅推送：仅仍处于已发布状态的更新才推送（重审中的不再推）。
+        // 走异步入口（M6）：通知写入移到线程池，不阻塞保存请求。
         if ("PUBLISHED".equals(saved.getStatus())) {
-            notificationService.notifyDocUpdate(saved.getId(), saved.getTitle(), ownerId, usernameOf(ownerId));
+            notificationService.notifyDocUpdateAsync(saved.getId(), saved.getTitle(), ownerId, usernameOf(ownerId));
         }
         return saved;
     }

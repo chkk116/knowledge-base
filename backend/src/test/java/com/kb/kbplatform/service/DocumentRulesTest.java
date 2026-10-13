@@ -106,7 +106,7 @@ class DocumentRulesTest {
         assertEquals("PENDING_REVIEW", saved.getStatus());          // 规则 A：修改即重审
         verify(authService).awardPoints(eq(2L), eq(-AuthService.PUBLISH_POINTS), eq("PUBLISH"), contains("重新审核"));   // 规则 B：扣回
         verify(notificationService).notifyReviewSubmit(eq(12L), any(), any(), eq(2L));                                     // 通知管理员
-        verify(notificationService, never()).notifyDocUpdate(any(), any(), any(), any());                                  // 重审中不再推订阅
+        verify(notificationService, never()).notifyDocUpdateAsync(any(), any(), any(), any());                       // 重审中不再推订阅
     }
 
     @Test

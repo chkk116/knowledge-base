@@ -11,6 +11,9 @@ import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.repository.FavoriteRepository;
 import com.kb.kbplatform.repository.FollowRepository;
 import com.kb.kbplatform.repository.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.cache.annotation.CacheEvict;
@@ -18,10 +21,11 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import java.time.Year;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 @Service
 public class UserService {
@@ -96,32 +100,41 @@ public class UserService {
         return true;
     }
 
-    /** 我关注的人（公开，按关注时间倒序） */
-    public List<Map<String, Object>> listFollowing(Long id) {
-        return followRepo.findByFollowerIdOrderByFollowingIdDesc(id).stream()
-                .map(f -> toUserSummary(f.getFollowingId()))
-                .filter(Objects::nonNull)
-                .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+    /** 我关注的人（公开，分页，按关注时间倒序） */
+    public List<Map<String, Object>> listFollowing(Long id, int page, int size) {
+        Page<Follow> rel = followRepo.findByFollowerId(id,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "id")));
+        return toSummaries(rel.getContent().stream().map(Follow::getFollowingId).toList());
     }
 
-    /** 我的粉丝（公开，按关注时间倒序） */
-    public List<Map<String, Object>> listFollowers(Long id) {
-        return followRepo.findByFollowingIdOrderByFollowerIdDesc(id).stream()
-                .map(f -> toUserSummary(f.getFollowerId()))
-                .filter(Objects::nonNull)
-                .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+    /** 我的粉丝（公开，分页，按关注时间倒序） */
+    public List<Map<String, Object>> listFollowers(Long id, int page, int size) {
+        Page<Follow> rel = followRepo.findByFollowingId(id,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "id")));
+        return toSummaries(rel.getContent().stream().map(Follow::getFollowerId).toList());
     }
 
-    /** 把用户精简为卡片列表所需字段 */
-    private Map<String, Object> toUserSummary(Long uid) {
-        User u = userRepo.findById(uid).orElse(null);
-        if (u == null) return null;
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", u.getId());
-        m.put("username", u.getUsername());
-        m.put("displayName", u.getDisplayName());
-        m.put("avatar", u.getAvatar());
-        m.put("bio", u.getBio());
-        return m;
+    /**
+     * 批量把用户精简为卡片列表所需字段（外部审查 2026-10-13）：
+     *  - 一次 findAllById 批量查询，替代原来「每个关注关系一次 findById」的 N+1；
+     *  - 不再下发 username（登录名）：粉丝/关注列表是公开接口，暴露登录名可助密码爆破，
+     *    对外身份统一只用 displayName（与作者卡片 getCard 口径一致）。
+     */
+    private List<Map<String, Object>> toSummaries(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        Map<Long, User> byId = new HashMap<>();
+        for (User u : userRepo.findAllById(ids)) byId.put(u.getId(), u);
+        List<Map<String, Object>> out = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            User u = byId.get(id);
+            if (u == null) continue;   // 用户已注销：静默跳过
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", u.getId());
+            m.put("displayName", u.getDisplayName());
+            m.put("avatar", u.getAvatar());
+            m.put("bio", u.getBio());
+            out.add(m);
+        }
+        return out;
     }
 }
