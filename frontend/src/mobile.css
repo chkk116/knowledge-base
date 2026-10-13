@@ -211,6 +211,24 @@ html.dark .m-ico.orange { background: #3a2411; color: #fb923c; }
 html.dark .m-ico.red { background: #3d1a1a; color: #f87171; }
 html.dark .m-ico.blue { background: #12253d; color: #60a5fa; }
 
+/* 作者条（文章 / 文档详情页顶部：头像 + 名字 + 原创·粉丝 + 关注） */
+.m-author { display: flex; align-items: center; gap: 10px; margin: 12px 0 10px; }
+.m-author .au-ava {
+  flex: none; width: 40px; height: 40px; border-radius: 50%;
+  object-fit: cover; background: var(--m-card-2);
+}
+.m-author .au-ava.none {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--m-primary); color: #fff; font-size: 16px; font-weight: 600;
+}
+.m-author .au-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.m-author .au-name {
+  font-size: 14.5px; font-weight: 600; color: var(--m-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.m-author .au-sub { font-size: 12px; color: var(--m-text-dim); }
+.m-author .follow-mini { margin-left: 0; flex: none; }
+
 /* 主按钮（大、圆角、拇指易点） */
 .m-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;

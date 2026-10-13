@@ -83,6 +83,13 @@ function scrollToComments() {
 // ---------- 关注作者 ----------
 const authorCard = ref(null)
 const following = ref(false)
+const myUid = computed(() => Number(localStorage.getItem('kb_user_id') || 0))
+// ⚠️ 公开文章接口的 ownerName 是 null（服务端未填充），作者名必须走 getUserCard，
+//    否则一律显示「匿名」（2026-10-13 修）
+const authorName = computed(() =>
+  authorCard.value?.displayName || authorCard.value?.username || doc.value?.ownerName || '匿名')
+const authorInitial = computed(() => (authorName.value || '?').slice(0, 1).toUpperCase())
+const canFollow = computed(() => !!authorCard.value?.id && Number(authorCard.value.id) !== myUid.value)
 
 async function loadAuthor() {
   const uid = doc.value?.ownerId
@@ -91,17 +98,20 @@ async function loadAuthor() {
     const { data } = await getUserCard(uid)
     authorCard.value = data
     following.value = !!data?.isFollowing
-  } catch { /* 拿不到就不显示关注按钮 */ }
+  } catch { /* 拿不到就只显示名字 */ }
 }
 
 async function toggleFollow() {
   const uid = authorCard.value?.id || doc.value?.ownerId
   if (!uid) return
+  if (Number(uid) === myUid.value) { window.__kbMsg?.warning('不能关注自己'); return }
   try {
     if (following.value) await unfollowUser(uid); else await followUser(uid)
     following.value = !following.value
     window.__kbMsg?.success(following.value ? '已关注' : '已取消关注')
-  } catch { window.__kbMsg?.warning('操作失败，请稍后重试') }
+  } catch (e) {
+    window.__kbMsg?.warning(e?.response?.data?.error || '操作失败，请稍后重试')
+  }
 }
 
 function fmtDate(s) {
@@ -189,12 +199,21 @@ watch(() => route.params.id, (nv, ov) => {
       <template v-else-if="doc">
         <div class="body">
           <h1 class="pv-h1">{{ doc.title || '未命名文档' }}</h1>
+
+          <!-- 作者条（对齐 Web 端作者卡：头像 + 名字 + 原创/粉丝 + 关注） -->
+          <div class="m-author">
+            <img v-if="authorCard?.avatar" class="au-ava" :src="authorCard.avatar" alt="" />
+            <span v-else class="au-ava none">{{ authorInitial }}</span>
+            <div class="au-info">
+              <span class="au-name">{{ authorName }}</span>
+              <span v-if="authorCard" class="au-sub">{{ authorCard.original || 0 }} 篇原创 · {{ authorCard.fans || 0 }} 粉丝</span>
+            </div>
+            <button v-if="canFollow" class="follow-mini" :class="{ on: following }"
+                    type="button" @click="toggleFollow">{{ following ? '已关注' : '+ 关注' }}</button>
+          </div>
+
           <div class="pv-meta">
             <span v-if="doc.category" class="m-chip gray">{{ doc.category }}</span>
-            <span>{{ doc.ownerName || '匿名' }}</span>
-            <button v-if="authorCard?.id" class="follow-mini" :class="{ on: following }"
-                    type="button" @click="toggleFollow">{{ following ? '已关注' : '关注' }}</button>
-            <span class="dot">·</span>
             <span>{{ fmtDate(doc.updatedAt || doc.createdAt) }}</span>
             <span class="dot">·</span>
             <span>{{ doc.views || 0 }} 次浏览</span>
