@@ -12,7 +12,7 @@
  * 坐标约定：裁剪框与角点均用**归一化坐标**（0~1），与预览像素尺寸解耦。
  * 预览用降采样画布（≤900px）保证流畅；「完成」时对全分辨率画布烘焙滤镜后导出。
  */
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import {
   applyFilter, cloneCanvas, cropCanvas, detectCorners, loadImage,
   makeCanvas, perspectiveWarp, rotateCanvas, toJpegPage, FILTERS,
@@ -20,6 +20,7 @@ import {
 
 const props = defineProps({
   page: { type: Object, required: true },   // { url, w, h }
+  ratio: { type: Number, default: 0 },      // >0 = 证件模式：裁剪框锁定该宽高比
 })
 const emit = defineEmits(['done', 'cancel'])
 
@@ -44,12 +45,49 @@ const corners = ref([
 const undoStack = []
 const canUndo = computed(() => undoStack.length > 0)
 
+/**
+ * 证件模式：把「真实宽高比」换算成**归一化坐标下的比例**。
+ * 归一化坐标里 1 单位宽 = 图宽像素、1 单位高 = 图高像素，
+ * 所以归一化比例 k = 真实比例 × (图高 / 图宽)。
+ */
+function normRatioFor(cv) {
+  const r = Number(props.ratio) || 0
+  if (!r || !cv) return 0
+  return r * (cv.height / cv.width)
+}
+/** 重置裁剪框：证件模式给居中且符合比例的框，否则整幅留边 */
+function resetCrop() {
+  const k = normRatioFor(workFull.value)
+  if (k > 0) {
+    let w = 0.92
+    let h = w / k
+    if (h > 0.92) { h = 0.92; w = h * k }
+    crop.value = { x: (1 - w) / 2, y: (1 - h) / 2, w, h }
+  } else {
+    crop.value = { x: 0.06, y: 0.06, w: 0.88, h: 0.88 }
+  }
+}
+
 /* ---------------- 渲染 ---------------- */
 
 function pushUndo() {
   if (!workFull.value) return
   undoStack.push(cloneCanvas(workFull.value))
   if (undoStack.length > MAX_UNDO) undoStack.shift()
+}
+
+/** 把 canvas 的 CSS 尺寸限制在可用区域内，保证覆盖层与画面严格对齐 */
+function fitStage() {
+  const el = previewEl.value
+  const box = stageEl.value ? stageEl.value.parentElement : null
+  if (!el || !box) return
+  const cs = getComputedStyle(box)
+  const availW = box.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0)
+  const availH = box.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0)
+  if (availW <= 0 || availH <= 0) return
+  const k = Math.min(availW / el.width, availH / el.height, 1)
+  el.style.width = Math.round(el.width * k) + 'px'
+  el.style.height = Math.round(el.height * k) + 'px'
 }
 
 /** 把 workFull 降采样 + 应用滤镜，画到可见 canvas 上 */
@@ -68,6 +106,10 @@ function render() {
   const ctx = el.getContext('2d')
   ctx.clearRect(0, 0, el.width, el.height)
   ctx.drawImage(out, 0, 0)
+  // ⚠️ 必须限制 CSS 尺寸：否则画布会纵向溢出 .se-stage，
+  //    而裁剪框/角点用百分比定位（相对 stage）→ 覆盖层与画面错位（2026-10-13 修）
+  //    要等布局稳定后再量（首次 render 时容器可能还没高度）
+  nextTick(() => { fitStage(); requestAnimationFrame(fitStage) })
   ready.value = true
 }
 
@@ -84,6 +126,9 @@ async function load() {
     cv.getContext('2d').drawImage(img, 0, 0, w, h)
     workFull.value = cv
     undoStack.length = 0
+    resetCrop()
+    // 证件模式：载入即进裁剪，用户直接拖框对齐证件
+    if (Number(props.ratio) > 0) mode.value = 'crop'
     render()
   } catch (e) {
     window.__kbMsg?.error(e.message || '图片加载失败')
@@ -92,6 +137,9 @@ async function load() {
   }
 }
 onMounted(load)
+// 旋转屏幕 / 视口变化后重新贴合（否则覆盖层又会与画面错位）
+function onResize() { fitStage() }
+onMounted(() => window.addEventListener('resize', onResize))
 
 /* ---------------- 手势：裁剪框 / 角点 ---------------- */
 
@@ -141,6 +189,25 @@ function onPointerMove(e) {
     if (d.handle.includes('e')) x2 = Math.min(1, Math.max(x1 + MIN, o.x + o.w + dx))
     if (d.handle.includes('n')) y1 = Math.max(0, Math.min(y2 - MIN, o.y + dy))
     if (d.handle.includes('s')) y2 = Math.min(1, Math.max(y1 + MIN, o.y + o.h + dy))
+
+    // 证件模式：由宽度推高度，保持「对角锚点」不动，并做边界收敛
+    const k = normRatioFor(workFull.value)
+    if (k > 0) {
+      let w = Math.max(MIN, x2 - x1)
+      let h = w / k
+      if (h > 1) { h = 1; w = h * k }
+      if (w > 1) { w = 1; h = w / k }
+      const anchorRight = d.handle.includes('w')
+      const anchorBottom = d.handle.includes('n')
+      x1 = anchorRight ? x2 - w : x1
+      y1 = anchorBottom ? y2 - h : y1
+      if (x1 < 0) x1 = 0
+      if (y1 < 0) y1 = 0
+      if (x1 + w > 1) x1 = 1 - w
+      if (y1 + h > 1) y1 = 1 - h
+      crop.value = { x: x1, y: y1, w, h }
+      return
+    }
     crop.value = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }
     return
   }
@@ -160,7 +227,7 @@ function doRotate(deg) {
   pushUndo()
   workFull.value = rotateCanvas(workFull.value, deg)
   // 旋转后裁剪框/角点归一化坐标已不适用，重置
-  crop.value = { x: 0.06, y: 0.06, w: 0.88, h: 0.88 }
+  resetCrop()
   corners.value = [
     { x: 0.06, y: 0.06 }, { x: 0.94, y: 0.06 },
     { x: 0.94, y: 0.94 }, { x: 0.06, y: 0.94 },
@@ -174,7 +241,7 @@ function applyCrop() {
   if (c.w >= 0.995 && c.h >= 0.995) { mode.value = ''; return }
   pushUndo()
   workFull.value = cropCanvas(workFull.value, c)
-  crop.value = { x: 0.06, y: 0.06, w: 0.88, h: 0.88 }
+  resetCrop()
   mode.value = ''
   render()
 }
@@ -206,7 +273,7 @@ function undo() {
   const prev = undoStack.pop()
   if (!prev) return
   workFull.value = prev
-  crop.value = { x: 0.06, y: 0.06, w: 0.88, h: 0.88 }
+  resetCrop()
   corners.value = [
     { x: 0.06, y: 0.06 }, { x: 0.94, y: 0.06 },
     { x: 0.94, y: 0.94 }, { x: 0.06, y: 0.94 },
@@ -241,7 +308,10 @@ async function finish() {
   }
 }
 
-onBeforeUnmount(() => { undoStack.length = 0 })
+onBeforeUnmount(() => {
+  undoStack.length = 0
+  window.removeEventListener('resize', onResize)
+})
 </script>
 
 <template>
@@ -340,7 +410,7 @@ onBeforeUnmount(() => { undoStack.length = 0 })
   padding: 12px; overflow: hidden;
 }
 .se-stage {
-  position: relative; display: inline-block; max-width: 100%; max-height: 100%;
+  position: relative; display: inline-block; line-height: 0; max-width: 100%; max-height: 100%;
   touch-action: none; user-select: none; -webkit-user-select: none;
   box-shadow: 0 2px 12px rgba(0, 0, 0, .14); background: #fff;
 }

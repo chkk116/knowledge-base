@@ -41,6 +41,27 @@ const editingIndex = ref(-1)     // 正在编辑的页下标（-1 = 未编辑）
 const exportSheet = ref(false)   // 导出选项面板
 const wmText = ref('')           // 水印文字（空 = 不加）
 const pdfPwd = ref('')           // PDF 打开密码（空 = 不加密）
+// ---- 证件模式 ----
+const idRatio = ref(0)           // >0 = 证件模式，值为宽高比
+const idType = ref('')           // 证件类型名（仅展示）
+const idSheet = ref(false)       // 证件类型选择面板
+// 常见证件尺寸（毫米换算的真实宽高比）
+const ID_PRESETS = [
+  { key: 'idcard', name: '身份证', ratio: 85.6 / 54 },
+  { key: 'passport', name: '护照', ratio: 125 / 88 },
+  { key: 'bank', name: '银行卡', ratio: 85.6 / 54 },
+  { key: 'driver', name: '驾驶证', ratio: 88 / 62 },
+  { key: 'household', name: '户口本', ratio: 1.4 },
+  { key: 'license', name: '营业执照', ratio: 1.414 },
+]
+// ---- 空间选择面板用途（OCR 入库 / 图片归档）----
+const sheetMode = ref('ocr')     // ocr | image
+// ---- 页面拖拽排序 ----
+const dragIdx = ref(-1)
+const dragOver = ref(-1)
+let dragTimer = null
+let uidSeq = 0
+let justDragged = false          // 拖拽刚结束 → 抑制一次 click，避免误进编辑器
 const scanCamera = ref(null)
 const scanAlbum = ref(null)
 const exporting = ref(false)
@@ -138,6 +159,7 @@ async function onScanFiles(e) {
       if (!/^image\//i.test(f.type)) continue
       const page = await prepareImage(f)
       page.file = f
+      page.uid = ++uidSeq            // 稳定 key：拖拽排序时避免 DOM 复用错位
       scanPages.value.push(page)
     }
   } catch (err) {
@@ -257,6 +279,115 @@ function onEditDone(page) {
   window.__kbMsg?.success('已保存本页')
 }
 
+/* ---------- 证件模式 ---------- */
+
+function openIdSheet() { idSheet.value = true }
+
+/** 选好证件类型 → 清空重来，进入证件扫描（编辑器会锁定比例并直接进裁剪） */
+function pickIdType(p) {
+  idRatio.value = p.ratio
+  idType.value = p.name
+  idSheet.value = false
+  revokePages(scanPages.value)
+  scanPages.value = []
+  scanTitle.value = ''
+  stage.value = 'scan'
+  scanAlbum.value?.click()
+}
+
+function clearIdMode() {
+  idRatio.value = 0
+  idType.value = ''
+}
+
+/* ---------- 图片归档（扫描件存进知识库） ---------- */
+
+function openImageArchive() {
+  if (!scanPages.value.length || exporting.value || busy.value) return
+  if (!online.value) { window.__kbMsg?.warning('离线状态无法归档，请联网后重试'); return }
+  sheetMode.value = 'image'
+  sheetOpen.value = true
+}
+
+/** 把当前扫描页上传后生成一篇「图片文档」存进指定空间 */
+async function archiveImages(sid) {
+  if (!scanPages.value.length || exporting.value) return
+  exporting.value = true
+  try {
+    const urls = []
+    const total = scanPages.value.length
+    for (let i = 0; i < total; i++) {
+      statusText.value = `正在上传第 ${i + 1}/${total} 张…`
+      const p = scanPages.value[i]
+      const f = new File([new Blob([p.bytes], { type: 'image/jpeg' })],
+        `${scanFileName('')}-${i + 1}.jpg`, { type: 'image/jpeg' })
+      const { data } = await uploadFile(f)
+      if (data?.errno !== 0 || !data?.data?.url) throw new Error(data?.message || '上传失败')
+      urls.push(data.data.url)
+    }
+    statusText.value = '正在生成文档…'
+    const html = urls.map((u) => `<p><img src="${u}" alt="扫描件"></p>`).join('')
+    const name = scanTitle.value.trim() || `${idType.value || '扫描件'} ${new Date().toLocaleDateString()}`
+    const { data } = await createShareDoc(sid, { title: name, content: html })
+    window.__kbMsg?.success('已归档到「' + (spaces.value.find((x) => x.id === sid)?.name || '我的文档') + '」')
+    router.replace(`/doc/${sid}/${data.id}`)
+  } catch (e) {
+    window.__kbMsg?.error('归档失败：' + (e?.response?.data?.error || e.message || '未知错误'))
+  } finally {
+    exporting.value = false
+    statusText.value = ''
+  }
+}
+
+/* ---------- 页面拖拽排序（长按 260ms 进入拖拽，保留 ↑↓ 兜底） ---------- */
+
+/**
+ * 长按 260ms 进入拖拽。移动/抬起一律挂在 document 上：
+ * 手指移出元素后 item 上的 pointermove 就收不到了，只有文档级监听才可靠。
+ */
+function onPageDown(e, i) {
+  if (busy.value || exporting.value || scanPages.value.length < 2) return
+  clearTimeout(dragTimer)
+  // 未进入拖拽就抬手 → 只是普通点击，取消长按
+  document.addEventListener('pointerup', () => clearTimeout(dragTimer), { once: true, capture: true })
+  dragTimer = setTimeout(() => {
+    dragIdx.value = i
+    dragOver.value = i
+    if (navigator.vibrate) { try { navigator.vibrate(12) } catch { /* ignore */ } }
+    document.addEventListener('pointermove', onDragMove, { passive: false })
+    document.addEventListener('pointerup', onDragEnd, true)
+    document.addEventListener('pointercancel', onDragEnd, true)
+  }, 260)
+}
+function onDragMove(e) {
+  if (dragIdx.value < 0) return
+  e.preventDefault()
+  const el = document.elementFromPoint(e.clientX, e.clientY)
+  const item = el && el.closest ? el.closest('.scan-item') : null
+  if (item && item.dataset.idx != null) dragOver.value = Number(item.dataset.idx)
+}
+function onDragEnd() {
+  document.removeEventListener('pointermove', onDragMove)
+  document.removeEventListener('pointerup', onDragEnd, true)
+  document.removeEventListener('pointercancel', onDragEnd, true)
+  clearTimeout(dragTimer)
+  const from = dragIdx.value
+  const to = dragOver.value
+  if (from >= 0) justDragged = true            // 抑制随后触发的 click
+  if (from >= 0 && to >= 0 && from !== to) {
+    const arr = scanPages.value
+    const [moved] = arr.splice(from, 1)
+    arr.splice(to, 0, moved)
+  }
+  dragIdx.value = -1
+  dragOver.value = -1
+}
+/** 拖拽刚结束时抑制一次 click，避免误进编辑器 */
+function onPageClick(i) {
+  if (justDragged) { justDragged = false; return }
+  openEditor(i)
+}
+
 /** 逐页识别后合成一篇文档（走 review 阶段让用户确认） */
 async function recognizeAll() {
   if (!scanPages.value.length || busy.value) return
@@ -359,11 +490,12 @@ function escapeHtml(s) {
 }
 
 /** 选择存放位置 */
-function openSheet() { sheetOpen.value = true }
+function openSheet() { sheetMode.value = 'ocr'; sheetOpen.value = true }
 function chooseSpaceSave(s) {
   targetSpace.value = s.id
   rememberSpace(s.id)
   sheetOpen.value = false
+  if (sheetMode.value === 'image') archiveImages(s.id).catch(() => { /* 已内部提示 */ })
 }
 
 /** 保存到文档库（有网直传，无网进队列） */
@@ -458,6 +590,11 @@ onMounted(prewarm)
           <span class="pb-txt">多页扫描</span>
           <span class="pb-desc">连拍多页 · 导出 PDF</span>
         </button>
+        <button class="pick-btn" @click="openIdSheet">
+          <span class="pb-ico blue"><el-icon :size="30"><Postcard /></el-icon></span>
+          <span class="pb-txt">证件扫描</span>
+          <span class="pb-desc">身份证 / 护照 · 自动锁定比例</span>
+        </button>
       </div>
 
       <!-- 识别引擎选择 -->
@@ -493,15 +630,25 @@ onMounted(prewarm)
       <div class="pick-hint">
         <input v-model="scanTitle" class="scan-name" type="text" maxlength="40"
                placeholder="给这份扫描件起个名字（可选）" />
-        <div class="ph-sub">已添加 {{ scanPages.length }} 页 · 点任意一页可裁剪 / 矫正 / 滤镜</div>
+        <div v-if="idRatio" class="id-chip">
+          <span>证件模式 · {{ idType }}（比例已锁定）</span>
+          <button type="button" @click="clearIdMode">退出</button>
+        </div>
+        <div class="ph-sub">
+          已添加 {{ scanPages.length }} 页 · 点页可裁剪/矫正/滤镜{{ scanPages.length > 1 ? ' · 长按可拖拽排序' : '' }}
+        </div>
       </div>
 
       <div class="scan-grid">
-        <div v-for="(p, i) in scanPages" :key="i" class="scan-item" @click="openEditor(i)">
-          <img :src="p.url" alt="" />
+        <div v-for="(p, i) in scanPages" :key="p.uid || i" class="scan-item"
+             :class="{ 'drag-src': dragIdx === i, 'drag-over': dragOver === i && dragIdx >= 0 && dragIdx !== i }"
+             :data-idx="i"
+             @pointerdown="onPageDown($event, i)"
+             @click="onPageClick(i)">
+          <img :src="p.url" alt="" draggable="false" />
           <span class="scan-idx">{{ i + 1 }}</span>
           <span class="scan-edit">编辑</span>
-          <div class="scan-ops" @click.stop>
+          <div class="scan-ops" @click.stop @pointerdown.stop>
             <button type="button" :disabled="i === 0" @click="movePage(i, -1)">↑</button>
             <button type="button" :disabled="i === scanPages.length - 1" @click="movePage(i, 1)">↓</button>
             <button type="button" class="del" @click="removePage(i)">×</button>
@@ -515,13 +662,16 @@ onMounted(prewarm)
         </button>
       </div>
 
-      <div v-if="busy" class="scan-status">
+      <div v-if="busy || exporting" class="scan-status">
         <el-icon class="rot"><Loading /></el-icon><span>{{ statusText || '处理中…' }}</span>
       </div>
 
       <div class="scan-actions">
         <button class="m-btn" :disabled="!scanPages.length || exporting || busy" @click="exportSheet = true">
           <el-icon><Download /></el-icon>{{ exporting ? '导出中…' : '导出（PDF / 长图）' }}
+        </button>
+        <button class="m-btn ghost" :disabled="!scanPages.length || exporting || busy" @click="openImageArchive">
+          <el-icon><FolderOpened /></el-icon>存为图片文档
         </button>
         <button class="m-btn ghost" :disabled="!scanPages.length || busy" @click="recognizeAll">
           <el-icon><EditPen /></el-icon>识别全部并入库
@@ -653,9 +803,25 @@ onMounted(prewarm)
       </div>
     </transition>
 
+    <!-- 证件类型选择 -->
+    <transition name="sheet-up">
+      <div v-if="idSheet" class="m-sheet-mask" @click.self="idSheet = false">
+        <div class="m-sheet">
+          <div class="ex-h">选择证件类型</div>
+          <div class="ex-hint">裁剪框会按证件的真实比例锁定，避免拉变形</div>
+          <button v-for="p in ID_PRESETS" :key="p.key" class="m-sheet-item" type="button" @click="pickIdType(p)">
+            <el-icon><Postcard /></el-icon>
+            <span>{{ p.name }}</span>
+            <span class="id-ratio">{{ p.ratio.toFixed(2) }} : 1</span>
+          </button>
+          <button class="m-sheet-item cancel" type="button" @click="idSheet = false">取消</button>
+        </div>
+      </div>
+    </transition>
+
     <!-- 单页编辑器（全屏） -->
     <div v-if="editingIndex >= 0 && scanPages[editingIndex]" class="se-overlay">
-      <MobileScanEditor :page="scanPages[editingIndex]"
+      <MobileScanEditor :page="scanPages[editingIndex]" :ratio="idRatio"
                         @done="onEditDone" @cancel="editingIndex = -1" />
     </div>
   </div>
@@ -833,6 +999,9 @@ html.dark .pb-ico.gray { background: #2a2a42; color: #9aa0ae; }
 .scan-name:focus { border-color: var(--m-primary); background: var(--m-card); outline: none; }
 
 .scan-item { position: relative; cursor: pointer; }
+/* ⚠️ 图片默认 draggable：按住拖动会触发浏览器原生拖拽，吞掉后续 pointermove，
+   导致长按排序失效（2026-10-13 修） */
+.scan-item img { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; }
 .scan-edit {
   position: absolute; left: 4px; bottom: 4px;
   padding: 1px 7px; border-radius: 7px;
@@ -851,4 +1020,21 @@ html.dark .pb-ico.gray { background: #2a2a42; color: #9aa0ae; }
 }
 .ex-input:focus { border-color: var(--m-primary); background: var(--m-card); outline: none; }
 .ex-hint { font-size: 12px; color: var(--m-text-dim); padding: 6px 4px 12px; }
+
+/* 证件模式提示条 */
+.id-chip {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  margin-bottom: 8px; padding: 7px 12px;
+  background: var(--m-primary-soft); border-radius: 10px;
+  font-size: 12.5px; color: var(--m-primary);
+}
+.id-chip button {
+  flex: none; border: none; background: none; color: var(--m-primary);
+  font-size: 12.5px; text-decoration: underline; padding: 0;
+}
+.id-ratio { margin-left: auto; font-size: 12px; color: var(--m-text-dim); }
+
+/* 拖拽排序 */
+.scan-item.drag-src { opacity: .45; transform: scale(.96); }
+.scan-item.drag-over { outline: 2px dashed var(--m-primary); outline-offset: -2px; }
 </style>

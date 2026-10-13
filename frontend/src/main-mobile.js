@@ -47,7 +47,7 @@ import {
   // 新增功能页用到的图标（缺一个就会渲染成空白，务必与 icons 对象同步）
   Download, Share, Link, TrendCharts, Cloudy, Unlock, Key,
   Compass, StarFilled, Guide, Odometer, Medal, Notebook, Aim, Histogram,
-  Crop, RefreshLeft, RefreshRight   // 扫描编辑器（裁剪 / 左右旋转）
+  Crop, RefreshLeft, RefreshRight, Postcard   // 扫描编辑器（裁剪/旋转）+ 证件扫描
 } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -94,7 +94,7 @@ const icons = {
   DataLine, Avatar, CollectionTag, Brush,
   Download, Share, Link, TrendCharts, Cloudy, Unlock, Key,
   Compass, StarFilled, Guide, Odometer, Medal, Notebook, Aim, Histogram,
-  Crop, RefreshLeft, RefreshRight
+  Crop, RefreshLeft, RefreshRight, Postcard
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)
