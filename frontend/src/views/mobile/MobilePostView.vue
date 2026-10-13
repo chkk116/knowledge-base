@@ -11,8 +11,8 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getDoc, getRelatedDocs, toggleLike, myLikeIds, toggleFavorite, myFavoriteIds,
-  getComments, addComment, deleteComment, toggleCommentLike, myCommentLikes,
   getUserCard, followUser, unfollowUser } from '../../api/kb'
+import MobileCommentSection from './MobileCommentSection.vue'
 import { enhanceVideos, bindImgLightbox, absolutizeMedia, absolutizeMediaHtml } from '../../utils/mediaEnhance'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
@@ -72,59 +72,9 @@ watch(html, async (v) => {
 }, { immediate: true })
 onBeforeUnmount(() => { try { editor.value?.destroy() } catch { /* ignore */ } })
 
-// ---------- 评论 ----------
-const comments = ref([])
-const commentText = ref('')
-const commentLikes = ref([])   // 我点过赞的评论 id
-const sending = ref(false)
+// ---------- 评论（逻辑收进 MobileCommentSection，这里只保留计数 + 定位） ----------
+const commentCount = ref(0)
 const cmtRef = ref(null)
-
-async function loadComments(curId) {
-  try {
-    const [{ data }, likes] = await Promise.all([
-      getComments(curId),
-      myCommentLikes().catch(() => ({ data: [] })),
-    ])
-    comments.value = data || []
-    commentLikes.value = (likes?.data || []).map(Number)
-  } catch { comments.value = [] }
-}
-
-async function sendComment() {
-  const t = (commentText.value || '').trim()
-  if (!t) { window.__kbMsg?.warning('请输入评论内容'); return }
-  if (sending.value) return
-  sending.value = true
-  try {
-    await addComment(id, t)
-    commentText.value = ''
-    await loadComments(id)
-    window.__kbMsg?.success('评论已发表')
-  } catch (e) {
-    window.__kbMsg?.error('评论失败：' + (e?.response?.data?.error || e.message || '未知错误'))
-  } finally { sending.value = false }
-}
-
-async function removeComment(cid) {
-  try { await deleteComment(cid); await loadComments(id); window.__kbMsg?.success('已删除') }
-  catch { window.__kbMsg?.warning('删除失败') }
-}
-
-async function likeComment(c) {
-  try {
-    const { data } = await toggleCommentLike(c.id)
-    c.likes = data?.likes ?? c.likes
-    const set = new Set(commentLikes.value)
-    if (data?.liked) set.add(Number(c.id)); else set.delete(Number(c.id))
-    commentLikes.value = [...set]
-  } catch { /* ignore */ }
-}
-
-function isMine(c) {
-  const me = Number(localStorage.getItem('kb_user_id') || 0)
-  return !!me && Number(c.userId || c.ownerId || 0) === me
-}
-
 function scrollToComments() {
   const el = cmtRef.value
   if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -195,7 +145,6 @@ async function loadDoc(curId) {
     myFavoriteIds().then((r) => { if (seq === docLoadSeq) faved.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
     myLikeIds().then((r) => { if (seq === docLoadSeq) liked.value = (r.data || []).map(Number).includes(curId) }).catch(() => {})
     getRelatedDocs(curId, 5).then((r) => { if (seq === docLoadSeq) related.value = r.data || [] }).catch(() => {})
-    if (seq === docLoadSeq) loadComments(curId).catch(() => {})
     // 作者信息要等 doc 落库后再取（依赖 doc.ownerId）
     if (seq === docLoadSeq) nextTick(loadAuthor).catch(() => {})
   } catch (e) {
@@ -257,31 +206,9 @@ watch(() => route.params.id, (nv, ov) => {
           <p v-if="!html" style="color:var(--m-text-dim)">（空文档）</p>
         </div>
 
-        <!-- 评论 -->
+        <!-- 评论（二级回复 / 排序 / 表情 / 点赞 / 删除，见 MobileCommentSection） -->
         <div ref="cmtRef" class="body">
-          <div class="m-sec-title">评论<span v-if="comments.length"> ({{ comments.length }})</span></div>
-          <div class="m-card">
-            <div class="cmt-input">
-              <textarea v-model="commentText" rows="2" maxlength="500" placeholder="写下你的评论…"></textarea>
-              <button class="m-btn sm" :disabled="sending" @click="sendComment">{{ sending ? '发送中…' : '发送' }}</button>
-            </div>
-            <div v-if="!comments.length" class="cmt-empty">还没有评论，来说两句吧</div>
-            <div v-for="c in comments" :key="c.id" class="cmt">
-              <div class="cmt-top">
-                <span class="cmt-name">{{ c.userName || c.ownerName || '匿名' }}</span>
-                <span class="cmt-time">{{ fmtDate(c.createdAt) }}</span>
-              </div>
-              <div class="cmt-text">{{ c.content }}</div>
-              <div class="cmt-acts">
-                <button class="cmt-act" :class="{ on: commentLikes.includes(Number(c.id)) }"
-                        type="button" @click="likeComment(c)">
-                  <el-icon :size="14"><component :is="commentLikes.includes(Number(c.id)) ? 'StarFilled' : 'Star'" /></el-icon>
-                  <span>{{ c.likes || 0 }}</span>
-                </button>
-                <button v-if="isMine(c)" class="cmt-act" type="button" @click="removeComment(c.id)">删除</button>
-              </div>
-            </div>
-          </div>
+          <MobileCommentSection target-type="DOC" :target-id="id" @count="(n) => (commentCount = n)" />
         </div>
 
         <!-- 相关推荐 -->
@@ -321,7 +248,7 @@ watch(() => route.params.id, (nv, ov) => {
       </button>
       <button class="bar-btn" type="button" @click="scrollToComments">
         <el-icon :size="19"><ChatDotRound /></el-icon>
-        <span>{{ comments.length || '评论' }}</span>
+        <span>{{ commentCount || '评论' }}</span>
       </button>
     </div>
 
@@ -368,25 +295,6 @@ watch(() => route.params.id, (nv, ov) => {
   font-size: 11.5px; cursor: pointer;
 }
 .follow-mini.on { border-color: var(--m-border); color: var(--m-text-dim); }
-
-.cmt-input { padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
-.cmt-input textarea {
-  width: 100%; box-sizing: border-box; resize: none; padding: 9px 10px;
-  border: 1px solid var(--m-border); border-radius: 8px; background: var(--m-card-2);
-  color: var(--m-text); font-size: 14.5px; font-family: inherit;
-}
-.cmt-empty { padding: 4px 12px 14px; font-size: 13px; color: var(--m-text-dim); text-align: center; }
-.cmt { padding: 10px 12px; border-top: 1px solid var(--m-border); }
-.cmt-top { display: flex; align-items: baseline; gap: 8px; }
-.cmt-name { font-size: 13.5px; font-weight: 600; color: var(--m-text); }
-.cmt-time { font-size: 11.5px; color: var(--m-text-dim); }
-.cmt-text { margin-top: 4px; font-size: 14px; line-height: 1.65; color: var(--m-text-sub); white-space: pre-wrap; word-break: break-word; }
-.cmt-acts { margin-top: 6px; display: flex; gap: 14px; }
-.cmt-act {
-  display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent;
-  color: var(--m-text-dim); font-size: 12.5px; cursor: pointer; padding: 0;
-}
-.cmt-act.on { color: var(--m-warn); }
 
 .kb-lightbox { position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, .92); display: grid; place-items: center; }
 .kb-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
