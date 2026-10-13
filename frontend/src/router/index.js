@@ -18,8 +18,9 @@ const routes = [
   ] : []),
   { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true, title: '登录' } },
   { path: '/post/:id', component: () => import('../views/PostDetail.vue'), meta: { title: '文档详情', maintenance: 'docs' } },
-  // 独立阅读窗口：用 window.open 在桌面弹出真实浏览器窗口，public 以免新窗口被守卫踢回登录
-  { path: '/reader/:id', component: () => import('../views/ReaderWindow.vue'), meta: { public: true, title: '文章阅读', maintenance: 'docs' } },
+  // 独立阅读窗口：window.open 弹出真实浏览器窗口。同源窗口共享 localStorage，守卫可正常校验登录态；
+  // 此前 public: true 让匿名者可凭文章 id 直接读全文（2026-10-13 审查 H7，已收回）
+  { path: '/reader/:id', component: () => import('../views/ReaderWindow.vue'), meta: { title: '文章阅读', maintenance: 'docs' } },
   // 写文章：所有登录用户可用（含 wangEditor，懒加载后独立成 chunk，不进首屏）
   { path: '/write', component: () => import('../views/admin/PostEdit.vue'), meta: { title: '写文章', maintenance: 'docs' } },
   { path: '/write/edit/:id', component: () => import('../views/admin/PostEdit.vue'), meta: { title: '编辑文章', maintenance: 'docs' } },
@@ -143,7 +144,6 @@ router.beforeEach(async (to) => {
   // 超时兜底：弱网下 ensureAuth 6s 未完成时不把已登录用户踢去登录页
   // （真 401 由 axios 拦截器统一登出；持 token 者放行，页面自行兜底）
   let authTimer
-  const hasLocalToken = !!localStorage.getItem('kb_token')
   // ensureAuth 自身 reject（网络异常）不能让守卫整体 reject —— 走下面的本地兜底
   try {
     await Promise.race([
@@ -153,8 +153,10 @@ router.beforeEach(async (to) => {
   } catch { /* 网络异常：按「校验超时」走本地 token 兜底 */ }
   clearTimeout(authTimer)
   if (!auth.loggedIn) {
-    // 没有本地 token = 确实未登录；有 token 而校验超时 = 放行（弱网兜底）
-    if (!hasLocalToken) return { path: '/login', query: { redirect: to.fullPath } }
+    // 校验完成后再读 localStorage：ensureAuth 失败会清掉 token，不能用入口处的旧快照，
+    // 否则「曾有 token 但已失效」的会话被误放行（2026-10-13 审查 H6）。
+    // 仍有 token（校验超时但未清）= 放行（弱网兜底，真 401 由 axios 拦截器统一登出）
+    if (!localStorage.getItem('kb_token')) return { path: '/login', query: { redirect: to.fullPath } }
   }
   // 后台页：要求对应权限码（hasPerm 已包含 ADMIN / 通配 * 的判断）
   if (to.meta.admin && to.meta.perm && !auth.hasPerm(to.meta.perm)) {

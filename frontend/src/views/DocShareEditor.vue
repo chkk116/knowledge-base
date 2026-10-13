@@ -289,8 +289,8 @@ function download(filename, content, mime) {
 
 /** 纯前端 HTML -> Markdown（覆盖本编辑器所用元素，零依赖，避免沙箱装包） */
 function htmlToMarkdown(html) {
-  const el = document.createElement('div')
-  el.innerHTML = html || ''
+  // DOMParser 游离文档不加载资源，detached <img onerror> 不会触发（2026-10-13 审查 H9）
+  const el = new DOMParser().parseFromString(html || '', 'text/html').body
   const block = (node) => {
     let out = ''
     node.childNodes.forEach((n) => { out += inline(n) })
@@ -399,8 +399,8 @@ function colLetter(n) {
 
 // 编辑器 HTML → 二维数组（每行一个数组；标题/段落/列表/代码为单列行，表格按原结构展开成单元格矩阵）
 function htmlToAoa(html) {
-  const el = document.createElement('div')
-  el.innerHTML = html || ''
+  // 同 htmlToMarkdown：DOMParser 不加载资源
+  const el = new DOMParser().parseFromString(html || '', 'text/html').body
   const rows = []
   const inlineText = (n) => {
     let out = ''
@@ -682,9 +682,8 @@ async function removeVersion(v) {
 }
 const versionSnippet = (html) => {
   if (!html) return ''
-  const div = document.createElement('div')
-  div.innerHTML = html
-  const t = (div.textContent || '').replace(/\s+/g, ' ').trim()
+  // DOMParser 替代 div.innerHTML（H9：游离 img 仍会加载触发 onerror）
+  const t = (new DOMParser().parseFromString(html, 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim()
   return t.length > 100 ? t.slice(0, 100) + '…' : t
 }
 

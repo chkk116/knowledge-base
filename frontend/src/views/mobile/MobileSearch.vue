@@ -39,9 +39,8 @@ function snippet(it) {
 }
 
 function plain(html) {
-  const d = document.createElement('div')
-  d.innerHTML = html || ''
-  return (d.textContent || '').replace(/\s+/g, ' ').trim()
+  // DOMParser 替代 div.innerHTML（H9）
+  return (new DOMParser().parseFromString(html || '', 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim()
 }
 
 function rememberHistory(k) {

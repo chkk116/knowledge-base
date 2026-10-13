@@ -176,14 +176,14 @@ public class AccountDeletionService {
         userRoleRepo.deleteByUserId(uid);          // 角色关联
 
         // 上传文件：与 deleteMine 同规则——正文被引用的只删登记（防已发布文章裂图），否则物理+登记都删。
-        // findAllContents 只查一次（移出循环，避免 N 个文件全表扫 N 遍）；
+        // 定向 LIKE 查询（countContentLike）替代 findAllContents 全量载入内存：数据量大时注销会撑爆堆（2026-10-13 审查 C4）；
+        // URL 含 LIKE 通配符时只会「多判为被引用」，与 fail-closed 同向。
         // 引用检查失败按「被引用」处理（fail-closed：宁可残留文件也不制造裂图，外部复审 2026-10-09）
-        List<String> allContents = docRepo.findAllContents();
         List<UploadedFile> files = uploadedFileRepo.findByOwnerIdOrderByCreatedAtDesc(uid);
         for (UploadedFile f : files) {
             boolean referenced = false;
             try {
-                referenced = f.getUrl() != null && allContents.stream().anyMatch(s -> s != null && s.contains(f.getUrl()));
+                referenced = f.getUrl() != null && docRepo.countContentLike("%" + f.getUrl() + "%") > 0;
             } catch (Exception e) {
                 log.warn("[注销] 引用检查失败，按被引用处理（fail-closed）：{}", f.getUrl());
                 referenced = true;

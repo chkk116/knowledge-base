@@ -21,9 +21,8 @@ const pagedPosts = computed(() =>
 // 去掉 HTML 标签得到纯文本摘要
 const stripHtml = (html) => {
   if (!html) return ''
-  const div = document.createElement('div')
-  div.innerHTML = html
-  return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim()
+  // DOMParser 替代 div.innerHTML（游离 img 仍会加载触发 onerror，2026-10-13 审查 H9）
+  return (new DOMParser().parseFromString(html, 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim()
 }
 const snippetOf = (c) => {
   const t = stripHtml(c)

@@ -41,12 +41,15 @@ const doSearch = () => {
 }
 
 // 路由 query 变化即重新拉取：两个维度并行搜（QQ 式——同一输入分别按文档 / 作者匹配）
+// 请求代次守卫（2026-10-13 审查 M12）：连续搜索时慢响应不得覆盖新结果
+let loadSeq = 0
 const load = async () => {
   const kw = (route.query.q || '').trim()
   const cat = route.query.category || ''
   q.value = kw
   category.value = cat
   if (!kw && !cat) { docResults.value = []; authorResults.value = []; hasSearched.value = false; return }
+  const seq = ++loadSeq
   loading.value = true
   error.value = ''
   hasSearched.value = true
@@ -56,13 +59,15 @@ const load = async () => {
     // 作者维度：把输入当作者名，走 SearchService 的 author 路径（解析作者名 → 该作者已发布文档）
     const p2 = kw ? search('', cat, kw) : Promise.resolve({ data: [] })
     const [r1, r2] = await Promise.all([p1, p2])
+    if (seq !== loadSeq) return   // 已有更新的搜索，丢弃本次结果
     docResults.value = r1.data || []
     authorResults.value = r2.data || []
   } catch (e) {
+    if (seq !== loadSeq) return
     error.value = '搜索失败，请稍后重试'
     docResults.value = []
     authorResults.value = []
-  } finally { loading.value = false }
+  } finally { if (seq === loadSeq) loading.value = false }
 }
 
 watch(() => route.query, load, { immediate: true })

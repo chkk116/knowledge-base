@@ -143,7 +143,7 @@ onMounted(async () => { await load(); await loadMembers() })
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button text type="primary" :icon="Edit" :disabled="row.builtin" @click="openEdit(row)">编辑</el-button>
             <el-button text type="danger" :icon="Delete" :disabled="row.builtin" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>

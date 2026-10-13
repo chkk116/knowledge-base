@@ -166,9 +166,9 @@ public class FileService {
             while (m.find()) used.add(m.group());
         }
         List<Map<String, Object>> result = new ArrayList<>();
-        try {
-            Files.walk(root)
-                    .filter(Files::isRegularFile)
+        // try-with-resources 关闭目录流（2026-10-13 审查 L1）：Files.walk 返回的 Stream 持有目录句柄，不关会泄漏文件描述符
+        try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
+            paths.filter(Files::isRegularFile)
                     .forEach(path -> {
                         String rel = "/uploads/" + root.relativize(path).toString().replace('\\', '/');
                         if (!used.contains(rel)) {
@@ -198,6 +198,10 @@ public class FileService {
         Path target = root.resolve(url.substring("/uploads/".length())).normalize();
         if (!target.startsWith(root)) {
             throw new IllegalArgumentException("非法路径");
+        }
+        // 只删常规文件（2026-10-13 审查 L2）：防止 URL 指到目录时误删整个目录
+        if (!Files.isRegularFile(target)) {
+            throw new IllegalArgumentException("目标不是常规文件");
         }
         try {
             Files.deleteIfExists(target);

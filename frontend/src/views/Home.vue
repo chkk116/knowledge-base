@@ -51,9 +51,10 @@ const totalText = computed(() =>
 // 去掉 HTML 标签，得到纯文本摘要（避免卡片里出现 <p><strong> 等源码）
 const stripHtml = (html) => {
   if (!html) return ''
-  const div = document.createElement('div')
-  div.innerHTML = html
-  return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim()
+  // DOMParser 解析进游离文档，不加载任何资源，<img onerror> 不会触发；
+  // div.innerHTML 会真实加载 detached 图片触发 onerror（2026-10-13 审查 H9）
+  return (new DOMParser().parseFromString(html, 'text/html').body.textContent || '')
+    .replace(/\s+/g, ' ').trim()
 }
 const snippetOf = (c) => {
   const text = stripHtml(c)

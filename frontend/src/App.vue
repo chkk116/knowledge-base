@@ -82,6 +82,7 @@ watch(() => auth.loggedIn, (v) => {
 
 // 浏览器窗口缩放 / 全屏切换时，把阅读浮窗夹回可视区内（避免被挤出屏幕外）
 window.addEventListener('resize', clampToViewport)
+onUnmounted(() => window.removeEventListener('resize', clampToViewport))   // L5（2026-10-13 审查）
 
 // 令牌过期时由 axios 拦截器广播，自动退出
 function onUnauthorized() {

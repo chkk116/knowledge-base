@@ -13,4 +13,8 @@ import java.util.List;
 public interface ExamPaperQuestionRepository extends JpaRepository<ExamPaperQuestion, Long> {
     List<ExamPaperQuestion> findByPaperIdOrderBySortOrderAscIdAsc(Long paperId);
     void deleteByPaperId(Long paperId);
+
+    /** 题目删除时级联清理组卷关联（2026-10-13 审查 H4）；调用方需在事务内 */
+    List<ExamPaperQuestion> findByQuestionId(Long questionId);
+    void deleteByQuestionId(Long questionId);
 }

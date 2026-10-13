@@ -5,12 +5,14 @@
 
 package com.kb.kbplatform.web;
 
+import com.kb.kbplatform.domain.Role;
 import com.kb.kbplatform.domain.User;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AdminService;
 import com.kb.kbplatform.service.AuthService;
 import com.kb.kbplatform.service.AuditService;
 import com.kb.kbplatform.service.DocShareService;
+import com.kb.kbplatform.service.OrgService;
 import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,18 +30,27 @@ public class AdminUserController {
     private final AuthService authService;
     private final AuditService audit;
     private final DocShareService docShareSvc;
+    private final OrgService orgService;
 
-    public AdminUserController(AdminService svc, AuthService authService, AuditService audit, DocShareService docShareSvc) {
+    public AdminUserController(AdminService svc, AuthService authService, AuditService audit, DocShareService docShareSvc,
+                               OrgService orgService) {
         this.svc = svc;
         this.authService = authService;
         this.audit = audit;
         this.docShareSvc = docShareSvc;
+        this.orgService = orgService;
     }
 
     private void requirePerm(TokenClaims c, String code) {
         if (c == null || !c.hasPerm(code)) {
             throw new ResponseStatusException(FORBIDDEN, "需要「" + code + "」权限");
         }
+    }
+
+    /** 权限串 → 码表（逗号分隔） */
+    private static List<String> permCodes(String s) {
+        if (s == null || s.isBlank()) return List.of();
+        return java.util.Arrays.stream(s.split(",")).map(String::trim).filter(x -> !x.isEmpty()).toList();
     }
 
     @GetMapping
@@ -82,6 +93,23 @@ public class AdminUserController {
             throw new ResponseStatusException(FORBIDDEN, "无权限分配管理员角色");
         }
         requirePerm(c, "USER_MANAGE");
+        // 防提权（2026-10-13 审查 C3）：非 ADMIN 操作者给他人分配的细粒度权限 / 角色，必须是自身权限的子集。
+        // 否则持 USER_MANAGE 者可把全权限角色分配给任意普通账号（或新建账号）间接提权。
+        if (!"ADMIN".equals(c.role())) {
+            if (r.permissions != null && !r.permissions.isBlank()) {
+                List<String> codes = permCodes(r.permissions);
+                if (!codes.isEmpty() && !c.hasAllPerms(codes))
+                    throw new ResponseStatusException(FORBIDDEN, "不能授予自身未拥有的权限码");
+            }
+            if (r.roleIds != null) {
+                for (Long rid : r.roleIds) {
+                    Role role = orgService.getRole(rid);
+                    List<String> codes = permCodes(role.getPermissions());
+                    if (!codes.isEmpty() && !c.hasAllPerms(codes))
+                        throw new ResponseStatusException(FORBIDDEN, "不能授予他人自身未拥有的角色「" + role.getName() + "」");
+                }
+            }
+        }
         // 防自助提权：非 ADMIN 角色不得给自己改角色 / 细粒度权限 / 启用状态。
         // 否则持有 USER_MANAGE 的子管理员可直接给自己写满权限码（含 CORE_MAINTAIN、DOC_REVIEW）完成越权升级。
         if (id.equals(c.userId()) && !"ADMIN".equals(c.role())) {

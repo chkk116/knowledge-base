@@ -294,12 +294,9 @@ public class DocShareService {
         s.setOwnerId(ownerId);
         s.setStatus("ACTIVE");
         s.setType(type);
-        // 团队空间未显式指定容量时默认 2GB；需要更多由管理员在后台调大
-        if (capacity != null) {
-            s.setCapacity(capacity == 0L ? null : capacity);
-        } else if (s.getType() == null || "TEAM".equals(s.getType())) {
-            s.setCapacity(DEFAULT_SPACE_CAPACITY_BYTES);
-        }
+        // 容量一律默认 2GB，变更只走扩容审批（DocShareCapacityRequestService）：
+        // 此前客户端可直接传 capacity 落库（0=无上限），配额审批流程被完全绕过（2026-10-13 审查 C1）
+        s.setCapacity(DEFAULT_SPACE_CAPACITY_BYTES);
         s.setColor(color == null || color.isBlank() ? null : color.trim().toLowerCase());
         s.setUpdatedAt(LocalDateTime.now());
         DocShare saved = shareRepo.save(s);
@@ -474,7 +471,8 @@ public class DocShareService {
         if (name != null && !name.isBlank()) s.setName(name.trim());
         if (description != null) s.setDescription(description.trim());
         if (status != null && ("ACTIVE".equals(status) || "ARCHIVED".equals(status))) s.setStatus(status);
-        if (capacity != null) s.setCapacity(capacity == 0L ? null : capacity);  // 0 表示取消空间上限
+        // 容量变更仅限系统管理员（普通空间管理员走扩容审批流程）；此前空间管理员可直接改容量（0=无上限）绕过配额（2026-10-13 审查 C1）
+        if (capacity != null && sysAdmin) s.setCapacity(capacity == 0L ? null : capacity);  // 0 表示取消空间上限
         s.setUpdatedAt(LocalDateTime.now());
         return shareRepo.save(s);
     }
@@ -630,6 +628,28 @@ public class DocShareService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "对该文档无写入权限");
         SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        // 配额检查（与 createDoc 同规则，按本次增量校验）：此前更新完全绕过配额，可先建小文档再更新成超大体量（2026-10-13 审查 C2）。
+        // 存储用量归属文档所有者，故配额按 ownerId 计而非当前编辑者。
+        long oldSize = (d.getTitle() == null ? 0 : d.getTitle().getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                + (d.getContent() == null ? 0 : d.getContent().getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        String nextTitle = title == null ? d.getTitle() : (title.isBlank() ? "未命名文档" : title.trim());
+        String nextContent = content == null ? d.getContent() : HtmlSanitizer.sanitize(content);
+        long delta = (nextTitle.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                + nextContent.getBytes(java.nio.charset.StandardCharsets.UTF_8).length) - oldSize;
+        if (delta > 0) {
+            Long ownerId = d.getOwnerId();
+            long userQuota = effectiveUserQuota(ownerId);
+            long userUsed = storageUsage(ownerId);
+            if (userUsed + delta > userQuota)
+                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                        "个人存储空间不足（已用 " + formatSize(userUsed) + " / 配额 " + formatSize(userQuota) + "），如需扩容请联系管理员");
+            if (s.getCapacity() != null) {
+                long spaceUsed = docRepo.sumSizeByShareId(shareId);
+                if (spaceUsed + delta > s.getCapacity())
+                    throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                            "空间「" + s.getName() + "」容量不足（已用 " + formatSize(spaceUsed) + " / 上限 " + formatSize(s.getCapacity()) + "），如需扩容请联系管理员");
+            }
+        }
         // 改前先留一版快照（版本历史）
         SharedDocVersion snap = new SharedDocVersion();
         snap.setSharedDocId(docId);
@@ -639,8 +659,8 @@ public class DocShareService {
         snap.setEditorId(userId);
         snap.setCreatedAt(LocalDateTime.now());
         sharedDocVerRepo.save(snap);
-        if (title != null) d.setTitle(title.isBlank() ? "未命名文档" : title.trim());
-        if (content != null) d.setContent(HtmlSanitizer.sanitize(content));
+        if (title != null) d.setTitle(nextTitle);
+        if (content != null) d.setContent(nextContent);
         // 注意：更新不得变更所有者。此前无条件 setOwnerId(userId) 会让仅有编辑权限者夺取所有权，
         // 进而在 deleteDoc/moveDoc（按 owner 判定）中删除或搬走他人文档。owner 仅在创建时设定。
         d.setUpdatedAt(LocalDateTime.now());

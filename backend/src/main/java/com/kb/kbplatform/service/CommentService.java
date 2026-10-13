@@ -133,6 +133,13 @@ public class CommentService {
             throw new BizException("评论内容包含敏感词：" + String.join("、", sensitiveWordFilter.find(plainText)));
         }
         Comment c = new Comment();
+        // 父评论归属校验（2026-10-13 审查 M10）：parentId 须指向同一对象下的评论，否则可跨文档伪造楼层
+        if (parentId != null) {
+            Comment parent = repo.findById(parentId).orElse(null);
+            if (parent == null || !targetType.equals(parent.getTargetType()) || !targetId.equals(parent.getDocId())) {
+                throw new BizException("要回复的评论不存在或不属于当前内容");
+            }
+        }
         c.setTargetType(targetType);
         c.setDocId(targetId);   // 复用 docId 列作为通用 targetId
         c.setParentId(parentId);

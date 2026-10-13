@@ -45,4 +45,7 @@ public interface AssetRepository extends JpaRepository<Asset, Long>, JpaSpecific
 
     /** 按分类取资产（删除分类时批量摘除关联，替代 findAll() 全表过滤） */
     List<Asset> findByCategoryId(Long categoryId);
+
+    /** 分类删除：按被删分类 id 集合（含子分类）批量解绑（2026-10-13 审查 H5） */
+    List<Asset> findByCategoryIdIn(java.util.Collection<Long> categoryIds);
 }

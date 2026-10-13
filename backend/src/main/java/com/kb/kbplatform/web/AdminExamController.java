@@ -46,15 +46,15 @@ public class AdminExamController {
     @PostMapping("/questions")
     public Question createQuestion(@RequestAttribute("kbUser") TokenClaims c, @RequestBody QuestionReq req) {
         requirePerm(c, "EXAM_MANAGE");
+        req.question.setId(null);   // 同 H1：POST 强制新建，防 id 指定覆盖已有题目
         return svc.adminSaveQuestion(req.question, req.options);
     }
 
     @PutMapping("/questions/{id}")
     public Question updateQuestion(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id, @RequestBody QuestionReq req) {
         requirePerm(c, "EXAM_MANAGE");
-        Question ex = svc.adminListQuestions(null).stream()
-                .filter(q -> q.getId().equals(id)).findFirst()
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "题目不存在"));
+        // 定向 findById 替代「全量拉题库再 stream 过滤」（2026-10-13 审查 M9）
+        Question ex = svc.adminGetQuestion(id);
         if (req.question.getContent() != null) ex.setContent(req.question.getContent());
         if (req.question.getType() != null) ex.setType(req.question.getType());
         if (req.question.getAnalysis() != null) ex.setAnalysis(req.question.getAnalysis());
@@ -80,15 +80,14 @@ public class AdminExamController {
     @PostMapping("/papers")
     public ExamPaper createPaper(@RequestAttribute("kbUser") TokenClaims c, @RequestBody ExamPaper paper) {
         requirePerm(c, "EXAM_MANAGE");
+        paper.setId(null);   // 同 H1：POST 强制新建，防 id 指定覆盖已有试卷
         return svc.adminSavePaper(paper);
     }
 
     @PutMapping("/papers/{id}")
     public ExamPaper updatePaper(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id, @RequestBody ExamPaper paper) {
         requirePerm(c, "EXAM_MANAGE");
-        ExamPaper ex = svc.adminListPapers().stream()
-                .filter(p -> p.getId().equals(id)).findFirst()
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "试卷不存在"));
+        ExamPaper ex = svc.adminGetPaper(id);   // 定向 findById 替代全量列表过滤（M9）
         if (paper.getTitle() != null) ex.setTitle(paper.getTitle());
         if (paper.getDescription() != null) ex.setDescription(paper.getDescription());
         if (paper.getPassScore() != 0) ex.setPassScore(paper.getPassScore());

@@ -17,9 +17,8 @@ const restoring = ref(0)      // 正在恢复的版本 id
 // 取纯文本摘要（去掉 HTML 标签）
 const snippet = (html) => {
   if (!html) return ''
-  const div = document.createElement('div')
-  div.innerHTML = html
-  const t = (div.textContent || '').replace(/\s+/g, ' ').trim()
+  // DOMParser 替代 div.innerHTML（游离 img 仍会加载触发 onerror，2026-10-13 审查 H9）
+  const t = (new DOMParser().parseFromString(html, 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim()
   return t.length > 120 ? t.slice(0, 120) + '…' : t
 }
 

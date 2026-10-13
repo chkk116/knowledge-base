@@ -93,6 +93,7 @@ const remain = ref(0)
 // 否则刷新/重进就能把本地倒计时重置成满格，界面显示的时间远多于真实剩余时间（服务端仍会拒卷）
 const deadlineTs = ref(0)
 let timer = null
+let unmounted = false   // 卸载标记：异步回调里据此提前返回，防止卸载后重建定时器（H8）
 
 const answered = computed(() => paper.value
   ? paper.value.questions.filter(q => {
@@ -113,7 +114,12 @@ const typeText = (t) => ({ SINGLE: '单选', MULTI: '多选', JUDGE: '判断', F
 
 const load = () => {
   getPaper(route.params.id).then(r => {
+    if (unmounted) return   // 卸载后迟到的响应：不建定时器、不触发自动交卷（2026-10-13 审查 H8）
     paper.value = r.data || r
+    // 多选题选中集合预初始化：checkbox v-model 绑到 undefined 会被当布尔开关，后续 .includes 直接崩（2026-10-13 审查 C5）
+    paper.value.questions.forEach(q => {
+      if (q.type === 'MULTI' && !Array.isArray(multi[q.id])) multi[q.id] = []
+    })
     if (paper.value.paper.durationMin) {
       if (timer) clearInterval(timer)   // 防止重复进入时叠出多个倒计时
       // 有服务端截止时间就按它算剩余；缺失（旧记录/不限时）才退回按整场时长计时
@@ -159,7 +165,7 @@ const submit = () => {
 }
 
 onMounted(() => { begin() })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => { unmounted = true; clearInterval(timer) })
 </script>
 
 <style scoped>

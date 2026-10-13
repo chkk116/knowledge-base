@@ -31,6 +31,21 @@ public class AdminRoleController {
         }
     }
 
+    /** 权限串 → 码表（逗号分隔，与 TokenClaims.hasPerm 同格式） */
+    private static List<String> permCodes(String s) {
+        if (s == null || s.isBlank()) return List.of();
+        return java.util.Arrays.stream(s.split(",")).map(String::trim).filter(x -> !x.isEmpty()).toList();
+    }
+
+    /** 防子管理员提权（2026-10-13 审查 C3）：非 ADMIN 操作者授予的权限码必须是自身权限的子集，
+     *  否则持 USER_MANAGE 者可把自己持有的角色改成全权限码，一次保存即完成越权升级。 */
+    private void requireSubset(TokenClaims c, String permissions) {
+        if ("ADMIN".equals(c.role())) return;
+        List<String> codes = permCodes(permissions);
+        if (codes.isEmpty() || c.hasAllPerms(codes)) return;
+        throw new ResponseStatusException(FORBIDDEN, "不能授予自身未拥有的权限码");
+    }
+
     /** 角色列表（按排序号升序） */
     @GetMapping
     public List<Role> list(@RequestAttribute("kbUser") TokenClaims c) {
@@ -56,6 +71,7 @@ public class AdminRoleController {
     public Role create(@RequestAttribute("kbUser") TokenClaims c,
                        @RequestBody OrgService.RoleReq r) {
         requirePerm(c, "USER_MANAGE");
+        requireSubset(c, r.permissions);
         return orgService.createRole(r);
     }
 
@@ -65,6 +81,7 @@ public class AdminRoleController {
                        @PathVariable Long id,
                        @RequestBody OrgService.RoleReq r) {
         requirePerm(c, "USER_MANAGE");
+        requireSubset(c, r.permissions);
         return orgService.updateRole(id, r);
     }
 

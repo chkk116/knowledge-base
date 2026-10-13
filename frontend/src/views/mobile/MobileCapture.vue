@@ -262,9 +262,8 @@ async function startRecognize() {
 const pendingCloudDoc = ref(null)
 
 function htmlToText(html) {
-  const d = document.createElement('div')
-  d.innerHTML = html || ''
-  return (d.textContent || '').trim()
+  // DOMParser 替代 div.innerHTML（H9）
+  return (new DOMParser().parseFromString(html || '', 'text/html').body.textContent || '').trim()
 }
 
 function textToHtml(text) {

@@ -50,6 +50,7 @@ public class AdminCourseController {
     @PostMapping
     public Course create(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Course course) {
         requirePerm(c, "COURSE_MANAGE");
+        course.setId(null);   // 强制新建：POST 带已存在 id 会让 JPA 走 merge 覆盖他人数据（2026-10-13 审查 H1）
         return svc.save(course, c.userId());
     }
 
@@ -89,6 +90,7 @@ public class AdminCourseController {
     @PostMapping("/chapters")
     public CourseChapter createChapter(@RequestAttribute("kbUser") TokenClaims c, @RequestBody CourseChapter ch) {
         requirePerm(c, "COURSE_MANAGE");
+        ch.setId(null);   // 同 H1：POST 强制新建
         return svc.saveChapter(ch);
     }
 

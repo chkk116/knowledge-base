@@ -86,6 +86,14 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     @Query("SELECT d.content FROM Document d WHERE d.content IS NOT NULL")
     List<String> findAllContents();
 
+    /**
+     * 定向判断某 URL 是否被正文引用（2026-10-13 审查 C4/M8）：
+     * 取代「findAllContents 全量载入内存再 contains」——数据量大时单次注销即可吃掉数百 MB 堆内存。
+     * LIKE 模式由调用方拼装；URL 含 %/_ 等通配符时只会「多判为被引用」，与既有 fail-closed 语义同向。
+     */
+    @Query("SELECT COUNT(d) FROM Document d WHERE d.content LIKE :pattern")
+    long countContentLike(@Param("pattern") String pattern);
+
     /** 公开列表分页：仅已发布，按更新时间倒序 */
     Page<Document> findByStatusOrderByUpdatedAtDesc(String status, Pageable pageable);
 

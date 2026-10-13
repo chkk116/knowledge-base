@@ -7,6 +7,7 @@ package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.Announcement;
 import com.kb.kbplatform.repository.AnnouncementRepository;
+import com.kb.kbplatform.security.HtmlSanitizer;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -48,7 +49,8 @@ public class AnnouncementService {
         if (title.isEmpty()) throw new IllegalArgumentException("公告标题不能为空");
         Announcement a = new Announcement();
         a.setTitle(title);
-        a.setContent(content == null ? "" : content.trim());
+        // 入库前统一净化（2026-10-13 审查 M3）：管理端被劫持时公告可全站推送脚本
+        a.setContent(content == null ? "" : HtmlSanitizer.sanitize(content.trim()));
         a.setPinned(pinned);
         a.setEnabled(true);
         a.setSortOrder(sortOrder);
@@ -62,7 +64,7 @@ public class AnnouncementService {
     public Announcement update(Long id, String title, String content, Boolean pinned, Integer sortOrder, Boolean enabled) {
         Announcement a = repo.findById(id).orElseThrow(() -> new IllegalArgumentException("公告不存在"));
         if (title != null && !title.trim().isEmpty()) a.setTitle(title.trim());
-        if (content != null) a.setContent(content.trim());
+        if (content != null) a.setContent(HtmlSanitizer.sanitize(content.trim()));   // 同 create：入库前净化（M3）
         if (pinned != null) a.setPinned(pinned);
         if (sortOrder != null) a.setSortOrder(sortOrder);
         if (enabled != null) a.setEnabled(enabled);

@@ -148,7 +148,7 @@ const save = async () => {
       const full = isFullAdminPerms([...unionRolePerms(roleIds.map((id) => roleMap.value[id]))])
       ElMessage.success(full ? '已更新（所选角色合计为完全管理员权限，该用户视同 ADMIN）' : '已更新')
     } else {
-      await createUser({ username: form.value.username, displayName: form.value.displayName, email: form.value.email || '', gender: form.value.gender || '', role: form.value.role, password: form.value.password, enabled: form.value.enabled, roleIds, departmentId })
+      await createUser({ username: form.value.username, displayName: form.value.displayName, email: form.value.email || '', gender: form.value.gender || '', role: form.value.role, password: form.value.password, enabled: form.value.enabled, storageQuota: form.value.storageQuotaGb ? Math.round(form.value.storageQuotaGb * GB) : null, roleIds, departmentId })
       const full2 = isFullAdminPerms([...unionRolePerms(roleIds.map((id) => roleMap.value[id]))])
       ElMessage.success(full2 ? '已创建（所选角色合计为完全管理员权限，该用户视同 ADMIN）' : '已创建')
     }

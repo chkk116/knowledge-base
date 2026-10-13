@@ -35,10 +35,8 @@ const targetName = computed(() => {
 })
 
 function htmlToText(html) {
-  const d = document.createElement('div')
-  d.innerHTML = html || ''
-  // innerText 会按块级元素补换行；textContent 会把 <p>a</p><p>b</p> 拼成 "ab"（段落合并/内容丢失）
-  return (d.innerText || '').trim()
+  // DOMParser 替代 div.innerHTML（H9）；游离文档无布局，innerText 本就退化为 textContent 语义
+  return (new DOMParser().parseFromString(html || '', 'text/html').body.textContent || '').trim()
 }
 function textToHtml(text) {
   return (text || '').split(/\n{2,}/).map((p) =>

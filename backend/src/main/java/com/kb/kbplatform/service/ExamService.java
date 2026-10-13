@@ -319,6 +319,18 @@ public class ExamService {
                 : questionRepo.findByCategoryOrderByCreatedAtDesc(category);
     }
 
+    /** 定向取单题（2026-10-13 审查 M9：单题更新不再全量拉题库） */
+    public Question adminGetQuestion(Long id) {
+        return questionRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "题目不存在"));
+    }
+
+    /** 定向取单份试卷（同 M9） */
+    public ExamPaper adminGetPaper(Long id) {
+        return paperRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "试卷不存在"));
+    }
+
     /** 保存题目：选项清理为派生删除（需事务），且多步写入需原子 */
     @Transactional(rollbackFor = Exception.class)
     public Question adminSaveQuestion(Question q, List<QuestionOption> options) {
@@ -349,6 +361,22 @@ public class ExamService {
     /** 删除题目：选项清理为修改查询，需事务 */
     @Transactional(rollbackFor = Exception.class)
     public void adminDeleteQuestion(Long id) {
+        // 级联清理组卷关联并重算受影响试卷总分（2026-10-13 审查 H4）：
+        // 此前只删题目与选项，ExamPaperQuestion 悬空——有外键时报 500，无外键时留脏数据且试卷总分虚高。
+        List<ExamPaperQuestion> links = pqRepo.findByQuestionId(id);
+        if (!links.isEmpty()) {
+            java.util.Set<Long> paperIds = links.stream()
+                    .map(ExamPaperQuestion::getPaperId).collect(java.util.stream.Collectors.toSet());
+            pqRepo.deleteByQuestionId(id);
+            for (Long pid : paperIds) {
+                int total = pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(pid).stream()
+                        .mapToInt(ExamPaperQuestion::getScore).sum();
+                paperRepo.findById(pid).ifPresent(p -> {
+                    p.setTotalScore(total);
+                    paperRepo.save(p);
+                });
+            }
+        }
         optionRepo.deleteByQuestionId(id);
         questionRepo.deleteById(id);
     }

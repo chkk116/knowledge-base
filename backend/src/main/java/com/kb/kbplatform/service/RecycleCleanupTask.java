@@ -35,6 +35,7 @@ public class RecycleCleanupTask {
     private final DocumentRepository docRepo;
     private final AuditService auditService;
     private final TransactionTemplate tx;
+    private final DocumentService documentService;
 
     @Value("${kb.recycle.cleanup-enabled:true}")
     private boolean cleanupEnabled;
@@ -42,10 +43,12 @@ public class RecycleCleanupTask {
     @Value("${kb.recycle.retention-days:30}")
     private int retentionDays;
 
-    public RecycleCleanupTask(DocumentRepository docRepo, AuditService auditService, TransactionTemplate tx) {
+    public RecycleCleanupTask(DocumentRepository docRepo, AuditService auditService, TransactionTemplate tx,
+                              DocumentService documentService) {
         this.docRepo = docRepo;
         this.auditService = auditService;
         this.tx = tx;
+        this.documentService = documentService;
     }
 
     /** 每天 03:00 执行（cron 可通过 kb.recycle.cron 覆盖） */
@@ -75,9 +78,10 @@ public class RecycleCleanupTask {
             final String title = row.length > 1 && row[1] != null ? String.valueOf(row[1]) : "";
             if (id == null) continue;
             try {
-                // 每条独立事务：hardDeleteById 是 @Modifying 查询，必须在事务内执行
-                Integer n = tx.execute(status -> docRepo.hardDeleteById(id));
-                if (n == null || n <= 0) continue;   // 已被手动清理，不计成功也不计失败
+                // 复用 DocumentService.purge：同步清理评论/点赞/收藏/版本/订阅等关联数据 + Meili 搜索索引，
+                // 此前 hardDeleteById 直删文档行，留下孤儿关联与失效索引（2026-10-13 审查 H3）。
+                // purge 内含 @Modifying 批量删除，仍在事务模板内执行，保持每条独立事务的失败隔离。
+                tx.execute(status -> { documentService.purge(id, null, true); return 1; });
                 auditService.log(null, SYSTEM_ACTOR, "AUTO_PURGE_DOC", "DOCUMENT", id, title,
                         "回收站超期自动清理：彻底删除文档《" + clip(title) + "》（超过保留期 " + retentionDays + " 天）");
                 ok++;

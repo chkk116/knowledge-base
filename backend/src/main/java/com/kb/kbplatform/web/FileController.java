@@ -120,8 +120,9 @@ public class FileController {
         if (!Objects.equals(f.getOwnerId(), c.userId())) {
             throw new ResponseStatusException(FORBIDDEN, "只能删除自己的文件");
         }
-        boolean referenced = docRepo.findAllContents().stream()
-                .anyMatch(s -> s != null && f.getUrl() != null && s.contains(f.getUrl()));
+        // 定向 LIKE 查询替代 findAllContents 全量载入内存（2026-10-13 审查 M8，同 C4）
+        boolean referenced = f.getUrl() != null
+                && docRepo.countContentLike("%" + f.getUrl() + "%") > 0;
         if (!referenced) {
             try {
                 svc.deleteByUrl(f.getUrl());

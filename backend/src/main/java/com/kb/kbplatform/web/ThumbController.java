@@ -49,13 +49,23 @@ public class ThumbController {
     private String thumbDir;
 
     private static final long MAX_ORIGINAL_BYTES = 30L * 1024 * 1024;
-    private static final int MIN_W = 40, MAX_W = 1600;
+    /** 宽度档位白名单（2026-10-13 审查 H2）：连续任意 w 可击穿缩略图缓存（每 w 一份文件） */
+    private static final int[] W_LADDER = {64, 120, 240, 480, 800, 1200};
     private static final float JPEG_QUALITY = 0.82f;
+
+    /** 任意 w 吸附到最近的合法档位，既保 UX 又让缓存命中率收敛到档位数 */
+    private static int snapWidth(int w) {
+        int best = W_LADDER[0];
+        for (int cand : W_LADDER) {
+            if (Math.abs(cand - w) < Math.abs(best - w)) best = cand;
+        }
+        return best;
+    }
 
     @GetMapping
     public ResponseEntity<byte[]> thumb(@RequestParam String src, @RequestParam int w) {
-        // 1. 约束宽度范围
-        w = Math.max(MIN_W, Math.min(MAX_W, w));
+        // 1. 宽度吸附到档位白名单
+        w = snapWidth(w);
 
         // 2. 路径归一化 + 防穿越：src 必须先剥离前导斜杠，否则 Path.resolve 会当成绝对路径逃逸
         String rel = src.replaceFirst("^/+", "");
@@ -73,7 +83,16 @@ public class ThumbController {
             return serveOriginal(file);
         }
 
-        // 4. 原图已不比目标宽大 → 原样返回（不浪费算力）
+        // 4. 源文件大小前置校验（2026-10-13 审查 H2）：公开免登录接口，超大图直接解码会 OOM/DoS
+        try {
+            if (Files.size(file) > MAX_ORIGINAL_BYTES) {
+                return ResponseEntity.status(413).build();
+            }
+        } catch (IOException e) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // 5. 原图已不比目标宽大 → 原样返回（不浪费算力）
         BufferedImage original;
         try {
             original = ImageIO.read(file.toFile());

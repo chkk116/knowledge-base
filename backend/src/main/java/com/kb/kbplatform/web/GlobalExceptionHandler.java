@@ -77,7 +77,8 @@ public class GlobalExceptionHandler {
      *  公开前缀下此类异常会裸 500。统一收敛为 400 + 泛化文案，堆栈只进服务端日志。 */
     @ExceptionHandler(NullPointerException.class)
     public ResponseEntity<Map<String, Object>> handleNpe(NullPointerException e) {
-        log.warn("NullPointerException：{}", e.getMessage());
+        // 带全栈（2026-10-13 审查 L3）：只打 message 无法定位出错点
+        log.warn("NullPointerException", e);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("error", "请求参数或状态不完整");
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);

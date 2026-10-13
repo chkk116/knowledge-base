@@ -246,10 +246,14 @@ public class AssetService {
 
     public void deleteCategory(Long id) {
         AssetCategory c = requireCategory(id);
-        // 子分类一并删除（最多两级）
-        catRepo.findByParentIdOrderBySortAscIdAsc(id).forEach(child -> catRepo.delete(child));
-        // 该分类下的资产仅置空分类关联，不删除资产（定向查询，旧实现是 findAll() 全表过滤）
-        List<Asset> affected = assetRepo.findByCategoryId(id);
+        // 子分类一并删除（最多两级），且收集全部被删分类 id（2026-10-13 审查 H5：此前仅解绑直属资产，子分类资产悬空）
+        List<Long> removedIds = new java.util.ArrayList<>();
+        removedIds.add(id);
+        List<AssetCategory> children = catRepo.findByParentIdOrderBySortAscIdAsc(id);
+        children.forEach(ch -> removedIds.add(ch.getId()));
+        catRepo.deleteAll(children);
+        // 被删分类（含子分类）下的资产统一置空分类关联，不删除资产
+        List<Asset> affected = assetRepo.findByCategoryIdIn(removedIds);
         for (Asset a : affected) a.setCategoryId(null);
         if (!affected.isEmpty()) assetRepo.saveAll(affected);
         catRepo.delete(c);
