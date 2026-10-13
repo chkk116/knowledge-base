@@ -75,4 +75,30 @@ let bad = 0, checked = 0;
 
 console.log(`复制 ${n} 个；剔除 ${strip} 个压缩文件；md5 校验 ${checked} 个；不一致 ${bad}`);
 if (bad > 0) { console.error('[FAIL] md5 校验失败'); process.exit(1); }
+
+// == 6. 接口域名校验（fail-closed）==
+// ⚠️ 血泪铁律：APK 内置前端的接口根地址必须是线上绝对域名，不能是 localhost。
+//   事故（2026-10-12）：构建缺 VITE_NATIVE_ORIGIN → runtimeBase=localhost:8080 → App 全站连不上服务器。
+//   这里在同步后拦截，避免打出「装上也连不上」的 APK。
+const NATIVE_HOST = process.env.KB_NATIVE_HOST || 'chkk116.cloud';
+{
+  const assetsDir = path.join(DST, 'assets');
+  const rbFiles = fs.existsSync(assetsDir)
+    ? fs.readdirSync(assetsDir).filter((f) => /^runtimeBase-.*\.js$/.test(f))
+    : [];
+  if (!rbFiles.length) { console.error('[FAIL] 目标 assets 里找不到 runtimeBase-*.js'); process.exit(1); }
+  let originBad = false;
+  for (const f of rbFiles) {
+    const src = fs.readFileSync(path.join(assetsDir, f), 'utf8');
+    if (/localhost|127\.0\.0\.1/.test(src) || !src.includes(NATIVE_HOST)) {
+      originBad = true;
+      console.error('[FAIL] ' + f + ' 内置接口域名异常（未含 ' + NATIVE_HOST + '，或含 localhost/127.0.0.1）');
+    }
+  }
+  if (originBad) {
+    console.error('       多半是构建时缺 VITE_NATIVE_ORIGIN（frontend/.env.production.local）。已中止。');
+    process.exit(1);
+  }
+  console.log('== 6. 接口域名 ' + NATIVE_HOST + ' (runtimeBase ✓) ==');
+}
 console.log('[OK] 同步完成: ' + DST);

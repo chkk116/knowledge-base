@@ -65,6 +65,38 @@ if (!/^mobile-/.test(entryChunk)) {
   process.exit(1)
 }
 
+// ---- 1b. 接口域名校验（fail-closed）----
+// ⚠️⚠️ 血泪铁律：热更包内置的接口根地址必须是**线上绝对域名**，绝不能是 localhost。
+//   事故（2026-10-12）：v212 构建时缺 VITE_NATIVE_ORIGIN → runtimeBase 回退 http://localhost:8080，
+//   打成热更包下发后 App 全站接口 ERR_CONNECTION_REFUSED（表现为「发现」空白、管理页「连不上服务器」），
+//   而且因为连不上后端 → 拿不到后续修好的热更包 → **无法自愈，只能装新 APK 覆盖**。
+//   这里在打包前拦截，杜绝再产出这种坏包。
+const NATIVE_HOST = process.env.KB_NATIVE_HOST || 'chkk116.cloud'
+{
+  const assetsDir = path.join(distDir, 'assets')
+  const rbFiles = fs.existsSync(assetsDir)
+    ? fs.readdirSync(assetsDir).filter((f) => /^runtimeBase-.*\.js$/.test(f))
+    : []
+  if (!rbFiles.length) {
+    console.error('[FAIL] dist 里找不到 assets/runtimeBase-*.js —— 构建产物异常，已中止：' + distDir)
+    process.exit(1)
+  }
+  let originBad = false
+  for (const f of rbFiles) {
+    const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
+    if (/localhost|127\.0\.0\.1/.test(src) || !src.includes(NATIVE_HOST)) {
+      originBad = true
+      console.error('[FAIL] ' + f + ' 内置接口域名异常（未含 ' + NATIVE_HOST + '，或含 localhost/127.0.0.1）')
+    }
+  }
+  if (originBad) {
+    console.error('       多半是构建时缺 VITE_NATIVE_ORIGIN（应写在 frontend/.env.production.local）。')
+    console.error('       这种包下发会让 App 全站连不上服务器且无法自愈，已中止出包。')
+    process.exit(1)
+  }
+  console.log('接口域名  ' + NATIVE_HOST + '（runtimeBase ✓）')
+}
+
 fs.mkdirSync(outDir, { recursive: true })
 
 // 版本号用时间戳：单调递增、肉眼可读，且天然避免与上一次重名
