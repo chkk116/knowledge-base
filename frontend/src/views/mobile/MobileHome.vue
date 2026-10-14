@@ -64,6 +64,8 @@ const QUICKS = [
   { label: '发现文章', icon: 'Compass', color: 'green', to: '/discover' },
   { label: '搜索', icon: 'Search', color: 'gray', to: '/search' },
   { label: '我的收藏', icon: 'Star', color: 'orange', to: '/favorites' },
+  { label: '课程', icon: 'Notebook', color: 'blue', to: '/courses' },
+  { label: '考试', icon: 'Trophy', color: 'green', to: '/exams' },
   { label: '离线内容', icon: 'Cloudy', color: 'purple', to: '/offline' },
   { label: '我的数据', icon: 'TrendCharts', color: 'red', to: '/stats' },
 ]

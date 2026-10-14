@@ -70,6 +70,14 @@ const routes = [
   { path: '/lock', component: () => import('../views/mobile/MobileLock.vue'), meta: { title: '应用锁' } },
   { path: '/versions/:spaceId/:docId', component: () => import('../views/mobile/MobileVersions.vue'), meta: { title: '历史版本' } },
 
+  // ---- 培训 / 考试（复用桌面端 api/training.js，学员侧）----
+  { path: '/courses', component: () => import('../views/mobile/MobileCourses.vue'), meta: { title: '课程中心' } },
+  { path: '/course/:id', component: () => import('../views/mobile/MobileCourseDetail.vue'), meta: { title: '课程' } },
+  { path: '/course/:id/chapter/:chId', component: () => import('../views/mobile/MobileChapter.vue'), meta: { title: '章节' } },
+  { path: '/exams', component: () => import('../views/mobile/MobileExams.vue'), meta: { title: '考试中心' } },
+  { path: '/exam/:id', component: () => import('../views/mobile/MobileExamTake.vue'), meta: { title: '考试' } },
+  { path: '/exam/mine', component: () => import('../views/mobile/MobileExamMine.vue'), meta: { title: '我的考试' } },
+
   { path: '/', redirect: '/home' },
   { path: '/:pathMatch(.*)*', redirect: '/home' }
 ]
