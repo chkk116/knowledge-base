@@ -559,10 +559,10 @@ html.dark .net-act { color: #4c8dff; }   /* 深棕底上 #1677ff 对比度仅 ~3
 }
 .tab.center:active .fab { transform: translateY(-14px) scale(.92); box-shadow: 0 3px 12px rgba(22, 119, 255, .45); }
 
-/* ---------- 过渡动画 ---------- */
-.fade-page-enter-active, .fade-page-leave-active { transition: opacity .16s ease, transform .16s ease; }
-.fade-page-enter-from { opacity: 0; transform: translateY(6px); }
-.fade-page-leave-to { opacity: 0; transform: translateY(-4px); }
+/* ---------- 过渡动画（原生式左右滑入，替代网页感淡入） ---------- */
+.fade-page-enter-active, .fade-page-leave-active { transition: opacity .2s ease, transform .22s cubic-bezier(.4, 0, .2, 1); }
+.fade-page-enter-from { opacity: 0; transform: translateX(16px); }
+.fade-page-leave-to { opacity: 0; transform: translateX(-12px); }
 
 .slide-up-enter-active, .slide-up-leave-active { transition: opacity .2s, transform .2s; }
 .slide-up-enter-from, .slide-up-leave-to { opacity: 0; transform: translateY(10px); }

@@ -93,12 +93,19 @@ body.kb-mobile-body {
   line-height: 1.55;
   /* 禁掉长按选中 / 点击高亮，贴近原生 App 手感（输入框内单独放开） */
   -webkit-tap-highlight-color: transparent;
+  /* 禁长按弹出「复制 / 在浏览器打开」系统菜单 —— 这是 App 里最明显的「网页味」来源 */
+  -webkit-touch-callout: none;
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: none;
+  /* 禁用双击缩放（App 内不需要，且会干扰手势） */
+  touch-action: manipulation;
 }
 body.kb-mobile-body input,
 body.kb-mobile-body textarea,
-body.kb-mobile-body .selectable { -webkit-user-select: text; user-select: text; }
+body.kb-mobile-body .selectable {
+  -webkit-user-select: text; user-select: text;
+  -webkit-touch-callout: default;   /* 输入框内允许系统菜单（选择/粘贴） */
+}
 
 /* 移动端全局禁止横向滚动 */
 body.kb-mobile-body { overflow-x: hidden; }
