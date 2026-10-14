@@ -27,7 +27,12 @@ export const FONTS = [
   { key: 'xl', name: '特大', px: 19.5 },
 ]
 
-const DEFAULT = { theme: 'blue', font: 'm' }
+const DEFAULT = { theme: 'blue', font: 'm', haptics: true }
+
+/** 点击振动是否开启（默认开） */
+export function hapticsEnabled() {
+  return getMobileTheme().haptics !== false
+}
 
 export function getMobileTheme() {
   try {

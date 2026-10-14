@@ -19,6 +19,7 @@ import { getAppVersion, getAppBundle } from './api/app'
 import { shouldLock, verifyPin, getLockConfig } from './utils/appLock'
 import { parseNotes, changelogOf } from './changelog'
 import { dlActive, dlPercent, dlDone, restoreUpdateState, dismissUpdateState, updateProgressText } from './utils/updateProgress'
+import { hapticsEnabled } from './utils/mobileTheme'
 
 const route = useRoute()
 const router = useRouter()
@@ -95,9 +96,9 @@ function applyStatusBar() {
   } catch { /* 插件不可用则忽略 */ }
 }
 let themeObserver = null
-/** 轻触反馈（Tab 切换等） */
+/** 轻触反馈（Tab 切换等）；可在「设置 → 个性化」里关闭 */
 function haptic() {
-  if (!isNative) return
+  if (!isNative || !hapticsEnabled()) return
   try { capPlugins.Haptics?.impact?.({ style: 'LIGHT' })?.catch?.(() => {}) } catch { /* ignore */ }
 }
 const updateInfo = ref(null)      // { versionCode, versionName, url, notes, force }

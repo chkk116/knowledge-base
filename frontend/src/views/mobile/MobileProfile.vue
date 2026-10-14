@@ -104,15 +104,12 @@ const TOOL_GROUP = {
     { label: '我的数据', icon: 'TrendCharts', color: 'green', to: '/stats' }
   ]
 }
+// 设置统一收敛到「设置」页（个性化 / 通用 / 关于 / 账号安全都在里面），
+// 我的页只保留一个入口 —— 对齐主流 App 的做法。
 const SETTING_GROUP = {
   title: '设置',
   items: [
-    { label: '账号与资料', icon: 'User', color: '', to: '/settings' },
-    { label: '隐私政策', icon: 'Document', color: '', to: '/privacy' },
-    { label: '关于', icon: 'InfoFilled', color: '', to: '/about' },
-    { label: '外观设置', icon: 'Setting', color: 'gray', action: 'theme' },
-    { label: '主题与字号', icon: 'Brush', color: 'gray', to: '/appearance' },
-    { label: '应用锁', icon: 'Lock', color: 'gray', to: '/lock' }
+    { label: '设置', icon: 'Setting', color: 'gray', to: '/settings' }
   ]
 }
 

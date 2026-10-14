@@ -12,7 +12,7 @@ import { getAppVersion } from '../../api/app'
 import { openExternal } from '../../utils/openExternal'
 import { downloadAndInstall } from '../../utils/appUpdate'
 import { useSiteInfoStore } from '../../store/siteInfo'
-import { CHANGELOG, CURRENT_VERSION } from '../../changelog'
+import { CHANGELOG, CURRENT_VERSION, changelogOf } from '../../changelog'
 
 const router = useRouter()
 const siteInfo = useSiteInfoStore()
@@ -103,10 +103,9 @@ async function loadRemote() {
   } catch { /* 拉不到就显示「未配置」 */ }
 }
 
-// 本版本更新说明（简洁列表；历史版本可展开）
-const current = CURRENT_VERSION
-const showLog = ref(false)
-const history = CHANGELOG.slice(1, 6)
+// 本版本更新说明：按「当前安装的版本」匹配（拿不到则回退到最新一条）
+const current = computed(() => changelogOf(version.value || webVersion) || CURRENT_VERSION)
+const historyCount = CHANGELOG.length
 
 onMounted(() => {
   loadInfo()
@@ -153,16 +152,10 @@ onMounted(() => {
         <ul class="log-list">
           <li v-for="(it, i) in current.items" :key="i">{{ it }}</li>
         </ul>
-        <button v-if="history.length" class="log-more" type="button" @click="showLog = !showLog">
-          {{ showLog ? '收起历史版本' : '查看历史版本（' + history.length + '）' }}
-          <el-icon :size="13" :class="{ open: showLog }"><Right /></el-icon>
+        <button class="log-more" type="button" @click="router.push('/changelog')">
+          查看全部更新日志（{{ historyCount }} 个版本）
+          <el-icon :size="13"><Right /></el-icon>
         </button>
-        <div v-show="showLog" class="log-old">
-          <div v-for="h in history" :key="h.version" class="log-old-item">
-            <div class="log-old-head"><b>v{{ h.version }}</b><span>{{ h.date }}</span></div>
-            <ul><li v-for="(it, i) in h.items" :key="i">{{ it }}</li></ul>
-          </div>
-        </div>
       </div>
 
       <!-- 链接 -->

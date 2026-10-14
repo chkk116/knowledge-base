@@ -161,9 +161,23 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/search") && "GET".equals(method)) return true;
         // 文档只读接口公开；/api/docs/mine 含个人数据，需登录
         if ("GET".equals(method) && isPublicDocRead(path)) return true;
-        // 培训/考试浏览公开（列表、详情、试卷），个人进度/作答等写接口仍走登录校验
-        if ("GET".equals(method) && (path.startsWith("/api/courses") || path.startsWith("/api/exams"))) return true;
+        // 培训/考试「只读浏览」公开：仅 课程列表 / 课程分类 / 课程详情(数字id) / 试卷列表。
+        // ⚠️ 不能整段前缀放行（2026-10-14 修）：/courses/mine、/courses/{id}/progress、
+        //    /courses/certificates、/courses/{id}/certificate、/exams/mine、/exams/{id}、
+        //    /exams/records/* 都需要登录（控制器用 @RequestAttribute("kbUser")）。若被当匿名放行，
+        //    未带/过期 token 时会因缺 kbUser 抛 ServletRequestBindingException → 500（而非 401），
+        //    前端显示「服务暂时不可用」且不触发重登 → 用户卡死。
+        if ("GET".equals(method) && isPublicCourseExamRead(path)) return true;
         if ("/error".equals(path)) return true;
+        return false;
+    }
+
+    /** 允许公开访问的培训/考试读取路径：课程列表 / 分类 / 数字 id 详情 / 试卷列表 */
+    private boolean isPublicCourseExamRead(String path) {
+        if ("/api/courses".equals(path)) return true;
+        if ("/api/courses/categories".equals(path)) return true;
+        if (path.matches("/api/courses/\\d+$")) return true;   // 课程详情（不含 /progress、/certificate）
+        if ("/api/exams".equals(path)) return true;            // 试卷列表（不含 /mine、/{id}、/records）
         return false;
     }
 

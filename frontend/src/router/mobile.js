@@ -42,6 +42,7 @@ const routes = [
   { path: '/ai', component: () => import('../views/mobile/MobileAiChat.vue'), meta: { title: 'AI 问答' } },
   { path: '/settings', component: () => import('../views/mobile/MobileSettings.vue'), meta: { title: '设置' } },
   { path: '/about', component: () => import('../views/mobile/MobileAbout.vue'), meta: { title: '关于' } },
+  { path: '/changelog', component: () => import('../views/mobile/MobileChangelog.vue'), meta: { title: '更新日志' } },
   { path: '/privacy', component: () => import('../views/mobile/MobilePrivacy.vue'), meta: { public: true, title: '隐私政策' } },
   { path: '/disclaimer', component: () => import('../views/mobile/MobileDisclaimer.vue'), meta: { public: true, title: '免责声明' } },
   // ---- 我的文件：文件中心（与网页端 FileCenter 共用一套接口）----

@@ -10,6 +10,20 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.2.0',
+    date: '2026-10-14',
+    title: '课程考试 · 成长体系 · 原生体验',
+    items: [
+      '新增「课程中心」：课程列表 / 课程详情 / 章节学习 / 结业证书',
+      '新增「考试中心」：在线答题（单选/多选/判断/填空/简答）+ 限时 + 成绩记录',
+      '新增「我的成长」：积分明细、徽章成就、积分排行',
+      '新增「我的订阅」「回收站」「浏览历史」「他人主页」',
+      '原生体验：启动图、状态栏随主题、点击振动（可在设置里关闭）、键盘不遮输入框',
+      '禁系统长按菜单；页面切换改为原生式左右滑入；路由预分包消除切页白屏',
+      '设置页重构：整合主题色 / 正文字号 / 深色模式 / 点击振动等个性化项',
+    ],
+  },
+  {
     version: '1.12',
     date: '2026-10-11',
     title: '更丰富的首页与实用工具',
@@ -62,7 +76,11 @@ export const CURRENT_VERSION = CHANGELOG[0]
 export function changelogOf(versionName) {
   const v = String(versionName || '').replace(/^v/, '').trim()
   if (!v) return null
-  return CHANGELOG.find((c) => c.version === v) || null
+  // 容忍预发布后缀：1.2.0-beta2 → 匹配 1.2.0
+  const base = v.replace(/[-+].*$/, '')
+  return CHANGELOG.find((c) => c.version === v)
+    || CHANGELOG.find((c) => c.version === base)
+    || null
 }
 
 /**
