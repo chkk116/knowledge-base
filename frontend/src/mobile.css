@@ -374,7 +374,11 @@ body.kb-mobile-body .el-dialog {
 }
 body.kb-mobile-body .el-message-box { max-width: 88vw; border-radius: 18px; }
 body.kb-mobile-body .el-overlay-dialog { display: flex; align-items: center; justify-content: center; }
-body.kb-mobile-body .el-message { min-width: 0; max-width: 88vw; }
+/* 顶部提示条：叠加顶部安全区，避免在 edge-to-edge 的 App 里顶到状态栏底下 */
+body.kb-mobile-body .el-message {
+  min-width: 0; max-width: 88vw;
+  top: calc(env(safe-area-inset-top) + 12px) !important;
+}
 
 /* 隐藏滚动条（移动端滚动条突兀） */
 body.kb-mobile-body ::-webkit-scrollbar { width: 0; height: 0; }

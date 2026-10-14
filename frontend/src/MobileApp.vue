@@ -79,14 +79,19 @@ const isNative = !!window.Capacitor?.isNativePlatform?.()
 // ---------- 原生体验：状态栏 / 震动 / 启动图（插件缺失时全部静默跳过，Web 端不受影响） ----------
 const capPlugins = window.Capacitor?.Plugins || {}
 const SB = capPlugins.StatusBar
-/** 状态栏随主题：浅色底用深色字，深色底用浅色字；并让状态栏底色贴合 App 背景 */
+/**
+ * 状态栏文字/图标随主题。⚠️ 命名与直觉相反（见 @capacitor/status-bar 定义）：
+ *   Style.Dark  = 深色背景 → 浅色字；Style.Light = 浅色背景 → 深色字。
+ * 故：浅色主题传 'LIGHT'（深字），深色主题传 'DARK'（浅字）。
+ * ⚠️ 绝不再调 setOverlaysWebView / setBackgroundColor：targetSdk 36 下 Android 强制
+ *    edge-to-edge，覆盖这些会与系统冲突，导致 WebView 丢掉 safe-area-inset-top →
+ *    页面内容/提示条顶到状态栏底下（2026-10-14 踩坑）。
+ */
 function applyStatusBar() {
   if (!isNative || !SB) return
   const dark = document.documentElement.classList.contains('dark')
   try {
-    SB.setOverlaysWebView?.({ overlay: false })
-    SB.setStyle?.({ style: dark ? 'LIGHT' : 'DARK' })
-    SB.setBackgroundColor?.({ color: dark ? '#17181c' : '#f5f6f7' })
+    SB.setStyle?.({ style: dark ? 'DARK' : 'LIGHT' })
   } catch { /* 插件不可用则忽略 */ }
 }
 let themeObserver = null
