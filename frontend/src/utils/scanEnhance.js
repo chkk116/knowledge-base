@@ -11,13 +11,22 @@
  * 坐标系：裁剪框 / 角点均用**归一化坐标**（0~1），与画布像素尺寸解耦。
  */
 
-/** 从 File / Blob / URL / Image / Canvas 拿到 HTMLImageElement */
+/** 从 File / Blob / URL / Image / Canvas 拿到 HTMLImageElement（Canvas 走 toBlob 中转） */
 export function loadImage(src) {
   return new Promise((resolve, reject) => {
     if (src instanceof HTMLImageElement) {
       if (src.complete && src.naturalWidth) { resolve(src); return }
       src.onload = () => resolve(src)
       src.onerror = () => reject(new Error('图片加载失败'))
+      return
+    }
+    // Canvas 直接 img.src 会得到 "[object HTMLCanvasElement]" → onerror（第四轮审查）：
+    // 先编码成 Blob 再走统一的对象 URL 路径
+    if (typeof HTMLCanvasElement !== 'undefined' && src instanceof HTMLCanvasElement) {
+      src.toBlob((blob) => {
+        if (!blob) { reject(new Error('画布编码失败')); return }
+        loadImage(blob).then(resolve, reject)
+      }, 'image/png')
       return
     }
     let url = src
@@ -297,7 +306,7 @@ export function perspectiveWarp(src, corners) {
   const dstPts = [{ x: 0, y: 0 }, { x: outW - 1, y: 0 }, { x: outW - 1, y: outH - 1 }, { x: 0, y: outH - 1 }]
   // 需要「目标 → 源」的映射，所以把 dst 当输入、pts 当输出
   const H = solveHomography(dstPts, pts)
-  if (!H) return cloneCanvas(src)
+  if (!H || H.some((v) => !Number.isFinite(v))) return cloneCanvas(src)
 
   const srcData = src.getContext('2d').getImageData(0, 0, w, h).data
   const cv = makeCanvas(outW, outH)
@@ -309,8 +318,22 @@ export function perspectiveWarp(src, corners) {
   for (let y = 0; y < outH; y++) {
     for (let x = 0; x < outW; x++) {
       const den = H[6] * x + H[7] * y + 1
+      // den≈0 时 sx/sy 会成 NaN：NaN 骗过所有比较钻进边界检查 → 黑噪点（第四轮审查）。
+      // 显式回退白底
+      if (!Number.isFinite(den) || Math.abs(den) < 1e-10) {
+        const p0 = (y * outW + x) * 4
+        od[p0] = od[p0 + 1] = od[p0 + 2] = 255
+        od[p0 + 3] = 255
+        continue
+      }
       const sx = (H[0] * x + H[1] * y + H[2]) / den
       const sy = (H[3] * x + H[4] * y + H[5]) / den
+      if (!Number.isFinite(sx) || !Number.isFinite(sy)) {
+        const p0 = (y * outW + x) * 4
+        od[p0] = od[p0 + 1] = od[p0 + 2] = 255
+        od[p0 + 3] = 255
+        continue
+      }
       sampleBilinear(srcData, w, h, sx, sy, px)
       const p = (y * outW + x) * 4
       od[p] = px[0]; od[p + 1] = px[1]; od[p + 2] = px[2]; od[p + 3] = 255
@@ -323,7 +346,8 @@ export function perspectiveWarp(src, corners) {
 /* ======================= 文档四角自动检测 ======================= */
 
 /**
- * 简化版文档边缘检测：从画面四角沿对角线向内找「强梯度」像素作为近似角点。
+ * 文档四角自动检测：Otsu 分割出纸面区域，取区域极端点作为近似角点
+ * （面积过小/分割失败时回退默认内缩框）。
  * 适用场景：文档大致居中、占据画面主体（扫描的典型用法）。
  * 检测不理想时用户可在编辑器里手动拖四角。
  * 返回 [{x,y}×4] 归一化坐标（TL/TR/BR/BL）。
@@ -419,10 +443,13 @@ export function detectCorners(src) {
 /** canvas → JPEG 字节 + 预览 URL（结构对齐 scanPdf.prepareImage 的产物） */
 export function toJpegPage(cv, quality = 0.85) {
   return new Promise((resolve, reject) => {
-    cv.toBlob(async (blob) => {
+    // 回调不能是 async：其返回的 Promise 无人链接，内部抛错会变成
+    // unhandled rejection 且外层 Promise 永挂（第四轮审查 H7）
+    cv.toBlob((blob) => {
       if (!blob) { reject(new Error('图片编码失败')); return }
-      const bytes = new Uint8Array(await blob.arrayBuffer())
-      resolve({ bytes, w: cv.width, h: cv.height, url: URL.createObjectURL(blob), size: blob.size })
+      blob.arrayBuffer()
+        .then((buf) => resolve({ bytes: new Uint8Array(buf), w: cv.width, h: cv.height, url: URL.createObjectURL(blob), size: blob.size }))
+        .catch((e) => reject(e instanceof Error ? e : new Error('图片编码失败')))
     }, 'image/jpeg', quality)
   })
 }

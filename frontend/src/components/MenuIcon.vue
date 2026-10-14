@@ -27,11 +27,9 @@ const B_L = '#9DBBFF', B_XL = '#DBEAFE'
 const I_L = '#A5B4FC'
 const V_L = '#C4B5FD'
 const A_L = '#FDE68A'
-const E_L = '#6EE7B7'
 const R_L = '#FDA4AF'
 const S_L = '#A9B6C9'
 const O_L = '#FDBA74'
-const P_L = '#F9A8D4'
 const B_D = '#2B6CF6', A_D = '#F59E0B', S_D = '#475569', T_D = '#0D9488', O_D = '#EA580C'
 const X = '#FBBF24'      // 统一琥珀点缀
 const X_DK = '#B45309'   // 琥珀系图标上的「深色点缀」（琥珀底上不能再用琥珀）
@@ -150,15 +148,25 @@ const ICONS = {
   UserFilled: `<circle cx="12" cy="8.2" r="4.1" fill="url(#gd-I)"/><path d="M4.6 20.4a7.4 7.4 0 0 1 14.8 0H4.6Z" fill="url(#gd-I)"/><rect x="9.3" y="16.8" width="5.4" height="1.5" rx=".7" fill="${X}"/>`,
 }
 
+// 每实例唯一渐变 id 前缀（第四轮审查）：所有实例渲染同一份 <defs> 会产出重复的
+// dom id，url(#gd-*) 永远解析到文档里第一处——首个实例卸载/重排后其余图标渐变全丢。
+// 前缀化后每个实例的引用与自己的 defs 严格配对。
+let miSeq = 0
+const uid = 'mi' + (++miSeq)
+const defs = DEFS.replaceAll('gd-', `gd-${uid}-`)
 const FALLBACK = `<circle cx="12" cy="12" r="7" fill="url(#gd-S)"/><circle cx="12" cy="12" r="2.4" fill="${X}"/>`
 
-const inner = computed(() => ICONS[props.name] || FALLBACK)
+// hasOwnProperty 守卫（第四轮审查）：原型链上的 constructor/toString 等名字不该被当成图标
+const inner = computed(() => {
+  const raw = Object.prototype.hasOwnProperty.call(ICONS, props.name) ? ICONS[props.name] : FALLBACK
+  return raw.replaceAll('gd-', `gd-${uid}-`)
+})
 </script>
 
 <template>
   <svg class="mi" :width="size" :height="size" viewBox="0 0 24 24" fill="none"
        aria-hidden="true" focusable="false">
-    <defs v-html="DEFS"></defs>
+    <defs v-html="defs"></defs>
     <g v-html="inner"></g>
   </svg>
 </template>

@@ -87,12 +87,15 @@ const PAD = new Uint8Array([
   0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 ])
 
-/** 把口令截断/补足到 32 字节 */
+/** 把口令截断/补足到 32 字节。
+ *  PDF R2 标准安全的口令按 PDFDocEncoding/Latin-1 取字节（ISO 32000-1 §7.6.3.3）：
+ *  TextEncoder 的 UTF-8 会让非 ASCII 口令在其他阅读器里派生出不同文件密钥打不开
+ *  （第四轮审查）。按 code unit & 0xff 映射，ASCII 口令行为不变。 */
 function padPassword(pw) {
   const b = new Uint8Array(32)
-  const src = new TextEncoder().encode(String(pw || ''))
-  const n = Math.min(32, src.length)
-  b.set(src.subarray(0, n))
+  const s = String(pw || '')
+  const n = Math.min(32, s.length)
+  for (let i = 0; i < n; i++) b[i] = s.charCodeAt(i) & 0xff
   b.set(PAD.subarray(0, 32 - n), n)
   return b
 }
@@ -139,7 +142,7 @@ export function createEncryptor(userPw, ownerPw, P = -60) {
   const key = computeKey(userPw, O, P, idBytes)
   const U = computeU(key)
 
-  const hex = (u8) => Array.from(u8).map((b) => b.toString(16).padStart(2, '0')).join('')
+  const hex = toHexString   // 复用导出实现，避免两份逻辑漂移（第四轮审查）
   const dict = `<< /Filter /Standard /V 1 /R 2 /Length 40 /P ${P} ` +
     `/O <${hex(O)}> /U <${hex(U)}> >>`
 

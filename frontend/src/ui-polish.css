@@ -6,7 +6,7 @@
      · 更柔的描边 / 更轻的投影 / 更大的圆角 / 更舒展的行高
      · 表格、卡片、按钮、输入、标签、弹窗等 Element 组件统一重绘
    说明：结构类（圆角/间距/投影/描边粗细）明暗通用；
-        颜色类仅作用于亮色（html:not(.dark)），暗色交给 Element 暗色变量。
+        颜色令牌亮色为默认、暗色在 html.dark 覆写，消费规则明暗通用。
    ============================================================ */
 
 /* ---------------- 设计令牌 ---------------- */
@@ -24,6 +24,15 @@
   --kb-sh: 0 6px 20px rgba(16, 24, 40, .08);
   --kb-sh-lg: 0 16px 44px rgba(16, 24, 40, .14);
   --kb-ring: 0 0 0 3px rgba(99, 102, 241, .16);
+}
+
+/* 暗色覆写（第四轮审查 H8）：这几个颜色令牌原本只定义亮色值却漏进暗色模式，
+   出现亮色描边/灰字压在暗色表面上。给一套暗色取值让所有消费规则自动适配。 */
+html.dark {
+  --kb-line: #26262f;
+  --kb-line-2: #32323c;
+  --kb-txt-2: #a8b0bd;
+  --kb-txt-3: #79818e;
 }
 
 /* ---------------- 主色统一：品牌靛紫 ---------------- */
@@ -82,6 +91,11 @@ html.dark {
 .el-textarea__inner:focus {
   box-shadow: 0 0 0 1px var(--el-color-primary) inset, var(--kb-ring) !important;
 }
+/* 错误态优先（第四轮审查）：校验红框不能被上面的 focus ring 吞掉 */
+.el-form-item.is-error .el-input__wrapper,
+.el-form-item.is-error .el-textarea__inner {
+  box-shadow: 0 0 0 1px var(--el-color-danger) inset !important;
+}
 .el-input--large .el-input__wrapper { border-radius: 10px; }
 html:not(.dark) .el-input__wrapper,
 html:not(.dark) .el-select__wrapper,
@@ -115,10 +129,11 @@ html:not(.dark) .el-select__wrapper:hover { box-shadow: 0 0 0 1px #d4d9e3 inset;
 /* 按钮组（含 split-button）永远不换行，否则窄列里会「编辑/箭头」上下叠 */
 .el-button-group { white-space: nowrap; }
 .el-table .el-button-group { flex-wrap: nowrap; }
-/* 行悬停更柔和 + 选中行淡靛紫 */
-.el-table__body tr:hover > td.el-table__cell { background: var(--el-color-primary-light-9) !important; }
+/* 行悬停更柔和 + 选中行淡靛紫。
+   第四轮审查：原来的 tr:hover !important 会让下一行 html:not(.dark) 的变量声明成死代码，
+   也压过 EP 的选中/展开行样式——改为只走变量（亮色给淡靛紫，暗色交回 EP 默认）。 */
 html:not(.dark) .el-table th.el-table__cell { background: #f7f8fb !important; color: #64748b; }
-html:not(.dark) .el-table { --el-table-row-hover-bg-color: #f7f8fb; color: #334155; }
+html:not(.dark) .el-table { --el-table-row-hover-bg-color: var(--el-color-primary-light-9); color: #334155; }
 html:not(.dark) .el-table__body tr.current-row > td.el-table__cell { background: var(--el-color-primary-light-9); }
 
 /* 状态胶囊（el-tag）：更圆润、更柔和 */

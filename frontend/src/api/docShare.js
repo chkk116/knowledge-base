@@ -52,12 +52,13 @@ export const importShareDoc = (id, file) => {
 }
 
 // 图片 OCR 识别导入：图片经后端智谱视觉模型识别文字后生成协作文档，需写入权限
+// persist=false 只识别不落库（移动端多页扫描合并预览用，避免每页遗留孤儿文档）
 // timeout 必须单独放宽：全局 15s，而 OCR 走免费档（4.6V 挤爆降级 4.1V-Thinking）
 // 实测单次调用 14~30s，15s 会被 axios 掐断 → 前端只能弹兜底「识别失败」
-export const ocrImportShareDoc = (id, file) => {
+export const ocrImportShareDoc = (id, file, persist = true) => {
   const fd = new FormData()
   fd.append('file', file)
-  return api.post('/doc-shares/' + pid(id) + '/docs/ocr', fd, {
+  return api.post('/doc-shares/' + pid(id) + '/docs/ocr' + (persist ? '' : '?persist=false'), fd, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   })

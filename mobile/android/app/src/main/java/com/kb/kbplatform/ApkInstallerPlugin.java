@@ -73,18 +73,20 @@ public class ApkInstallerPlugin extends Plugin {
             call.reject("缺少下载地址");
             return;
         }
-        if (!downloading.compareAndSet(false, true)) {
-            call.reject("已有下载任务在进行中");
-            return;
-        }
         // 固定服务端文件名：不采信 JS 侧传入的 fileName（../ 或绝对路径会穿越出缓存目录）
         final String fileName = "kb-update.apk";
         // SHA-256 校验值（十六进制，来自后端 SysSetting）：缺值一律拒绝（fail-closed）。
         // 外部审查 2026-10-11：空值不再当作「免校验」，否则被注入的 JS 可传自己的
         // APK + 配套哈希绕过完整性校验。
+        // 第四轮审查 C2（2026-10-14）：参数校验必须放在 CAS 之前——原顺序下缺校验值
+        // 提前 return 不复位 downloading，之后所有更新永远被「已有下载任务在进行中」拒绝。
         final String checksum = call.getString("checksum");
         if (checksum == null || checksum.trim().isEmpty()) {
             call.reject("更新包缺少 SHA-256 校验值，已拒绝安装");
+            return;
+        }
+        if (!downloading.compareAndSet(false, true)) {
+            call.reject("已有下载任务在进行中");
             return;
         }
         // 通知栏进度：先建渠道（Android 8+），再按需申请通知权限（Android 13+）。
@@ -95,11 +97,13 @@ public class ApkInstallerPlugin extends Plugin {
         new Thread(() -> {
             try {
                 File apk = download(url, fileName, checksum);
+                // 第四轮审查 H4（2026-10-14）：launched 必须取真实结果——缺「安装未知应用」
+                // 授权或拉起异常时为 false，否则 JS 侧永远看不到 needInstallPermission
+                boolean launched = launchInstall(apk);
                 JSObject res = new JSObject();
                 res.put("filePath", apk.getAbsolutePath());
                 res.put("size", apk.length());
-                res.put("launched", true);
-                launchInstall(apk);
+                res.put("launched", launched);
                 showDoneNotification();
                 call.resolve(res);
             } catch (Exception e) {
@@ -138,6 +142,11 @@ public class ApkInstallerPlugin extends Plugin {
         }
         if (!f.exists()) {
             call.reject("安装包不存在，请重新下载");
+            return;
+        }
+        // 第四轮审查（2026-10-14）：下载目标路径固定，下载中调用 install 会把半截 APK 交给安装器
+        if (downloading.get()) {
+            call.reject("正在下载更新包，请稍后再试");
             return;
         }
         launchInstall(f);
@@ -234,13 +243,17 @@ public class ApkInstallerPlugin extends Plugin {
         } finally {
             conn.disconnect();
         }
-        // SHA-256 完整性校验：checksum 由后端 SysSetting 随更新信息下发（构建脚本算出）
-        if (expectedSha256 != null && !expectedSha256.isBlank()) {
-            String actual = sha256Hex(out);
-            if (!actual.equalsIgnoreCase(expectedSha256.trim())) {
-                out.delete();
-                throw new Exception("安装包校验失败（SHA-256 不匹配），已删除重试");
-            }
+        // SHA-256 完整性校验：checksum 由后端 SysSetting 随更新信息下发（构建脚本算出）。
+        // 第四轮审查（2026-10-14）：无条件 fail-closed——缺值即删包报错，
+        // 与 downloadAndInstall 入口的拒绝双保险（原 fail-open 分支与策略自相矛盾）
+        if (expectedSha256 == null || expectedSha256.isBlank()) {
+            out.delete();
+            throw new Exception("缺少 SHA-256 校验值，已删除下载包");
+        }
+        String actual = sha256Hex(out);
+        if (!actual.equalsIgnoreCase(expectedSha256.trim())) {
+            out.delete();
+            throw new Exception("安装包校验失败（SHA-256 不匹配），已删除重试");
         }
         return out;
     }
@@ -404,11 +417,13 @@ public class ApkInstallerPlugin extends Plugin {
             while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
         }
         StringBuilder sb = new StringBuilder();
-        for (byte b : md.digest()) sb.append(String.format("%02x", b));
+        // Locale.US：默认 locale 下（如阿拉伯数字区域）%02x 会产出非 ASCII 数字，哈希永远对不上
+        for (byte b : md.digest()) sb.append(String.format(java.util.Locale.US, "%02x", b));
         return sb.toString();
     }
 
-    private void launchInstall(final File apk) {
+    /** 拉起系统安装器；缺「安装未知应用」授权或拉起异常返回 false（事件照发，结果以返回值为准） */
+    private boolean launchInstall(final File apk) {
         try {
             // Android 8.0+ 必须允许「安装未知应用」，否则安装器会静默失败
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -420,7 +435,7 @@ public class ApkInstallerPlugin extends Plugin {
                         Uri.parse("package:" + getContext().getPackageName()));
                 s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 getContext().startActivity(s);
-                return;
+                return false;
             }
             Uri uri = FileProvider.getUriForFile(
                     getContext(),
@@ -430,10 +445,12 @@ public class ApkInstallerPlugin extends Plugin {
             i.setDataAndType(uri, "application/vnd.android.package-archive");
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             getContext().startActivity(i);
+            return true;
         } catch (Exception e) {
             JSObject err = new JSObject();
             err.put("message", "拉起安装失败：" + e.getMessage());
             notifyListeners("installError", err);
+            return false;
         }
     }
 }

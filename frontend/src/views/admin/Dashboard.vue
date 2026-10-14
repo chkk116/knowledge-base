@@ -21,18 +21,21 @@ const trendLine = ref(null)
 const chartMap = {}
 let echartsLib = null
 let observer = null
+let echartsLoading = null   // 在途加载 Promise：并发/重试时复用，避免双 <script> 竞争 window.echarts（第四轮审查）
 
 // 局部加载 ECharts：看板页才注入本地脚本，不进主包，也不依赖运行时 CDN。
 function loadEcharts() {
-  return new Promise((resolve, reject) => {
-    if (window.echarts) return resolve(window.echarts)
+  if (window.echarts) return Promise.resolve(window.echarts)
+  if (echartsLoading) return echartsLoading
+  echartsLoading = new Promise((resolve, reject) => {
     const s = document.createElement('script')
     s.src = import.meta.env.BASE_URL + 'vendor/echarts.min.js'
     s.async = true
     s.onload = () => (window.echarts ? resolve(window.echarts) : reject(new Error('echarts 未就绪')))
-    s.onerror = () => reject(new Error('echarts 本地文件加载失败'))
+    s.onerror = () => { echartsLoading = null; reject(new Error('echarts 本地文件加载失败')) }
     document.head.appendChild(s)
   })
+  return echartsLoading
 }
 
 async function load() {
@@ -67,7 +70,14 @@ async function initCharts() {
   chartLoading.value = false
   await nextTick()
   renderAll()
-  observer = new MutationObserver(() => renderAll())
+  // 只在明暗切换时重绘（第四轮审查）：html 上任何 class 变更都全量重绘三图太浪费
+  let lastDark = document.documentElement.classList.contains('dark')
+  observer = new MutationObserver(() => {
+    const dark = document.documentElement.classList.contains('dark')
+    if (dark === lastDark) return
+    lastDark = dark
+    renderAll()
+  })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 }
 
@@ -165,9 +175,9 @@ const kpis = computed(() => {
   const d = data.value
   if (!d) return []
   const mk = (icon, label, value, unit, spark, today, yesterday) => {
-    const t = today != null && yesterday != null
-      ? (today - yesterday)
-      : null
+    // 环比只信有限数字（第四轮审查）：字符串/缺字段相减得 NaN 会渲染出字面量「NaN」
+    const a = Number(today), b = Number(yesterday)
+    const t = Number.isFinite(a) && Number.isFinite(b) ? (a - b) : null
     const trend = t == null ? null
       : (t > 0 ? 'up' : (t < 0 ? 'down' : 'flat'))
     const sp = spark || []
@@ -185,8 +195,8 @@ const kpis = computed(() => {
 // 迷你趋势线 SVG path（不依赖 ECharts，KPI 卡轻量展示）
 function sparkPath(arr, w, h) {
   if (!arr || arr.length < 2) return ''
-  // 仅保留有效数字（后端可能返回 null/undefined → 造成 NaN → polyline 报 "Expected number"）
-  const nums = arr.filter((v) => typeof v === 'number' && !isNaN(v))
+  // 保留有效数字（第四轮审查：数字字符串 Number() 收编，null/undefined 丢弃）
+  const nums = arr.map((v) => Number(v)).filter((v) => Number.isFinite(v))
   if (nums.length < 2) return ''
   const max = Math.max(...nums, 1)
   const min = Math.min(...nums, 0)

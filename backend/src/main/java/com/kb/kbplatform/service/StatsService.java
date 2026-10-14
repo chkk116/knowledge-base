@@ -151,7 +151,9 @@ public class StatsService {
         for (Document d : docRepo.findTop6ByStatusOrderByCreatedAtDesc("PUBLISHED")) {
             Map<String, Object> e = new LinkedHashMap<>();
             e.put("type", "doc");
-            e.put("text", d.getTitle());
+            // 标题是用户输入且后台看板以 v-html 渲染动态文本（第四轮审查 C3）：必须转义，
+            // 否则标题携带 <img onerror> 之类标记会在管理员浏览器里执行
+            e.put("text", HtmlSanitizer.escapeHtml(d.getTitle()));
             e.put("author", d.getOwnerName() != null ? d.getOwnerName() : "");
             e.put("time", d.getCreatedAt() != null ? d.getCreatedAt().format(f) : "");
             e.put("docId", d.getId());          // 供数据面板「点击直达」跳转用

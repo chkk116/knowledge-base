@@ -24,7 +24,7 @@ import MobileScanEditor from './MobileScanEditor.vue'
 import { applyWatermark, buildLongImage, toCanvas, toJpegPage } from '../../utils/scanEnhance'
 import { uploadFile } from '../../api/file'
 import { enqueueDoc } from '../../utils/offlineStore'
-import { mySpaces, resolveDefaultSpaceId, rememberSpace, personalSpace } from '../../utils/spaceResolver'
+import { mySpaces, resolveDefaultSpaceId, rememberSpace, personalSpace, lastSpaceId } from '../../utils/spaceResolver'
 import { recognizeLocal, warmupLocalOcr } from '../../utils/localOcr'
 
 const router = useRouter()
@@ -105,10 +105,16 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
+  document.removeEventListener('pointerup', cancelDragTimer, true)
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
   // 整个扫描流程的对象 URL 一起回收（长期驻留的 WebView 里反复拍照会累积内存）
   revokePages(scanPages.value)
 })
+
+/** 常驻的「抬手取消长按」：替代每次 pointerdown 挂 once 监听（pointercancel 结束的手势
+ *  会让 once 监听残留累积，第四轮审查 Low） */
+function cancelDragTimer() { clearTimeout(dragTimer) }
+onMounted(() => document.addEventListener('pointerup', cancelDragTimer, true))
 
 function pickCamera() { cameraInput.value?.click() }
 function pickAlbum() { fileInput.value?.click() }
@@ -326,7 +332,9 @@ async function archiveImages(sid) {
       urls.push(data.data.url)
     }
     statusText.value = '正在生成文档…'
-    const html = urls.map((u) => `<p><img src="${u}" alt="扫描件"></p>`).join('')
+    // URL 过 escapeHtml 再进属性（第四轮审查）：虽然来自自家上传接口，但直拼 src 属性
+    // 一旦值带引号/尖括号就会破坏属性边界（存储型 XSS 纵深防御）
+    const html = urls.map((u) => `<p><img src="${escapeHtml(u)}" alt="扫描件"></p>`).join('')
     const name = scanTitle.value.trim() || `${idType.value || '扫描件'} ${new Date().toLocaleDateString()}`
     const { data } = await createShareDoc(sid, { title: name, content: html })
     window.__kbMsg?.success('已归档到「' + (spaces.value.find((x) => x.id === sid)?.name || '我的文档') + '」')
@@ -348,8 +356,6 @@ async function archiveImages(sid) {
 function onPageDown(e, i) {
   if (busy.value || exporting.value || scanPages.value.length < 2) return
   clearTimeout(dragTimer)
-  // 未进入拖拽就抬手 → 只是普通点击，取消长按
-  document.addEventListener('pointerup', () => clearTimeout(dragTimer), { once: true, capture: true })
   dragTimer = setTimeout(() => {
     dragIdx.value = i
     dragOver.value = i
@@ -394,6 +400,12 @@ async function recognizeAll() {
   busy.value = true
   try {
     const parts = []
+    // 云端路径需要合法空间 id 拼 URL（persist=false 只识别不落库，但仍要走该空间的路由）
+    let sid = null
+    if (engine.value !== 'local') {
+      sid = targetSpace.value || await resolveDefaultSpaceId() || await personalSpace().then((s) => s?.id)
+      if (!sid) throw new Error('没有可写入的空间')
+    }
     for (let i = 0; i < scanPages.value.length; i++) {
       statusText.value = `识别中 ${i + 1}/${scanPages.value.length}…`
       progress.value = Math.round(((i) / scanPages.value.length) * 100)
@@ -402,15 +414,19 @@ async function recognizeAll() {
           const t = await recognizeLocal(scanPages.value[i].file, (p) => { progress.value = p }, { table: true })
           parts.push(t || '')
         } else {
-          const { data } = await ocrImportShareDoc(targetSpace.value, scanPages.value[i].file)
-          parts.push(data?.content || '')
+          // persist=false：只识别不落库（第四轮审查 H6）——原先每页都在服务端建一篇文档，
+          // review 后 save() 再建一篇合并的 → 每次多页识别遗留 N 篇孤儿文档
+          const { data } = await ocrImportShareDoc(sid, scanPages.value[i].file, false)
+          // 服务端返回的是段落 HTML：统一转回纯文本入 parts，与本地引擎路径同构，
+          // 后面只做一次 textToHtml（第四轮审查 H5：原先把 HTML 再过 textToHtml 双重转义）
+          parts.push(htmlToText(data?.content || ''))
         }
       } catch (e) {
         parts.push('')
       }
     }
     const text = parts.filter(Boolean).join('\n\n——————\n\n')
-    content.value = textToHtml(text)
+    content.value = text
     title.value = `扫描件 ${fmtNow()}`
     stage.value = 'review'
   } finally {
@@ -512,6 +528,8 @@ async function save() {
   }
 
   busy.value = true
+  // 离线/降级入队时的空间兜底：targetSpace 可能还没解析（页面离线加载时列表拉不到）
+  const offlineSid = targetSpace.value || lastSpaceId()
   try {
     const html = textToHtml(content.value)
     if (online.value) {
@@ -527,20 +545,25 @@ async function save() {
       router.replace(`/doc/${sid}/${data.id}`)
     } else {
       // 离线：进队列
-      await enqueueDoc({ spaceId: targetSpace.value, title: title.value.trim() || '未命名文档', content: html })
+      await enqueueDoc({ spaceId: offlineSid, title: title.value.trim() || '未命名文档', content: html })
       window.__kbMsg?.success('已存到本机，联网后自动同步')
       router.replace('/docs')
     }
   } catch (e) {
     console.error(e)
-    // 有网但请求失败（如断网瞬间）：降级为离线保存，避免用户白拍
-    try {
-      await enqueueDoc({ spaceId: targetSpace.value, title: title.value.trim() || '未命名文档', content: textToHtml(content.value) })
-      window.__kbMsg?.warning('网络异常，已存到本机，联网后自动同步')
-      router.replace('/docs')
-    } catch {
-      window.__kbMsg?.error('保存失败：' + (e.message || '未知错误'))
+    // 只对「真网络类失败」降级离线队列（第四轮审查）：服务端已受理后响应丢失等情况
+    // 降级入队会造出重复文档；业务报错（如校验失败）也不该静默转离线
+    const networkFail = typeof navigator !== 'undefined' && navigator.onLine === false
+    const noResponse = e && !e.response   // axios：无 response = 请求根本没到服务端
+    if (networkFail || noResponse) {
+      try {
+        await enqueueDoc({ spaceId: offlineSid, title: title.value.trim() || '未命名文档', content: textToHtml(content.value) })
+        window.__kbMsg?.warning('网络异常，已存到本机，联网后自动同步')
+        router.replace('/docs')
+        return
+      } catch { /* 队列也失败 → 落到下面的错误提示 */ }
     }
+    window.__kbMsg?.error('保存失败：' + (e.message || e.response?.data?.error || '未知错误'))
   } finally {
     busy.value = false
   }

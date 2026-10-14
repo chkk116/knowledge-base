@@ -25,7 +25,8 @@ const props = defineProps({
 const emit = defineEmits(['done', 'cancel'])
 
 const PREVIEW_MAX = 900
-const MAX_UNDO = 12
+// 全分辨率克隆每层可达 ~16MB：层数过大在移动端极易 OOM（第四轮审查），12 → 5
+const MAX_UNDO = 5
 
 const workFull = shallowRef(null)          // 全分辨率工作画布（已应用几何变换）
 const filter = ref('original')
@@ -42,8 +43,10 @@ const corners = ref([
   { x: 0.94, y: 0.94 }, { x: 0.06, y: 0.94 },
 ])
 
-const undoStack = []
-const canUndo = computed(() => undoStack.length > 0)
+// 撤销栈必须是响应式：普通数组进 computed 零依赖 → 永久缓存 false，撤销按钮永远灰
+// （第四轮审查 C1，2026-10-14 修）
+const undoStack = ref([])
+const canUndo = computed(() => undoStack.value.length > 0)
 
 /**
  * 证件模式：把「真实宽高比」换算成**归一化坐标下的比例**。
@@ -72,8 +75,8 @@ function resetCrop() {
 
 function pushUndo() {
   if (!workFull.value) return
-  undoStack.push(cloneCanvas(workFull.value))
-  if (undoStack.length > MAX_UNDO) undoStack.shift()
+  undoStack.value.push(cloneCanvas(workFull.value))
+  if (undoStack.value.length > MAX_UNDO) undoStack.value.shift()
 }
 
 /** 把 canvas 的 CSS 尺寸限制在可用区域内，保证覆盖层与画面严格对齐 */
@@ -125,7 +128,7 @@ async function load() {
     const cv = makeCanvas(w, h)
     cv.getContext('2d').drawImage(img, 0, 0, w, h)
     workFull.value = cv
-    undoStack.length = 0
+    undoStack.value.length = 0
     resetCrop()
     // 证件模式：载入即进裁剪，用户直接拖框对齐证件
     if (Number(props.ratio) > 0) mode.value = 'crop'
@@ -252,13 +255,33 @@ function autoDetect() {
   try {
     corners.value = detectCorners(workFull.value)
     mode.value = 'perspective'
+  } catch (e) {
+    // tainted canvas（跨域页 URL）等会让 getImageData 直接抛 SecurityError
+    window.__kbMsg?.error(e?.message || '自动检测失败，请手动拖动四个角点')
   } finally {
     busy.value = false
   }
 }
 
+/** 四点有效四边形粗校：面积太小 / 非有限值的透视变换没有意义 */
+function quadAreaOk(pts) {
+  if (!Array.isArray(pts) || pts.length !== 4) return false
+  if (pts.some((p) => !Number.isFinite(p?.x) || !Number.isFinite(p?.y))) return false
+  const area = Math.abs(
+    (pts[0].x * pts[1].y - pts[1].x * pts[0].y) +
+    (pts[1].x * pts[2].y - pts[2].x * pts[1].y) +
+    (pts[2].x * pts[3].y - pts[3].x * pts[2].y) +
+    (pts[3].x * pts[0].y - pts[0].x * pts[3].y)
+  ) / 2
+  return area > 0.02
+}
+
 function applyWarp() {
   if (!workFull.value) return
+  if (!quadAreaOk(corners.value)) {
+    window.__kbMsg?.warning('四个角点无效（重叠或共线），请重新拖动后再试')
+    return
+  }
   pushUndo()
   workFull.value = perspectiveWarp(workFull.value, corners.value)
   corners.value = [
@@ -270,7 +293,7 @@ function applyWarp() {
 }
 
 function undo() {
-  const prev = undoStack.pop()
+  const prev = undoStack.value.pop()
   if (!prev) return
   workFull.value = prev
   resetCrop()
@@ -284,7 +307,7 @@ function undo() {
 
 function reset() {
   if (!workFull.value) return
-  pushUndo()
+  // load() 会清空撤销栈，重置即清空历史——这里再入栈只是白克隆一张全分辨率画布
   load()
 }
 
@@ -309,7 +332,7 @@ async function finish() {
 }
 
 onBeforeUnmount(() => {
-  undoStack.length = 0
+  undoStack.value.length = 0
   window.removeEventListener('resize', onResize)
 })
 </script>

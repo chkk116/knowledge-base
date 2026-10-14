@@ -45,7 +45,9 @@ android {
             // release 打包任务执行前（doFirst），只有真的要出 release 包时才报错。
             def ksOk = file(ksPath).exists() && ksPass
             signingConfig(ksOk ? signingConfigs.release : signingConfigs.debug)
-            tasks.matching { it.name.toLowerCase().contains('release') }
+            // 精确匹配打包任务（第四轮审查）：子串 contains('release') 会误伤 releaseNotes
+            // 之类的同名任务，造成无关构建也失败
+            tasks.matching { it.name in ['assembleRelease', 'bundleRelease', 'packageRelease'] }
                  .configureEach {
                      doFirst {
                          if (!ksOk && System.getenv('KB_ALLOW_UNSIGNED_RELEASE') != '1') {
@@ -90,6 +92,7 @@ try {
     if (servicesJSON.text) {
         apply plugin: 'com.google.gms.google-services'
     }
-} catch(Exception e) {
+} catch(java.io.FileNotFoundException e) {
+    // 只吞「文件不存在」（第四轮审查）：真实的配置损坏/类路径缺失要大声失败，不能降级成 INFO 日志
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }

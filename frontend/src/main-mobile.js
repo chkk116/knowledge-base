@@ -12,7 +12,7 @@ import { createPinia } from 'pinia'
 import {
   ElButton, ElDialog, ElDrawer, ElInput, ElIcon, ElLoadingDirective,
   ElMessage, ElMessageBox, ElEmpty, ElSkeleton, ElSwitch, ElProgress, ElTag,
-  ElDropdown, ElDropdownItem, ElDropdownMenu, ElAvatar, ElConfigProvider,
+  ElDropdown, ElDropdownItem, ElDropdownMenu, ElAvatar,
   ElForm   // 登录页复用 Web 版 Login.vue，需要 el-form
 } from 'element-plus'
 import 'element-plus/theme-chalk/dark/css-vars.css'
@@ -50,7 +50,6 @@ import {
   Crop, RefreshLeft, RefreshRight, Postcard,   // 扫描编辑器（裁剪/旋转）+ 证件扫描
   Coin, SuccessFilled   // 积分/考试结果图标
 } from '@element-plus/icons-vue'
-import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
 import MobileApp from './MobileApp.vue'
 import mobileRouter from './router/mobile'
@@ -65,8 +64,10 @@ window.__KB_MOBILE__ = true
 import { applyMobileTheme } from './utils/mobileTheme'
 applyMobileTheme()
 
-// 主题：与桌面端共用 localStorage('kb_theme')，手机 / 电脑切换保持一致
-const savedTheme = localStorage.getItem('kb_theme')
+// 主题：与桌面端共用 localStorage('kb_theme')，手机 / 电脑切换保持一致。
+// localStorage 在无痕/隐私模式可能抛 SecurityError：启动失败 = 整页白屏，包一层兜底（第四轮审查）
+let savedTheme = null
+try { savedTheme = localStorage.getItem('kb_theme') } catch { /* storage 不可用 → 跟随系统 */ }
 const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
 if (savedTheme === 'dark' || (savedTheme === null && prefersDark)) {
   document.documentElement.classList.add('dark')
@@ -77,7 +78,7 @@ const app = createApp(MobileApp)
 const EP_COMPONENTS = {
   ElButton, ElDialog, ElDrawer, ElInput, ElIcon, ElEmpty, ElSkeleton,
   ElSwitch, ElProgress, ElTag, ElDropdown, ElDropdownItem, ElDropdownMenu,
-  ElAvatar, ElConfigProvider, ElForm
+  ElAvatar, ElForm
 }
 for (const [key, component] of Object.entries(EP_COMPONENTS)) {
   app.component(key, component)
@@ -136,7 +137,7 @@ window.addEventListener('unhandledrejection', (e) => {
   reportError('Promise: ' + ((r && r.stack) || r))
 })
 
-app.use(createPinia()).use(mobileRouter).use({ install: () => {} }).mount('#app')
+app.use(createPinia()).use(mobileRouter).mount('#app')
 
 /**
  * 路由分包预取：空闲时预加载常用二级页的 chunk，消除首次切页的白屏/卡顿。
@@ -187,6 +188,3 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator && !inNativeApp) {
     })
   })
 }
-
-// zhCn 供 MobileApp 内 el-config-provider 使用（此处仅保留引用，避免 tree-shake 掉）
-export { zhCn }

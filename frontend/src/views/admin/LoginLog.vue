@@ -36,7 +36,9 @@ const fmt = (d) => {
          'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
 }
 
+let loadSeq = 0   // 请求代次守卫（第四轮审查）：快速翻页/筛选时旧响应不得覆盖新数据
 const load = async () => {
+  const seq = ++loadSeq
   loading.value = true
   try {
     const params = { page: page.value - 1, size: size.value }
@@ -44,18 +46,21 @@ const load = async () => {
     if (result.value === 'success') params.success = true
     if (result.value === 'fail') params.success = false
     if (dateRange.value && dateRange.value.length === 2) {
-      params.start = fmt(dateRange.value[0])                       // 当天 00:00:00
-      const e = new Date(dateRange.value[1])                       // 当天 23:59:59
+      const s = new Date(dateRange.value[0])                     // 当天 00:00:00
+      s.setHours(0, 0, 0, 0)
+      params.start = fmt(s)
+      const e = new Date(dateRange.value[1])                     // 当天 23:59:59
       e.setHours(23, 59, 59, 0)
       params.end = fmt(e)
     }
     const { data } = await listLoginLogs(params)
+    if (seq !== loadSeq) return   // 已有更新的请求在途/完成：丢弃旧响应
     logs.value = data.content || []
     total.value = data.totalElements || 0
   } catch (e) {
     ElMessage.error(errMsg(e, '加载登录日志失败'))
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 

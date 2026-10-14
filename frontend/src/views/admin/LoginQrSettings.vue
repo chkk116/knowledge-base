@@ -18,13 +18,20 @@ import { errMsg } from '../../utils/errMsg'
 import { resolveUrl } from '../../utils/runtimeBase'
 
 const KEY = 'login_qrcodes'
-const items = ref([])          // [{ label, content, image, preview }]
+const items = ref([])          // [{ id, label, content, image, preview }]
 const loaded = ref(false)
 const saving = ref(false)
 const imgUploading = ref(false)
 
+let uidSeq = 0
+/** 图片地址白名单（第四轮审查）：只接受 http(s) 与站内相对路径，data:/blob: 等一律拒 */
+function safeImage(v) {
+  const s = String(v ?? '').trim()
+  return (/^(https?:\/\/|\/)/i.test(s) ? s : '')
+}
+
 function norm(it) {
-  return { label: String(it.label ?? it.text ?? '').trim(), content: String(it.content ?? it.url ?? '').trim(), image: String(it.image ?? '').trim(), preview: '', _imgInput: null }
+  return { id: it.id ?? ++uidSeq, label: String(it.label ?? it.text ?? '').trim(), content: String(it.content ?? it.url ?? '').trim(), image: safeImage(it.image), preview: '', _imgInput: null }
 }
 
 function addItem(prefill) {
@@ -44,16 +51,23 @@ function move(i, d) {
 
 // ---- 预览：content 变化时生成二维码 SVG ----
 let timer = null
+const lastSig = new WeakMap()   // 已生成过的内容签名：deep watch 自触发 / _imgInput 赋值不再空转重编
 function regen() {
   clearTimeout(timer)
   timer = setTimeout(async () => {
     const opt = { type: 'svg', margin: 1, width: 132, errorCorrectionLevel: 'H' }
     for (const it of items.value) {
-      if (it.image || !it.content) { if (it.preview) it.preview = ''; continue }
+      if (it.image || !it.content) { if (it.preview) it.preview = ''; lastSig.delete(it); continue }
+      if (lastSig.get(it) === it.content && it.preview) continue
       try {
         const svg = await QRCode.toString(it.content, opt)
+        lastSig.set(it, it.content)
         if (it.preview !== svg) it.preview = svg   // 不变不赋值：避免 deep watch 自触发循环
-      } catch { if (it.preview) it.preview = '' }
+      } catch {
+        // 生成失败（内容超长等）：清预览；save() 会凭「有内容但无预览」拦下，不再静默存坏配置
+        lastSig.delete(it)
+        if (it.preview) it.preview = ''
+      }
     }
   }, 250)
 }
@@ -70,7 +84,12 @@ async function onImgPick(it, e) {
   try {
     const { data } = await uploadFile(file)
     if (data?.errno !== 0) throw new Error(data?.message || '上传失败')
-    it.image = data.data?.url
+    // 第四轮审查：响应缺 url 时原来会赋 undefined → save() 里 .trim() 直接 TypeError
+    const url = data.data?.url
+    if (!url) throw new Error('上传响应缺少图片地址')
+    const img = safeImage(url)
+    if (!img) throw new Error('上传响应的图片地址不合法')
+    it.image = img
     ElMessage.success('图片已上传，保存后登录页生效')
   } catch (err) {
     ElMessage.error(err.response?.data?.error || err.message || '图片上传失败')
@@ -114,11 +133,14 @@ onMounted(async () => {
 async function save() {
   for (const [i, it] of items.value.entries()) {
     if (!it.label.trim()) { ElMessage.warning(`第 ${i + 1} 项请填写下方文字`); return }
-    if (!it.image && !it.content.trim()) { ElMessage.warning(`第 ${i + 1} 项「${it.label}」需填写扫码内容或上传图片`); return }
+    if (!(it.image || '').trim() && !it.content.trim()) { ElMessage.warning(`第 ${i + 1} 项「${it.label}」需填写扫码内容或上传图片`); return }
+    // 第四轮审查：有内容但预览为空 = 二维码生成失败，拦下而不是存出「登录页空盒子」
+    if (!it.image && it.content && !it.preview) { ElMessage.warning(`第 ${i + 1} 项「${it.label}」二维码生成失败，请检查内容长度`); return }
     if (it.content && !/^https?:\/\//i.test(it.content)) {
-      // 允许任意文本生成二维码（如 Wifi 配置、名片文本），仅提示非链接
+      // 允许任意文本生成二维码（如 Wifi 配置、名片文本），仅提示非链接；
+      // continue 而非 break（第四轮审查）：后面的项还要继续做上面的校验
       ElMessage.info(`第 ${i + 1} 项内容不是 http(s) 链接，将按纯文本生成二维码（也可用）`)
-      break
+      continue
     }
   }
   saving.value = true
@@ -132,7 +154,7 @@ async function save() {
     await api.put(`/admin/settings/${KEY}`, {
       value: JSON.stringify({
         ...legacy,
-        items: items.value.map((it) => ({ label: it.label.trim(), content: it.content.trim(), image: it.image.trim() })),
+        items: items.value.map((it) => ({ label: it.label.trim(), content: it.content.trim(), image: (it.image || '').trim() })),
       })
     })
     ElMessage.success('已保存，登录页二维码即时生效')
@@ -163,7 +185,7 @@ async function save() {
           </div>
         </template>
 
-        <div v-for="(it, i) in items" :key="i" class="item-card">
+        <div v-for="(it, i) in items" :key="it.id ?? i" class="item-card">
           <div class="item-head">
             <span class="idx">{{ i + 1 }}</span>
             <el-input v-model="it.label" class="label-input" maxlength="20" placeholder="下方文字，如：微信扫码体验移动版" />
@@ -197,7 +219,7 @@ async function save() {
           <span class="hint">（与登录页渲染一致）</span>
         </template>
         <div class="qr-row">
-          <div v-for="(it, i) in items" :key="i" class="qr-item">
+          <div v-for="(it, i) in items" :key="'qr' + (it.id ?? i)" class="qr-item">
             <div class="qr-box">
               <img v-if="it.image" :src="resolveUrl(it.image)" class="qr-real qr-img" alt="" />
               <div v-else-if="it.preview" class="qr-real" v-html="it.preview"></div>

@@ -205,10 +205,13 @@ public class DocShareController {
      * 图片 OCR 导入：图片经智谱 GLM-4V-Flash 识别出文字，转成段落 HTML 后
      * 作为一篇新的共享文档落库。权限同创建文档（需写入权限）。
      * 文件类型/大小校验与识别失败均抛 IllegalStateException → 400（带中文 error）。
+     * persist=false 时只识别不落库（移动端多页扫描合并预览用，第四轮审查 H6：
+     * 原先每页都建一篇文档、合并保存后再建一篇 → 每次遗留 N 篇孤儿文档）。
      */
     @PostMapping(value = "/{id}/docs/ocr", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public SharedDocument ocrDoc(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
-                                 @RequestParam("file") MultipartFile file) throws java.io.IOException {
+                                 @RequestParam("file") MultipartFile file,
+                                 @RequestParam(value = "persist", defaultValue = "true") boolean persist) throws java.io.IOException {
         ocrSvc.validate(file.getContentType(), file.getSize());
         String text = ocrSvc.recognize(file.getBytes(), file.getContentType());
         if (text.isBlank()) {
@@ -217,6 +220,12 @@ public class DocShareController {
         String name = file.getOriginalFilename() == null ? "图片" : file.getOriginalFilename();
         int dot = name.lastIndexOf('.');
         String title = (dot > 0 ? name.substring(0, dot) : name) + "（OCR）";
+        if (!persist) {
+            SharedDocument preview = new SharedDocument();
+            preview.setTitle(title);
+            preview.setContent(ocrSvc.toParagraphHtml(text));
+            return preview;
+        }
         SharedDocument d = svc.createDoc(id, title, ocrSvc.toParagraphHtml(text), resolveUserId(c), isSysAdmin(c));
         audit.log(c.userId(), c.username(), "CREATE_SHARE_DOC", "SHARE_DOC", d.getId(), d.getTitle(),
                 "图片 OCR 导入共享文档「" + d.getTitle() + "」（" + name + "）");
