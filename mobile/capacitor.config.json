@@ -16,6 +16,25 @@
       "resetWhenUpdate": true,
       "statsUrl": "",
       "updateUrl": ""
+    },
+    "SplashScreen": {
+      "launchShowDuration": 500,
+      "launchAutoHide": true,
+      "backgroundColor": "#f5f6f7",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#f5f6f7",
+      "overlaysWebView": false
+    },
+    "Keyboard": {
+      "resize": "native",
+      "resizeOnFullScreen": true
     }
   }
 }

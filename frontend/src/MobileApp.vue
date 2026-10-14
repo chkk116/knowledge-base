@@ -44,6 +44,7 @@ const TABS = [
 ]
 
 function goTab(t) {
+  haptic()
   if (t.key === 'capture') { router.push('/capture'); return }
   if (route.path === t.path) return
   router.replace(t.path)
@@ -74,6 +75,26 @@ function onPendingChange() { refreshPending() }
 // ---------- App 版本检查（仅原生壳内生效，Web 端不打扰） ----------
 // window.Capacitor 由原生运行时注入，所以前端不需要依赖 @capacitor/core
 const isNative = !!window.Capacitor?.isNativePlatform?.()
+
+// ---------- 原生体验：状态栏 / 震动 / 启动图（插件缺失时全部静默跳过，Web 端不受影响） ----------
+const capPlugins = window.Capacitor?.Plugins || {}
+const SB = capPlugins.StatusBar
+/** 状态栏随主题：浅色底用深色字，深色底用浅色字；并让状态栏底色贴合 App 背景 */
+function applyStatusBar() {
+  if (!isNative || !SB) return
+  const dark = document.documentElement.classList.contains('dark')
+  try {
+    SB.setOverlaysWebView?.({ overlay: false })
+    SB.setStyle?.({ style: dark ? 'LIGHT' : 'DARK' })
+    SB.setBackgroundColor?.({ color: dark ? '#17181c' : '#f5f6f7' })
+  } catch { /* 插件不可用则忽略 */ }
+}
+let themeObserver = null
+/** 轻触反馈（Tab 切换等） */
+function haptic() {
+  if (!isNative) return
+  try { capPlugins.Haptics?.impact?.({ style: 'LIGHT' })?.catch?.(() => {}) } catch { /* ignore */ }
+}
 const updateInfo = ref(null)      // { versionCode, versionName, url, notes, force }
 const showUpdate = ref(false)
 const downloading = ref(false)
@@ -245,6 +266,11 @@ function handleBack() {
 }
 
 onMounted(async () => {
+  // 原生体验：状态栏随主题变化 + 隐藏启动图（插件缺失时静默跳过）
+  applyStatusBar()
+  themeObserver = new MutationObserver(applyStatusBar)
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  try { capPlugins.SplashScreen?.hide?.()?.catch?.(() => {}) } catch { /* ignore */ }
   // 刷新/冷启动后恢复「更新下载中」横幅（下载在原生后台线程，没被中断）
   restoreUpdateState()
   // 冷启动锁定（仅在已开启应用锁且本机有登录态时）
@@ -279,6 +305,7 @@ onUnmounted(() => {
   window.removeEventListener('kb:offline-pending-changed', onPendingChange)
   try { backListener?.remove?.() } catch { /* ignore */ }
   try { appStateListener?.remove?.() } catch { /* ignore */ }
+  try { themeObserver?.disconnect?.() } catch { /* ignore */ }
 })
 
 watch(() => auth.loggedIn, (v) => {

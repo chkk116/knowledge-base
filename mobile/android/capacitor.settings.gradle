@@ -21,3 +21,17 @@ project(':capacitor-share').projectDir = new File('../node_modules/@capacitor/sh
 // @capacitor/filesystem（导出/分享：写文件 + 拉起系统分享）—— 手工登记，勿跑 cap sync
 include ':capacitor-filesystem'
 project(':capacitor-filesystem').projectDir = new File('../node_modules/@capacitor/filesystem/android')
+
+// ---- 原生体验四件套（2026-10-14 手工登记，勿跑 cap sync）----
+// @capacitor/splash-screen（启动图，消冷启动白屏）
+include ':capacitor-splash-screen'
+project(':capacitor-splash-screen').projectDir = new File('../node_modules/@capacitor/splash-screen/android')
+// @capacitor/status-bar（沉浸式状态栏 / 配色）
+include ':capacitor-status-bar'
+project(':capacitor-status-bar').projectDir = new File('../node_modules/@capacitor/status-bar/android')
+// @capacitor/haptics（点击震动反馈）
+include ':capacitor-haptics'
+project(':capacitor-haptics').projectDir = new File('../node_modules/@capacitor/haptics/android')
+// @capacitor/keyboard（键盘弹出不遮输入框）
+include ':capacitor-keyboard'
+project(':capacitor-keyboard').projectDir = new File('../node_modules/@capacitor/keyboard/android')
