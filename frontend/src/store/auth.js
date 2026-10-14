@@ -191,8 +191,10 @@ export const useAuthStore = defineStore('auth', () => {
     applyToken('')
     user.value = null
     clearCachedUser()
-    // 登出只清文档缓存（草稿保留待下次联网同步，见 clearDocCacheForLogout 注释）
-    import('../utils/offlineStore').then((m) => m.clearDocCacheForLogout()).catch(() => {})
+    // ⚠️ 登出不再清离线文档缓存（2026-10-14 修）：读写路径均已按 userId 严格隔离
+    //   （cacheDoc 标记 userId + mine() 过滤），换号后读不到前任的缓存，清了纯属自伤——
+    //   此前「版本更新过程中一次 401 → 登出 → 清缓存」会让用户下载的离线文档全部消失。
+    //   待同步草稿（queue 表）本来就保留待下次联网同步。
   }
 
   return { token, user, loggedIn, isAdmin, isDemo, permissions, hasPerm, demoBlock, login, fetchMe, setProfile, logout }

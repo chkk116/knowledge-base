@@ -18,6 +18,9 @@ const DB_NAME = 'kb-mobile'
 const DB_VER = 1
 const STORE_QUEUE = 'queue'   // 待同步
 const STORE_CACHE = 'cache'   // 服务端文档的本地阅读缓存
+// 离线缓存条数上限：登出/令牌失效不再清缓存（见 auth.js / request.js 注释），
+// 靠淘汰防止 IndexedDB 无限增长。超出则丢缓存时间最早的。
+const MAX_CACHE = 60
 
 let dbPromise = null
 
@@ -120,19 +123,11 @@ export async function getQueuedDoc(localId) {
 }
 
 /**
- * 登出 / 令牌失效时调用：**只清文档缓存，保留待同步草稿**。
- * 离线时点退出不该丢内容（外部复审修正）；草稿本身带 userId，同步阶段只提交本账号条目，
- * 无主草稿（老版本遗留、没有 userId）不自动同步，等于既不丢也不串号。
- */
-export async function clearDocCacheForLogout() {
-  try {
-    await tx(STORE_CACHE, 'readwrite', (s) => wrap(s.clear()))
-  } catch { /* 忽略 */ }
-}
-
-/**
  * 注销场景专用：队列与缓存全部清空。
- * 与 clearDocCacheForLogout（登出，保留草稿）不同——注销后账号不复存在，草稿无法再同步。
+ * 注销后账号不复存在，草稿无法再同步，故连缓存一并清。
+ * ⚠️ 登出 / 令牌失效**不**清缓存（2026-10-14 修）：读写已按 userId 隔离，
+ *   清了只会毁掉用户自己的离线内容——「更新版本过程中一次 401 → 登出 → 清缓存」曾让
+ *   缓存全丢。IndexedDB 本身可跨版本存活；条数上限见 trimCache()。
  */
 export async function purgeAllOffline() {
   try {
@@ -176,7 +171,26 @@ export async function cacheDoc(spaceId, doc, html) {
     cachedAt: Date.now()
   }
   await tx(STORE_CACHE, 'readwrite', (s) => wrap(s.put(item)))
+  await trimCache()
   return item
+}
+
+/**
+ * 缓存淘汰：
+ *  - 无 userId 的老条目（早期版本遗留）任何账号都读不到，直接清掉，别白占地方；
+ *  - 有归属的按 cachedAt 倒序保留最新 MAX_CACHE 条，超出即淘汰。
+ * 失败不影响主流程（缓存写入已完成，淘汰只是省空间）。
+ */
+async function trimCache() {
+  try {
+    const all = await tx(STORE_CACHE, 'readonly', (s) => wrap(s.getAll())) || []
+    const dead = all.filter((d) => !d.userId)
+    const alive = all.filter((d) => d.userId).sort((a, b) => b.cachedAt - a.cachedAt)
+    const overflow = alive.slice(MAX_CACHE)
+    const toDelete = [...dead, ...overflow]
+    if (!toDelete.length) return
+    await tx(STORE_CACHE, 'readwrite', (s) => { toDelete.forEach((d) => s.delete(d.key)); return toDelete.length })
+  } catch { /* 忽略 */ }
 }
 
 export async function getCachedDoc(spaceId, docId) {

@@ -25,8 +25,11 @@ api.interceptors.response.use(
   (err) => {
     if (err.response && err.response.status === 401) {
       localStorage.removeItem('kb_token')
-      // 令牌失效同样要清文档缓存：这是最常见的「换号后仍读到前任缓存」路径（不经过 auth.logout）
-      import('../utils/offlineStore').then((m) => m.clearDocCacheForLogout()).catch(() => {})
+      // ⚠️ 不再清离线文档缓存：读路径（getCachedDoc/listCachedDocs）已按 userId 严格过滤，
+      //   换号/令牌失效后不会读到前任的缓存，清它纯属自伤。
+      //   踩坑（2026-10-14，用户反馈「更新版本离线缓存被清」）：应用更新/热更过程中一旦
+      //   发生一次 401（如 token_version 变更、弱网误判），登出逻辑就把整个 cache 表清空，
+      //   用户下载的离线文档全部消失。IndexedDB 本身能跨版本存活，别的东西别再动它。
       window.dispatchEvent(new Event('kb-unauthorized'))
       // 跳转到登录页（动态导入避免与 router 形成循环依赖）
       import('../router').then((m) => m.default.push('/login')).catch(() => {})
