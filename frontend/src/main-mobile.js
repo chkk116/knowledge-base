@@ -47,7 +47,8 @@ import {
   // 新增功能页用到的图标（缺一个就会渲染成空白，务必与 icons 对象同步）
   Download, Share, Link, TrendCharts, Cloudy, Unlock, Key,
   Compass, StarFilled, Guide, Odometer, Medal, Notebook, Aim, Histogram,
-  Crop, RefreshLeft, RefreshRight, Postcard   // 扫描编辑器（裁剪/旋转）+ 证件扫描
+  Crop, RefreshLeft, RefreshRight, Postcard,   // 扫描编辑器（裁剪/旋转）+ 证件扫描
+  Coin, SuccessFilled   // 积分/考试结果图标
 } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -94,7 +95,7 @@ const icons = {
   DataLine, Avatar, CollectionTag, Brush,
   Download, Share, Link, TrendCharts, Cloudy, Unlock, Key,
   Compass, StarFilled, Guide, Odometer, Medal, Notebook, Aim, Histogram,
-  Crop, RefreshLeft, RefreshRight, Postcard
+  Crop, RefreshLeft, RefreshRight, Postcard, Coin, SuccessFilled
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)
@@ -136,6 +137,23 @@ window.addEventListener('unhandledrejection', (e) => {
 })
 
 app.use(createPinia()).use(mobileRouter).use({ install: () => {} }).mount('#app')
+
+/**
+ * 路由分包预取：空闲时预加载常用二级页的 chunk，消除首次切页的白屏/卡顿。
+ * 只预取高频页（文档库/消息/我的/发现/课程/考试），避免一次性拉全部包。
+ * 用 requestIdleCallback（不支持则退化为 setTimeout），不阻塞首屏。
+ */
+const PREFETCH = [
+  () => import('./views/mobile/MobileDocs.vue'),
+  () => import('./views/mobile/MobileMessages.vue'),
+  () => import('./views/mobile/MobileProfile.vue'),
+  () => import('./views/mobile/MobileDiscover.vue'),
+  () => import('./views/mobile/MobileCourses.vue'),
+  () => import('./views/mobile/MobileExams.vue')
+]
+const runPrefetch = () => { PREFETCH.forEach((fn) => { try { fn() } catch { /* 忽略 */ } }) }
+if (typeof requestIdleCallback === 'function') requestIdleCallback(runPrefetch, { timeout: 3000 })
+else setTimeout(runPrefetch, 1500)
 
 /**
  * 注册 Service Worker：让移动端在断网时也能冷启动打开界面。

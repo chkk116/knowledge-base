@@ -23,6 +23,7 @@ const answers = ref({})      // questionId -> 单选/判断:label 字符串；�
 const submitting = ref(false)
 const finished = ref(false)
 const result = ref(null)
+const errMsg = ref('')      // 开始考试失败原因（如「请先完成课程全部章节」）
 
 const TYPE_CN = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }
 
@@ -81,9 +82,16 @@ async function load() {
   loading.value = true
   try {
     // 必须先开始考试，才允许取卷
-    const rec = await startExam(pid).then((x) => x.data || x).catch(() => null)
+    const rec = await startExam(pid).then((x) => x.data || x).catch((e) => {
+      errMsg.value = e?.response?.data?.error || e?.message || '无法开始考试'
+      return null
+    })
+    if (!rec) return
     recordId.value = rec?.id ?? null
-    const p = await getPaper(pid).then((x) => x.data || x).catch(() => null)
+    const p = await getPaper(pid).then((x) => x.data || x).catch((e) => {
+      errMsg.value = e?.response?.data?.error || e?.message || '取卷失败'
+      return null
+    })
     paper.value = p?.paper || null
     questions.value = p?.questions || []
     startTimer()
@@ -156,7 +164,14 @@ onUnmounted(stopTimer)
       </div>
     </template>
   </div>
-  <div v-else class="loading">{{ loading ? '加载中…' : '试卷不存在' }}</div>
+  <div v-else class="loading">
+    <template v-if="loading">加载中…</template>
+    <template v-else>
+      <div class="err-ico"><el-icon :size="34"><WarningFilled /></el-icon></div>
+      <div class="err-msg">{{ errMsg || '试卷不存在' }}</div>
+      <button class="m-btn sm" style="margin-top:12px" @click="router.back()">返回</button>
+    </template>
+  </div>
 </template>
 
 <style scoped>
@@ -200,5 +215,7 @@ onUnmounted(stopTimer)
 .r-state.pass { color: var(--m-success); }
 .r-meta { font-size: 12.5px; color: var(--m-text-dim); }
 .result .m-btn { width: 100%; max-width: 280px; margin-top: 14px; }
-.loading { padding: 40px; text-align: center; color: var(--m-text-dim); }
+.loading { padding: 60px 32px; text-align: center; color: var(--m-text-dim); display: flex; flex-direction: column; align-items: center; }
+.err-ico { color: var(--m-warn); margin-bottom: 10px; }
+.err-msg { font-size: 14px; color: var(--m-text-sub); line-height: 1.6; }
 </style>
