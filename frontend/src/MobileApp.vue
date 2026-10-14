@@ -21,6 +21,7 @@ import { parseNotes, changelogOf } from './changelog'
 import { dlActive, dlPercent, dlDone, restoreUpdateState, dismissUpdateState, updateProgressText } from './utils/updateProgress'
 import { hapticsEnabled } from './utils/mobileTheme'
 import { getPendingShares, onShareReceived } from './utils/shareReceiver'
+import { setUpdateBadge } from './utils/updateBadge'
 
 const route = useRoute()
 const router = useRouter()
@@ -104,6 +105,39 @@ function handleShareFiles(files) {
   if (!files || !files.length) return
   window.__kbShareFiles = files
   try { router.push('/share-import') } catch { /* ignore */ }
+}
+
+// ---------- 更新体验（对齐大厂）：①「关于」红点 ② 首次启动展示本次更新 ----------
+const showWhatsNew = ref(false)
+const whatsNew = ref(null)
+
+/** 探一次后台版本，有更新就给「关于」入口点亮红点 */
+async function checkUpdateBadge() {
+  if (!isNative || !navigator.onLine) return
+  try {
+    const { data } = await getAppVersion()
+    if (!data || !data.versionCode) { setUpdateBadge(false); return }
+    const cur = await currentVersionCode()
+    setUpdateBadge(cur > 0 ? data.versionCode > cur : false)
+  } catch { /* 探不到就不亮，不打扰 */ }
+}
+
+/** 升级后首次启动：弹一次「本次更新内容」（本机版本号与上次见到的不一致） */
+async function maybeShowWhatsNew() {
+  if (!isNative) return
+  try {
+    const v = await window.Capacitor?.Plugins?.App?.getInfo?.().then((i) => i?.version || '')
+    if (!v) return
+    let seen = null
+    try { seen = localStorage.getItem('kb_seen_version') } catch { /* ignore */ }
+    if (seen === v) return
+    try { localStorage.setItem('kb_seen_version', v) } catch { /* ignore */ }
+    const log = changelogOf(v)
+    if (log && Array.isArray(log.items) && log.items.length) {
+      whatsNew.value = log
+      showWhatsNew.value = true
+    }
+  } catch { /* ignore */ }
 }
 
 /** 轻触反馈（Tab 切换等）；可在「设置 → 个性化」里关闭 */
@@ -290,6 +324,9 @@ onMounted(async () => {
   // 系统分享：冷启动取待导入清单 + 监听运行中收到（Android 原生 ShareReceiver）
   getPendingShares().then((f) => { if (f.length) handleShareFiles(f) }).catch(() => {})
   unsubShare = onShareReceived(handleShareFiles)
+  // 更新体验：红点探测（延迟 4s，别抢首屏）+ 升级后首次启动弹「本次更新内容」
+  setTimeout(checkUpdateBadge, 4000)
+  setTimeout(maybeShowWhatsNew, 1200)
   // 刷新/冷启动后恢复「更新下载中」横幅（下载在原生后台线程，没被中断）
   restoreUpdateState()
   // 冷启动锁定（仅在已开启应用锁且本机有登录态时）
@@ -445,6 +482,19 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
         <div v-if="updateInfo?.force" class="upd-tip">该版本为强制更新，请尽快升级</div>
       </div>
     </div>
+
+    <!-- 升级后首次启动：「本次更新内容」（大厂 App 常见；本机版本与上次见到的不一致时弹一次） -->
+    <transition name="fade-page">
+      <div v-if="showWhatsNew && whatsNew" class="wn-mask" @click.self="showWhatsNew = false">
+        <div class="wn">
+          <div class="wn-badge">NEW</div>
+          <div class="wn-t">已更新到 v{{ whatsNew.version }}</div>
+          <div class="wn-s">{{ whatsNew.title || '' }}</div>
+          <ul class="wn-list"><li v-for="(it, i) in whatsNew.items" :key="i">{{ it }}</li></ul>
+          <button class="wn-btn" @click="showWhatsNew = false">知道了</button>
+        </div>
+      </div>
+    </transition>
 
     <!-- 应用锁：冷启动 / 超时切回时盖在最上层 -->
     <div v-if="locked" class="lock-mask">
@@ -659,6 +709,20 @@ html.dark .net-act { color: #4c8dff; }   /* 深棕底上 #1677ff 对比度仅 ~3
 .upd-btn.primary { background: var(--m-primary); color: #fff; font-weight: 600; }
 .upd-btn:disabled { opacity: .6; }
 .upd-tip { margin-top: 10px; font-size: 12px; color: var(--m-warn); text-align: center; }
+
+/* ---------- 升级后首次启动的「本次更新内容」 ---------- */
+.wn-mask { position: fixed; inset: 0; z-index: 3300; background: var(--m-mask);
+  display: flex; align-items: center; justify-content: center; padding: 26px; }
+.wn { width: 100%; max-width: 320px; background: var(--m-card); border-radius: 22px;
+  padding: 26px 20px 16px; text-align: center; box-shadow: 0 18px 44px rgba(0,0,0,.26); }
+.wn-badge { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; color: #fff;
+  background: linear-gradient(135deg, #ff6b8a, #ff375f); border-radius: 999px; padding: 3px 10px; }
+.wn-t { margin-top: 10px; font-size: 18px; font-weight: 700; color: var(--m-text); }
+.wn-s { margin-top: 3px; font-size: 13px; color: var(--m-text-sub); }
+.wn-list { margin: 14px 0 0; padding: 0 6px 0 20px; text-align: left; max-height: 44vh; overflow-y: auto; }
+.wn-list li { font-size: 13.5px; line-height: 1.75; color: var(--m-text-sub); margin-bottom: 4px; }
+.wn-btn { width: 100%; height: 44px; margin-top: 14px; border: none; border-radius: 14px;
+  background: var(--m-primary); color: #fff; font-size: 15.5px; font-weight: 600; cursor: pointer; }
 
 /* 应用内下载进度条 */
 .upd-prog { margin-top: 14px; }

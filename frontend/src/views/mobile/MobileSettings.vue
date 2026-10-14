@@ -16,6 +16,7 @@ import request from '../../api/request'
 import { cachedCount, clearCache, pendingCount, syncOnReconnect } from '../../utils/offlineStore'
 import { applyTheme } from '../../utils/theme'
 import { THEMES, FONTS, getMobileTheme, setMobileTheme, resetMobileTheme } from '../../utils/mobileTheme'
+import { hasUpdateBadge, UPDATE_BADGE_EVENT } from '../../utils/updateBadge'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -27,6 +28,7 @@ const cacheSize = ref(0)
 const pendingN = ref(0)
 const online = ref(navigator.onLine)
 const versionText = ref('')
+const updDot = ref(false)   // 有新版本时点亮「关于」入口红点
 
 const name = computed(() => auth.user?.displayName || auth.user?.username || '')
 const fontPx = computed(() => (FONTS.find((f) => f.key === cur.value.font) || FONTS[1]).px)
@@ -103,8 +105,17 @@ async function deleteAccount() {
 }
 
 function onBackOnline() { online.value = true; refresh() }
-onMounted(() => { refresh(); loadVersion(); window.addEventListener('online', onBackOnline) })
-onUnmounted(() => window.removeEventListener('online', onBackOnline))
+function onUpdDot() { updDot.value = hasUpdateBadge() }
+
+onMounted(() => {
+  refresh(); loadVersion(); updDot.value = hasUpdateBadge()
+  window.addEventListener('online', onBackOnline)
+  window.addEventListener(UPDATE_BADGE_EVENT, onUpdDot)
+})
+onUnmounted(() => {
+  window.removeEventListener('online', onBackOnline)
+  window.removeEventListener(UPDATE_BADGE_EVENT, onUpdDot)
+})
 </script>
 
 <template>
@@ -234,6 +245,7 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
           </span>
           <span class="lb">关于知识库</span>
           <span class="val">{{ versionText }}</span>
+          <i v-if="updDot" class="dot-upd" title="有新版本"></i>
           <el-icon class="chev"><Right /></el-icon>
         </button>
         <button class="row" type="button" @click="router.push('/changelog')">
@@ -324,6 +336,9 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
 .lb.danger { color: var(--m-danger); }
 .val { flex: none; font-size: 14px; color: var(--m-text-dim); max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chev { flex: none; color: #c8c9cc; }
+/* 「关于」入口的更新红点（后台有新版本时亮） */
+.dot-upd { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #ff375f;
+  box-shadow: 0 0 0 2px var(--m-card); }
 
 /* iOS 风格开关 */
 .sw2 { flex: none; width: 46px; height: 28px; border-radius: 14px; background: var(--m-border); position: relative; transition: background .22s; }
