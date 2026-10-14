@@ -29,6 +29,8 @@ const routes = [
 
   // ---- ＋号：拍照识别建文档（全屏，不占 Tab） ----
   { path: '/capture', component: () => import('../views/mobile/MobileCapture.vue'), meta: { title: '拍照建文档' } },
+  // 系统分享导入（Android 分享 PDF/图片/文本 → 建文档）
+  { path: '/share-import', component: () => import('../views/mobile/MobileShareImport.vue'), meta: { title: '导入分享' } },
 
   // ---- 二级页 ----
   { path: '/space/:id', component: () => import('../views/mobile/MobileSpace.vue'), meta: { title: '文档库' } },

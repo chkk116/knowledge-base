@@ -5,6 +5,28 @@
 
 package com.kb.kbplatform;
 
-import com.getcapacitor.BridgeActivity;
+import android.content.Intent;
 
-public class MainActivity extends BridgeActivity {}
+import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.Plugin;
+
+public class MainActivity extends BridgeActivity {
+
+    /**
+     * App 已在运行时，从系统分享面板再次分享进来的 intent 会走这里（launchMode=singleTask）。
+     * 转发给 ShareReceiverPlugin 处理（复制文件 + 通知 Web 层跳导入页）。
+     */
+    @Override
+    public void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        try {
+            Plugin p = getBridge().getPlugin("ShareReceiver");
+            if (p instanceof ShareReceiverPlugin) {
+                ((ShareReceiverPlugin) p).handleIntent(intent);
+            }
+        } catch (Exception e) {
+            /* 忽略：分享处理失败不影响 App 正常使用 */
+        }
+    }
+}

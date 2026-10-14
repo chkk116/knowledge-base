@@ -20,6 +20,7 @@ import { shouldLock, verifyPin, getLockConfig } from './utils/appLock'
 import { parseNotes, changelogOf } from './changelog'
 import { dlActive, dlPercent, dlDone, restoreUpdateState, dismissUpdateState, updateProgressText } from './utils/updateProgress'
 import { hapticsEnabled } from './utils/mobileTheme'
+import { getPendingShares, onShareReceived } from './utils/shareReceiver'
 
 const route = useRoute()
 const router = useRouter()
@@ -96,6 +97,15 @@ function applyStatusBar() {
   } catch { /* 插件不可用则忽略 */ }
 }
 let themeObserver = null
+
+// ---------- 系统分享导入（Android）：收到 PDF/图片/文本 → 跳导入页 ----------
+let unsubShare = null
+function handleShareFiles(files) {
+  if (!files || !files.length) return
+  window.__kbShareFiles = files
+  try { router.push('/share-import') } catch { /* ignore */ }
+}
+
 /** 轻触反馈（Tab 切换等）；可在「设置 → 个性化」里关闭 */
 function haptic() {
   if (!isNative || !hapticsEnabled()) return
@@ -277,6 +287,9 @@ onMounted(async () => {
   themeObserver = new MutationObserver(applyStatusBar)
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
   try { capPlugins.SplashScreen?.hide?.()?.catch?.(() => {}) } catch { /* ignore */ }
+  // 系统分享：冷启动取待导入清单 + 监听运行中收到（Android 原生 ShareReceiver）
+  getPendingShares().then((f) => { if (f.length) handleShareFiles(f) }).catch(() => {})
+  unsubShare = onShareReceived(handleShareFiles)
   // 刷新/冷启动后恢复「更新下载中」横幅（下载在原生后台线程，没被中断）
   restoreUpdateState()
   // 冷启动锁定（仅在已开启应用锁且本机有登录态时）
@@ -312,6 +325,7 @@ onUnmounted(() => {
   try { backListener?.remove?.() } catch { /* ignore */ }
   try { appStateListener?.remove?.() } catch { /* ignore */ }
   try { themeObserver?.disconnect?.() } catch { /* ignore */ }
+  try { unsubShare?.() } catch { /* ignore */ }
 })
 
 watch(() => auth.loggedIn, (v) => {
