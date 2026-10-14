@@ -79,9 +79,19 @@ const MY_GROUP = {
   items: [
     { label: '我的文档', icon: 'FolderOpened', color: 'blue', to: '/docs' },
     { label: '我的收藏', icon: 'Star', color: 'orange', to: '/favorites' },
+    { label: '我的订阅', icon: 'Bell', color: 'blue', to: '/subscriptions' },
     { label: '离线内容', icon: 'Cloudy', color: 'blue', to: '/offline' },
-    { label: '浏览历史', icon: 'Clock', color: 'green', to: '/embed/history' },
+    { label: '浏览历史', icon: 'Clock', color: 'green', to: '/history' },
+    { label: '回收站', icon: 'Delete', color: 'gray', to: '/recycle' },
     { label: '待同步文档', icon: 'Upload', color: 'orange', to: '/docs', badge: 'pending' }
+  ]
+}
+const GROWTH_GROUP = {
+  title: '我的成长',
+  items: [
+    { label: '积分明细', icon: 'Coin', color: 'orange', to: '/points' },
+    { label: '徽章成就', icon: 'Medal', color: 'red', to: '/badges' },
+    { label: '积分排行', icon: 'Trophy', color: 'orange', to: '/ranking' }
   ]
 }
 const TOOL_GROUP = {
@@ -90,7 +100,6 @@ const TOOL_GROUP = {
     { label: '搜索', icon: 'Search', color: '', to: '/search' },
     { label: '我的文件', icon: 'FolderOpened', color: 'blue', to: '/files' },
     { label: 'AI 问答', icon: 'ChatDotRound', color: 'green', to: '/ai' },
-    { label: '积分排行', icon: 'Trophy', color: 'orange', to: '/embed/ranking' },
     { label: '发现文章', icon: 'Compass', color: 'blue', to: '/discover' },
     { label: '我的数据', icon: 'TrendCharts', color: 'green', to: '/stats' }
   ]
@@ -146,7 +155,7 @@ const maintainItems = computed(() => byPerm(MAINTAIN_ITEMS))
 
 // 分组顺序：我的内容 / 工具 / 管理（折叠）/ 核心维护（折叠）/ 设置
 const groups = computed(() => {
-  const list = [MY_GROUP, TOOL_GROUP]
+  const list = [MY_GROUP, GROWTH_GROUP, TOOL_GROUP]
   if (adminItems.value.length) list.push({ title: '管理', collapsible: true, items: adminItems.value, hint: '日常常用' })
   if (maintainItems.value.length) list.push({ title: '核心维护', collapsible: true, items: maintainItems.value, hint: '站点配置' })
   list.push(SETTING_GROUP)

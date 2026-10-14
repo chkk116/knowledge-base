@@ -14,6 +14,7 @@ import { getDoc, getRelatedDocs, toggleLike, myLikeIds, toggleFavorite, myFavori
   getUserCard, followUser, unfollowUser } from '../../api/kb'
 import MobileCommentSection from './MobileCommentSection.vue'
 import { enhanceVideos, bindImgLightbox, absolutizeMedia, absolutizeMediaHtml } from '../../utils/mediaEnhance'
+import { resolveUrl } from '../../utils/runtimeBase'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import TaskList from '@tiptap/extension-task-list'
@@ -90,6 +91,11 @@ const authorName = computed(() =>
   authorCard.value?.displayName || authorCard.value?.username || doc.value?.ownerName || '匿名')
 const authorInitial = computed(() => (authorName.value || '?').slice(0, 1).toUpperCase())
 const canFollow = computed(() => !!authorCard.value?.id && Number(authorCard.value.id) !== myUid.value)
+const authorAvatar = computed(() => (authorCard.value?.avatar ? resolveUrl(authorCard.value.avatar) : ''))
+function goAuthor() {
+  const uid = authorCard.value?.id || doc.value?.ownerId
+  if (uid) router.push('/user/' + uid)
+}
 
 async function loadAuthor() {
   const uid = doc.value?.ownerId
@@ -202,9 +208,9 @@ watch(() => route.params.id, (nv, ov) => {
 
           <!-- 作者条（对齐 Web 端作者卡：头像 + 名字 + 原创/粉丝 + 关注） -->
           <div class="m-author">
-            <img v-if="authorCard?.avatar" class="au-ava" :src="authorCard.avatar" alt="" />
-            <span v-else class="au-ava none">{{ authorInitial }}</span>
-            <div class="au-info">
+            <img v-if="authorAvatar" class="au-ava" :src="authorAvatar" alt="" @click="goAuthor" />
+            <span v-else class="au-ava none" @click="goAuthor">{{ authorInitial }}</span>
+            <div class="au-info" @click="goAuthor">
               <span class="au-name">{{ authorName }}</span>
               <span v-if="authorCard" class="au-sub">{{ authorCard.original || 0 }} 篇原创 · {{ authorCard.fans || 0 }} 粉丝</span>
             </div>

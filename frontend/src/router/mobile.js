@@ -78,6 +78,15 @@ const routes = [
   { path: '/exam/:id', component: () => import('../views/mobile/MobileExamTake.vue'), meta: { title: '考试' } },
   { path: '/exam/mine', component: () => import('../views/mobile/MobileExamMine.vue'), meta: { title: '我的考试' } },
 
+  // ---- 成长 / 社交（C 线，复用桌面端 api/auth.js + api/kb.js）----
+  { path: '/points', component: () => import('../views/mobile/MobilePoints.vue'), meta: { title: '积分明细' } },
+  { path: '/badges', component: () => import('../views/mobile/MobileBadges.vue'), meta: { title: '徽章成就' } },
+  { path: '/ranking', component: () => import('../views/mobile/MobileRanking.vue'), meta: { title: '积分排行' } },
+  { path: '/subscriptions', component: () => import('../views/mobile/MobileSubscriptions.vue'), meta: { title: '我的订阅' } },
+  { path: '/recycle', component: () => import('../views/mobile/MobileRecycle.vue'), meta: { title: '回收站' } },
+  { path: '/history', component: () => import('../views/mobile/MobileHistory.vue'), meta: { title: '浏览历史' } },
+  { path: '/user/:id', component: () => import('../views/mobile/MobileUserProfile.vue'), meta: { title: '用户主页' } },
+
   { path: '/', redirect: '/home' },
   { path: '/:pathMatch(.*)*', redirect: '/home' }
 ]
