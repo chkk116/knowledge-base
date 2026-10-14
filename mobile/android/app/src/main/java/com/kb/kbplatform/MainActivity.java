@@ -9,19 +9,24 @@ import android.content.Intent;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginHandle;
 
 public class MainActivity extends BridgeActivity {
 
     /**
      * App 已在运行时，从系统分享面板再次分享进来的 intent 会走这里（launchMode=singleTask）。
      * 转发给 ShareReceiverPlugin 处理（复制文件 + 通知 Web 层跳导入页）。
+     *
+     * ⚠️ Capacitor 8 的 Bridge.getPlugin(id) 返回 PluginHandle（不是 Plugin），
+     *    要再 .getInstance() 才是插件实例。
      */
     @Override
     public void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         try {
-            Plugin p = getBridge().getPlugin("ShareReceiver");
+            PluginHandle h = getBridge().getPlugin("ShareReceiver");
+            Plugin p = h == null ? null : h.getInstance();
             if (p instanceof ShareReceiverPlugin) {
                 ((ShareReceiverPlugin) p).handleIntent(intent);
             }
