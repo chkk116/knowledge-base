@@ -86,6 +86,18 @@ function openDraft(id) { router.push(`/draft/${id}`) }
       </div>
     </div>
 
+    <!-- 全部文档：跨空间检索、标签和属性筛选 -->
+    <div class="body">
+      <button class="inbox-entry library-entry" type="button" @click="router.push('/all-docs')">
+        <span class="ie-ico"><el-icon><CollectionTag /></el-icon></span>
+        <span class="ie-main">
+          <span class="ie-title">全部文档</span>
+          <span class="ie-sub">按标签、空间、类型和更新时间筛选</span>
+        </span>
+        <span class="ie-arrow">›</span>
+      </button>
+    </div>
+
     <!-- 待整理箱入口（分享/扫描「先收进来」的资料） -->
     <div class="body">
       <button class="inbox-entry" type="button" @click="router.push('/inbox')">

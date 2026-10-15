@@ -167,6 +167,12 @@ public class DocShareController {
         return svc.listDocs(id, resolveUserId(c), isSysAdmin(c));
     }
 
+    /** 跨空间聚合的可读文档列表（个人与参与空间），不返回待整理箱项目。 */
+    @GetMapping("/docs/all")
+    public List<SharedDocument> allDocs(@RequestAttribute("kbUser") TokenClaims c) {
+        return svc.listAllDocs(resolveUserId(c), isSysAdmin(c));
+    }
+
     @PostMapping("/{id}/docs")
     public SharedDocument createDoc(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
                                     @RequestBody Map<String, Object> body,
@@ -272,6 +278,20 @@ public class DocShareController {
         audit.log(c.userId(), c.username(), "UPDATE_SHARE_DOC", "SHARE_DOC", docId, d.getTitle(),
                 "更新空间文档「" + before.getTitle() + "」");
         return d;
+    }
+
+    /** 更新文档多标签；标签只允许数组格式，空数组表示清除全部标签。 */
+    @PutMapping("/{id}/docs/{docId}/tags")
+    public SharedDocument updateDocTags(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                        @PathVariable Long docId, @RequestBody Map<String, Object> body) {
+        Object raw = body.get("tags");
+        if (!(raw instanceof List<?> values))
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "tags 必须是数组");
+        List<String> tags = values.stream().map(v -> v == null ? null : String.valueOf(v)).toList();
+        SharedDocument doc = svc.updateDocTags(id, docId, tags, resolveUserId(c), isSysAdmin(c));
+        audit.log(c.userId(), c.username(), "UPDATE_SHARE_DOC", "SHARE_DOC", docId, doc.getTitle(),
+                "更新文档标签：「" + (doc.getTags() == null ? "" : doc.getTags()) + "」");
+        return doc;
     }
 
     @PostMapping("/{id}/docs/{docId}/move")

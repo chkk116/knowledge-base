@@ -30,6 +30,11 @@ export const removeMember = (id, userId) => api.delete('/doc-shares/' + pid(id) 
 
 // 空间内文档
 export const listShareDocs = (id) => api.get('/doc-shares/' + pid(id) + '/docs')
+// 跨空间聚合文档列表（只返回当前用户有权读取的条目）
+export const listAllShareDocs = () => api.get('/doc-shares/docs/all')
+// 更新单篇文档标签（空数组清除标签）
+export const setShareDocTags = (id, docId, tags) =>
+  api.put('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/tags', { tags })
 // inbox=true：收进待整理箱（快速收纳，先落个人空间并打标记，不占空间文档列表）
 export const createShareDoc = (id, d, inbox = false) =>
   api.post('/doc-shares/' + pid(id) + '/docs' + (inbox ? '?inbox=true' : ''), d)

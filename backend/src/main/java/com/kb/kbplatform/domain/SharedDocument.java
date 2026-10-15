@@ -69,6 +69,19 @@ public class SharedDocument {
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean inbox = false;
 
+    /** 多标签：逗号分隔的规范化短标签；列表筛选由服务端安全范围过滤后在客户端完成 */
+    @Column(columnDefinition = "text")
+    private String tags;
+
+    @Transient
+    private String spaceName;
+
+    @Transient
+    private String spaceType;
+
+    @Transient
+    private String contentType;
+
     private LocalDateTime createdAt = LocalDateTime.now();
     private LocalDateTime updatedAt = LocalDateTime.now();
 
@@ -107,6 +120,18 @@ public class SharedDocument {
 
     public boolean isInbox() { return inbox; }
     public void setInbox(boolean inbox) { this.inbox = inbox; }
+
+    public String getTags() { return tags; }
+    public void setTags(String tags) { this.tags = tags; }
+
+    public String getSpaceName() { return spaceName; }
+    public void setSpaceName(String spaceName) { this.spaceName = spaceName; }
+
+    public String getSpaceType() { return spaceType; }
+    public void setSpaceType(String spaceType) { this.spaceType = spaceType; }
+
+    public String getContentType() { return contentType; }
+    public void setContentType(String contentType) { this.contentType = contentType; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

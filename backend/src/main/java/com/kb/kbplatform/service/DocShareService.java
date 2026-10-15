@@ -16,6 +16,7 @@ import com.kb.kbplatform.repository.DocSharePermissionRepository;
 import com.kb.kbplatform.repository.DocShareRepository;
 import com.kb.kbplatform.repository.SharedDocPermissionRepository;
 import com.kb.kbplatform.repository.SharedDocumentRepository;
+import com.kb.kbplatform.repository.SharedDocumentSummary;
 import com.kb.kbplatform.repository.SharedDocVersionRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
@@ -570,14 +571,102 @@ public class DocShareService {
         list.removeIf(SharedDocument::isInbox);
         for (SharedDocument d : list) {
             fillDocOwnerName(d);
+            String html = d.getContent();
+            d.setContentType(classifyContentType(html));
             // 列表接口不返回大字段（content / yjs_state），仅注入展示用的字节数与头像
-            d.setSize((d.getContent() != null ? d.getContent().getBytes(java.nio.charset.StandardCharsets.UTF_8).length : 0)
+            d.setSize((html != null ? html.getBytes(java.nio.charset.StandardCharsets.UTF_8).length : 0)
                     + (d.getYjsState() != null ? d.getYjsState().length : 0));
             d.setContent(null);
             // 注入当前用户在该文档的有效权限（空间权限 ∪ 文档级，文档级优先）
             d.setMyPerm(docPermission(shareId, d.getId(), userId, sysAdmin));
         }
         return list;
+    }
+
+    /** 用户可读的跨空间文档列表，复用空间级与文档级权限判断，不返回待整理项。 */
+    public List<SharedDocument> listAllDocs(Long userId, boolean sysAdmin) {
+        List<DocShare> spaces = listMine(userId, sysAdmin);
+        if (spaces.isEmpty()) return List.of();
+        Map<Long, DocShare> spaceById = spaces.stream().collect(Collectors.toMap(DocShare::getId, s -> s));
+        List<Long> shareIds = spaces.stream().map(DocShare::getId).toList();
+        List<SharedDocumentSummary> summaries = docRepo.findLibrarySummariesByShareIdIn(shareIds);
+        if (summaries.isEmpty()) return List.of();
+
+        List<Long> docIds = summaries.stream().map(SharedDocumentSummary::getId).toList();
+        Map<Long, SharedDocPermission> overrides = docPermRepo.findByDocIdInAndUserId(docIds, userId).stream()
+                .collect(Collectors.toMap(SharedDocPermission::getDocId, p -> p, (a, b) -> a));
+        List<SharedDocument> out = new ArrayList<>();
+        for (SharedDocumentSummary row : summaries) {
+            DocShare space = spaceById.get(row.getShareId());
+            if (space == null) continue;
+            String permission;
+            if (sysAdmin || Objects.equals(row.getOwnerId(), userId)) permission = "OWNER";
+            else {
+                SharedDocPermission override = overrides.get(row.getId());
+                permission = override == null ? space.getMyPermission() : override.getPermission();
+            }
+            if (!canRead(permission)) continue;
+
+            SharedDocument doc = new SharedDocument();
+            doc.setId(row.getId());
+            doc.setShareId(row.getShareId());
+            doc.setTitle(row.getTitle());
+            doc.setTags(row.getTags());
+            doc.setOwnerId(row.getOwnerId());
+            doc.setCreatedAt(row.getCreatedAt());
+            doc.setUpdatedAt(row.getUpdatedAt());
+            doc.setContentType(classifyContentType(row.getContent()));
+            doc.setSpaceName(space.getName());
+            doc.setSpaceType(space.getType());
+            doc.setMyPerm(permission);
+            out.add(doc);
+        }
+        return out;
+    }
+
+    /** 仅可写入者可更新标签；标签是元数据，不生成正文版本快照。 */
+    @Transactional(rollbackFor = Exception.class)
+    public SharedDocument updateDocTags(Long shareId, Long docId, List<String> tags, Long userId, boolean sysAdmin) {
+        get(shareId, userId, sysAdmin);
+        if (!canWriteDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "对该文档无写入权限");
+        SharedDocument doc = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        doc.setTags(normalizeDocTags(tags));
+        doc.setUpdatedAt(LocalDateTime.now());
+        SharedDocument saved = docRepo.save(doc);
+        saved.setMyPerm(docPermission(shareId, docId, userId, sysAdmin));
+        return saved;
+    }
+
+    static String normalizeDocTags(List<String> tags) {
+        if (tags == null || tags.isEmpty()) return "";
+        LinkedHashMap<String, String> unique = new LinkedHashMap<>();
+        for (String value : tags) {
+            if (value == null) continue;
+            String tag = value.trim();
+            if (tag.isEmpty()) continue;
+            if (tag.length() > 24 || tag.contains(","))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "每个标签最多 24 个字符，且不能包含逗号");
+            unique.putIfAbsent(tag.toLowerCase(Locale.ROOT), tag);
+            if (unique.size() > 12)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "每篇文档最多添加 12 个标签");
+        }
+        return String.join(",", unique.values());
+    }
+
+    static String classifyContentType(String html) {
+        String body = html == null ? "" : html.toLowerCase(Locale.ROOT);
+        if (body.contains("<video") || containsAny(body, ".mp4", ".webm", ".mov")) return "VIDEO";
+        if (body.contains("<audio") || containsAny(body, ".mp3", ".wav", ".ogg", ".m4a")) return "AUDIO";
+        if (body.contains("<img") || containsAny(body, ".png", ".jpg", ".jpeg", ".gif", ".webp")) return "IMAGE";
+        if (containsAny(body, ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx")) return "FILE";
+        return "TEXT";
+    }
+
+    private static boolean containsAny(String body, String... needles) {
+        for (String needle : needles) if (body.contains(needle)) return true;
+        return false;
     }
 
     public SharedDocument getDoc(Long shareId, Long docId, Long userId, boolean sysAdmin) {

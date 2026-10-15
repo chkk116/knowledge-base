@@ -18,6 +18,12 @@ public interface SharedDocumentRepository extends JpaRepository<SharedDocument, 
 
     Optional<SharedDocument> findByIdAndShareId(Long id, Long shareId);
 
+    /** 跨空间索引投影：只取筛选/展示所需字段，避免加载大型 Yjs 二进制快照。 */
+    @Query("SELECT d.id AS id, d.shareId AS shareId, d.title AS title, d.content AS content, d.tags AS tags, " +
+            "d.ownerId AS ownerId, d.createdAt AS createdAt, d.updatedAt AS updatedAt " +
+            "FROM SharedDocument d WHERE d.shareId IN :shareIds AND d.inbox = false ORDER BY d.updatedAt DESC")
+    List<SharedDocumentSummary> findLibrarySummariesByShareIdIn(@org.springframework.data.repository.query.Param("shareIds") java.util.Collection<Long> shareIds);
+
     /** 待整理箱（2026-10-15）：本人收进但未归档的文档，跨空间、按更新时间倒序 */
     List<SharedDocument> findByOwnerIdAndInboxTrueOrderByUpdatedAtDesc(Long ownerId);
 

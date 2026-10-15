@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -23,6 +24,9 @@ public interface SharedDocPermissionRepository extends JpaRepository<SharedDocPe
     List<SharedDocPermission> findByShareId(Long shareId);
 
     Optional<SharedDocPermission> findByDocIdAndUserId(Long docId, Long userId);
+
+    /** 当前用户在多个文档上的单独权限覆盖（跨空间文档列表批量过滤用） */
+    List<SharedDocPermission> findByDocIdInAndUserId(Collection<Long> docIds, Long userId);
 
     @Modifying
     @Query("DELETE FROM SharedDocPermission p WHERE p.docId = :docId AND p.userId = :userId")
