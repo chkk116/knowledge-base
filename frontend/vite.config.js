@@ -9,6 +9,9 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 // 版本号单一来源：package.json 的 version，构建期注入 __APP_VERSION__，
 // 页脚直接引用，避免手写版本号与发布脱节。
+// ⚠️ 发版时必须同步改三处：package.json（App「关于」/页脚显示）、
+//    mobile/android/app/build.gradle（versionName/versionCode，升级判断用它）、
+//    src/changelog.js（更新日志，升级弹层按 versionName 匹配兜底）。
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 
 // 零依赖预压缩插件：构建结束后用 Node 内置 zlib 为每个文本资源生成 .gz / .br
