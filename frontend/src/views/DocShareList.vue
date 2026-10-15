@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Upload } from '@element-plus/icons-vue'
+import { Upload, Collection } from '@element-plus/icons-vue'
 import { listMyShares, createShare, deleteShare, getStorage, searchShareUsers,
   getMyShareQuota, submitCreateRequest, listMyCreateRequests } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
@@ -216,6 +216,9 @@ onMounted(load)
         <el-progress :percentage="storagePercent" :stroke-width="8" :show-text="false" :color="storagePercent > 90 ? '#ef4444' : '#6366f1'" style="width: 120px" />
         <span class="storage-text">{{ storageText }}</span>
       </div>
+      <el-button @click="router.push('/doc-shares/all')">
+        <el-icon style="margin-right:4px"><Collection /></el-icon> 全部文档
+      </el-button>
       <el-button @click="router.push('/doc-shares/import')">
         <el-icon style="margin-right:4px"><Upload /></el-icon> 导入文档
       </el-button>

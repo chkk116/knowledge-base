@@ -261,6 +261,7 @@ const menus = computed(() => {
     if (featureOpen('courses')) base.push({ index: '/study/courses', title: '培训', icon: 'Reading' })
     if (featureOpen('quiz')) base.push({ index: '/quiz', title: '答题', icon: 'Trophy' })
     if (featureOpen('doc_shares')) base.push({ index: '/doc-shares', title: '共享文档', icon: 'DocumentCopy' })
+    if (featureOpen('doc_shares')) base.push({ index: '/doc-shares/all', title: '全部文档', icon: 'Collection' })
   }
 
   // 二级分组：用户与权限（用户管理 / 黑名单 / 操作审计）——账号、权限、黑名单与「谁操作了什么」归人域
