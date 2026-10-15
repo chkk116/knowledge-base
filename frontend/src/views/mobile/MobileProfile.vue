@@ -80,6 +80,7 @@ const MY_GROUP = {
     { label: '我的文档', icon: 'FolderOpened', color: 'blue', to: '/docs' },
     { label: '我的收藏', icon: 'Star', color: 'orange', to: '/favorites' },
     { label: '我的订阅', icon: 'Bell', color: 'blue', to: '/subscriptions' },
+    { label: '我的摘录', icon: 'Notebook', color: 'red', to: '/notes' },
     { label: '离线内容', icon: 'Cloudy', color: 'blue', to: '/offline' },
     { label: '浏览历史', icon: 'Clock', color: 'green', to: '/history' },
     { label: '回收站', icon: 'Delete', color: 'gray', to: '/recycle' },

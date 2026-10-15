@@ -35,6 +35,23 @@ export const listAllShareDocs = () => api.get('/doc-shares/docs/all')
 // 更新单篇文档标签（空数组清除标签）
 export const setShareDocTags = (id, docId, tags) =>
   api.put('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/tags', { tags })
+
+// ---- 文档批注 / 摘录（私人笔记，仅本人可见）----
+// 某文档下我的批注列表
+export const listDocAnnotations = (id, docId) =>
+  api.get('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/annotations')
+// 新增摘录：quote 必填，note 可为空；prefix/suffix 是上下文锚点（用于正文高亮定位）
+export const createDocAnnotation = (id, docId, d) =>
+  api.post('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/annotations', d)
+// 修改笔记内容
+export const updateDocAnnotation = (id, docId, annoId, note) =>
+  api.put('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/annotations/' + pid(annoId, 'annoId'), { note })
+// 删除摘录
+export const deleteDocAnnotation = (id, docId, annoId) =>
+  api.delete('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/annotations/' + pid(annoId, 'annoId'))
+// 「我的摘录」：跨文档聚合
+export const listMyAnnotations = (limit = 100) =>
+  api.get('/doc-shares/annotations/mine', { params: { limit } })
 // inbox=true：收进待整理箱（快速收纳，先落个人空间并打标记，不占空间文档列表）
 export const createShareDoc = (id, d, inbox = false) =>
   api.post('/doc-shares/' + pid(id) + '/docs' + (inbox ? '?inbox=true' : ''), d)

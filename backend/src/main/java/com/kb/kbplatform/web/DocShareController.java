@@ -294,6 +294,48 @@ public class DocShareController {
         return doc;
     }
 
+    // ---- 文档批注 / 摘录（私人笔记，仅本人可见） ----
+
+    /** 某文档下我的批注列表 */
+    @GetMapping("/{id}/docs/{docId}/annotations")
+    public List<DocAnnotation> listAnnotations(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                               @PathVariable Long docId) {
+        return svc.listAnnotations(id, docId, resolveUserId(c), isSysAdmin(c));
+    }
+
+    /** 新增摘录/批注：quote 为被引用的原文，note 为我的笔记（可为空） */
+    @PostMapping("/{id}/docs/{docId}/annotations")
+    public DocAnnotation createAnnotation(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                          @PathVariable Long docId, @RequestBody Map<String, Object> body) {
+        DocAnnotation a = svc.createAnnotation(id, docId, str(body.get("quote")), str(body.get("note")),
+                str(body.get("prefix")), str(body.get("suffix")), resolveUserId(c), isSysAdmin(c));
+        audit.log(c.userId(), c.username(), "CREATE_SHARE_DOC_ANNOTATION", "SHARE_DOC", docId, null,
+                "新增文档摘录（" + a.getQuote().length() + " 字）");
+        return a;
+    }
+
+    /** 修改我的笔记内容 */
+    @PutMapping("/{id}/docs/{docId}/annotations/{annoId}")
+    public DocAnnotation updateAnnotation(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                          @PathVariable Long docId, @PathVariable Long annoId,
+                                          @RequestBody Map<String, Object> body) {
+        return svc.updateAnnotation(id, docId, annoId, str(body.get("note")), resolveUserId(c));
+    }
+
+    @DeleteMapping("/{id}/docs/{docId}/annotations/{annoId}")
+    public Map<String, Object> deleteAnnotation(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                                @PathVariable Long docId, @PathVariable Long annoId) {
+        svc.deleteAnnotation(id, docId, annoId, resolveUserId(c));
+        return Map.of("ok", true);
+    }
+
+    /** 「我的摘录」：跨文档聚合我的全部批注 */
+    @GetMapping("/annotations/mine")
+    public List<DocAnnotation> myAnnotations(@RequestAttribute("kbUser") TokenClaims c,
+                                             @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        return svc.myAnnotations(resolveUserId(c), limit);
+    }
+
     @PostMapping("/{id}/docs/{docId}/move")
     public SharedDocument moveDoc(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
                                   @PathVariable Long docId, @RequestBody Map<String, Object> body) {

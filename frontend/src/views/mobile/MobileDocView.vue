@@ -9,9 +9,13 @@
  *  - 离线可读：优先用本地缓存，无网且无缓存给明确提示
  */
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import { enhanceVideos, bindImgLightbox, absolutizeMedia, absolutizeMediaHtml } from '../../utils/mediaEnhance'
 import { useRoute, useRouter } from 'vue-router'
-import { getShareDoc } from '../../api/docShare'
+import {
+  getShareDoc,
+  listDocAnnotations, createDocAnnotation, updateDocAnnotation, deleteDocAnnotation,
+} from '../../api/docShare'
 import {
   getUserCard, followUser, unfollowUser,
   toggleLikeGeneric, likeCountGeneric, myLikeIdsGeneric,
@@ -72,7 +76,18 @@ const editor = useEditor({
 })
 // 内容到位后灌进编辑器——与下方媒体增强合并为单个 watch（外部审查 2026-10-11：
 // 两个 watch 各自触发时 setContent 与 nextTick 后的增强存在时序竞争）
-onBeforeUnmount(() => { try { editor.value?.destroy() } catch { /* ignore */ } })
+onBeforeUnmount(() => {
+  try { editor.value?.destroy() } catch { /* ignore */ }
+  document.removeEventListener('selectionchange', onSelectionChange)
+})
+// 移动端选中文字后 WebKit 不会派发 selectionchange，补一次延迟探测
+function onTouchEnd() { setTimeout(onSelectionChange, 120) }
+onMounted(() => {
+  loadDoc(spaceId, docId)
+  document.addEventListener('selectionchange', onSelectionChange)
+  document.addEventListener('touchend', onTouchEnd)
+  document.addEventListener('mouseup', onTouchEnd)
+})
 
 // 正文里的图块类型——本页 v-html 渲染不了（它们是 Vue 组件节点），需要去编辑器看
 const blockKinds = computed(() => {
@@ -92,6 +107,162 @@ function openInEditor() {
 // 图片灯箱：点正文图片全屏看原图
 const lightboxSrc = ref('')
 
+// ---------- 摘录 / 批注（私人笔记，仅自己可见；不改正文，因此不影响协同编辑） ----------
+const annos = ref([])            // 本文档下我的摘录
+const annoOpen = ref(false)      // 摘录列表弹层
+const annoDraft = ref(null)      // 待保存的摘录 { quote, note, prefix, suffix }
+const selTip = ref({ show: false, x: 0, y: 0 })
+const pendingSel = ref(null)     // 选中瞬间抓到的文本与锚点（点按钮时选区可能已被清掉）
+const ANNO_MAX_QUOTE = 500
+
+async function loadAnnos(sid, did) {
+  try {
+    const { data } = await listDocAnnotations(sid, did)
+    annos.value = Array.isArray(data) ? data : []
+  } catch { annos.value = [] }
+  await nextTick()
+  paintAnnos()
+}
+
+/** 选中正文文字 → 浮出「摘录」按钮；只在编辑器正文内生效，避免误抓页面其他文字 */
+function onSelectionChange() {
+  if (annoDraft.value) return
+  const root = editor.value?.view?.dom
+  const sel = window.getSelection()
+  if (!root || !sel || sel.isCollapsed || !sel.rangeCount) { selTip.value.show = false; return }
+  const text = (sel.toString() || '').replace(/\s+/g, ' ').trim()
+  if (text.length < 2) { selTip.value.show = false; return }
+  const range = sel.getRangeAt(0)
+  if (!root.contains(range.commonAncestorContainer)) { selTip.value.show = false; return }
+  const rect = range.getBoundingClientRect()
+  if (!rect || (!rect.width && !rect.height)) { selTip.value.show = false; return }
+  const { before, after } = textAround(root, range)
+  pendingSel.value = {
+    quote: text.slice(0, ANNO_MAX_QUOTE),
+    prefix: before.slice(-60),
+    suffix: after.slice(0, 60),
+  }
+  selTip.value = {
+    show: true,
+    x: Math.min(Math.max(rect.left + rect.width / 2, 62), window.innerWidth - 62),
+    y: Math.max(rect.top - 44, 56),
+  }
+}
+
+/** 取选区前后文（用于在正文里唯一定位被引用的片段） */
+function textAround(root, range) {
+  try {
+    const pre = document.createRange()
+    pre.selectNodeContents(root)
+    pre.setEnd(range.startContainer, range.startOffset)
+    const post = document.createRange()
+    post.selectNodeContents(root)
+    post.setStart(range.endContainer, range.endOffset)
+    return { before: pre.toString(), after: post.toString() }
+  } catch { return { before: '', after: '' } }
+}
+
+function startAnno() {
+  const p = pendingSel.value
+  if (!p || p.quote.length < 2) { selTip.value.show = false; return }
+  annoDraft.value = { quote: p.quote, note: '', prefix: p.prefix, suffix: p.suffix }
+  selTip.value.show = false
+  try { window.getSelection()?.removeAllRanges() } catch { /* ignore */ }
+}
+
+async function confirmAnno() {
+  const d = annoDraft.value
+  if (!d) return
+  try {
+    const { data } = await createDocAnnotation(spaceId, docId, {
+      quote: d.quote, note: d.note, prefix: d.prefix, suffix: d.suffix,
+    })
+    annos.value = [data, ...annos.value]
+    annoDraft.value = null
+    pendingSel.value = null
+    window.__kbMsg?.success('已保存摘录')
+    await nextTick()
+    paintAnnos()
+  } catch (e) {
+    window.__kbMsg?.error('保存失败：' + (e.response?.data?.error || e.message || '请稍后重试'))
+  }
+}
+
+async function editAnno(a) {
+  let value
+  try {
+    const r = await ElMessageBox.prompt('修改这条笔记', '编辑笔记', {
+      inputValue: a.note || '', inputType: 'textarea',
+      confirmButtonText: '保存', cancelButtonText: '取消',
+    })
+    value = r.value
+  } catch { return }   // 取消
+  try {
+    const { data } = await updateDocAnnotation(a.shareId, a.docId, a.id, value || '')
+    const i = annos.value.findIndex((x) => x.id === a.id)
+    if (i >= 0) annos.value[i] = data
+    window.__kbMsg?.success('已更新')
+  } catch (e) {
+    window.__kbMsg?.error('更新失败：' + (e.response?.data?.error || e.message || '请稍后重试'))
+  }
+}
+
+async function removeAnno(a) {
+  try {
+    await ElMessageBox.confirm('删除这条摘录？笔记内容会一并删除。', '删除摘录', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    })
+  } catch { return }
+  try {
+    await deleteDocAnnotation(a.shareId, a.docId, a.id)
+    annos.value = annos.value.filter((x) => x.id !== a.id)
+    await nextTick()
+    paintAnnos()
+    window.__kbMsg?.success('已删除')
+  } catch (e) {
+    window.__kbMsg?.error('删除失败：' + (e.response?.data?.error || e.message || '请稍后重试'))
+  }
+}
+
+/** 正文里高亮已摘录的片段（尽力而为：跨节点的片段跳过，失败不影响阅读） */
+function paintAnnos() {
+  const root = editor.value?.view?.dom
+  if (!root) return
+  try {
+    root.querySelectorAll('mark.kb-anno').forEach((m) => {
+      const p = m.parentNode
+      if (!p) return
+      while (m.firstChild) p.insertBefore(m.firstChild, m)
+      p.removeChild(m)
+      p.normalize()
+    })
+    if (!annos.value.length) return
+    for (const a of annos.value) markQuote(root, a.quote)
+  } catch { /* ignore */ }
+}
+
+function markQuote(root, quote) {
+  const q = (quote || '').trim()
+  if (q.length < 2) return
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let node
+  while ((node = walker.nextNode())) {
+    const text = node.nodeValue || ''
+    const idx = text.indexOf(q)
+    if (idx < 0) continue
+    try {
+      const range = document.createRange()
+      range.setStart(node, idx)
+      range.setEnd(node, idx + q.length)
+      const mark = document.createElement('mark')
+      mark.className = 'kb-anno'
+      range.surroundContents(mark)
+      return
+    } catch { /* 跨节点：跳过 */ }
+  }
+}
+
 // 文档加载抽成函数，供 onMounted 与路由参数 watch 复用（外部审查 2026-10-12：
 // 原 spaceId/docId 是 setup 时固化的 const，组件复用切换文档后全接口打错目标）
 async function loadDoc(sid, did) {
@@ -105,6 +276,8 @@ async function loadDoc(sid, did) {
     // 社交：关注作者 / 点赞状态（评论由 MobileCommentSection 自行加载，失败不阻塞阅读）
     loadAuthor().catch(() => {})
     loadLikeState().catch(() => {})
+    // 我的摘录（失败不阻塞阅读）
+    loadAnnos(sid, did)
   } catch (e) {
     // 离线 / 失败：读缓存
     const c = await getCachedDoc(sid, did).catch(() => null)
@@ -307,6 +480,13 @@ function fmtDate(s) {
       </button>
     </header>
 
+    <!-- 选中正文文字后浮出的「摘录」气泡 -->
+    <button v-if="selTip.show" type="button" class="anno-tip"
+            :style="{ left: selTip.x + 'px', top: selTip.y + 'px' }"
+            @mousedown.prevent @click="startAnno">
+      <el-icon><CollectionTag /></el-icon> 摘录
+    </button>
+
     <div class="dv-scroll" @scroll="onScroll">
       <div v-if="loading" class="body">
         <div class="m-skel" style="height:26px;width:72%"></div>
@@ -369,6 +549,10 @@ function fmtDate(s) {
         <el-icon :size="19"><component :is="bookmarked ? 'StarFilled' : 'Star'" /></el-icon>
         <span>{{ bookmarked ? '已收藏' : '收藏' }}</span>
       </button>
+      <button class="bar-btn" type="button" @click="annoOpen = true">
+        <el-icon :size="19"><Notebook /></el-icon>
+        <span>{{ annos.length || '摘录' }}</span>
+      </button>
       <button class="bar-btn" type="button" @click="scrollToComments">
         <el-icon :size="19"><ChatDotRound /></el-icon>
         <span>{{ commentCount || '评论' }}</span>
@@ -392,7 +576,48 @@ function fmtDate(s) {
           <button class="m-sheet-item" @click="doCopyLink"><span class="mi"><el-icon><Link /></el-icon></span>复制链接</button>
           <button class="m-sheet-item" @click="doQr"><span class="mi"><el-icon><Picture /></el-icon></span>分享二维码</button>
           <button class="m-sheet-item" @click="doVersions"><span class="mi"><el-icon><Clock /></el-icon></span>历史版本</button>
+          <button class="m-sheet-item" @click="annoOpen = true; showMore = false">
+            <span class="mi"><el-icon><Notebook /></el-icon></span>我的摘录（{{ annos.length }}）
+          </button>
           <button class="m-sheet-item cancel" @click="showMore = false">取消</button>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 我的摘录（本文档） -->
+    <transition name="sheet-up">
+      <div v-if="annoOpen" class="m-sheet-mask" @click.self="annoOpen = false">
+        <div class="m-sheet" @click.stop>
+          <div class="m-sheet-grip"></div>
+          <div class="m-sheet-title">我的摘录（{{ annos.length }}）</div>
+          <div v-if="annos.length" class="anno-list">
+            <div v-for="a in annos" :key="a.id" class="anno-item">
+              <div class="anno-q">“{{ a.quote }}”</div>
+              <div v-if="a.note" class="anno-n">{{ a.note }}</div>
+              <div class="anno-meta">
+                <span>{{ fmtDate(a.createdAt) }}</span>
+                <button type="button" @click="editAnno(a)">编辑</button>
+                <button type="button" class="danger" @click="removeAnno(a)">删除</button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="anno-empty">还没有摘录。<br />在正文里长按选中文字，点「摘录」即可保存片段并写笔记。</div>
+          <button class="m-sheet-item cancel" @click="annoOpen = false">关闭</button>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 保存摘录前：确认片段 + 写笔记 -->
+    <transition name="sheet-up">
+      <div v-if="annoDraft" class="m-sheet-mask" @click.self="annoDraft = null">
+        <div class="m-sheet" @click.stop>
+          <div class="m-sheet-grip"></div>
+          <div class="m-sheet-title">添加摘录</div>
+          <div class="anno-quote">“{{ annoDraft.quote }}”</div>
+          <textarea v-model="annoDraft.note" class="anno-note" rows="3"
+                    placeholder="写点笔记（可留空）"></textarea>
+          <button class="m-sheet-item primary" type="button" @click="confirmAnno">保存摘录</button>
+          <button class="m-sheet-item cancel" type="button" @click="annoDraft = null">取消</button>
         </div>
       </div>
     </transition>
@@ -510,4 +735,53 @@ function fmtDate(s) {
   font-size: 11.5px; cursor: pointer;
 }
 .follow-mini.on { border-color: var(--m-border); color: var(--m-text-dim); }
+
+/* ---------- 摘录 / 批注 ---------- */
+/* 选中文字后浮出的气泡（position:fixed，按选区中心定位） */
+.anno-tip {
+  position: fixed; z-index: 2100; transform: translate(-50%, -100%);
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 13px; border: none; border-radius: 999px;
+  background: var(--m-primary); color: #fff; font-size: 13px; font-family: inherit;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .28); cursor: pointer;
+}
+.anno-tip:active { transform: translate(-50%, -100%) scale(.96); }
+
+/* 正文里的摘录高亮 */
+.m-prose mark.kb-anno {
+  background: rgba(255, 177, 64, .28); color: inherit;
+  border-bottom: 2px solid rgba(255, 143, 0, .65);
+  border-radius: 3px; padding: 0 1px;
+}
+html.dark .m-prose mark.kb-anno { background: rgba(255, 177, 64, .22); }
+
+.anno-list { max-height: 44vh; overflow-y: auto; padding: 0 16px 6px; }
+.anno-item { padding: 12px 0; }
+.anno-item + .anno-item { border-top: 1px solid var(--m-border); }
+.anno-q {
+  font-size: 13.5px; line-height: 1.6; color: var(--m-text);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.anno-n { margin-top: 7px; font-size: 13px; line-height: 1.6; color: var(--m-primary); white-space: pre-wrap; }
+.anno-meta { margin-top: 8px; display: flex; align-items: center; gap: 14px; font-size: 11.5px; color: var(--m-text-dim); }
+.anno-meta button {
+  border: none; background: transparent; color: var(--m-text-sub);
+  font-size: 11.5px; font-family: inherit; cursor: pointer; padding: 0;
+}
+.anno-meta button.danger { color: #e5484d; }
+.anno-empty { padding: 18px 24px 22px; text-align: center; font-size: 13px; line-height: 1.8; color: var(--m-text-dim); }
+.anno-quote {
+  margin: 0 16px 10px; padding: 11px 13px; border-radius: 12px;
+  background: var(--m-card-2); border: 1px solid var(--m-border);
+  font-size: 13.5px; line-height: 1.6; color: var(--m-text);
+  max-height: 22vh; overflow-y: auto;
+}
+.anno-note {
+  display: block; width: calc(100% - 32px); margin: 0 16px 12px; box-sizing: border-box;
+  padding: 11px 13px; border: 1px solid var(--m-border); border-radius: 12px;
+  background: var(--m-bg); color: var(--m-text); font-size: 14px; font-family: inherit;
+  line-height: 1.6; resize: none; outline: none;
+}
+.anno-note:focus { border-color: var(--m-primary); }
+.m-sheet-item.primary { color: var(--m-primary); font-weight: 600; }
 </style>

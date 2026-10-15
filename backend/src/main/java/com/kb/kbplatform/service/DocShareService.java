@@ -5,6 +5,7 @@
 
 package com.kb.kbplatform.service;
 
+import com.kb.kbplatform.domain.DocAnnotation;
 import com.kb.kbplatform.domain.DocShare;
 import com.kb.kbplatform.domain.DocSharePermission;
 import com.kb.kbplatform.domain.SharedDocument;
@@ -12,6 +13,7 @@ import com.kb.kbplatform.domain.SharedDocPermission;
 import com.kb.kbplatform.domain.SharedDocVersion;
 import com.kb.kbplatform.domain.User;
 import jakarta.annotation.PostConstruct;
+import com.kb.kbplatform.repository.DocAnnotationRepository;
 import com.kb.kbplatform.repository.DocSharePermissionRepository;
 import com.kb.kbplatform.repository.DocShareRepository;
 import com.kb.kbplatform.repository.SharedDocPermissionRepository;
@@ -44,13 +46,14 @@ public class DocShareService {
     private final SharedDocPermissionRepository docPermRepo;
     private final UserRepository userRepo;
     private final SharedDocVersionRepository sharedDocVerRepo;
+    private final DocAnnotationRepository annoRepo;
     private final TransactionTemplate tx;
     private final RelayNotifier relayNotifier;
 
     public DocShareService(DocShareRepository shareRepo, DocSharePermissionRepository permRepo,
                            SharedDocumentRepository docRepo, SharedDocPermissionRepository docPermRepo,
                            UserRepository userRepo, SharedDocVersionRepository sharedDocVerRepo,
-                           TransactionTemplate tx, RelayNotifier relayNotifier) {
+                           DocAnnotationRepository annoRepo, TransactionTemplate tx, RelayNotifier relayNotifier) {
         this.relayNotifier = relayNotifier;
         this.shareRepo = shareRepo;
         this.permRepo = permRepo;
@@ -58,6 +61,7 @@ public class DocShareService {
         this.docPermRepo = docPermRepo;
         this.userRepo = userRepo;
         this.sharedDocVerRepo = sharedDocVerRepo;
+        this.annoRepo = annoRepo;
         this.tx = tx;
     }
 
@@ -655,6 +659,93 @@ public class DocShareService {
         return String.join(",", unique.values());
     }
 
+    // ---------- 文档批注 / 摘录（2026-10-15） ----------
+
+    /** 某文档下「我的」批注；批注是私人笔记，同空间其他人看不到 */
+    public List<DocAnnotation> listAnnotations(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        get(shareId, userId, sysAdmin);
+        if (!canReadDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权访问该文档");
+        return annoRepo.findByShareIdAndDocIdAndUserIdOrderByCreatedAtDesc(shareId, docId, userId);
+    }
+
+    /** 新增批注：能读该文档即可批注（不改正文，不校验写权限） */
+    @Transactional(rollbackFor = Exception.class)
+    public DocAnnotation createAnnotation(Long shareId, Long docId, String quote, String note,
+                                          String prefix, String suffix, Long userId, boolean sysAdmin) {
+        get(shareId, userId, sysAdmin);
+        if (!canReadDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权访问该文档");
+        if (docRepo.findByIdAndShareId(docId, shareId).isEmpty())
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在");
+        String q = quote == null ? "" : quote.trim();
+        if (q.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "摘录内容不能为空");
+        if (q.length() > 500) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "摘录最多 500 字");
+        String n = note == null ? "" : note.trim();
+        if (n.length() > 2000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "笔记最多 2000 字");
+        DocAnnotation a = new DocAnnotation();
+        a.setShareId(shareId);
+        a.setDocId(docId);
+        a.setUserId(userId);
+        a.setQuote(q);
+        a.setNote(n);
+        a.setPrefix(truncate(prefix, 80));
+        a.setSuffix(truncate(suffix, 80));
+        return annoRepo.save(a);
+    }
+
+    /** 修改笔记内容：只能改自己的批注 */
+    @Transactional(rollbackFor = Exception.class)
+    public DocAnnotation updateAnnotation(Long shareId, Long docId, Long annoId, String note, Long userId) {
+        DocAnnotation a = requireOwnAnnotation(shareId, docId, annoId, userId);
+        String n = note == null ? "" : note.trim();
+        if (n.length() > 2000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "笔记最多 2000 字");
+        a.setNote(n);
+        a.setUpdatedAt(LocalDateTime.now());
+        return annoRepo.save(a);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteAnnotation(Long shareId, Long docId, Long annoId, Long userId) {
+        annoRepo.delete(requireOwnAnnotation(shareId, docId, annoId, userId));
+    }
+
+    private DocAnnotation requireOwnAnnotation(Long shareId, Long docId, Long annoId, Long userId) {
+        DocAnnotation a = annoRepo.findByIdAndUserId(annoId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "批注不存在或不属于你"));
+        if (!a.getShareId().equals(shareId) || !a.getDocId().equals(docId))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "批注不属于该文档");
+        return a;
+    }
+
+    /** 「我的摘录」聚合：跨文档取我的批注，注入文档标题与空间名；文档已删除的条目自动跳过 */
+    public List<DocAnnotation> myAnnotations(Long userId, int limit) {
+        int size = Math.max(1, Math.min(limit, 200));
+        List<DocAnnotation> list = new ArrayList<>(annoRepo.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, size)));
+        if (list.isEmpty()) return list;
+        Map<Long, SharedDocument> docs = docRepo.findAllById(list.stream().map(DocAnnotation::getDocId).distinct().toList())
+                .stream().collect(Collectors.toMap(SharedDocument::getId, d -> d, (a, b) -> a));
+        Set<Long> shareIds = docs.values().stream().map(SharedDocument::getShareId).collect(Collectors.toSet());
+        Map<Long, DocShare> spaces = shareIds.isEmpty() ? Map.of()
+                : shareRepo.findAllById(shareIds).stream().collect(Collectors.toMap(DocShare::getId, s -> s, (a, b) -> a));
+        list.removeIf(a -> {
+            SharedDocument d = docs.get(a.getDocId());
+            if (d == null || d.isInbox()) return true;   // 文档已删 / 还在待整理箱
+            DocShare s = spaces.get(d.getShareId());
+            if (s == null) return true;
+            a.setDocTitle(d.getTitle());
+            a.setSpaceName(s.getName());
+            return false;
+        });
+        return list;
+    }
+
+    private static String truncate(String value, int max) {
+        if (value == null) return null;
+        String v = value.trim();
+        return v.length() <= max ? v : v.substring(v.length() - max);
+    }
+
     static String classifyContentType(String html) {
         String body = html == null ? "" : html.toLowerCase(Locale.ROOT);
         if (body.contains("<video") || containsAny(body, ".mp4", ".webm", ".mov")) return "VIDEO";
@@ -821,6 +912,7 @@ public class DocShareService {
         docRepo.delete(d);
         docPermRepo.deleteAllByDocId(docId); // 清理文档级权限
         sharedDocVerRepo.deleteAllBySharedDocId(docId); // 清理版本历史，避免孤儿版本行
+        annoRepo.deleteByDocId(docId); // 清理批注/摘录，避免孤儿行
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);
     }

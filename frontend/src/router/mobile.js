@@ -35,6 +35,7 @@ const routes = [
   // ---- 二级页 ----
   { path: '/space/:id', component: () => import('../views/mobile/MobileSpace.vue'), meta: { title: '文档库' } },
   { path: '/all-docs', component: () => import('../views/mobile/MobileAllDocs.vue'), meta: { title: '全部文档' } },
+  { path: '/notes', component: () => import('../views/mobile/MobileNotes.vue'), meta: { title: '我的摘录' } },
   // 待整理箱（分享/扫描「先收进来」的资料集中整理）
   { path: '/inbox', component: () => import('../views/mobile/MobileInbox.vue'), meta: { title: '待整理箱' } },
   { path: '/doc/:spaceId/:docId', component: () => import('../views/mobile/MobileDocView.vue'), meta: { title: '文档' } },
