@@ -137,7 +137,7 @@ function openDraft(id) { router.push(`/draft/${id}`) }
       <div v-else-if="spaces.length" class="m-card">
         <button v-for="s in spaces" :key="s.id" class="m-row" type="button" @click="openSpace(s.id)">
           <span class="m-ico" :class="s.type === 'PERSONAL' ? '' : (s.color ? '' : 'blue')"
-                :style="s.color && s.type !== 'PERSONAL' ? { background: s.color + '1f', color: s.color } : {}">
+                :style="s.color && s.type !== 'PERSONAL' ? { background: s.color, color: '#fff' } : {}">
             <el-icon><component :is="s.type === 'PERSONAL' ? 'User' : 'DocumentCopy'" /></el-icon>
           </span>
           <span class="m-row-body">

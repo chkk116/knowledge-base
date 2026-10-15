@@ -134,6 +134,44 @@ body.kb-mobile-body { overflow-x: hidden; }
 }
 .m-header-act:active { background: var(--m-border); }
 
+/* 二级页顶栏：返回按钮保留在左侧，标题改为左对齐的醒目样式，右侧操作不受影响 */
+.m-header.solid {
+  gap: 8px;
+  padding-top: calc(env(safe-area-inset-top) + 8px);
+  padding-bottom: 8px;
+}
+.m-header.solid > .h-ph { display: none !important; }
+.m-header.solid > :is(.h-title, .pp-title, .st-title, .dr-title, .mf-title, .aic-title, .w-title) {
+  flex: 1 1 auto !important;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left !important;
+  font-size: 19px !important;
+  font-weight: 700 !important;
+  letter-spacing: -.25px;
+  line-height: 1.2;
+}
+/* 使用自定义安全区顶栏的二级页，也统一标题层级与对齐 */
+:is(.pp-head, .st-head, .dr-head, .mf-head, .aic-head, .w-head) > :is(.pp-title, .st-title, .dr-title, .mf-title, .aic-title, .w-title) {
+  flex: 1 1 auto !important;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left !important;
+  font-size: 19px !important;
+  font-weight: 700 !important;
+  letter-spacing: -.25px;
+  line-height: 1.2;
+}
+:is(.pp-head, .st-head, .dr-head, .mf-head, .aic-head, .w-head) > .h-ph,
+.st-head > .m-header-act[style*="visibility:hidden"] { display: none !important; }
+/* 空间页标题含名称与副标题，保留两行结构，但整体靠左 */
+.sp-head > .sp-title { text-align: left !important; }
+.sp-head .sp-name { font-size: 18.5px; font-weight: 700; letter-spacing: -.2px; }
+
 /* 内容容器 */
 .m-body { padding: 0 16px 16px; }
 .m-body.flush { padding-left: 0; padding-right: 0; }
@@ -141,10 +179,11 @@ body.kb-mobile-body { overflow-x: hidden; }
 /* 卡片 */
 .m-card {
   background: var(--m-card);
-  border-radius: var(--m-radius);
-  box-shadow: var(--m-shadow);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 18px rgba(15, 23, 42, .05);
   overflow: hidden;
 }
+html.dark .m-card { box-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px rgba(0, 0, 0, .24); }
 .m-card + .m-card { margin-top: 10px; }
 
 /* 分组标题 */
@@ -158,8 +197,9 @@ html.dark .cache-tag { color: #fbbf24; background: rgba(251,191,36,.15); }
 
 .m-sec-title {
   display: flex; align-items: center; gap: 6px;
-  font-size: 13px; font-weight: 600; color: var(--m-text-sub);
-  margin: 20px 0 8px;
+  font-size: 12.5px; font-weight: 500; color: var(--m-text-dim);
+  letter-spacing: .3px;
+  margin: 18px 0 8px;
 }
 .m-sec-title .more {
   margin-left: auto; font-size: 12.5px; font-weight: 400;
@@ -185,8 +225,13 @@ html.dark .cache-tag { color: #fbbf24; background: rgba(251,191,36,.15); }
   transition: background-color .15s;
   -webkit-tap-highlight-color: transparent;
 }
+.m-row { position: relative; }
 .m-row:active { background: var(--m-card-2); }
-.m-row + .m-row { border-top: 1px solid var(--m-border); }
+/* 内缩分隔线：从文字处起（64 = 图标 38 + 间距 12 + 内边距 14），不贯穿整行 —— 大厂做法 */
+.m-row + .m-row::before {
+  content: ''; position: absolute; left: 64px; right: 0; top: 0; height: 1px;
+  background: var(--m-border);
+}
 .m-row-body { flex: 1 1 auto; min-width: 0; }
 /* 标题与说明常用 <span> 承载（在 <button> 内），span 默认 inline 会并排挤在一行 */
 .m-row-title,
@@ -201,22 +246,23 @@ html.dark .cache-tag { color: #fbbf24; background: rgba(251,191,36,.15); }
 }
 .m-row-extra { flex: none; font-size: 12.5px; color: var(--m-text-dim); display: flex; align-items: center; gap: 4px; }
 
-/* 圆形图标底（列表左侧） */
+/* 列表左侧图标：彩色圆角方块（渐变底 + 白图标）—— iOS 设置 / 微信 / 支付宝的标志做法。
+   实心渐变在浅色与深色下都成立，故不再单独给深色配色。 */
 .m-ico {
   flex: none; width: 38px; height: 38px; border-radius: 11px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--m-primary-soft); color: var(--m-primary);
+  color: #fff;
+  background: linear-gradient(135deg, var(--m-primary), var(--m-primary-deep));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .12);
 }
-.m-ico.gray { background: #f2f4f7; color: #667085; }
-.m-ico.green { background: #ecfdf5; color: #059669; }
-.m-ico.orange { background: #fff7ed; color: #ea580c; }
-.m-ico.red { background: #fef2f2; color: #dc2626; }
-.m-ico.blue { background: #eff8ff; color: #1570ef; }
-html.dark .m-ico.gray { background: #2a2a42; color: #9aa0ae; }
-html.dark .m-ico.green { background: #0e2e26; color: #34d399; }
-html.dark .m-ico.orange { background: #3a2411; color: #fb923c; }
-html.dark .m-ico.red { background: #3d1a1a; color: #f87171; }
-html.dark .m-ico.blue { background: #12253d; color: #60a5fa; }
+.m-ico .el-icon { font-size: 18px; }
+.m-ico.gray { background: linear-gradient(135deg, #a3aab8, #8a8f99); }
+.m-ico.green { background: linear-gradient(135deg, #3ddc84, #00b42a); }
+.m-ico.orange { background: linear-gradient(135deg, #ffb340, #ff7d00); }
+.m-ico.red { background: linear-gradient(135deg, #ff6b8a, #ff375f); }
+.m-ico.blue { background: linear-gradient(135deg, #4f86ff, #1677ff); }
+.m-ico.purple { background: linear-gradient(135deg, #a78bfa, #7c5cff); }
+.m-ico.cyan { background: linear-gradient(135deg, #33c8b0, #0ab6b6); }
 
 /* 作者条（文章 / 文档详情页顶部：头像 + 名字 + 原创·粉丝 + 关注） */
 .m-author { display: flex; align-items: center; gap: 10px; margin: 12px 0 10px; }
