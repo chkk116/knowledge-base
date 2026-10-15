@@ -64,6 +64,30 @@ public class AdminDepartmentController {
         return java.util.Map.of("ok", true);
     }
 
+    /**
+     * 移动部门（拖拽改层级与排序）：body { parentId, sortOrder }。
+     * 服务端校验防成环与层级上限，前端拖拽只是交互入口。
+     */
+    @PutMapping("/{id}/move")
+    public Department move(@RequestAttribute("kbUser") TokenClaims c,
+                           @PathVariable Long id,
+                           @RequestBody java.util.Map<String, Object> body) {
+        requirePerm(c, "USER_MANAGE");
+        Long parentId = lng(body == null ? null : body.get("parentId"));
+        Integer sortOrder = intOf(body == null ? null : body.get("sortOrder"));
+        return orgService.moveDepartment(id, parentId, sortOrder);
+    }
+
+    private static Long lng(Object o) {
+        if (o == null || String.valueOf(o).isBlank() || "null".equals(String.valueOf(o))) return null;
+        try { return Long.valueOf(String.valueOf(o).trim()); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static Integer intOf(Object o) {
+        if (o == null || String.valueOf(o).isBlank()) return null;
+        try { return Integer.valueOf(String.valueOf(o).trim()); } catch (NumberFormatException e) { return null; }
+    }
+
     /** 批量加入成员：{ userIds: [..] }（原属其他部门的用户会被移动过来） */
     @PostMapping("/{id}/members")
     public java.util.Map<String, Object> addMembers(@RequestAttribute("kbUser") TokenClaims c,

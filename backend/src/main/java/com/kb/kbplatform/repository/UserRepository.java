@@ -25,6 +25,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /** 按部门查询成员（清理部门前解绑用） */
     List<User> findByDepartmentId(Long departmentId);
 
+    /** 每个部门的成员数聚合（部门管理页展示直属人数用），返回 [departmentId, count] */
+    @Query("SELECT u.departmentId, COUNT(u) FROM User u WHERE u.departmentId IS NOT NULL GROUP BY u.departmentId")
+    List<Object[]> countGroupedByDepartmentId();
+
     /** 选人搜索空关键词场景：仅取前 N 个启用用户（DB LIMIT 分页），避免全表加载 */
     Page<User> findByEnabledTrue(Pageable pageable);
 

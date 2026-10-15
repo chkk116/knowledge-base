@@ -74,6 +74,9 @@ export const listDepartments = () => api.get('/admin/departments')
 export const createDepartment = (d) => api.post('/admin/departments', d)
 export const updateDepartment = (id, d) => api.put('/admin/departments/' + id, d)
 export const deleteDepartment = (id) => api.delete('/admin/departments/' + id)
+// 拖拽改层级与排序：parentId 为 null 表示移到顶级；sortOrder 为在同级中的目标下标
+export const moveDepartment = (id, parentId, sortOrder) =>
+  api.put('/admin/departments/' + id + '/move', { parentId, sortOrder })
 
 // ---- 用户角色 / 部门分配 ----
 // 角色 / 部门在用户新建、编辑接口（createUser / updateUser）中通过 roleIds / departmentId 字段一并提交。

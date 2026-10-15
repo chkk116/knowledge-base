@@ -122,8 +122,81 @@ public class OrgService {
 
     // ==================== 部门 ====================
 
+    /** 部门树深度上限（含顶级）。参考 HRMS 的深度约束，避免无限嵌套导致展示与选择困难。 */
+    private static final int MAX_DEPT_DEPTH = 5;
+
+    /**
+     * 全部部门（按排序号升序），并注入展示用派生字段：
+     * directCount（直属人数）/ totalCount（含下级人数）/ path（层级路径）。
+     * 人数用一条 GROUP BY 聚合取回，避免逐部门查库。
+     */
     public List<Department> listDepartments() {
-        return departmentRepo.findAllByOrderBySortOrderAsc();
+        List<Department> all = departmentRepo.findAllByOrderBySortOrderAsc();
+        Map<Long, Integer> direct = new LinkedHashMap<>();
+        for (Object[] row : userRepo.countGroupedByDepartmentId()) {
+            if (row[0] == null) continue;
+            direct.put(((Number) row[0]).longValue(), row[1] == null ? 0 : ((Number) row[1]).intValue());
+        }
+        Map<Long, Department> byId = new LinkedHashMap<>();
+        for (Department d : all) byId.put(d.getId(), d);
+        for (Department d : all) {
+            d.setDirectCount(direct.getOrDefault(d.getId(), 0));
+            d.setPath(buildPath(d, byId));
+        }
+        // 含下级人数：自底向上累加（parentId 邻接表，按 id 遍历一次即可，深度有限不会栈溢出）
+        for (Department d : all) {
+            int total = d.getDirectCount();
+            for (Department child : all) {
+                if (isDescendantOf(child, d.getId(), byId)) total += child.getDirectCount();
+            }
+            d.setTotalCount(total);
+        }
+        return all;
+    }
+
+    private String buildPath(Department d, Map<Long, Department> byId) {
+        java.util.LinkedList<String> parts = new java.util.LinkedList<>();
+        Department cur = d;
+        Set<Long> guard = new HashSet<>();
+        while (cur != null && guard.add(cur.getId())) {
+            parts.addFirst(cur.getName());
+            cur = cur.getParentId() == null ? null : byId.get(cur.getParentId());
+        }
+        return String.join(" / ", parts);
+    }
+
+    /** candidate 是否位于 ancestorId 之下（不含自身） */
+    private boolean isDescendantOf(Department candidate, Long ancestorId, Map<Long, Department> byId) {
+        Department cur = candidate.getParentId() == null ? null : byId.get(candidate.getParentId());
+        Set<Long> guard = new HashSet<>();
+        while (cur != null && guard.add(cur.getId())) {
+            if (ancestorId.equals(cur.getId())) return true;
+            cur = cur.getParentId() == null ? null : byId.get(cur.getParentId());
+        }
+        return false;
+    }
+
+    /** 某部门的层级深度（顶级 = 1） */
+    private int depthOf(Long deptId, Map<Long, Department> byId) {
+        int depth = 1;
+        Department cur = byId.get(deptId);
+        Set<Long> guard = new HashSet<>();
+        while (cur != null && cur.getParentId() != null && guard.add(cur.getId())) {
+            depth++;
+            cur = byId.get(cur.getParentId());
+        }
+        return depth;
+    }
+
+    /** 以 deptId 为根的子树最大相对深度（自身 = 1） */
+    private int subtreeDepth(Long deptId, List<Department> all) {
+        int max = 1;
+        for (Department d : all) {
+            if (d.getParentId() != null && d.getParentId().equals(deptId)) {
+                max = Math.max(max, 1 + subtreeDepth(d.getId(), all));
+            }
+        }
+        return max;
     }
 
     public Department getDepartment(Long id) {
@@ -137,6 +210,8 @@ public class OrgService {
         d.setName(r.name.trim());
         d.setParentId(r.parentId);
         d.setLeaderId(r.leaderId);
+        d.setCode(normalizeCode(r.code));
+        d.setStatus(normalizeStatus(r.status));
         d.setDescription(r.description == null ? "" : r.description.trim());
         d.setSortOrder(r.sortOrder == null ? 0 : r.sortOrder);
         return departmentRepo.save(d);
@@ -154,7 +229,60 @@ public class OrgService {
         if (r.leaderId != null) d.setLeaderId(r.leaderId);
         if (r.description != null) d.setDescription(r.description.trim());
         if (r.sortOrder != null) d.setSortOrder(r.sortOrder);
+        // 编码与状态允许显式清空 / 切换（传空串即清空编码，状态仅接受 ACTIVE / DISABLED）
+        if (r.code != null) d.setCode(normalizeCode(r.code));
+        if (r.status != null) d.setStatus(normalizeStatus(r.status));
         return departmentRepo.save(d);
+    }
+
+    /**
+     * 移动部门（拖拽改层级与排序）：设置新的上级与在同级中的位置。
+     * 校验：不能挂到自身或其子孙下（防成环）、移动后子树不得超出深度上限。
+     * 落库后把新父节点下的子部门 sortOrder 重排为 0..n-1，避免并列排序号带来的顺序抖动。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Department moveDepartment(Long id, Long newParentId, Integer newSortOrder) {
+        Department d = getDepartment(id);
+        if (newParentId != null) {
+            if (id.equals(newParentId)) throw new IllegalArgumentException("不能将部门挂到自身");
+            if (isDescendant(newParentId, id)) throw new IllegalArgumentException("不能将部门挂到其下属部门下");
+            getDepartment(newParentId);   // 目标上级必须存在
+        }
+        List<Department> all = departmentRepo.findAllByOrderBySortOrderAsc();
+        Map<Long, Department> byId = new LinkedHashMap<>();
+        for (Department x : all) byId.put(x.getId(), x);
+
+        int parentDepth = newParentId == null ? 0 : depthOf(newParentId, byId);
+        int subtree = subtreeDepth(id, all);
+        if (parentDepth + subtree > MAX_DEPT_DEPTH) {
+            throw new IllegalArgumentException("移动后层级将超过 " + MAX_DEPT_DEPTH + " 层，请调整目标位置");
+        }
+
+        d.setParentId(newParentId);
+        d.setSortOrder(newSortOrder == null ? 0 : newSortOrder);
+        departmentRepo.save(d);
+
+        // 重排新父节点下的顺序：把被移动的部门插到指定下标，其余顺延
+        List<Department> siblings = new ArrayList<>(
+                newParentId == null ? departmentRepo.findByParentIdIsNullOrderBySortOrderAsc()
+                        : departmentRepo.findByParentIdOrderBySortOrderAsc(newParentId));
+        siblings.removeIf(s -> s.getId().equals(id));
+        int idx = Math.max(0, Math.min(newSortOrder == null ? siblings.size() : newSortOrder, siblings.size()));
+        siblings.add(idx, d);
+        for (int i = 0; i < siblings.size(); i++) siblings.get(i).setSortOrder(i);
+        departmentRepo.saveAll(siblings);
+        return d;
+    }
+
+    private String normalizeCode(String code) {
+        if (code == null) return null;
+        String c = code.trim();
+        return c.isEmpty() ? null : (c.length() > 50 ? c.substring(0, 50) : c);
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null) return "ACTIVE";
+        return "DISABLED".equalsIgnoreCase(status.trim()) ? "DISABLED" : "ACTIVE";
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -308,5 +436,7 @@ public class OrgService {
         public Long leaderId;
         public String description;
         public Integer sortOrder;
+        public String code;
+        public String status;      // ACTIVE / DISABLED
     }
 }

@@ -32,11 +32,31 @@ public class Department {
     @Column(name = "sort_order")
     private int sortOrder = 0;
 
+    /** 部门编码（可选，便于与外部系统/工号体系对齐） */
+    @Column(length = 50)
+    private String code;
+
+    /** ACTIVE（启用）/ DISABLED（停用）。停用只影响下拉可选性与展示，不影响既有成员归属 */
+    @Column(length = 20)
+    private String status = "ACTIVE";
+
     @Column(length = 500)
     private String description;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    /** 直属成员数（服务层统计注入，不入库） */
+    @Transient
+    private int directCount;
+
+    /** 含所有下级部门的成员数（服务层统计注入，不入库） */
+    @Transient
+    private int totalCount;
+
+    /** 层级路径，如「技术中心 / 后端组」（服务层注入，不入库） */
+    @Transient
+    private String path;
 
 
     public Long getId() { return id; }
@@ -56,6 +76,21 @@ public class Department {
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+
+    public String getCode() { return code; }
+    public void setCode(String code) { this.code = code; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    public int getDirectCount() { return directCount; }
+    public void setDirectCount(int directCount) { this.directCount = directCount; }
+
+    public int getTotalCount() { return totalCount; }
+    public void setTotalCount(int totalCount) { this.totalCount = totalCount; }
+
+    public String getPath() { return path; }
+    public void setPath(String path) { this.path = path; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
