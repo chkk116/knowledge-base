@@ -16,6 +16,7 @@ import { listMyShares, listShareDocs } from '../../api/docShare'
 import { homeOverview, listAnnouncements, listDocs } from '../../api/kb'
 import { getStats } from '../../utils/readStats'
 import { listQueuedDocs, listCachedDocs } from '../../utils/offlineStore'
+import { studyPlanSummary } from '../../api/studyPlan'
 import { resolveDefaultSpaceId, mySpaces } from '../../utils/spaceResolver'
 import { resolveUrl } from '../../utils/runtimeBase'
 
@@ -32,6 +33,7 @@ const overview = ref(null)        // 平台概览（/docs/overview）
 const announcements = ref([])     // 公告
 const picks = ref([])             // 精选文章（公开文章，Web 首页那批）
 const stats = ref(getStats())     // 本机阅读统计
+const planDue = ref(0)            // 到复习时间的学习计划数（首页提示）
 
 const greet = computed(() => {
   const h = new Date().getHours()
@@ -68,6 +70,7 @@ const QUICKS = [
   { label: '考试', icon: 'Trophy', color: 'green', to: '/exams' },
   { label: '离线内容', icon: 'Cloudy', color: 'purple', to: '/offline' },
   { label: '我的数据', icon: 'TrendCharts', color: 'red', to: '/stats' },
+  { label: '学习计划', icon: 'Calendar', color: 'purple', to: '/plans' },
 ]
 
 function plain(html) {
@@ -97,6 +100,7 @@ async function load() {
   listAnnouncements().then((r) => { announcements.value = (r.data || []).filter((a) => a.enabled !== false) }).catch(() => {})
   listDocs(0, 3, 'hot').then((r) => { picks.value = r.data?.content || [] }).catch(() => {})
   stats.value = getStats()
+  studyPlanSummary().then((r) => { planDue.value = r.data?.due || 0 }).catch(() => {})
   try {
     const [list, q] = await Promise.all([
       mySpaces(true).catch(() => []),
@@ -188,6 +192,18 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
         <span class="oc-body">
           <span class="oc-title">{{ offlineDocs.length }} 篇文档待同步</span>
           <span class="oc-desc">联网后会自动上传到「我的文档」</span>
+        </span>
+        <el-icon class="oc-arrow"><Right /></el-icon>
+      </button>
+    </div>
+
+    <!-- 学习计划到复习时间：首页直接提示，不用去二级页找 -->
+    <div v-if="planDue" class="body">
+      <button class="offline-card plan-card" type="button" @click="router.push('/plans')">
+        <span class="m-ico green"><el-icon><Calendar /></el-icon></span>
+        <span class="oc-body">
+          <span class="oc-title">{{ planDue }} 个学习计划待复习</span>
+          <span class="oc-desc">点进去看看今天的复习内容</span>
         </span>
         <el-icon class="oc-arrow"><Right /></el-icon>
       </button>
@@ -365,6 +381,9 @@ html.dark .hero { background: var(--m-primary-deep); }
   padding: 12px 14px; cursor: pointer; text-align: left;
   box-shadow: var(--m-shadow);
 }
+/* 学习计划待复习卡：与离线卡区分配色（绿色=成长/学习） */
+.plan-card { background: #ecfdf5; color: #065f46; }
+html.dark .plan-card { background: #0e2e26; color: #6ee7b7; }
 html.dark .offline-card { background: #3b2411; color: #fdba74; }
 .oc-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .oc-title { font-size: 14.5px; font-weight: 600; }

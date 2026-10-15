@@ -13,6 +13,7 @@ import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../../store/auth'
 import { listMyShares, getStorage } from '../../api/docShare'
 import { pendingCount } from '../../utils/offlineStore'
+import { studyPlanSummary } from '../../api/studyPlan'
 import { applyTheme } from '../../utils/theme'
 import { resolveUrl } from '../../utils/runtimeBase'
 import SiteFooter from '../../components/SiteFooter.vue'
@@ -24,6 +25,7 @@ const spaceCount = ref(0)
 const docCount = ref(0)
 const storage = ref(null)
 const pending = ref(0)
+const planDue = ref(0)      // 待复习的学习计划数（角标用）
 const dark = ref(document.documentElement.classList.contains('dark'))
 
 const name = computed(() => auth.user?.displayName || auth.user?.username || '未登录')
@@ -54,6 +56,7 @@ onMounted(async () => {
   } catch { /* 离线忽略 */ }
   getStorage().then((r) => { storage.value = r.data }).catch(() => {})
   pending.value = await pendingCount().catch(() => 0)
+  studyPlanSummary().then((r) => { planDue.value = r.data?.due || 0 }).catch(() => {})
 })
 
 function toggleTheme() {
@@ -81,6 +84,7 @@ const MY_GROUP = {
     { label: '我的收藏', icon: 'Star', color: 'orange', to: '/favorites' },
     { label: '我的订阅', icon: 'Bell', color: 'blue', to: '/subscriptions' },
     { label: '我的摘录', icon: 'Notebook', color: 'red', to: '/notes' },
+    { label: '学习计划', icon: 'Calendar', color: 'green', to: '/plans', badge: 'plans' },
     { label: '离线内容', icon: 'Cloudy', color: 'blue', to: '/offline' },
     { label: '浏览历史', icon: 'Clock', color: 'green', to: '/history' },
     { label: '回收站', icon: 'Delete', color: 'gray', to: '/recycle' },
@@ -226,6 +230,7 @@ const groups = computed(() => {
             <span class="m-ico" :class="it.color"><el-icon><component :is="it.icon" /></el-icon></span>
             <span class="m-row-body"><span class="m-row-title">{{ it.label }}</span></span>
             <span v-if="it.badge === 'pending' && pending" class="m-chip orange">{{ pending }}</span>
+            <span v-else-if="it.badge === 'plans' && planDue" class="m-chip red">{{ planDue }}</span>
             <span v-else-if="it.action === 'theme'" class="m-row-extra">
               {{ dark ? '夜间' : '日间' }}
               <el-icon><component :is="dark ? 'Moon' : 'Sunny'" /></el-icon>
