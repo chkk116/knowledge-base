@@ -30,7 +30,15 @@ export const removeMember = (id, userId) => api.delete('/doc-shares/' + pid(id) 
 
 // 空间内文档
 export const listShareDocs = (id) => api.get('/doc-shares/' + pid(id) + '/docs')
-export const createShareDoc = (id, d) => api.post('/doc-shares/' + pid(id) + '/docs', d)
+// inbox=true：收进待整理箱（快速收纳，先落个人空间并打标记，不占空间文档列表）
+export const createShareDoc = (id, d, inbox = false) =>
+  api.post('/doc-shares/' + pid(id) + '/docs' + (inbox ? '?inbox=true' : ''), d)
+
+// ---- 待整理箱（2026-10-15）----
+export const listInbox = () => api.get('/doc-shares/inbox/list')
+export const inboxCount = () => api.get('/doc-shares/inbox/count')
+export const archiveInboxDoc = (docId, targetShareId, title) =>
+  api.post('/doc-shares/inbox/' + pid(docId, 'docId') + '/archive', { targetShareId, title })
 export const getShareDoc = (id, docId) => api.get('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId'))
 export const updateShareDoc = (id, docId, d) => api.put('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId'), d)
 export const deleteShareDoc = (id, docId) => api.delete('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId'))

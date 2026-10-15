@@ -566,6 +566,8 @@ public class DocShareService {
     public List<SharedDocument> listDocs(Long shareId, Long userId, boolean sysAdmin) {
         get(shareId, userId, sysAdmin); // 校验可读（空间级）
         List<SharedDocument> list = docRepo.findByShareIdOrderByUpdatedAtDesc(shareId);
+        // 待整理箱的文档先不进空间列表，归档（补标题/选空间）后才出现
+        list.removeIf(SharedDocument::isInbox);
         for (SharedDocument d : list) {
             fillDocOwnerName(d);
             // 列表接口不返回大字段（content / yjs_state），仅注入展示用的字节数与头像
@@ -592,6 +594,12 @@ public class DocShareService {
 
     @Transactional(rollbackFor = Exception.class)
     public SharedDocument createDoc(Long shareId, String title, String content, Long userId, boolean sysAdmin) {
+        return createDoc(shareId, title, content, userId, sysAdmin, false);
+    }
+
+    /** inbox=true：收进待整理箱（快速收纳，先落个人空间并打标记，不出现在空间文档列表） */
+    @Transactional(rollbackFor = Exception.class)
+    public SharedDocument createDoc(Long shareId, String title, String content, Long userId, boolean sysAdmin, boolean inbox) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canWrite(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要写入权限");
         long incoming = (content == null ? 0 : content.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
@@ -614,11 +622,52 @@ public class DocShareService {
         d.setTitle(title == null || title.isBlank() ? "未命名文档" : title.trim());
         d.setContent(content == null ? "" : HtmlSanitizer.sanitize(content));
         d.setOwnerId(userId);
+        if (inbox) d.setInbox(true);
         SharedDocument saved = docRepo.save(d);
         fillDocOwnerName(saved);
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);
         return saved;
+    }
+
+    // ---------- 待整理箱（2026-10-15） ----------
+
+    /** 我的待整理项：跨空间、按更新时间倒序，不含大字段 */
+    public List<SharedDocument> listInbox(Long userId) {
+        List<SharedDocument> list = docRepo.findByOwnerIdAndInboxTrueOrderByUpdatedAtDesc(userId);
+        for (SharedDocument d : list) {
+            fillDocOwnerName(d);
+            d.setSize((d.getContent() != null ? d.getContent().getBytes(java.nio.charset.StandardCharsets.UTF_8).length : 0)
+                    + (d.getYjsState() != null ? d.getYjsState().length : 0));
+            d.setContent(null);
+            d.setMyPerm("ADMIN");   // 自己的待整理项：可整理、可删
+        }
+        return list;
+    }
+
+    /** 未整理数量（角标） */
+    public long inboxCount(Long userId) {
+        return docRepo.countByOwnerIdAndInboxTrue(userId);
+    }
+
+    /** 整理一条待整理项：补标题（可选）+ 挪到目标空间 + 摘掉 inbox 标记。
+     *  仅文档所有者（或 sysAdmin）可整理；目标空间要求写入权限（moveDoc 内校验）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public SharedDocument archiveInbox(Long docId, Long targetShareId, String title, Long userId, boolean sysAdmin) {
+        SharedDocument d = docRepo.findById(docId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        if (!d.isInbox()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该文档不在待整理箱中");
+        if (!d.getOwnerId().equals(userId) && !sysAdmin)
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只能整理自己的待整理项");
+        if (title != null && !title.isBlank()) d.setTitle(title.trim());
+        docRepo.save(d);
+        // 复用 moveDoc：内部校验目标空间写入权限，并清理（本就不存在的）文档级权限
+        SharedDocument saved = moveDoc(d.getShareId(), docId, targetShareId, userId, sysAdmin);
+        saved.setInbox(false);
+        saved.setUpdatedAt(LocalDateTime.now());
+        SharedDocument out = docRepo.save(saved);
+        fillDocOwnerName(out);
+        return out;
     }
 
     @Transactional(rollbackFor = Exception.class)

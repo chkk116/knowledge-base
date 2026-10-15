@@ -7,7 +7,7 @@
  */
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { listMyShares, getStorage } from '../../api/docShare'
+import { listMyShares, getStorage, inboxCount } from '../../api/docShare'
 import { listQueuedDocs, listCachedDocs } from '../../utils/offlineStore'
 
 const router = useRouter()
@@ -17,6 +17,7 @@ const offlineDocs = ref([])
 const cachedDocs = ref([])   // 本地缓存过的文档（离线可读）
 const storage = ref(null)
 const online = ref(navigator.onLine)
+const inbCount = ref(0)      // 待整理箱未整理数（角标，2026-10-15）
 
 function fmtSize(n) {
   if (n == null) return ''
@@ -43,6 +44,7 @@ async function load() {
     offlineDocs.value = q
     cachedDocs.value = c   // 离线时仍可打开（详情页会读同一份缓存）
     getStorage().then((r) => { storage.value = r.data }).catch(() => {})
+    inboxCount().then((r) => { inbCount.value = r.data?.count || 0 }).catch(() => {})
   } finally {
     loading.value = false
   }
@@ -82,6 +84,19 @@ function openDraft(id) { router.push(`/draft/${id}`) }
         <div class="store-bar"><i :style="{ width: usedPct + '%' }" :class="{ warn: usedPct > 85 }"></i></div>
         <div class="store-txt">个人存储已用 {{ usedPct }}%</div>
       </div>
+    </div>
+
+    <!-- 待整理箱入口（分享/扫描「先收进来」的资料） -->
+    <div class="body">
+      <button class="inbox-entry" type="button" @click="router.push('/inbox')">
+        <span class="ie-ico">📥</span>
+        <span class="ie-main">
+          <span class="ie-title">待整理箱</span>
+          <span class="ie-sub">{{ inbCount > 0 ? `${inbCount} 个待整理` : '暂无待整理' }}</span>
+        </span>
+        <span v-if="inbCount > 0" class="ie-badge">{{ inbCount > 99 ? '99+' : inbCount }}</span>
+        <span class="ie-arrow">›</span>
+      </button>
     </div>
 
     <!-- 离线缓存：离线也能打开的文档（进入详情页读同一份 IndexedDB 缓存） -->
@@ -167,6 +182,22 @@ function openDraft(id) { router.push(`/draft/${id}`) }
 <style scoped>
 .docs { min-height: 100%; }
 .body { padding: 0 16px; }
+
+/* 待整理箱入口（2026-10-15） */
+.inbox-entry {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  margin-top: 10px; padding: 12px 14px; cursor: pointer;
+  background: var(--m-card, #fff); border: 1px solid var(--m-border);
+  border-radius: 12px; text-align: left;
+}
+.ie-ico { font-size: 20px; flex: none; }
+.ie-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ie-title { font-size: 14.5px; font-weight: 600; color: var(--m-text); }
+.ie-sub { font-size: 12px; color: var(--m-text-dim); }
+.ie-badge { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: #e5484d; color: #fff; font-size: 11.5px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; }
+.ie-arrow { flex: none; color: var(--m-text-dim); font-size: 18px; }
 
 .store { padding: 2px 2px 0; }
 .store-bar {

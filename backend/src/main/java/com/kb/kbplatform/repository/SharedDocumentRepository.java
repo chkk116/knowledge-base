@@ -18,6 +18,12 @@ public interface SharedDocumentRepository extends JpaRepository<SharedDocument, 
 
     Optional<SharedDocument> findByIdAndShareId(Long id, Long shareId);
 
+    /** 待整理箱（2026-10-15）：本人收进但未归档的文档，跨空间、按更新时间倒序 */
+    List<SharedDocument> findByOwnerIdAndInboxTrueOrderByUpdatedAtDesc(Long ownerId);
+
+    /** 待整理箱未整理数量（角标用） */
+    long countByOwnerIdAndInboxTrue(Long ownerId);
+
     /** 某用户作为文档所有者占用的总存储字节数（content + yjs_state），用于个人配额(默认 200MB)核算；
      *  两列任一为 NULL 时用 COALESCE 归零，避免整行被 SUM 丢弃导致配额失效 */
     @Query(value = "SELECT COALESCE(SUM(COALESCE(LENGTH(content),0) + COALESCE(LENGTH(yjs_state),0)), 0) FROM kb_shared_document WHERE owner_id = ?1", nativeQuery = true)

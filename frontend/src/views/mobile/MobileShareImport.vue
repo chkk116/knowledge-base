@@ -9,7 +9,7 @@ import { onMounted, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { uploadFile } from '../../api/file'
 import { createShareDoc } from '../../api/docShare'
-import { mySpaces, resolveDefaultSpaceId, rememberSpace, lastSpaceId } from '../../utils/spaceResolver'
+import { mySpaces, resolveDefaultSpaceId, rememberSpace, lastSpaceId, personalSpace } from '../../utils/spaceResolver'
 import { getPendingShares, clearPendingShares, shareItemToFile, isImage } from '../../utils/shareReceiver'
 
 const route = useRoute()
@@ -94,6 +94,38 @@ function cancel() {
   router.replace('/docs')
 }
 
+/** 收进待整理箱（2026-10-15）：免选空间免填信息，快速收纳，之后再集中整理 */
+async function toInbox() {
+  if (!files.value.length || importing.value) return
+  importing.value = true
+  try {
+    const p = await personalSpace()
+    if (!p?.id) throw new Error('没有可用的个人空间')
+    let ok = 0, fail = 0
+    for (const f of files.value) {
+      try {
+        const file = await shareItemToFile(f)
+        const up = await uploadFile(file)
+        const url = up?.data?.url || up?.data?.data?.url
+        if (!url) throw new Error('上传失败')
+        await createShareDoc(p.id, { title: titleOf(f), content: buildContent(f, url) }, true)
+        ok++
+      } catch { fail++ }
+    }
+    await clearPendingShares().catch(() => {})
+    if (ok > 0) {
+      window.__kbMsg?.success(`已收进待整理箱 ${ok} 个${fail ? `，${fail} 个失败` : ''}`)
+      router.replace('/inbox')
+    } else {
+      window.__kbMsg?.error('收箱失败，请重试')
+    }
+  } catch (e) {
+    window.__kbMsg?.error(e.message || '操作失败')
+  } finally {
+    importing.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -132,6 +164,7 @@ onMounted(load)
         <button class="m-btn" :disabled="!canImport" @click="doImport">
           {{ importing ? `导入中…（${done}/${files.length}）` : '导入' }}
         </button>
+        <button class="m-btn ghost" style="margin-top:8px" :disabled="!files.length || importing" @click="toInbox">先收进待整理箱</button>
         <button class="m-btn ghost" style="margin-top:8px" :disabled="importing" @click="cancel">取消</button>
       </template>
 

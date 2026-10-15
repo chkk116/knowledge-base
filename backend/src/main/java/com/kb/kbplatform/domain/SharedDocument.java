@@ -64,6 +64,11 @@ public class SharedDocument {
     @Transient
     private String myPerm;
 
+    /** 待整理箱标记（2026-10-15）：true = 快速收进、尚未归档——不出现在空间文档列表，
+     *  仅出现在所有者的待整理箱里，补全标题/归档空间后摘掉标记 */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean inbox = false;
+
     private LocalDateTime createdAt = LocalDateTime.now();
     private LocalDateTime updatedAt = LocalDateTime.now();
 
@@ -99,6 +104,9 @@ public class SharedDocument {
 
     public String getMyPerm() { return myPerm; }
     public void setMyPerm(String myPerm) { this.myPerm = myPerm; }
+
+    public boolean isInbox() { return inbox; }
+    public void setInbox(boolean inbox) { this.inbox = inbox; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

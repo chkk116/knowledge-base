@@ -486,6 +486,8 @@ async function startRecognize() {
 }
 
 const pendingCloudDoc = ref(null)
+// 收进待整理箱（2026-10-15）：勾选后保存走「个人空间 + inbox 标记」，免选空间
+const toInbox = ref(false)
 
 function htmlToText(html) {
   // DOMParser 替代 div.innerHTML（H9）
@@ -524,6 +526,24 @@ async function save() {
     // 云端识别已落库：跳过去看
     const p = pendingCloudDoc.value
     router.replace(`/doc/${p.spaceId}/${p.docId}`)
+    return
+  }
+
+  // 收进待整理箱（2026-10-15）：免选空间快速收纳，之后在待整理箱集中整理
+  if (toInbox.value) {
+    busy.value = true
+    try {
+      const p = await personalSpace()
+      if (!p?.id) throw new Error('没有可用的个人空间')
+      const html = textToHtml(content.value)
+      await createShareDoc(p.id, { title: title.value.trim() || '未命名文档', content: html }, true)
+      window.__kbMsg?.success('已收进待整理箱，稍后整理')
+      router.replace('/inbox')
+    } catch (e) {
+      window.__kbMsg?.error(e.message || e.response?.data?.error || '收箱失败')
+    } finally {
+      busy.value = false
+    }
     return
   }
 
@@ -759,16 +779,22 @@ onMounted(prewarm)
 
       <div class="review-note">
         <el-icon><InfoFilled /></el-icon>
-        <span v-if="pendingCloudDoc">云端识别已完成并存入库中，点下方按钮查看</span>
+        <span v-if="toInbox">将先收进待整理箱，之后在文档库集中整理</span>
+        <span v-else-if="pendingCloudDoc">云端识别已完成并存入库中，点下方按钮查看</span>
         <span v-else-if="online">保存后会直接进入「{{ targetName }}」</span>
         <span v-else>当前离线，保存后会在联网时自动同步</span>
       </div>
+
+      <label v-if="!pendingCloudDoc" class="inbox-toggle">
+        <input type="checkbox" v-model="toInbox" />
+        <span>先收进待整理箱（免选空间，稍后整理）</span>
+      </label>
 
       <div class="stage-actions">
         <button class="m-btn ghost" @click="stage = 'preview'" :disabled="busy">返回</button>
         <button class="m-btn" @click="save" :disabled="busy">
           <el-icon v-if="busy" class="rot"><Loading /></el-icon>
-          {{ pendingCloudDoc ? '查看文档' : (online ? '保存到文档库' : '存到本机') }}
+          {{ pendingCloudDoc ? '查看文档' : (toInbox ? '收进待整理箱' : (online ? '保存到文档库' : '存到本机')) }}
         </button>
       </div>
     </div>
@@ -1008,6 +1034,15 @@ html.dark .pb-ico.gray { background: #2a2a42; color: #9aa0ae; }
   font-size: 12.5px; color: var(--m-text-dim);
   margin-top: 16px; padding: 0 4px; line-height: 1.5;
 }
+
+/* 待整理箱开关（2026-10-15） */
+.inbox-toggle {
+  display: flex; gap: 8px; align-items: center;
+  margin-top: 12px; padding: 0 4px;
+  font-size: 13px; color: var(--m-text-sub); cursor: pointer;
+  user-select: none;
+}
+.inbox-toggle input { accent-color: var(--m-primary); width: 16px; height: 16px; flex: none; }
 
 .stage-actions { display: flex; gap: 10px; margin-top: 22px; }
 .stage-actions .m-btn { flex: 1 1 0; width: auto; }

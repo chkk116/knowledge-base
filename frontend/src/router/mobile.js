@@ -34,6 +34,8 @@ const routes = [
 
   // ---- 二级页 ----
   { path: '/space/:id', component: () => import('../views/mobile/MobileSpace.vue'), meta: { title: '文档库' } },
+  // 待整理箱（分享/扫描「先收进来」的资料集中整理）
+  { path: '/inbox', component: () => import('../views/mobile/MobileInbox.vue'), meta: { title: '待整理箱' } },
   { path: '/doc/:spaceId/:docId', component: () => import('../views/mobile/MobileDocView.vue'), meta: { title: '文档' } },
   { path: '/doc/:spaceId/:docId/edit', component: () => import('../views/mobile/MobileDocEdit.vue'), meta: { title: '编辑' } },
   // 离线草稿详情（本地 IndexedDB 中的待同步文档）

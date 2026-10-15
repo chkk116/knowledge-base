@@ -169,10 +169,36 @@ public class DocShareController {
 
     @PostMapping("/{id}/docs")
     public SharedDocument createDoc(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
-                                    @RequestBody Map<String, Object> body) {
-        SharedDocument d = svc.createDoc(id, str(body.get("title")), str(body.get("content")), resolveUserId(c), isSysAdmin(c));
+                                    @RequestBody Map<String, Object> body,
+                                    @RequestParam(value = "inbox", defaultValue = "false") boolean inbox) {
+        // inbox=true：收进待整理箱（快速收纳，先落个人空间并打标记，不出现在空间文档列表）
+        SharedDocument d = svc.createDoc(id, str(body.get("title")), str(body.get("content")), resolveUserId(c), isSysAdmin(c), inbox);
         audit.log(c.userId(), c.username(), "CREATE_SHARE_DOC", "SHARE_DOC", d.getId(), d.getTitle(),
-                "在空间中创建文档「" + d.getTitle() + "」");
+                (inbox ? "收进待整理箱「" : "在空间中创建文档「") + d.getTitle() + "」");
+        return d;
+    }
+
+    /** 待整理箱：本人收进但未归档的文档（跨空间） */
+    @GetMapping("/inbox/list")
+    public List<SharedDocument> inbox(@RequestAttribute("kbUser") TokenClaims c) {
+        return svc.listInbox(resolveUserId(c));
+    }
+
+    /** 待整理箱未整理数量（角标） */
+    @GetMapping("/inbox/count")
+    public Map<String, Object> inboxCount(@RequestAttribute("kbUser") TokenClaims c) {
+        return Map.of("count", svc.inboxCount(resolveUserId(c)));
+    }
+
+    /** 整理一条待整理项：补标题（可选）+ 归档到目标空间 */
+    @PostMapping("/inbox/{docId}/archive")
+    public SharedDocument archiveInbox(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long docId,
+                                       @RequestBody Map<String, Object> body) {
+        Long targetShareId = body.get("targetShareId") == null ? null : Long.valueOf(String.valueOf(body.get("targetShareId")));
+        String title = str(body.get("title"));
+        SharedDocument d = svc.archiveInbox(docId, targetShareId, title, resolveUserId(c), isSysAdmin(c));
+        audit.log(c.userId(), c.username(), "ARCHIVE_INBOX_DOC", "SHARE_DOC", d.getId(), d.getTitle(),
+                "整理待收纳文档「" + d.getTitle() + "」并归档");
         return d;
     }
 
