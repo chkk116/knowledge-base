@@ -17,6 +17,7 @@ import { homeOverview, listAnnouncements, listDocs } from '../../api/kb'
 import { getStats } from '../../utils/readStats'
 import { listQueuedDocs, listCachedDocs } from '../../utils/offlineStore'
 import { studyPlanSummary } from '../../api/studyPlan'
+import { initPlanNotifications } from '../../utils/planNotify'
 import { resolveDefaultSpaceId, mySpaces } from '../../utils/spaceResolver'
 import { resolveUrl } from '../../utils/runtimeBase'
 
@@ -151,6 +152,8 @@ function openDraft(localId) { router.push(`/draft/${localId}`) }
 function onBackOnline() { load() }
 onMounted(() => {
   load()
+  // 点系统通知栏提醒 → 跳到对应学习计划（原生容器内才生效，网页端静默跳过）
+  initPlanNotifications()
   // 联网后自动刷新一次（离线期间读的是缓存，恢复网络要及时拉最新）
   window.addEventListener('online', onBackOnline)
 })

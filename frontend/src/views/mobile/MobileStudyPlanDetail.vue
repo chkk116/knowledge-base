@@ -12,6 +12,7 @@ import {
   getStudyPlan, updateStudyPlan, deleteStudyPlan,
   addStudyPlanItem, updateStudyPlanItem, deleteStudyPlanItem,
 } from '../../api/studyPlan'
+import { resyncPlanNotificationsSoon } from '../../utils/planNotify'
 import { listAllShareDocs } from '../../api/docShare'
 import { listCourses } from '../../api/training'
 
@@ -178,6 +179,7 @@ async function removePlan() {
   } catch { return }
   try {
     await deleteStudyPlan(planId)
+    resyncPlanNotificationsSoon()
     window.__kbMsg?.success('已删除')
     router.replace('/plans')
   } catch (e) {
@@ -190,6 +192,9 @@ watch(() => route.params.id, (v) => {
   const id = Number(v)
   if (id && id !== planId) { planId = id; load(id) }
 })
+// 计划数据一变就重排系统通知（内部防抖 + 按开关/权限兜底）：勾选完成 → 取消，
+// 改提醒时间 → 重排；不需要每个操作各写一次
+watch(plan, () => resyncPlanNotificationsSoon())
 </script>
 
 <template>

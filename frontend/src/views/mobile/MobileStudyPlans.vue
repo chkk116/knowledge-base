@@ -9,6 +9,11 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { listStudyPlans, createStudyPlan, deleteStudyPlan } from '../../api/studyPlan'
+import {
+  notifyEnabled, setNotifyEnabled, ensureNotifyPermission,
+  resyncPlanNotifications, cancelAll, resyncPlanNotificationsSoon,
+} from '../../utils/planNotify'
+import { isNative } from '../../utils/runtimeBase'
 
 const router = useRouter()
 const loading = ref(true)
@@ -64,17 +69,46 @@ const shown = computed(() => {
 
 const dueCount = computed(() => plans.value.filter(isDue).length)
 
+const picker = ref('')
+// 网页端收不到系统通知（没有原生桥），开关直接禁用并说明，避免用户点了没反应
+const nativeApp = isNative()
+const notifyOn = ref(notifyEnabled())
+
 async function load() {
   loading.value = true
   try {
     const { data } = await listStudyPlans()
     plans.value = Array.isArray(data) ? data : []
+    // 计划数据到手后顺手重排一次系统通知（内部会判断开关与权限）
+    resyncPlanNotificationsSoon()
   } catch (e) {
     plans.value = []
     window.__kbMsg?.error('计划加载失败：' + (e.response?.data?.error || e.message || '请稍后重试'))
   } finally {
     loading.value = false
   }
+}
+
+/** 开关「系统通知」：打开时申请权限，关闭时清掉已排的通知 */
+async function toggleNotify(v) {
+  const on = !!v
+  if (on) {
+    const perm = await ensureNotifyPermission()
+    if (perm === 'granted') {
+      setNotifyEnabled(true)
+      window.__kbMsg?.success('已开启，到点会在通知栏提醒你')
+      resyncPlanNotifications(true)
+      return
+    }
+    notifyOn.value = false
+    window.__kbMsg?.warning(perm === 'unsupported'
+      ? '网页端收不到系统通知，请在 App 内开启'
+      : '系统通知权限未开启，请在系统设置里允许后重试')
+    return
+  }
+  setNotifyEnabled(false)
+  await cancelAll()
+  window.__kbMsg?.success('已关闭系统通知')
 }
 
 function openNew() {
@@ -132,6 +166,15 @@ onMounted(load)
         <el-icon><Bell /></el-icon>
         <span>有 {{ dueCount }} 个计划到复习时间了</span>
         <button type="button" @click="filter = 'due'">查看</button>
+      </div>
+
+      <!-- 系统通知开关：原生 App 内到点发通知栏；网页端无此能力，开关禁用 -->
+      <div class="notify-row">
+        <span class="nr-main">
+          <span class="nr-title">系统通知提醒</span>
+          <span class="nr-sub">{{ nativeApp ? '到复习时间后在手机通知栏提醒（需通知权限）' : '仅在 App 内可用，网页端收不到系统通知' }}</span>
+        </span>
+        <el-switch :model-value="notifyOn" :disabled="!nativeApp" @change="toggleNotify" />
       </div>
 
       <div class="seg">
@@ -206,8 +249,16 @@ onMounted(load)
 html.dark .due-tip { background: #3b2411; color: #fdba74; }
 html.dark .due-tip button { color: #fdba74; }
 
-.seg { display: flex; gap: 4px; margin: 12px 0 10px; padding: 3px; border-radius: 10px; background: var(--m-card-2); }
-.seg-item {
+/* 系统通知开关行 */
+.notify-row {
+  display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 11px 14px;
+  border-radius: 12px; background: var(--m-card); border: 1px solid var(--m-border);
+}
+.nr-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nr-title { font-size: 14px; font-weight: 600; color: var(--m-text); }
+.nr-sub { font-size: 11.5px; color: var(--m-text-dim); }
+
+.seg { display: flex; gap: 4px; margin: 12px 0 10px; padding: 3px; border-radius: 10px; background: var(--m-card-2); }.seg-item {
   flex: 1 1 0; padding: 7px 0; border: 0; border-radius: 8px; background: transparent;
   color: var(--m-text-sub); font: inherit; font-size: 12.5px; cursor: pointer;
 }

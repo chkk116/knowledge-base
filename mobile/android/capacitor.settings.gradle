@@ -35,3 +35,7 @@ project(':capacitor-haptics').projectDir = new File('../node_modules/@capacitor/
 // @capacitor/keyboard（键盘弹出不遮输入框）
 include ':capacitor-keyboard'
 project(':capacitor-keyboard').projectDir = new File('../node_modules/@capacitor/keyboard/android')
+
+// @capacitor/local-notifications（学习计划到点系统通知栏提醒）——手工登记，勿跑 cap sync
+include ':capacitor-local-notifications'
+project(':capacitor-local-notifications').projectDir = new File('../node_modules/@capacitor/local-notifications/android')
