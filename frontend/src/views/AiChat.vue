@@ -4,8 +4,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound, Plus, Delete, EditPen, ChatLineRound, Document,
   Paperclip, Link, ArrowDown, CopyDocument, Refresh, Reading, Promotion,
-  Fold, Expand, VideoPause, Cpu, Search
+  Fold, Expand, VideoPause, Cpu, Search, Select
 } from '@element-plus/icons-vue'
+import ProviderLogo from '../components/ProviderLogo.vue'
 import { useAuthStore } from '../store/auth'
 import {
   aiAsk, listAiModels, listConversations, createConversation, updateConversation,
@@ -122,6 +123,17 @@ function fmtMs(ms) {
 function onModelChange() {
   // 只影响后续提问：切换模型不会改写已有回答（历史回答保留当时的模型与耗时）
   ElMessage.info(selectedModelId.value ? '下一句将使用所选模型' : '下一句将使用默认模型')
+}
+
+// 顶部模型选择器（WorkBuddy 风格）：触发器显示当前模型 + 品牌图标，弹层列表带勾选
+const currentModel = computed(() =>
+  modelList.value.find((m) => String(m.id) === String(selectedModelId.value)) || null)
+const currentModelLabel = computed(() => currentModel.value?.name || '默认模型')
+const currentModelProvider = computed(() => currentModel.value?.provider || '')
+function pickModel(id) {
+  if (String(selectedModelId.value) === String(id)) return
+  selectedModelId.value = id
+  onModelChange()
 }
 function fmtTokens(u) {
   if (!u) return ''
@@ -938,15 +950,42 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
           </div>
         </div>
         <div class="ai-head-right">
-          <el-select
+          <el-popover
             v-if="modelList.length"
-            v-model="selectedModelId" class="ai-model-select" size="small"
-            placeholder="选择模型" @change="onModelChange">
-            <el-option value="" label="使用默认模型" />
-            <el-option
-              v-for="m in modelList" :key="m.id" :value="String(m.id)"
-              :label="m.name + ' · ' + m.model" />
-          </el-select>
+            placement="bottom-end" :width="288" trigger="click"
+            popper-class="aimp-popover" :show-arrow="false" :offset="8">
+            <template #reference>
+              <button type="button" class="aimp-trigger" :title="currentModel ? currentModel.name + ' · ' + currentModel.model : '使用默认模型'">
+                <ProviderLogo v-if="currentModelProvider" :provider="currentModelProvider" :size="16" />
+                <span v-else class="aimp-dot"></span>
+                <span class="aimp-label">{{ currentModelLabel }}</span>
+                <el-icon class="aimp-caret"><ArrowDown /></el-icon>
+              </button>
+            </template>
+
+            <div class="aimp-list">
+              <div class="aimp-head">选择模型</div>
+              <button type="button" class="aimp-row" :class="{ on: !selectedModelId }" @click="pickModel('')">
+                <span class="aimp-ico"><span class="aimp-dot"></span></span>
+                <span class="aimp-main">
+                  <span class="aimp-name">默认模型</span>
+                  <span class="aimp-sub">由管理员指定</span>
+                </span>
+                <el-icon v-if="!selectedModelId" class="aimp-check"><Select /></el-icon>
+              </button>
+              <button
+                v-for="m in modelList" :key="m.id" type="button"
+                class="aimp-row" :class="{ on: String(selectedModelId) === String(m.id) }"
+                @click="pickModel(String(m.id))">
+                <span class="aimp-ico"><ProviderLogo :provider="m.provider" :size="18" /></span>
+                <span class="aimp-main">
+                  <span class="aimp-name">{{ m.name }}</span>
+                  <span class="aimp-sub">{{ m.model }}<template v-if="m.isDefault"> · 默认</template></span>
+                </span>
+                <el-icon v-if="String(selectedModelId) === String(m.id)" class="aimp-check"><Select /></el-icon>
+              </button>
+            </div>
+          </el-popover>
           <el-tooltip v-else content="管理员尚未配置可用模型，AI 暂不可用" placement="bottom" :show-after="200">
             <span class="ai-model-tag is-empty"><span class="ai-dot"></span>未配置模型</span>
           </el-tooltip>
@@ -1257,18 +1296,19 @@ html.dark .ai-model-tag { background: #26264f; border-color: #3a3a63; }
 html.dark .ai-model-tag.is-empty { color: #8b8ca4; background: #1b1b35; border-color: #2b2c4d; }
 
 /* 模型选择下拉 */
-.ai-model-select { width: 200px; }
-.ai-model-select :deep(.el-select__wrapper) {
-  height: 30px; font-size: 12.5px; border-radius: 999px;
-  background: #eef2ff; border-color: #e0e7ff; color: #4f46e5;
+/* 模型选择器（WorkBuddy 风格触发器，2026-10-18） */
+.aimp-trigger {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; max-width: 220px;
+  padding: 0 10px 0 9px; border-radius: 999px; cursor: pointer;
+  background: #eef2ff; border: 1px solid #e0e7ff; color: #4f46e5;
+  font-size: 12.5px; font-family: inherit; transition: background .15s, border-color .15s;
 }
-.ai-model-select :deep(.el-select__placeholder) { color: #818cf8; }
-html.dark .ai-model-select :deep(.el-select__wrapper) {
-  background: #26264f; border-color: #3a3a63; color: #a5b4fc;
-}
-html.dark .ai-model-select :deep(.el-select__placeholder) { color: #8b8ca4; }
-.ai-model-select :deep(.el-select__selected-item),
-.ai-model-select :deep(.el-select__selected-item .el-select__placeholder) { color: inherit; }
+.aimp-trigger:hover { background: #e8edff; border-color: #c7d2fe; }
+.aimp-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aimp-caret { font-size: 12px; opacity: .72; flex: none; }
+.aimp-dot { width: 9px; height: 9px; border-radius: 50%; background: #a5b4fc; flex: none; }
+html.dark .aimp-trigger { background: #26264f; border-color: #3a3a63; color: #a5b4fc; }
+html.dark .aimp-trigger:hover { background: #2e2e5c; border-color: #4a4a7a; }
 
 /* 调用元信息（模型 / 耗时 / token） */
 .ai-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
@@ -1692,7 +1732,7 @@ html.dark .ai-foot-disclaimer { color: #5b5c74; }
   .ai-head-left .ai-title { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ai-head-left .ai-sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ai-model-tag { font-size: 11px; padding: 3px 8px; }
-  .ai-model-select { width: 148px; }
+  .aimp-trigger { max-width: 150px; }
 
   .ai-msgs { gap: 16px; padding: 0 12px; }
   .ai-msg.user { max-width: 100%; }
@@ -1714,4 +1754,30 @@ html.dark .ai-foot-disclaimer { color: #5b5c74; }
   .ai-foot-disclaimer { font-size: 11px; }
   .ai-tobottom { bottom: 8px; }
 }
+</style>
+
+<!-- 模型选择弹层：el-popover 挂到 body，scoped 样式作用不到，需非 scoped（2026-10-18） -->
+<style>
+.aimp-popover.el-popover.el-popper {
+  padding: 6px; border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .14), 0 2px 8px rgba(15, 23, 42, .06);
+}
+html.dark .aimp-popover.el-popover.el-popper { box-shadow: 0 12px 32px rgba(0, 0, 0, .5); }
+.aimp-list { display: flex; flex-direction: column; gap: 2px; }
+.aimp-head { font-size: 11.5px; color: var(--el-text-color-secondary); padding: 6px 10px 4px; }
+.aimp-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border: 0; background: transparent; border-radius: 9px;
+  cursor: pointer; text-align: left; font-family: inherit;
+  transition: background .12s;
+}
+.aimp-row:hover { background: var(--el-fill-color-light); }
+.aimp-row.on { background: var(--el-color-primary-light-9); }
+.aimp-ico { width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.aimp-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.aimp-name { font-size: 13.5px; color: var(--el-text-color-primary); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aimp-sub { font-size: 11.5px; color: var(--el-text-color-secondary); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aimp-check { color: var(--el-color-primary); flex: none; font-size: 15px; }
+.aimp-row .aimp-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--el-color-primary-light-5); }
+html.dark .aimp-row:hover { background: rgba(255, 255, 255, .06); }
 </style>
