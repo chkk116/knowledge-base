@@ -26,8 +26,6 @@ public class AiModel {
     public static final String PROVIDER_DASHSCOPE = "DASHSCOPE";
     public static final String PROVIDER_DEEPSEEK = "DEEPSEEK";
     public static final String PROVIDER_ZHIPU = "ZHIPU";
-    /** OpenCode 推理服务（opencode.ai/inference，OpenAI 兼容；聚合 Kimi/GLM/MiniMax 等开放模型） */
-    public static final String PROVIDER_OPENCODE = "OPENCODE";
     public static final String PROVIDER_CUSTOM = "CUSTOM";
 
     @Id

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
@@ -69,7 +69,6 @@ const CAPS = {
   DASHSCOPE: ['对话'],
   DEEPSEEK: ['对话', '视觉'],
   ZHIPU: ['对话', '视觉'],
-  OPENCODE: ['对话'],
   CUSTOM: ['对话'],
 }
 const capsOf = (key) => CAPS[key] || ['对话']
@@ -145,6 +144,17 @@ const onProviderChange = () => {
   form.model = dm
   if (!form.name.trim()) form.name = dm
 }
+
+/**
+ * 换「模型版本」时让显示名称跟着变。
+ * 判定口径：名称还是「跟着模型走」的状态（为空，或正好等于上一个模型名）就同步成新模型名；
+ * 管理员手填过的自定义名称不动，避免被覆盖。
+ */
+watch(() => form.model, (val, old) => {
+  if (!val) return
+  const n = form.name.trim()
+  if (!n || n === (old || '')) form.name = val
+})
 /** 从指定平台开「新增」（供应商卡片的「密钥设置」走这里） */
 const openAddFor = (key) => {
   Object.assign(form, {

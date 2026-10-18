@@ -248,7 +248,6 @@ public class AiModelClient {
             case AiModel.PROVIDER_DASHSCOPE -> "https://dashscope.aliyuncs.com/compatible-mode/v1";
             case AiModel.PROVIDER_DEEPSEEK -> "https://api.deepseek.com/v1";
             case AiModel.PROVIDER_ZHIPU -> "https://open.bigmodel.cn/api/paas/v4";
-            case AiModel.PROVIDER_OPENCODE -> "https://opencode.ai/inference/openai/v1";
             default -> "https://api.openai.com/v1";
         };
     }
