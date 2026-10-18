@@ -95,6 +95,31 @@ public class AdminAiModelController {
             mv("glm-4.6", "GLM-4.6（开源 / 多模态）"));
 
     /**
+     * OpenCode 推理服务（OpenAI 兼容端点 https://opencode.ai/inference/openai/v1）。
+     *
+     * ⚠️ 实测结论（2026-10-18，key 有效、余额 0）：
+     *   - 免费模型（*-free / big-pickle）：**403 FreeTierError「can only be used from within OpenCode」**。
+     *     `/inference/openai/v1` 与 `/zen/v1` 两个端点表现一致，换端点/换模型 ID 都绕不过。
+     *   - 付费模型：**402 Insufficient account funds**（key 有效，充值即用）。
+     *   因此免费模型仍列出供参考，但标注「仅官方客户端」；默认选付费模型。
+     *   beam-free 另因「中国大陆及港澳不可用」不列入。
+     */
+    static final List<Map<String, Object>> OPENCODE_MODELS = List.of(
+            mv("deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash 免费（仅官方客户端）"),
+            mv("glm-5.3-flash-free", "GLM-5.3 Flash 免费（仅官方客户端）"),
+            mv("big-pickle", "Big Pickle 免费（仅官方客户端）"),
+            mv("nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning 免费（仅官方客户端）"),
+            mv("nemotron-3.5-super-vl-free", "Nemotron 3.5 Super VL 免费（仅官方客户端，视觉）"),
+            mv("mimo-v2.6-flash-free", "MiMo v2.6 Flash 免费（仅官方客户端）"),
+            mv("longcat-2.5-preview-free", "LongCat 2.5 Preview 免费（仅官方客户端）"),
+            mv("space-bunny-free", "Space Bunny 免费（仅官方客户端）"),
+            mv("jev-1.13-free", "Jev 1.13 免费（仅官方客户端，结构化决策）"),
+            mv("deepseek-v4.1-flash", "DeepSeek V4.1 Flash（付费）"),
+            mv("glm-5.3", "GLM-5.3（付费）"),
+            mv("kimi-k2.6", "Kimi K2.6（付费，长上下文）"),
+            mv("minimax-m2.7", "MiniMax M2.7（付费）"));
+
+    /**
      * 支持的平台：各平台都提供 OpenAI 兼容端点。
      * baseUrl 由平台固定（官方端点，管理页自动填充，无需管理员手抄）；defaultModel + models
      * 供管理页的「模型版本」下拉使用，选中即填入实际调用的模型名。
@@ -116,6 +141,10 @@ public class AdminAiModelController {
                     "baseUrl", "https://open.bigmodel.cn/api/paas/v4",
                     "defaultModel", "glm-4.7-flash", "models", ZHIPU_MODELS,
                     "doc", "https://open.bigmodel.cn/usercenter/apikeys"),
+            Map.of("key", AiModel.PROVIDER_OPENCODE, "label", "OpenCode 推理服务",
+                    "baseUrl", "https://opencode.ai/inference/openai/v1",
+                    "defaultModel", "deepseek-v4.1-flash", "models", OPENCODE_MODELS,
+                    "doc", "https://opencode.ai/v2/docs/console/models/"),
             Map.of("key", AiModel.PROVIDER_CUSTOM, "label", "自定义（任何 OpenAI 兼容端点）",
                     "baseUrl", "https://api.openai.com/v1",
                     "defaultModel", "", "models", List.of(),
