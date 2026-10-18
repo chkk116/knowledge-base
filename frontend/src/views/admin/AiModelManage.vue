@@ -121,6 +121,9 @@ const load = async () => {
   }
 }
 
+// 切换「供应商视图 / 配置列表」时重新拉一次，保证两个视图看到的是同一份最新数据
+watch(viewMode, () => { load() })
+
 // ---------- 新增 / 编辑 ----------
 const dialog = ref(false)
 const saving = ref(false)
@@ -188,9 +191,21 @@ const submit = async () => {
   if (!form.id && !form.apiKey.trim()) return ElMessage.warning('请填写该平台的 API Key')
   saving.value = true
   try {
-    await adminSaveModel({ ...form, apiKey: (form.apiKey || '').trim() })
+    const { data: res } = await adminSaveModel({ ...form, apiKey: (form.apiKey || '').trim() })
     ElMessage.success('已保存')
     dialog.value = false
+    // 乐观更新：先把这条写进本地列表，供应商卡片的「已配置」立刻跟着变，
+    // 不用等第二次拉取（曾经出现「配置列表已经有了、供应商视图还是未配置」）。
+    const row = {
+      id: res?.id ?? form.id,
+      provider: String(form.provider || '').toUpperCase(),
+      name: form.name, baseUrl: form.baseUrl, model: form.model,
+      enabled: !!form.enabled, isDefault: !!form.isDefault,
+      hasKey: true, keyMasked: form.keyMasked || '',
+    }
+    const idx = models.value.findIndex(m => m.id === row.id)
+    if (idx >= 0) models.value.splice(idx, 1, { ...models.value[idx], ...row })
+    else models.value.push(row)
     await load()
   } catch (e) {
     ElMessage.error('保存失败')
