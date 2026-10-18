@@ -64,10 +64,14 @@ public class AdminAiModelController {
             mv("qwen3-max", "通义千问 3 Max"),
             mv("qwen2.5-72b-instruct", "Qwen2.5 72B（开源版）"));
 
-    /** DeepSeek 现役 id 只有 deepseek-flash（V4.1-Flash）与 deepseek-v4-pro；chat/reasoner 是 V3 时代旧别名 */
+    /** DeepSeek 现役 id 只有 deepseek-flash（2026-10-17 升级为 DeepSeek-V4.1-Flash-1017，调用方式/价格不变）
+     *  与 deepseek-v4-pro；deepseek-v4-flash* 旧名仍可调用但模型已下线（路由到 1017 按 Flash 价计费），
+     *  chat/reasoner 是 V3 时代旧别名。 */
     static final List<Map<String, Object>> DEEPSEEK_MODELS = List.of(
-            mv("deepseek-flash", "DeepSeek V4.1 Flash（最新，原生多模态，1M 上下文）"),
+            mv("deepseek-flash", "DeepSeek V4.1 Flash 1017（最新，原生多模态，1M 上下文）"),
             mv("deepseek-v4-pro", "DeepSeek V4 Pro（上一代旗舰，现路由到 V4.1 Flash）"),
+            mv("deepseek-v4-flash", "旧名 V4 Flash（模型已下线，路由至 1017 按 Flash 价计费）"),
+            mv("deepseek-v4-flash-vision-exp", "旧名 V4 Flash 视觉实验版（模型已下线，路由至 1017）"),
             mv("deepseek-chat", "旧版对话别名（V3 时代，兼容保留）"),
             mv("deepseek-reasoner", "旧版推理别名（V3 时代，兼容保留）"));
 
