@@ -39,11 +39,31 @@ export async function getCachedApk(checksum) {
   return null
 }
 
-/** 直接拉起已下载包的安装界面（不重新下载）。缓存被系统清掉时会抛错，调用方应回落到下载。 */
+/**
+ * 直接拉起已下载包的安装界面（不重新下载）。缓存被系统清掉时会抛错，调用方应回落到下载。
+ *
+ * 2026-10-18：缺「安装未知应用」授权时原生只跳设置页不装——这里补挂 needInstallPermission 监听
+ * （原生事件本来就会发，只是复用路径没注册没人接），并把 launched 透传给调用方，
+ * 调用方据此给「去授权」提示，而不是弹假成功。
+ * @returns {Promise<{launched:boolean}>} 老包没有该字段时按成功处理
+ */
 export async function installCachedApk(filePath) {
   const P = window.Capacitor?.Plugins?.ApkInstaller
   if (!filePath || !P?.install) throw new Error('当前版本不支持直接安装，将重新下载')
-  await P.install({ filePath })
+  let handle = null
+  try {
+    if (P.addListener) {
+      handle = await P.addListener('needInstallPermission', () => {
+        window.__kbMsg?.warning('请先允许本应用「安装未知应用」，授权后返回再点「立即安装」')
+      })
+    }
+  } catch { /* 监听注册失败不影响主流程 */ }
+  try {
+    const r = await P.install({ filePath })
+    return { launched: r?.launched !== false }
+  } finally {
+    try { handle?.remove?.() } catch { /* ignore */ }
+  }
 }
 
 /**

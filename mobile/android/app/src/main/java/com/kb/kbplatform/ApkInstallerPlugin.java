@@ -170,8 +170,12 @@ public class ApkInstallerPlugin extends Plugin {
             call.reject("正在下载更新包，请稍后再试");
             return;
         }
-        launchInstall(f);
-        call.resolve();
+        // 2026-10-18：把真实结果回传——缺「安装未知应用」授权时 launchInstall 只跳设置页并返回 false，
+        // 旧实现无条件 resolve 会让 JS 弹「正在打开安装界面」的假成功提示
+        boolean launched = launchInstall(f);
+        JSObject res = new JSObject();
+        res.put("launched", launched);
+        call.resolve(res);
     }
 
     /**
@@ -213,7 +217,7 @@ public class ApkInstallerPlugin extends Plugin {
 
     /** 文件的 SHA-256 是否与期望值一致；任何异常都按「不一致」处理（fail-closed） */
     private boolean matchesSha256(File f, String expected) {
-        if (f == null || !f.exists() || expected == null || expected.isBlank()) return false;
+        if (f == null || !f.exists() || expected == null || expected.trim().isEmpty()) return false;
         try {
             return sha256Hex(f).equalsIgnoreCase(expected.trim());
         } catch (Exception e) {
@@ -246,7 +250,7 @@ public class ApkInstallerPlugin extends Plugin {
             c.connect();
             int code = c.getResponseCode();
             String loc = c.getHeaderField("Location");
-            if (code >= 300 && code < 400 && loc != null && !loc.isBlank()) {
+            if (code >= 300 && code < 400 && loc != null && !loc.trim().isEmpty()) {
                 c.disconnect();
                 cur = new URL(new URL(cur), loc).toString();   // 相对 Location 基于当前 URL 解析
                 continue;
@@ -312,7 +316,7 @@ public class ApkInstallerPlugin extends Plugin {
         // SHA-256 完整性校验：checksum 由后端 SysSetting 随更新信息下发（构建脚本算出）。
         // 第四轮审查（2026-10-14）：无条件 fail-closed——缺值即删包报错，
         // 与 downloadAndInstall 入口的拒绝双保险（原 fail-open 分支与策略自相矛盾）
-        if (expectedSha256 == null || expectedSha256.isBlank()) {
+        if (expectedSha256 == null || expectedSha256.trim().isEmpty()) {
             out.delete();
             throw new Exception("缺少 SHA-256 校验值，已删除下载包");
         }

@@ -79,8 +79,12 @@ async function checkUpdate() {
           if (cached) {
             // 复用本地包，不再重复下载十几 MB
             try {
-              await installCachedApk(cached.filePath)
-              window.__kbMsg?.success('已下载完成，正在打开安装界面')
+              const r = await installCachedApk(cached.filePath)
+              if (r && r.launched === false) {
+                window.__kbMsg?.warning('请先允许本应用「安装未知应用」，授权后返回再点「立即安装」')
+              } else {
+                window.__kbMsg?.success('已下载完成，正在打开安装界面')
+              }
               return
             } catch {
               // 缓存被系统清掉了（cacheDir 可被回收）→ 回落到正常下载
