@@ -76,7 +76,15 @@ public class AdminAiModelController {
             mv("deepseek-reasoner", "旧版推理别名（V3 时代，兼容保留）"));
 
     /** 智谱走 open.bigmodel.cn 的 v4 端点，model id 一律小写；5.x 起是推理模型，注意 thinking 会吃 token */
+    /**
+     * 智谱 GLM 预设。**Flash 系列是真免费**（无需充值，仅并发/速率受限），排在最前；
+     * 其余为按量付费的旗舰/主力模型。注册即送额度，见 https://open.bigmodel.cn/usercenter/apikeys
+     */
     static final List<Map<String, Object>> ZHIPU_MODELS = List.of(
+            mv("glm-4.7-flash", "GLM-4.7-Flash（免费，200K 上下文，编程强）"),
+            mv("glm-4.5-flash", "GLM-4.5-Flash（免费）"),
+            mv("glm-4-flash", "GLM-4-Flash（免费，128K 上下文 / 30 并发）"),
+            mv("glm-4.6v-flash", "GLM-4.6V-Flash（免费，视觉多模态）"),
             mv("glm-5.3", "GLM-5.3（最新旗舰）"),
             mv("glm-5.3-flash", "GLM-5.3-Flash（旗舰快速版·约9倍性价比/多模态）"),
             mv("glm-5.2", "GLM-5.2"),
@@ -131,7 +139,7 @@ public class AdminAiModelController {
                     "doc", "https://platform.deepseek.com/api_keys"),
             Map.of("key", AiModel.PROVIDER_ZHIPU, "label", "智谱 GLM",
                     "baseUrl", "https://open.bigmodel.cn/api/paas/v4",
-                    "defaultModel", "glm-5.3", "models", ZHIPU_MODELS,
+                    "defaultModel", "glm-4.7-flash", "models", ZHIPU_MODELS,
                     "doc", "https://open.bigmodel.cn/usercenter/apikeys"),
             Map.of("key", AiModel.PROVIDER_OPENCODE, "label", "OpenCode 推理服务",
                     "baseUrl", "https://opencode.ai/inference/openai/v1",
