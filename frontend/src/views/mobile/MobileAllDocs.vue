@@ -2,8 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { listAllShareDocs, listMyShares, setShareDocTags } from '../../api/docShare'
+import { listAllShareDocs, listMyShares, setShareDocTags, exportAllShareDocs } from '../../api/docShare'
 import { contentMatches, snippetOf, clearDocSearchCache } from '../../utils/docSearch'
+import { saveBinaryFile } from '../../utils/shareOut'
 
 const router = useRouter()
 const loading = ref(true)
@@ -104,6 +105,29 @@ function clearFilters() {
   timeFilter.value = ''
 }
 function openDoc(doc) { router.push(`/doc/${doc.shareId}/${doc.id}`) }
+
+// ---------- 整库导出（需 DOC_EXPORT 权限，ADMIN 隐式拥有） ----------
+const exporting = ref(false)
+/** 原生走「写缓存 → 系统分享面板」，用户可存到文件/发自己；Web 端直接下载 */
+async function doExport() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const { data } = await exportAllShareDocs()
+    const name = `知识库导出-${new Date().toISOString().slice(0, 10)}.zip`
+    const r = await saveBinaryFile({ filename: name, blob: data, mime: 'application/zip' })
+    if (r === 'download') window.__kbMsg?.success('已开始下载')
+  } catch (e) {
+    let msg = ''
+    const d = e?.response?.data
+    if (d instanceof Blob && d.size && d.size < 4096) {
+      try { msg = JSON.parse(await d.text())?.error || '' } catch { /* 不是 JSON 就用默认 */ }
+    } else if (typeof d?.error === 'string') msg = d.error
+    window.__kbMsg?.error(msg || '导出失败（需要 DOC_EXPORT 权限）')
+  } finally {
+    exporting.value = false
+  }
+}
 function canTag(doc) { return ['OWNER', 'ADMIN', 'WRITE'].includes(String(doc.myPerm || '').toUpperCase()) }
 
 async function editTags(doc) {
@@ -151,6 +175,9 @@ onMounted(load)
         <input v-model="keyword" type="search" placeholder="搜索标题、标签或正文" />
         <button v-if="keyword" class="clear-search" type="button" aria-label="清除搜索" @click.prevent="keyword = ''"><el-icon><Close /></el-icon></button>
       </label>
+      <button class="export-btn" type="button" :disabled="exporting" @click="doExport">
+        <el-icon><Download /></el-icon><span>{{ exporting ? '打包中' : '导出' }}</span>
+      </button>
       <div class="filters">
         <select v-model="tagFilter" aria-label="按标签筛选">
           <option value="">全部标签</option>
@@ -255,6 +282,9 @@ onMounted(load)
 .tag-pill { max-width: 150px; padding: 3px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: 999px; background: var(--m-primary-soft); color: var(--m-primary); font: inherit; font-size: 10.5px; }
 /* 正文命中的上下文片段：比标题淡、比 meta 深，一眼看出「为什么搜到这条」 */
 .doc-hit { display: block; margin-top: 3px; font-size: 12px; line-height: 1.45; color: var(--m-text-dim); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+/* 整库导出入口（需 DOC_EXPORT 权限） */
+.export-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--m-primary-soft, #e8f3ff); color: var(--m-primary, #1677ff); font-size: 12px; }
+.export-btn:disabled { opacity: .6; }
 .more-btn { flex: none; width: 42px; border: 0; background: transparent; color: var(--m-text-dim); }
 .empty { padding: 30px 16px; text-align: center; color: var(--m-text-dim); font-size: 13px; }
 .empty-icon { margin-bottom: 6px; color: var(--m-primary); }

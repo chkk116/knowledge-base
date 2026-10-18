@@ -136,6 +136,60 @@ export async function saveTextFile({ filename, content, mime = 'text/plain' }) {
   return downloadBlob(filename, content, mime) ? 'download' : false
 }
 
+/**
+ * 保存二进制文件（zip 等）。
+ * 原生：写入缓存目录 → 拉起系统分享面板（用户自行存到「文件」/发给自己/用 WPS 打开）
+ * Web ：直接下载
+ *
+ * ⚠️ 不要复用上面的 saveTextFile：它走 `content.text()`，二进制（zip）会被当 UTF-8
+ *    读一遍再 base64，等二次编码后包体已损坏，解压必然失败。
+ * @returns 'share' | 'download' | false
+ */
+export async function saveBinaryFile({ filename, blob, mime = 'application/octet-stream' }) {
+  if (!blob) return false
+  const Filesystem = capPlugin('Filesystem')
+  const Share = capPlugin('Share')
+  if (Filesystem?.writeFile) {
+    let b64 = ''
+    try { b64 = await blobToBase64(blob) } catch { b64 = '' }
+    if (b64) {
+      try {
+        const { uri } = await Filesystem.writeFile({
+          path: filename,
+          data: b64,
+          directory: 'CACHE',
+          encoding: 'base64',
+        })
+        if (Share?.share) {
+          try {
+            await Share.share({ title: filename, files: [uri], dialogTitle: '保存 / 分享' })
+            return 'share'
+          } catch (e) {
+            if (/cancel/i.test(String(e?.message || e))) return 'share'
+            return downloadBlob(filename, blob, mime) ? 'download' : false
+          }
+        }
+        return 'share'
+      } catch { /* 落下面 */ }
+    }
+  }
+  return downloadBlob(filename, blob, mime) ? 'download' : false
+}
+
+/** Blob → base64（FileReader 一次成型，别自己拼 String.fromCharCode，几 MB 就卡死） */
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onerror = () => reject(fr.error)
+    fr.onload = () => {
+      const s = String(fr.result || '')
+      const i = s.indexOf(',')
+      resolve(i >= 0 ? s.slice(i + 1) : s)
+    }
+    fr.readAsDataURL(blob)
+  })
+}
+
 /** 文件名安全化 */
 export function safeName(title, ext) {
   const base = String(title || 'document').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60) || 'document'

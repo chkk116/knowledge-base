@@ -9,10 +9,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Collection } from '@element-plus/icons-vue'
+import { Search, Collection, Download } from '@element-plus/icons-vue'
 import { contentMatches, snippetOf, clearDocSearchCache } from '../utils/docSearch'
-import { listAllShareDocs, listMyShares, setShareDocTags } from '../api/docShare'
+import { listAllShareDocs, listMyShares, setShareDocTags, exportAllShareDocs } from '../api/docShare'
 import { errMsg } from '../utils/errMsg'
+import { saveBinaryFile } from '../utils/shareOut'
 
 const router = useRouter()
 const loading = ref(false)
@@ -172,6 +173,34 @@ async function removeTag(row, tag) {
 }
 
 onMounted(load)
+
+// ---------- 整库导出（需 DOC_EXPORT 权限，ADMIN 隐式拥有） ----------
+const exporting = ref(false)
+/**
+ * 导出范围由后端按空间级/文档级权限逐条裁决，只能是「我能看的」那一部分。
+ * 403 时后端返回的是 JSON，但 responseType=blob 会让错误体也变成 Blob，
+ * 所以这里小体积时把它读出来，给出真实原因而不是笼统的「导出失败」。
+ */
+async function doExport() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const { data } = await exportAllShareDocs()
+    const name = `知识库导出-${new Date().toISOString().slice(0, 10)}.zip`
+    const r = await saveBinaryFile({ filename: name, blob: data, mime: 'application/zip' })
+    if (r === 'download') ElMessage.success('已开始下载')
+    else if (!r) ElMessage.error('导出失败，请重试')
+  } catch (e) {
+    let msg = ''
+    const d = e?.response?.data
+    if (d instanceof Blob && d.size && d.size < 4096) {
+      try { msg = JSON.parse(await d.text())?.error || '' } catch { /* 不是 JSON 就用默认文案 */ }
+    } else if (typeof d?.error === 'string') msg = d.error
+    ElMessage.error(msg || errMsg(e) || '导出失败（需要 DOC_EXPORT 权限）')
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -183,6 +212,10 @@ onMounted(load)
       <el-input v-model="keyword" placeholder="搜索标题、标签或正文" clearable style="width: 240px">
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
+      <el-button :loading="exporting" style="margin-left: 8px" @click="doExport">
+        <el-icon><Download /></el-icon>
+        <span style="margin-left: 4px">导出全部</span>
+      </el-button>
       <el-select v-model="tagFilter" placeholder="全部标签" clearable style="width: 140px">
         <el-option v-for="t in allTags" :key="t" :label="t" :value="t" />
       </el-select>

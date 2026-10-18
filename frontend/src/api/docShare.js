@@ -34,6 +34,12 @@ export const listShareDocs = (id) => api.get('/doc-shares/' + pid(id) + '/docs')
 // withContent=true 时一并返回正文（服务端截断到 20000 字符），供「全部文档」做正文检索
 export const listAllShareDocs = (withContent = false) =>
   api.get('/doc-shares/docs/all', { params: withContent ? { withContent: true } : {} })
+
+/**
+ * 整库导出：返回 zip 的 Blob（需 DOC_EXPORT 权限，ADMIN 隐式拥有）。
+ * 导出范围 = 后端按空间级/文档级逐条裁决后的「用户可读范围」，不存在越权。
+ */
+export const exportAllShareDocs = () => api.get('/doc-shares/export', { responseType: 'blob' })
 // 更新单篇文档标签（空数组清除标签）
 export const setShareDocTags = (id, docId, tags) =>
   api.put('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/tags', { tags })

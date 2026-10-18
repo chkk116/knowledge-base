@@ -637,6 +637,70 @@ public class DocShareService {
         return s.length() <= max ? s : s.substring(0, max);
     }
 
+    /**
+     * 整库导出：zip = 每篇一个 .html + 一份 index.md 清单。
+     *
+     * 复用 listAllDocs(…, true) 的逐条权限裁决，导出范围天然等于「用户可读范围」，
+     * 不存在越权导出他人空间的问题。体积上限 200MB，超出直接拒绝，避免内存被打爆。
+     */
+    public byte[] buildExportZip(Long userId, boolean sysAdmin) {
+        List<SharedDocument> docs = listAllDocs(userId, sysAdmin, true);
+        if (docs.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "没有可导出的文档");
+        final long MAX = 200L * 1024 * 1024;
+
+        String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date());
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        StringBuilder manifest = new StringBuilder();
+        manifest.append("# 知识库导出（").append(stamp).append("）\n\n")
+                .append("- 文档数：").append(docs.size()).append("\n");
+
+        java.util.Set<String> used = new java.util.HashSet<>();   // 同名（空间/标题）去重
+        int n = 0;
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(bos)) {
+            for (SharedDocument d : docs) {
+                String space = safeName(d.getSpaceName());
+                String title = safeName(d.getTitle());
+                String base = space + "/" + title;
+                String entry = base;
+                int i = 2;
+                while (!used.add(entry.toLowerCase(java.util.Locale.US))) entry = base + "-" + (i++);
+                entry = (++n) + "-" + entry + ".html";
+
+                zos.putNextEntry(new java.util.zip.ZipEntry(entry));
+                zos.write(wrapHtml(d.getTitle(), d.getContent()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zos.closeEntry();
+
+                manifest.append("\n## ").append(n).append(". ").append(d.getTitle() == null ? "" : d.getTitle()).append('\n')
+                        .append("- 空间：").append(d.getSpaceName() == null ? "" : d.getSpaceName()).append('\n')
+                        .append("- 文件：`").append(entry).append("`\n");
+                String tags = d.getTags();
+                if (tags != null && !tags.trim().isEmpty()) manifest.append("- 标签：").append(tags).append('\n');
+
+                if (bos.size() > MAX) throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "导出体积超过 200MB 上限");
+            }
+            zos.putNextEntry(new java.util.zip.ZipEntry("index.md"));
+            zos.write(manifest.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zos.closeEntry();
+        } catch (java.io.IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "导出失败：" + e.getMessage());
+        }
+        return bos.toByteArray();
+    }
+
+    /** 导出条目名安全化：去路径分隔符与 Windows 保留字符、压缩空白、限长 60 */
+    private static String safeName(String s) {
+        String t = s == null ? "" : s.replaceAll("[\\\\/:*?\"<>|\r\n\t]", "_").replaceAll("\\s+", " ").trim();
+        if (t.isEmpty()) t = "untitled";
+        return t.length() > 60 ? t.substring(0, 60) : t;
+    }
+
+    /** 把正文包成能独立打开的 HTML（图片/链接保留原样，通常已是绝对地址） */
+    private static String wrapHtml(String title, String body) {
+        String t = title == null ? "" : title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>" + t
+                + "</title></head><body><h1>" + t + "</h1>" + (body == null ? "" : body) + "</body></html>";
+    }
+
     /** 仅可写入者可更新标签；标签是元数据，不生成正文版本快照。 */
     @Transactional(rollbackFor = Exception.class)
     public SharedDocument updateDocTags(Long shareId, Long docId, List<String> tags, Long userId, boolean sysAdmin) {

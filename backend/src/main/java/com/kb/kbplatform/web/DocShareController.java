@@ -14,7 +14,11 @@ import com.kb.kbplatform.service.DocShareCreateRequestService;
 import com.kb.kbplatform.service.DocShareService;
 import com.kb.kbplatform.service.DocumentImportService;
 import com.kb.kbplatform.service.OcrService;
+import java.net.URLEncoder;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
@@ -177,6 +181,27 @@ public class DocShareController {
     public List<SharedDocument> allDocs(@RequestAttribute("kbUser") TokenClaims c,
                                         @RequestParam(value = "withContent", defaultValue = "false") boolean withContent) {
         return svc.listAllDocs(resolveUserId(c), isSysAdmin(c), withContent);
+    }
+
+    /**
+     * 整库导出：把当前用户可读的全部共享文档打包成 zip 下载。
+     *
+     * 权限走细粒度 DOC_EXPORT（ADMIN 隐式拥有；普通用户需在「角色管理」显式授予）。
+     * 复用 listAllDocs 的逐条权限裁决，因此每个人只能导出自己有权看的部分。
+     */
+    @GetMapping(value = "/export", produces = "application/zip")
+    public ResponseEntity<byte[]> export(@RequestAttribute("kbUser") TokenClaims c) {
+        if (c == null || !c.hasPerm("DOC_EXPORT")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权导出文档库（需 DOC_EXPORT 权限）");
+        }
+        byte[] zip = svc.buildExportZip(resolveUserId(c), isSysAdmin(c));
+        String fname = "kb-export-" + System.currentTimeMillis() + ".zip";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/zip"));
+        try {
+            headers.setContentDispositionFormData("attachment", URLEncoder.encode(fname, "UTF-8").replace("+", "%20"));
+        } catch (Exception ignored) { /* 用默认文件名 */ }
+        return new ResponseEntity<>(zip, headers, HttpStatus.OK);
     }
 
     @PostMapping("/{id}/docs")
