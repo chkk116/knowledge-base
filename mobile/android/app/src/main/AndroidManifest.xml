@@ -26,29 +26,49 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 系统「分享」面板：分享 PDF / 图片 / 文本 时出现「知识库」。
-                 由 ShareReceiverPlugin 接住 URI → 复制到缓存 → 交给 Web 导入成文档。 -->
+            <!-- 系统「分享」面板：分享 PDF / 图片 / 文本 / 压缩包 时出现「知识库」。
+                 由 ShareReceiverPlugin 接住 URI → 复制到缓存 → 交给 Web 导入成文档。
+
+                 ⚠️ 压缩包必须单独注册：微信等平台有时会把 PDF/图片先打包成 zip 再分享，
+                 此时条目的 MIME 变成 application/zip，清单里没有它，「知识库」就不会出现在
+                 分享列表里（用户表现为「分享里看不到我们」）。octet-stream 兜底那些
+                 MIME 标不出来的文件，进来后按魔数再判断。 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="image/*" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-rar-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="image/*" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-rar-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
 
-            <!-- 「用其他应用打开」列表（微信文件预览右上「…」走这条）：PDF / 图片 -->
+            <!-- 「用其他应用打开」列表（微信文件预览右上「…」走这条）：PDF / 图片 / 压缩包 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="image/*" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-rar-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
 
         </activity>

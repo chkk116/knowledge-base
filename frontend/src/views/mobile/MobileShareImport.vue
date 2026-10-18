@@ -41,11 +41,41 @@ function titleOf(f) {
   return String(f.name || '分享的文档').replace(/\.[^.]+$/, '') || '分享的文档'
 }
 
+/** 看起来像压缩包？（MIME 或扩展名任一命中即可，真实类型由原生按魔数判断） */
+function isArchive(f) {
+  const m = String(f?.mime || '').toLowerCase()
+  const n = String(f?.name || '').toLowerCase()
+  return /zip|rar|7z|compressed/.test(m) || /\.(zip|rar|7z)$/.test(n)
+}
+
+/**
+ * 展开压缩包：部分平台（含微信某些转发路径）会把 PDF/图片先打包再分享。
+ * 原生按魔数识别，ZIP 就地解压成多个条目；真 RAR 会抛错，这里提示用户先手动解压。
+ */
+async function expandArchives(list) {
+  const P = window.Capacitor?.Plugins?.ShareReceiver
+  if (!P?.extract) return list
+  const out = []
+  for (const f of list) {
+    if (!isArchive(f) || !f.path) { out.push(f); continue }
+    try {
+      const r = await P.extract({ path: f.path })
+      const inner = Array.isArray(r?.files) ? r.files : []
+      if (inner.length) out.push(...inner)
+      else out.push(f)
+    } catch (e) {
+      window.__kbMsg?.warning(String(f.name || '压缩包') + '：' + (e?.message || '解压失败'))
+    }
+  }
+  return out
+}
+
 async function load() {
   // 优先用路由传入的（热启动跳转时带过来），否则问原生取
   const passed = window.__kbShareFiles
-  files.value = Array.isArray(passed) && passed.length ? passed : await getPendingShares()
+  const raw = Array.isArray(passed) && passed.length ? passed : await getPendingShares()
   window.__kbShareFiles = null
+  files.value = await expandArchives(raw)
   try {
     spaces.value = await mySpaces()
     const def = lastSpaceId() || (await resolveDefaultSpaceId())
