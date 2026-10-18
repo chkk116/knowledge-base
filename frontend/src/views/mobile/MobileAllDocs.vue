@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { listAllShareDocs, listMyShares, setShareDocTags } from '../../api/docShare'
+import { contentMatches, snippetOf, clearDocSearchCache } from '../../utils/docSearch'
 
 const router = useRouter()
 const loading = ref(true)
@@ -51,7 +52,11 @@ const shown = computed(() => {
   const from = days ? now - days * 86400000 : 0
   return docs.value.filter((doc) => {
     const tags = tagsOf(doc)
-    if (q && !String(doc.title || '').toLocaleLowerCase().includes(q) && !tags.some((t) => t.toLocaleLowerCase().includes(q))) return false
+    // 标题 / 标签 / 正文 三处任一命中即可（正文检索见 utils/docSearch.js）
+    if (q
+      && !String(doc.title || '').toLocaleLowerCase().includes(q)
+      && !tags.some((t) => t.toLocaleLowerCase().includes(q))
+      && !contentMatches(doc, q)) return false
     if (tagFilter.value && !tags.some((t) => t.toLocaleLowerCase() === tagFilter.value.toLocaleLowerCase())) return false
     if (spaceFilter.value && String(doc.shareId) !== spaceFilter.value) return false
     if (typeFilter.value && doc.contentType !== typeFilter.value) return false
@@ -65,12 +70,23 @@ const shown = computed(() => {
 
 const filtersActive = computed(() => !!(keyword.value.trim() || tagFilter.value || spaceFilter.value || typeFilter.value || timeFilter.value))
 
+/** 关键词命中正文时，在标题下方显示一小段上下文 */
+function hitSnippet(doc) {
+  const q = keyword.value.trim().toLocaleLowerCase()
+  if (!q) return ''
+  // 标题/标签已经命中就不必再显示正文片段了
+  if (String(doc.title || '').toLocaleLowerCase().includes(q)) return ''
+  if (tagsOf(doc).some((t) => t.toLocaleLowerCase().includes(q))) return ''
+  return snippetOf(doc, q)
+}
+
 async function load() {
   loading.value = true
   try {
-    const [docRes, spaceRes] = await Promise.all([listAllShareDocs(), listMyShares()])
+    const [docRes, spaceRes] = await Promise.all([listAllShareDocs(true), listMyShares()])
     docs.value = Array.isArray(docRes.data) ? docRes.data : []
     spaces.value = Array.isArray(spaceRes.data) ? spaceRes.data : []
+    clearDocSearchCache()   // 列表刷新后丢弃旧的正文缓存
   } catch (e) {
     docs.value = []
     spaces.value = []
@@ -132,7 +148,7 @@ onMounted(load)
     <div class="body filter-body">
       <label class="searchbox">
         <el-icon><Search /></el-icon>
-        <input v-model="keyword" type="search" placeholder="搜索标题或标签" />
+        <input v-model="keyword" type="search" placeholder="搜索标题、标签或正文" />
         <button v-if="keyword" class="clear-search" type="button" aria-label="清除搜索" @click.prevent="keyword = ''"><el-icon><Close /></el-icon></button>
       </label>
       <div class="filters">
@@ -179,6 +195,8 @@ onMounted(load)
             <span v-if="tagsOf(doc).length" class="tag-list">
               <span v-for="tag in tagsOf(doc)" :key="tag" class="tag-pill"># {{ tag }}</span>
             </span>
+            <!-- 正文命中时给一小段上下文，说明「为什么这条会被搜到」 -->
+            <span v-if="hitSnippet(doc)" class="doc-hit">{{ hitSnippet(doc) }}</span>
           </button>
           <button class="more-btn" type="button" aria-label="文档操作" @click="sheetDoc = doc"><el-icon><MoreFilled /></el-icon></button>
         </div>
@@ -235,6 +253,8 @@ onMounted(load)
 .dot-sep { opacity: .55; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .tag-pill { max-width: 150px; padding: 3px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: 999px; background: var(--m-primary-soft); color: var(--m-primary); font: inherit; font-size: 10.5px; }
+/* 正文命中的上下文片段：比标题淡、比 meta 深，一眼看出「为什么搜到这条」 */
+.doc-hit { display: block; margin-top: 3px; font-size: 12px; line-height: 1.45; color: var(--m-text-dim); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
 .more-btn { flex: none; width: 42px; border: 0; background: transparent; color: var(--m-text-dim); }
 .empty { padding: 30px 16px; text-align: center; color: var(--m-text-dim); font-size: 13px; }
 .empty-icon { margin-bottom: 6px; color: var(--m-primary); }

@@ -10,6 +10,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Collection } from '@element-plus/icons-vue'
+import { contentMatches, snippetOf, clearDocSearchCache } from '../utils/docSearch'
 import { listAllShareDocs, listMyShares, setShareDocTags } from '../api/docShare'
 import { errMsg } from '../utils/errMsg'
 
@@ -65,7 +66,11 @@ const shown = computed(() => {
   const from = days ? Date.now() - days * 86400000 : 0
   return docs.value.filter((d) => {
     const tags = tagsOf(d)
-    if (q && !String(d.title || '').toLowerCase().includes(q) && !tags.some((t) => t.toLowerCase().includes(q))) return false
+    // 标题 / 标签 / 正文 三处任一命中即可（正文检索见 utils/docSearch.js）
+    if (q
+      && !String(d.title || '').toLowerCase().includes(q)
+      && !tags.some((t) => t.toLowerCase().includes(q))
+      && !contentMatches(d, q)) return false
     if (tagFilter.value && !tags.some((t) => t.toLowerCase() === tagFilter.value.toLowerCase())) return false
     if (spaceFilter.value && Number(d.shareId) !== Number(spaceFilter.value)) return false
     if (typeFilter.value && d.contentType !== typeFilter.value) return false
@@ -79,12 +84,22 @@ const shown = computed(() => {
 
 const filtersActive = computed(() => !!(keyword.value.trim() || tagFilter.value || spaceFilter.value || typeFilter.value || timeFilter.value))
 
+/** 关键词命中正文时，在标题下方显示一小段上下文 */
+function hitSnippet(row) {
+  const q = keyword.value.trim().toLowerCase()
+  if (!q) return ''
+  if (String(row.title || '').toLowerCase().includes(q)) return ''
+  if (tagsOf(row).some((t) => t.toLowerCase().includes(q))) return ''
+  return snippetOf(row, q)
+}
+
 async function load() {
   loading.value = true
   try {
-    const [a, s] = await Promise.all([listAllShareDocs(), listMyShares()])
+    const [a, s] = await Promise.all([listAllShareDocs(true), listMyShares()])
     docs.value = Array.isArray(a.data) ? a.data : []
     spaces.value = Array.isArray(s.data) ? s.data : []
+    clearDocSearchCache()   // 列表刷新后丢弃旧的正文缓存
   } catch (e) {
     ElMessage.error('加载失败：' + errMsg(e))
   } finally {
@@ -165,7 +180,7 @@ onMounted(load)
       <h3 class="title">全部文档</h3>
       <span class="sec-desc">跨空间汇总你参与的所有文档</span>
       <span class="spacer" />
-      <el-input v-model="keyword" placeholder="搜索标题或标签" clearable style="width: 220px">
+      <el-input v-model="keyword" placeholder="搜索标题、标签或正文" clearable style="width: 240px">
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
       <el-select v-model="tagFilter" placeholder="全部标签" clearable style="width: 140px">
@@ -192,6 +207,8 @@ onMounted(load)
       <el-table-column label="标题" min-width="280">
         <template #default="{ row }">
           <div class="t-title">{{ row.title || '未命名文档' }}</div>
+          <!-- 正文命中时给一小段上下文，说明「为什么这条会被搜到」 -->
+          <div v-if="hitSnippet(row)" class="t-hit">{{ hitSnippet(row) }}</div>
           <div v-if="tagsOf(row).length" class="t-tags">
             <el-tag v-for="t in tagsOf(row)" :key="t" size="small" type="info" closable
                     @close.stop="removeTag(row, t)" @click.stop="tagFilter = t">{{ t }}</el-tag>
@@ -252,6 +269,9 @@ html.dark .summary { color: #94a3b8; }
 
 .t-title { font-size: 14px; font-weight: 500; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html.dark .t-title { color: #e2e8f0; }
+/* 正文命中的上下文片段 */
+.t-hit { margin-top: 2px; font-size: 12px; line-height: 1.5; color: #64748b; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+html.dark .t-hit { color: #94a3b8; }
 .t-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
 .t-tags :deep(.el-tag) { cursor: pointer; }
 .t-space { font-size: 13px; color: #475569; }

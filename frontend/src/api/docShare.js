@@ -31,7 +31,9 @@ export const removeMember = (id, userId) => api.delete('/doc-shares/' + pid(id) 
 // 空间内文档
 export const listShareDocs = (id) => api.get('/doc-shares/' + pid(id) + '/docs')
 // 跨空间聚合文档列表（只返回当前用户有权读取的条目）
-export const listAllShareDocs = () => api.get('/doc-shares/docs/all')
+// withContent=true 时一并返回正文（服务端截断到 20000 字符），供「全部文档」做正文检索
+export const listAllShareDocs = (withContent = false) =>
+  api.get('/doc-shares/docs/all', { params: withContent ? { withContent: true } : {} })
 // 更新单篇文档标签（空数组清除标签）
 export const setShareDocTags = (id, docId, tags) =>
   api.put('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/tags', { tags })

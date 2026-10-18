@@ -168,9 +168,15 @@ public class DocShareController {
     }
 
     /** 跨空间聚合的可读文档列表（个人与参与空间），不返回待整理箱项目。 */
+    /**
+     * @param withContent 是否一并返回正文（「全部文档」的正文检索用）。
+     *                    默认 false：列表只要标题/标签，带上全部正文会让响应变重；
+     *                    需要正文搜索时传 true，服务端会把正文截断到 20000 字符再下发。
+     */
     @GetMapping("/docs/all")
-    public List<SharedDocument> allDocs(@RequestAttribute("kbUser") TokenClaims c) {
-        return svc.listAllDocs(resolveUserId(c), isSysAdmin(c));
+    public List<SharedDocument> allDocs(@RequestAttribute("kbUser") TokenClaims c,
+                                        @RequestParam(value = "withContent", defaultValue = "false") boolean withContent) {
+        return svc.listAllDocs(resolveUserId(c), isSysAdmin(c), withContent);
     }
 
     @PostMapping("/{id}/docs")

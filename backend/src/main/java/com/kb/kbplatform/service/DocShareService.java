@@ -588,7 +588,7 @@ public class DocShareService {
     }
 
     /** 用户可读的跨空间文档列表，复用空间级与文档级权限判断，不返回待整理项。 */
-    public List<SharedDocument> listAllDocs(Long userId, boolean sysAdmin) {
+    public List<SharedDocument> listAllDocs(Long userId, boolean sysAdmin, boolean withContent) {
         List<DocShare> spaces = listMine(userId, sysAdmin);
         if (spaces.isEmpty()) return List.of();
         Map<Long, DocShare> spaceById = spaces.stream().collect(Collectors.toMap(DocShare::getId, s -> s));
@@ -620,12 +620,21 @@ public class DocShareService {
             doc.setCreatedAt(row.getCreatedAt());
             doc.setUpdatedAt(row.getUpdatedAt());
             doc.setContentType(classifyContentType(row.getContent()));
+            // 正文检索（2026-10-18）：按需下发正文。截断到 20000 字符——
+            // 列表页的搜索不需要完整正文，而把每篇全文都塞进列表响应会让首屏明显变慢。
+            if (withContent) doc.setContent(truncateForSearch(row.getContent(), 20000));
             doc.setSpaceName(space.getName());
             doc.setSpaceType(space.getType());
             doc.setMyPerm(permission);
             out.add(doc);
         }
         return out;
+    }
+
+    /** 为「正文检索」截断正文：null 安全，超长按字符截断（前端只做匹配，不需要完整内容） */
+    private static String truncateForSearch(String s, int max) {
+        if (s == null) return null;
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     /** 仅可写入者可更新标签；标签是元数据，不生成正文版本快照。 */
