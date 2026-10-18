@@ -14,6 +14,7 @@ import { enhanceVideos, bindImgLightbox, absolutizeMedia } from './utils/mediaEn
 import { featureMap } from './api/features'
 import { appearanceLogo as siteLogo, loadAppearance, resetAppearance } from './utils/appearance'
 import { applyTheme } from './utils/theme'
+import CommandPalette from './components/CommandPalette.vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
 const route = useRoute()
@@ -412,6 +413,9 @@ const helpData = [
 ]
 const currentHelp = computed(() => helpData.find(s => s.key === helpActive.value) || helpData[0])
 function openHelp() { helpVisible.value = true }
+
+/** 唤起命令面板：与 CommandPalette 组件内的 Ctrl/⌘ + K 走同一个 window 事件 */
+function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette')) }
 </script>
 
 <template>
@@ -484,6 +488,12 @@ function openHelp() { helpVisible.value = true }
             <el-icon :size="18" :class="{ spinning }">
               <component :is="isDark ? 'Sunny' : 'Moon'" />
             </el-icon>
+          </el-button>
+          <!-- 命令面板入口（快捷键 Ctrl/⌘ + K，和组件内保持同一个 window 事件） -->
+          <el-button class="cmd-btn" text round title="命令面板（Ctrl/⌘ + K）" @click="openPalette">
+            <el-icon :size="15"><Search /></el-icon>
+            <span class="cmd-txt">快速跳转</span>
+            <span class="cmd-k">Ctrl K</span>
           </el-button>
           <template v-if="auth.loggedIn">
             <el-badge :value="notification.unread" :hidden="notification.unread === 0" :max="99">
@@ -599,6 +609,8 @@ function openHelp() { helpVisible.value = true }
     </el-dialog>
   </el-container>
   </el-watermark>
+  <!-- 全局命令面板（Ctrl/⌘ + K）：只在带菜单的主界面挂载，登录页/独立阅读窗不掺和 -->
+  <CommandPalette v-if="!barePage" />
   </el-config-provider>
 </template>
 
@@ -813,6 +825,19 @@ html.dark .demo-banner strong { color: #fbbf24; }
 }
 html.dark .theme-toggle { color: #c7c8d4; }
 html.dark .theme-toggle:hover { background: #232347; }
+
+/* 命令面板入口：像搜索框一样安静，只在 hover/点击时给反馈 */
+.cmd-btn { height: 30px; padding: 0 10px; gap: 6px; color: #4e5969; font-size: 12.5px; border-radius: 999px; }
+.cmd-btn:hover { background: #f2f3f5; color: #1677ff; }
+.cmd-btn .el-icon { display: inline-flex; }
+.cmd-txt { line-height: 1; }
+.cmd-k { padding: 1px 5px; border: 1px solid #e5e6eb; border-radius: 4px; background: #fff; color: #86909c; font-size: 10.5px; line-height: 1.4; font-family: ui-monospace, monospace; }
+.cmd-btn:hover .cmd-k { border-color: #bedaff; color: #1677ff; }
+html.dark .cmd-btn { color: #a8a8b3; }
+html.dark .cmd-btn:hover { background: #2a2a35; color: #409eff; }
+html.dark .cmd-k { background: #23232e; border-color: #3a3a4a; color: #8b8b9a; }
+/* 窄屏把文字和快捷键收掉，只留放大镜图标 */
+@media (max-width: 720px) { .cmd-txt, .cmd-k { display: none; } }
 
 /* 帮助中心按钮 */
 .help-btn { padding: 7px; color: #6366f1; }
