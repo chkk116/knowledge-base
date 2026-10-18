@@ -82,6 +82,13 @@ public class AdminAiModelController {
             mv("glm-4.7", "GLM-4.7（通用主力）"),
             mv("glm-4.6", "GLM-4.6（开源 / 多模态）"));
 
+    /** OpenCode 推理服务（opencode.ai/inference）：聚合多家开放模型，走 OpenAI 兼容端点；
+     *  模型 id 以官方 /inference/v1/models 实时列表为准，此处列常用几款 */
+    static final List<Map<String, Object>> OPENCODE_MODELS = List.of(
+            mv("kimi-k2.6", "Kimi K2.6（月之暗面，长上下文）"),
+            mv("glm-5.1", "GLM-5.1（智谱，长程任务）"),
+            mv("minimax-m2.7", "MiniMax M2.7"));
+
     /**
      * 支持的平台：各平台都提供 OpenAI 兼容端点。
      * baseUrl 由平台固定（官方端点，管理页自动填充，无需管理员手抄）；defaultModel + models
@@ -104,6 +111,10 @@ public class AdminAiModelController {
                     "baseUrl", "https://open.bigmodel.cn/api/paas/v4",
                     "defaultModel", "glm-5.3", "models", ZHIPU_MODELS,
                     "doc", "https://open.bigmodel.cn/usercenter/apikeys"),
+            Map.of("key", AiModel.PROVIDER_OPENCODE, "label", "OpenCode 推理服务",
+                    "baseUrl", "https://opencode.ai/inference/openai/v1",
+                    "defaultModel", "kimi-k2.6", "models", OPENCODE_MODELS,
+                    "doc", "https://opencode.ai/inference"),
             Map.of("key", AiModel.PROVIDER_CUSTOM, "label", "自定义（任何 OpenAI 兼容端点）",
                     "baseUrl", "https://api.openai.com/v1",
                     "defaultModel", "", "models", List.of(),

@@ -69,6 +69,7 @@ const CAPS = {
   DASHSCOPE: ['对话'],
   DEEPSEEK: ['对话', '视觉'],
   ZHIPU: ['对话', '视觉'],
+  OPENCODE: ['对话'],
   CUSTOM: ['对话'],
 }
 const capsOf = (key) => CAPS[key] || ['对话']
