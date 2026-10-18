@@ -10,6 +10,7 @@ import openaiSvg from '../assets/brands/openai.svg?raw'
 import deepseekSvg from '../assets/brands/deepseek.svg?raw'
 import qwenSvg from '../assets/brands/qwen.svg?raw'
 import zhipuSvg from '../assets/brands/zhipu.svg?raw'
+import opencodeSvg from '../assets/brands/opencode.svg?raw'
 
 const props = defineProps({
   provider: { type: String, default: '' },
@@ -23,12 +24,14 @@ const LOGO = {
   DEEPSEEK: deepseekSvg,
   DASHSCOPE: qwenSvg,
   ZHIPU: zhipuSvg,
+  OPENCODE: opencodeSvg,
 }
 const BRAND = {
   OPENAI: '#0f172a',
   DEEPSEEK: '#4d6bfe',
   DASHSCOPE: '#615ced',
   ZHIPU: '#3859ff',
+  OPENCODE: '#1f2937',
   CUSTOM: '#64748b',
 }
 
