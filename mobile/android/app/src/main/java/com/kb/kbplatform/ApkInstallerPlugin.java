@@ -60,6 +60,8 @@ public class ApkInstallerPlugin extends Plugin {
     private static final String CHANNEL_ID = "kb_app_update";
     private static final int NOTIF_ID = 9001;
     private static final int REQ_POST_NOTIF = 9101;
+    /** 缓存的安装包文件名（固定名 + 固定目录，绝不采信 JS 侧传入的路径） */
+    private static final String CACHE_FILE_NAME = "kb-update.apk";
     /** 同一个包只允许一个下载任务在跑 */
     /** 下载任务互斥：AtomicBoolean 保证 check-then-act 原子性
      * （外部审查 2026-10-12：volatile 只保证可见性，并发调用会双下载写同一文件） */
@@ -74,7 +76,7 @@ public class ApkInstallerPlugin extends Plugin {
             return;
         }
         // 固定服务端文件名：不采信 JS 侧传入的 fileName（../ 或绝对路径会穿越出缓存目录）
-        final String fileName = "kb-update.apk";
+        final String fileName = CACHE_FILE_NAME;
         // SHA-256 校验值（十六进制，来自后端 SysSetting）：缺值一律拒绝（fail-closed）。
         // 外部审查 2026-10-11：空值不再当作「免校验」，否则被注入的 JS 可传自己的
         // APK + 配套哈希绕过完整性校验。
@@ -96,7 +98,26 @@ public class ApkInstallerPlugin extends Plugin {
 
         new Thread(() -> {
             try {
-                File apk = download(url, fileName, checksum);
+                // 复用已下载的包：同一个 checksum 视为同一个包。
+                // 场景：更新包下完、系统安装界面弹出后用户点了「取消」，再次点「更新」
+                // 时应当直接复用本地包拉起安装，而不是再下一次十几 MB。
+                // 只认哈希、不认文件名和大小——半截包或被替换过的包不会被当成有效缓存。
+                File cached = cachedApkFile();
+                boolean reused = cached != null && cached.length() > 0 && matchesSha256(cached, checksum);
+                final File apk;
+                if (reused) {
+                    apk = cached;
+                    // 补一发 100% 进度，让 UI 上可能残留的进度条走满
+                    JSObject p = new JSObject();
+                    p.put("percent", 100);
+                    p.put("received", cached.length());
+                    p.put("total", cached.length());
+                    p.put("speed", 0);
+                    notifyListeners("progress", p);
+                } else {
+                    apk = download(url, fileName, checksum);
+                    showDoneNotification();
+                }
                 // 第四轮审查 H4（2026-10-14）：launched 必须取真实结果——缺「安装未知应用」
                 // 授权或拉起异常时为 false，否则 JS 侧永远看不到 needInstallPermission
                 boolean launched = launchInstall(apk);
@@ -104,7 +125,7 @@ public class ApkInstallerPlugin extends Plugin {
                 res.put("filePath", apk.getAbsolutePath());
                 res.put("size", apk.length());
                 res.put("launched", launched);
-                showDoneNotification();
+                res.put("cached", reused);
                 call.resolve(res);
             } catch (Exception e) {
                 JSObject err = new JSObject();
@@ -153,7 +174,52 @@ public class ApkInstallerPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * 是否已有「下载完成且校验通过」的安装包（同一个 checksum 视为同一个包）。
+     *
+     * 用途：让 JS 侧知道这次更新其实不用下载——用户在系统安装界面点了「取消」之后，
+     * 再次进入更新流程时可以直接把按钮写成「立即安装」，点了就走 install() 复用本地包。
+     *
+     * 判定方式：重新算一遍 SHA-256 与入参比对。只看哈希，不看文件名/大小，
+     * 因此半截包与被替换过的包都不会被误判成有效缓存。
+     */
+    @PluginMethod
+    public void checkCached(PluginCall call) {
+        final String checksum = call.getString("checksum");
+        // fail-closed：缺校验值一律当作「没有缓存」，绝不返回可安装路径
+        if (checksum == null || checksum.trim().isEmpty()) {
+            call.reject("缺少 SHA-256 校验值");
+            return;
+        }
+        JSObject res = new JSObject();
+        File f = cachedApkFile();
+        boolean ok = f != null && f.length() > 0 && matchesSha256(f, checksum);
+        res.put("cached", ok);
+        if (ok) {
+            res.put("filePath", f.getAbsolutePath());
+            res.put("size", f.length());
+        }
+        call.resolve(res);
+    }
+
     // ---------------- 内部实现 ----------------
+
+    /** 缓存目录里的安装包（不存在则返回 null） */
+    private File cachedApkFile() {
+        File dir = new File(getContext().getCacheDir(), "update");
+        File f = new File(dir, CACHE_FILE_NAME);
+        return f.exists() ? f : null;
+    }
+
+    /** 文件的 SHA-256 是否与期望值一致；任何异常都按「不一致」处理（fail-closed） */
+    private boolean matchesSha256(File f, String expected) {
+        if (f == null || !f.exists() || expected == null || expected.isBlank()) return false;
+        try {
+            return sha256Hex(f).equalsIgnoreCase(expected.trim());
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
     /**
      * 打开连接并手动处理重定向（外部审查 2026-10-12）。

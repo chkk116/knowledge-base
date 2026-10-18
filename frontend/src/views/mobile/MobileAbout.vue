@@ -10,7 +10,7 @@ import { useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { getAppVersion } from '../../api/app'
 import { openExternal } from '../../utils/openExternal'
-import { downloadAndInstall } from '../../utils/appUpdate'
+import { downloadAndInstall, getCachedApk, installCachedApk } from '../../utils/appUpdate'
 import { useSiteInfoStore } from '../../store/siteInfo'
 import { CHANGELOG, CURRENT_VERSION, changelogOf } from '../../changelog'
 
@@ -65,15 +65,27 @@ async function checkUpdate() {
       return
     }
     if (data.versionCode > cur) {
+      // 本地已下过这个包（上次弹安装界面被取消）→ 按钮改「立即安装」，点了直接复用
+      const cached = await getCachedApk(data.checksum)
       try {
         await ElMessageBox.confirm(
           `发现新版本 ${data.versionName || ''}\n${data.notes || ''}`,
           '发现新版本',
-          { confirmButtonText: '前往下载', cancelButtonText: '稍后', type: 'info' }
+          { confirmButtonText: cached ? '立即安装' : '前往下载', cancelButtonText: '稍后', type: 'info' }
         )
       } catch { return }   // 用户选择稍后
       if (data.url) {
         try {
+          if (cached) {
+            // 复用本地包，不再重复下载十几 MB
+            try {
+              await installCachedApk(cached.filePath)
+              window.__kbMsg?.success('已下载完成，正在打开安装界面')
+              return
+            } catch {
+              // 缓存被系统清掉了（cacheDir 可被回收）→ 回落到正常下载
+            }
+          }
           // ⚠️ 必须传 checksum：appUpdate 里是 fail-closed，缺值会直接抛「缺少完整性校验值」
           const r = await downloadAndInstall(data.url, undefined, data.checksum)
           if (r.mode === 'in-app') window.__kbMsg?.success('下载完成，请在弹出的安装界面完成安装')

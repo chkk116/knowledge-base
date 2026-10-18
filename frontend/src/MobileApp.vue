@@ -14,7 +14,7 @@ import { useNotificationStore } from './store/notification'
 import { useSiteInfoStore } from './store/siteInfo'
 import { syncOnReconnect, pendingCount } from './utils/offlineStore'
 import { openExternal } from './utils/openExternal'
-import { downloadAndInstall, assertSafeAssetUrl } from './utils/appUpdate'
+import { downloadAndInstall, assertSafeAssetUrl, getCachedApk, installCachedApk } from './utils/appUpdate'
 import { getAppVersion, getAppBundle } from './api/app'
 import { shouldLock, verifyPin, getLockConfig } from './utils/appLock'
 import { parseNotes, changelogOf } from './changelog'
@@ -149,6 +149,8 @@ const updateInfo = ref(null)      // { versionCode, versionName, url, notes, for
 const showUpdate = ref(false)
 const downloading = ref(false)
 const progress = ref(-1)        // 应用内下载进度（-1=未知）
+// 本地是否已有这个更新包（checksum 一致）：已有则按钮变「立即安装」，不再重复下载
+const apkCached = ref(false)
 
 // ---------- 应用锁（PIN）----------
 const locked = ref(false)
@@ -226,6 +228,9 @@ async function checkUpdate() {
       updateInfo.value = data
       // 强制更新但后台漏配 url：不能把用户永久挡在弹层里（doUpdate 只会弹 warning 无法关闭）
       showUpdate.value = true
+      // 本地已下过这个包（上次弹安装界面被取消）→ 按钮改「立即安装」，点了直接复用
+      apkCached.value = false
+      getCachedApk(data.checksum).then((c) => { apkCached.value = !!c }).catch(() => { apkCached.value = false })
     }
   } catch { /* 静默失败，绝不影响正常使用 */ }
 }
@@ -235,7 +240,7 @@ async function checkUpdate() {
  * 第一步先走「跳系统浏览器下载」——不依赖任何原生插件，最稳。
  * （后续要改成 App 内静默下载 + 拉起安装器，需要自研一个 Capacitor 插件。）
  */
-function doUpdate() {
+async function doUpdate() {
   const u = updateInfo.value
   if (!u?.url) {
     // force 弹层无法关闭：漏配 url 时必须解除锁死给逃生路径（外部复审 2026-10-09）
@@ -245,16 +250,29 @@ function doUpdate() {
   }
   downloading.value = true
   progress.value = -1
-  // App 内：下载完直接拉起系统安装器（不再跳浏览器）。
-  // Web 端 / 老包没带 ApkInstaller 插件时，downloadAndInstall 内部会自动退回系统浏览器。
-  downloadAndInstall(u.url, (p) => { progress.value = p }, u.checksum)
-    .then((r) => {
-      if (r.mode === 'in-app') window.__kbMsg?.success('下载完成，请在弹出的安装界面完成安装')
-    })
-    .catch((e) => {
-      window.__kbMsg?.error('更新失败：' + ((e && e.message) || e))
-    })
-    .finally(() => { downloading.value = false })
+  try {
+    // 已下过同一个包（checksum 一致）就复用：上次弹安装界面被取消后，
+    // 这里直接再拉起安装，不再重复下载十几 MB。
+    const cached = await getCachedApk(u.checksum)
+    if (cached) {
+      try {
+        await installCachedApk(cached.filePath)
+        window.__kbMsg?.success('已下载完成，正在打开安装界面')
+        return
+      } catch {
+        // 缓存被系统清掉了（cacheDir 可被回收）→ 回落到正常下载
+        apkCached.value = false
+      }
+    }
+    // App 内：下载完直接拉起系统安装器（不再跳浏览器）。
+    // Web 端 / 老包没带 ApkInstaller 插件时，downloadAndInstall 内部会自动退回系统浏览器。
+    const r = await downloadAndInstall(u.url, (p) => { progress.value = p }, u.checksum)
+    if (r?.mode === 'in-app') window.__kbMsg?.success('下载完成，请在弹出的安装界面完成安装')
+  } catch (e) {
+    window.__kbMsg?.error('更新失败：' + ((e && e.message) || e))
+  } finally {
+    downloading.value = false
+  }
 }
 function laterUpdate() {
   showUpdate.value = false
@@ -467,8 +485,8 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
           <div v-else class="upd-none">本次更新优化了使用体验与稳定性</div>
         </div>
 
-        <!-- 应用内下载进度 -->
-        <div v-if="downloading" class="upd-prog">
+        <!-- 应用内下载进度（复用本地包时没有下载过程，不显示这条） -->
+        <div v-if="downloading && !apkCached" class="upd-prog">
           <div class="upd-prog-bar"><i :style="{ width: progress >= 0 ? progress + '%' : '100%' }" :class="{ indet: progress < 0 }"></i></div>
           <div class="upd-prog-txt">{{ progress >= 0 ? '正在下载 ' + progress + '%' : '正在下载…' }}</div>
         </div>
@@ -476,7 +494,7 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
         <div class="upd-acts">
           <button v-if="!updateInfo?.force" class="upd-btn ghost" :disabled="downloading" @click="laterUpdate">稍后</button>
           <button class="upd-btn primary" :disabled="downloading" @click="doUpdate">
-            {{ downloading ? '下载中…' : '立即更新' }}
+            {{ downloading ? (apkCached ? '打开安装…' : '下载中…') : (apkCached ? '立即安装' : '立即更新') }}
           </button>
         </div>
         <div v-if="updateInfo?.force" class="upd-tip">该版本为强制更新，请尽快升级</div>

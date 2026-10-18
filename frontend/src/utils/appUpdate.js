@@ -18,6 +18,35 @@ export function hasInAppInstaller() {
 }
 
 /**
+ * 是否已有「下载完成且校验通过」的安装包（同一个 checksum 视为同一个包）。
+ *
+ * 背景：更新包下完、系统安装界面弹出后用户点了「取消」，本地那个十几 MB 的包其实还在，
+ * 但旧实现每次都无条件重下 —— 表现为「取消后再点更新又要重新下载」。
+ * 这里先问原生一句，有货就复用，按钮也能相应写成「立即安装」。
+ *
+ * 原生不可用时（网页端 / 老包没带 checkCached）返回 null，
+ * 调用方按「没缓存」处理即可，行为与改动前一致。
+ */
+export async function getCachedApk(checksum) {
+  const P = window.Capacitor?.Plugins?.ApkInstaller
+  if (!checksum || !P?.checkCached) return null
+  try {
+    const r = await P.checkCached({ checksum })
+    if (r?.cached && r?.filePath) return { filePath: r.filePath, size: Number(r.size) || 0 }
+  } catch {
+    // 老包没有该方法 / 插件异常：按「无缓存」处理，走正常下载
+  }
+  return null
+}
+
+/** 直接拉起已下载包的安装界面（不重新下载）。缓存被系统清掉时会抛错，调用方应回落到下载。 */
+export async function installCachedApk(filePath) {
+  const P = window.Capacitor?.Plugins?.ApkInstaller
+  if (!filePath || !P?.install) throw new Error('当前版本不支持直接安装，将重新下载')
+  await P.install({ filePath })
+}
+
+/**
  * 下载并安装。
  * @param {string} url APK 下载地址
  * @param {(percent:number)=>void} [onProgress] 进度回调；percent=-1 表示总大小未知

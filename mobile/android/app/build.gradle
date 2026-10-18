@@ -7,8 +7,8 @@ android {
         applicationId "com.kb.kbplatform"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 24
-        versionName "1.3.0"
+        versionCode 25
+        versionName "1.3.1"
         // 更新包/热更包允许的下载域名白名单（逗号分隔）。
         // 原生 ApkInstallerPlugin 用它做第二道防线：即使 WebView 内 JS 被注入，
         // 直接调用桥也无法把 APK 下载地址指到第三方域名（外部审查 2026-10-11）。
