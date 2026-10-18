@@ -20,6 +20,7 @@ import { studyPlanSummary } from '../../api/studyPlan'
 import { initPlanNotifications } from '../../utils/planNotify'
 import { resolveDefaultSpaceId, mySpaces } from '../../utils/spaceResolver'
 import { resolveUrl } from '../../utils/runtimeBase'
+import { pickRecall, addSkip, docKey, daysAgo } from '../../utils/dailyRecall'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -35,6 +36,34 @@ const announcements = ref([])     // 公告
 const picks = ref([])             // 精选文章（公开文章，Web 首页那批）
 const stats = ref(getStats())     // 本机阅读统计
 const planDue = ref(0)            // 到复习时间的学习计划数（首页提示）
+
+/** 每日回顾：候选池（最久没更新的几篇）+ 当前光标 */
+const recall = ref(null)          // { candidates, cursor }
+const recallItem = computed(() => {
+  const r = recall.value
+  return r && r.candidates && r.candidates.length ? r.candidates[r.cursor % r.candidates.length] : null
+})
+const recallAge = computed(() => daysAgo(recallItem.value?.doc))
+
+/** 数据源是各空间拉回来的全部文档（不是「最近 6 篇」那批，否则挑来挑去都是新的） */
+function loadRecall(all) {
+  const r = pickRecall(all)
+  if (!r) { recall.value = null; return }
+  const idx = Math.max(0, r.candidates.findIndex((x) => x === r.item))
+  recall.value = { candidates: r.candidates, cursor: idx }
+}
+function shuffleRecall() {
+  if (recall.value && recall.value.candidates.length > 1) recall.value.cursor = (recall.value.cursor + 1) % recall.value.candidates.length
+}
+function dismissRecall() {
+  const it = recallItem.value
+  if (!it) return
+  addSkip(docKey(it.doc))
+  // 从候选池里直接剔掉，然后按原规则重新挑一篇
+  const left = recall.value.candidates.filter((x) => x !== it)
+  if (!left.length) { recall.value = null; return }
+  recall.value = { candidates: left, cursor: recall.value.cursor % left.length }
+}
 
 const greet = computed(() => {
   const h = new Date().getHours()
@@ -120,10 +149,12 @@ async function load() {
         } catch { return [] }
       })
     )
-    recent.value = buckets
-      .flat()
+    const all = buckets.flat()
+    recent.value = all
       .sort((a, b) => new Date(b.doc.updatedAt || b.doc.createdAt || 0) - new Date(a.doc.updatedAt || a.doc.createdAt || 0))
       .slice(0, 6)
+    // 每日回顾要用**全部**文档做候选池，不能复用「最近 6 篇」，否则挑出来还是刚看过的
+    loadRecall(all)
 
     // 离线（或接口拿不到数据）时回退到本地缓存，保证首页不是空的
     if (!recent.value.length) {
@@ -246,6 +277,27 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
         </span>
         <el-icon class="ann-arrow"><Right /></el-icon>
       </button>
+    </div>
+
+    <!-- 每日回顾：从最久没更新的文档里挑一篇，让「写过就忘」的内容重新被看见。
+         只在非骨架屏时出现，首屏加载失败也不影响其它区块。 -->
+    <div v-if="!loading && recallItem" class="body">
+      <div class="m-sec-title">每日回顾
+        <button class="more" type="button" @click="shuffleRecall">换一篇</button>
+      </div>
+      <div class="m-card recall">
+        <div class="rc-meta">
+          <span class="rc-space">{{ recallItem.spaceName || '文档空间' }}</span>
+          <span class="rc-dot">·</span>
+          <span class="rc-age">{{ recallAge }}没更新</span>
+        </div>
+        <div class="rc-title">{{ recallItem.doc.title || '未命名文档' }}</div>
+        <div class="rc-tip">翻一翻？它已经躺了 {{ recallAge }}了</div>
+        <div class="rc-acts">
+          <button class="rc-btn primary" type="button" @click="openDoc(recallItem)">打开这篇</button>
+          <button class="rc-btn" type="button" @click="dismissRecall">不再推荐</button>
+        </div>
+      </div>
     </div>
 
     <!-- 最近文档：横向滑动卡片 -->
