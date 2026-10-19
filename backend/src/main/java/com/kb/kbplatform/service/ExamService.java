@@ -260,7 +260,21 @@ public class ExamService {
 
     /** 登录：我的考试成绩 */
     public List<ExamRecord> myRecords(Long userId) {
-        return recordRepo.findByUserIdOrderByStartedAtDesc(userId);
+        List<ExamRecord> list = recordRepo.findByUserIdOrderByStartedAtDesc(userId);
+        if (list.isEmpty()) return list;
+        // paperTitle / questionCount 在实体里是 @Transient（不落库），列表页要显示试卷名，
+        // 这里一次性批量补齐，避免逐条查试卷的 N+1。缺了就退化成前端显示的「考试 #id」。
+        Set<Long> pids = new LinkedHashSet<>();
+        for (ExamRecord r : list) if (r.getPaperId() != null) pids.add(r.getPaperId());
+        Map<Long, ExamPaper> papers = new LinkedHashMap<>();
+        for (ExamPaper p : paperRepo.findAllById(pids)) papers.put(p.getId(), p);
+        for (ExamRecord r : list) {
+            ExamPaper p = papers.get(r.getPaperId());
+            if (p == null) continue;
+            if (r.getPaperTitle() == null || r.getPaperTitle().trim().isEmpty()) r.setPaperTitle(p.getTitle());
+            if (r.getQuestionCount() <= 0) r.setQuestionCount(p.getQuestionCount());
+        }
+        return list;
     }
 
     /** 登录：成绩详情（逐题回顾，含正确答案） */

@@ -8,6 +8,7 @@
  */
 import { onMounted, ref, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
 import { getPaper, startExam, submitExam } from '../../api/training'
 
 const route = useRoute()
@@ -63,18 +64,35 @@ function toAnswer(q) {
   if (Array.isArray(a)) return a
   return String(a).length ? [String(a)] : []
 }
-const canSubmit = computed(() => questions.value.length > 0 && questions.value.every(isAnswered))
+/** 未作答数量：交卷时提示用（不再因为有空题就把「交卷」按钮禁用） */
+const unanswered = computed(() => questions.value.filter((q) => !isAnswered(q)).length)
+const canSubmit = computed(() => questions.value.length > 0)
 
 async function doSubmit(auto) {
   if (submitting.value || finished.value) return
+  if (!auto) {
+    // 以前空题时按钮直接禁用、且交卷异常被 catch 掉，用户只看到「点了没反应」。
+    // 现在统一走确认框，异常也会明确提示。
+    const left = unanswered.value
+    const tip = left > 0
+      ? `还有 ${left} 题没作答，未作答按 0 分计。确定交卷吗？`
+      : '交卷后不能再修改答案，确定交卷吗？'
+    try {
+      await ElMessageBox.confirm(tip, '确认交卷', {
+        type: 'warning', confirmButtonText: '交卷', cancelButtonText: left > 0 ? '继续作答' : '再检查一下',
+      })
+    } catch { return }
+  }
   submitting.value = true
   try {
     const items = questions.value.map((q) => ({ questionId: q.id, answer: toAnswer(q) }))
-    const r = await submitExam(pid, recordId.value, items).then((x) => x.data || x).catch(() => null)
+    const r = await submitExam(pid, recordId.value, items).then((x) => x.data || x)
     result.value = r
     finished.value = true
     stopTimer()
     if (auto) window.__kbMsg?.warning('时间到，已自动交卷')
+  } catch (e) {
+    window.__kbMsg?.error(e?.response?.data?.error || '交卷失败，请检查网络后重试')
   } finally { submitting.value = false }
 }
 
@@ -126,6 +144,7 @@ onUnmounted(stopTimer)
         <button v-for="(q, i) in questions" :key="q.id" class="dot"
                 :class="{ on: i === cur, done: isAnswered(q) }" @click="cur = i">{{ i + 1 }}</button>
       </div>
+      <div v-if="unanswered" class="unanswered-tip">还有 {{ unanswered }} 题未作答</div>
 
       <div class="body" v-if="questions[cur]">
         <div class="q">
@@ -158,7 +177,7 @@ onUnmounted(stopTimer)
       <div class="footer">
         <button class="fb" :disabled="cur === 0" @click="cur--">上一题</button>
         <button v-if="cur < questions.length - 1" class="fb primary" @click="cur++">下一题</button>
-        <button v-else class="fb primary" :disabled="!canSubmit || submitting" @click="doSubmit(false)">
+        <button v-else class="fb primary" :disabled="submitting" @click="doSubmit(false)">
           {{ submitting ? '交卷中…' : '交卷' }}
         </button>
       </div>
@@ -183,6 +202,7 @@ onUnmounted(stopTimer)
 .timer { font-size: 14px; font-variant-numeric: tabular-nums; color: var(--m-primary); font-weight: 600; }
 .timer.warn { color: var(--m-danger); }
 .progress-dots { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; }
+.unanswered-tip { padding: 0 12px 6px; font-size: 11.5px; color: var(--m-warn); }
 .dot { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--m-border); background: var(--m-card);
   color: var(--m-text-sub); font-size: 12px; cursor: pointer; }
 .dot.on { border-color: var(--m-primary); color: var(--m-primary); font-weight: 700; }

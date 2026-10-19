@@ -34,7 +34,16 @@ const pending = ref(0)
 const syncing = ref(false)
 
 // 登录页 / 拍照页：全屏，不显示 TabBar
-const hideTab = computed(() => route.path === '/login' || route.path === '/capture')
+/**
+ * 隐藏底部导航的场景：
+ *   - 登录页、拍照页：全屏任务页；
+ *   - 答题页（/exam/:id）：限时答题要沉浸，且 TabBar 的悬浮 + 会压住「交卷」按钮。
+ * 注意 /exam/mine 是普通列表页，仍然显示 TabBar。
+ */
+const hideTab = computed(() => {
+  const p = route.path
+  return p === '/login' || p === '/capture' || /^\/exam\/\d+$/.test(p)
+})
 
 const activeTab = computed(() => route.meta.tab || '')
 

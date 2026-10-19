@@ -22,6 +22,8 @@ const pct = computed(() => {
   const f = chapters.value.filter((c) => done.value.includes(c.id)).length
   return Math.round((f / chapters.value.length) * 100)
 })
+/** 已完成章节数：光看百分比看不出「还差几章」，这里直接给数量 */
+const doneCount = computed(() => chapters.value.filter((c) => done.value.includes(c.id)).length)
 
 async function load() {
   loading.value = true
@@ -33,8 +35,12 @@ async function load() {
     // 接口返回 { course: {...}, chapters: [...] }（嵌套）
     course.value = (c && c.course) || c
     chapters.value = (c && c.chapters) || []
-    // 进度可能是 [{chapterId,...}] 或直接 chapterId 数组
-    done.value = p.map((x) => (typeof x === 'object' ? x.chapterId : x)).filter(Boolean)
+    // ⚠️ 接口返回每章一条并带 finished 标记，只取 finished 的 chapterId，
+    // 否则进度永远是 100%（旧代码就是这个 bug，导致「没学也显示学完」）
+    done.value = p
+      .filter((x) => (typeof x === 'object' ? x.finished !== false : true))
+      .map((x) => (typeof x === 'object' ? x.chapterId : x))
+      .filter(Boolean)
   } finally {
     loading.value = false
   }
@@ -72,7 +78,7 @@ onMounted(load)
         <div class="summary">{{ course.summary || '该课程暂无简介' }}</div>
         <div class="progress">
           <div class="bar"><i :style="{ width: pct + '%' }"></i></div>
-          <span class="ptxt">已学 {{ pct }}%</span>
+          <span class="ptxt">已学 {{ doneCount }}/{{ chapters.length }} 章 · {{ pct }}%</span>
         </div>
         <button class="m-btn" @click="start">{{ done.length ? '继续学习' : '开始学习' }}</button>
         <button v-if="pct === 100" class="m-btn ghost" style="margin-top:8px" @click="showCert">查看结业证书</button>
