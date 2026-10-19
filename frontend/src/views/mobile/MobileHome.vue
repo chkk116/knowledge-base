@@ -17,6 +17,7 @@ import { homeOverview, listAnnouncements, listDocs } from '../../api/kb'
 import { getStats } from '../../utils/readStats'
 import { listQueuedDocs, listCachedDocs } from '../../utils/offlineStore'
 import { studyPlanSummary } from '../../api/studyPlan'
+import { flashcardSummary } from '../../api/flashcard'
 import { initPlanNotifications } from '../../utils/planNotify'
 import { resolveDefaultSpaceId, mySpaces } from '../../utils/spaceResolver'
 import { resolveUrl } from '../../utils/runtimeBase'
@@ -36,6 +37,7 @@ const announcements = ref([])     // 公告
 const picks = ref([])             // 精选文章（公开文章，Web 首页那批）
 const stats = ref(getStats())     // 本机阅读统计
 const planDue = ref(0)            // 到复习时间的学习计划数（首页提示）
+const cardDue = ref(0)            // 今天到期的复习卡片数（首页提示 + 金刚区角标）
 
 /** 每日回顾：候选池（最久没更新的几篇）+ 当前光标 */
 const recall = ref(null)          // { candidates, cursor }
@@ -110,6 +112,12 @@ function plain(html) {
   return String(html || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+/** 金刚区角标：目前只有「复习卡片」有动态数字，其余仍走 q.badge */
+function badgeOf(q) {
+  if (q.to === '/cards' && cardDue.value > 0) return cardDue.value > 99 ? '99+' : cardDue.value
+  return q.badge?.value || ''
+}
+
 /** 公告：弹层看全文（移动端没有独立公告页） */
 function openAnn(a) {
   if (!a) return
@@ -134,6 +142,7 @@ async function load() {
   listDocs(0, 3, 'hot').then((r) => { picks.value = r.data?.content || [] }).catch(() => {})
   stats.value = getStats()
   studyPlanSummary().then((r) => { planDue.value = r.data?.due || 0 }).catch(() => {})
+  flashcardSummary().then((r) => { cardDue.value = r.data?.due || 0 }).catch(() => {})
   try {
     const [list, q] = await Promise.all([
       mySpaces(true).catch(() => []),
@@ -234,6 +243,18 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
       </button>
     </div>
 
+    <!-- 今天有卡片要复习：直接给入口，不用进二级页 -->
+    <div v-if="cardDue" class="body">
+      <button class="offline-card plan-card" type="button" @click="router.push('/cards')">
+        <span class="m-ico orange"><el-icon><Postcard /></el-icon></span>
+        <span class="oc-body">
+          <span class="oc-title">{{ cardDue }} 张卡片待复习</span>
+          <span class="oc-desc">花两分钟过一遍，别让记过的忘掉</span>
+        </span>
+        <el-icon class="oc-arrow"><Right /></el-icon>
+      </button>
+    </div>
+
     <!-- 学习计划到复习时间：首页直接提示，不用去二级页找 -->
     <div v-if="planDue" class="body">
       <button class="offline-card plan-card" type="button" @click="router.push('/plans')">
@@ -252,7 +273,7 @@ onUnmounted(() => window.removeEventListener('online', onBackOnline))
         <button v-for="q in QUICKS" :key="q.label" class="quick" type="button" @click="router.push(q.to)">
           <span class="q-ico" :class="q.color"><el-icon :size="23"><component :is="q.icon" /></el-icon></span>
           <span class="q-txt">{{ q.label }}</span>
-          <i v-if="q.badge && q.badge.value" class="q-badge">{{ q.badge.value }}</i>
+          <i v-if="badgeOf(q)" class="q-badge">{{ badgeOf(q) }}</i>
         </button>
       </div>
     </div>
