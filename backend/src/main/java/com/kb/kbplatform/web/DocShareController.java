@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -323,6 +325,48 @@ public class DocShareController {
         audit.log(c.userId(), c.username(), "UPDATE_SHARE_DOC", "SHARE_DOC", docId, doc.getTitle(),
                 "更新文档标签：「" + (doc.getTags() == null ? "" : doc.getTags()) + "」");
         return doc;
+    }
+
+    /**
+     * 文档双向链接：本文引用的（out）+ 引用本文的（back）。
+     * 实时解析正文里的 [[文档名]]，只扫描当前用户可读的文档。
+     */
+    @GetMapping("/{id}/docs/{docId}/links")
+    public Map<String, Object> docLinks(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                        @PathVariable Long docId) {
+        return svc.docLinks(id, docId, resolveUserId(c), isSysAdmin(c));
+    }
+
+    /** 批量改标签：「全部文档」多选后使用。无写权限的逐条跳过，不整批回滚。 */
+    @PostMapping("/docs/batch-tags")
+    public Map<String, Object> batchTags(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (body.get("docs") instanceof List<?> list) {
+            for (Object o : list) {
+                if (o instanceof Map<?, ?> m) {
+                    Map<String, Object> one = new LinkedHashMap<>();
+                    one.put("shareId", m.get("shareId"));
+                    one.put("docId", m.get("docId"));
+                    items.add(one);
+                }
+            }
+        }
+        if (items.isEmpty())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先选择文档");
+        Map<String, Object> res = svc.batchUpdateTags(items, strList(body.get("add")), strList(body.get("remove")),
+                resolveUserId(c), isSysAdmin(c));
+        audit.log(c.userId(), c.username(), "UPDATE_SHARE_DOC", "SHARE_DOC", null, null,
+                "批量更新标签：成功 " + res.get("ok") + " 篇");
+        return res;
+    }
+
+    /** 请求体里的字符串数组 → List<String>（非法类型返回空表，交给上层判空） */
+    private List<String> strList(Object raw) {
+        List<String> out = new ArrayList<>();
+        if (raw instanceof List<?> list) {
+            for (Object o : list) if (o != null) out.add(String.valueOf(o));
+        }
+        return out;
     }
 
     // ---- 文档批注 / 摘录（私人笔记，仅本人可见） ----

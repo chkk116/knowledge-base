@@ -716,6 +716,141 @@ public class DocShareService {
         return saved;
     }
 
+    /** 把逗号分隔的标签串拆成列表 */
+    private static List<String> splitTags(String raw) {
+        List<String> out = new ArrayList<>();
+        if (raw == null) return out;
+        for (String s : raw.split(",")) {
+            String t = s.trim();
+            if (!t.isEmpty()) out.add(t);
+        }
+        return out;
+    }
+
+    private static Long asLong(Object o) {
+        if (o == null) return null;
+        try { return Long.valueOf(String.valueOf(o).trim()); } catch (NumberFormatException e) { return null; }
+    }
+
+    /**
+     * 批量改标签（「全部文档」多选后用）。
+     *
+     * 逐条做写权限校验：没有写权限或文档已删除的**跳过并计入 skipped**，
+     * 不让一条失败把整批回滚掉——批量操作里最烦的就是「99 条成功、1 条失败全没了」。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> batchUpdateTags(List<Map<String, Object>> items, List<String> add, List<String> remove,
+                                               Long userId, boolean sysAdmin) {
+        List<String> addList = new ArrayList<>();
+        if (add != null) for (String s : add) { String t = s == null ? "" : s.trim(); if (!t.isEmpty()) addList.add(t); }
+        List<String> rmList = new ArrayList<>();
+        if (remove != null) for (String s : remove) { String t = s == null ? "" : s.trim(); if (!t.isEmpty()) rmList.add(t); }
+        if (addList.isEmpty() && rmList.isEmpty())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请至少指定一个要添加或移除的标签");
+
+        int ok = 0;
+        List<String> skipped = new ArrayList<>();
+        if (items != null) {
+            for (Map<String, Object> it : items) {
+                Long sid = asLong(it.get("shareId"));
+                Long did = asLong(it.get("docId"));
+                if (sid == null || did == null) continue;
+                SharedDocument d = docRepo.findByIdAndShareId(did, sid).orElse(null);
+                if (d == null) { skipped.add("文档已删除：" + did); continue; }
+                if (!canWriteDoc(sid, did, userId, sysAdmin)) { skipped.add("无写入权限：" + d.getTitle()); continue; }
+                LinkedHashSet<String> next = new LinkedHashSet<>(splitTags(d.getTags()));
+                for (String r : rmList) next.removeIf((t) -> t.equalsIgnoreCase(r));
+                next.addAll(addList);
+                d.setTags(normalizeDocTags(new ArrayList<>(next)));
+                d.setUpdatedAt(LocalDateTime.now());
+                docRepo.save(d);
+                ok++;
+            }
+        }
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("ok", ok);
+        ret.put("skipped", skipped);
+        return ret;
+    }
+
+    /** 正文里的 [[文档名]] 引用，限长 1~120，不跨行 */
+    private static final java.util.regex.Pattern WIKI_LINK =
+            java.util.regex.Pattern.compile("\\[\\[([^\\[\\]\\r\\n]{1,120})\\]\\]");
+
+    /** 抽出正文里所有 [[...]] 的标题（去重，保持出现顺序） */
+    private static List<String> extractLinkTitles(String content) {
+        List<String> out = new ArrayList<>();
+        if (content == null || content.isEmpty()) return out;
+        java.util.regex.Matcher m = WIKI_LINK.matcher(content);
+        Set<String> seen = new HashSet<>();
+        while (m.find()) {
+            String t = m.group(1) == null ? "" : m.group(1).trim();
+            if (t.isEmpty()) continue;
+            if (seen.add(t.toLowerCase(Locale.ROOT))) out.add(t);
+        }
+        return out;
+    }
+
+    /**
+     * 双向链接：当前文档「引用了谁」+「被谁引用」。
+     *
+     * 实时解析正文，不落链接表——文档数量在个人/小团队量级时，
+     * 建表维护的成本（写入时同步、改标题要级联）远高于扫描成本。
+     *
+     * 解析范围 = listAllDocs 的**可读**文档，天然不会泄露无权访问的文档标题。
+     */
+    public Map<String, Object> docLinks(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        get(shareId, userId, sysAdmin);   // 空间级校验
+        SharedDocument target = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        if (!canReadDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权查看该文档");
+
+        List<SharedDocument> all = listAllDocs(userId, sysAdmin, true);
+
+        // 标题 → 文档（同名取第一篇，够用；不区分大小写与首尾空白）
+        Map<String, SharedDocument> byTitle = new HashMap<>();
+        for (SharedDocument d : all) {
+            if (d.getTitle() == null) continue;
+            byTitle.putIfAbsent(d.getTitle().trim().toLowerCase(Locale.ROOT), d);
+        }
+
+        List<Map<String, Object>> outList = new ArrayList<>();
+        for (String t : extractLinkTitles(target.getContent())) {
+            SharedDocument hit = byTitle.get(t.toLowerCase(Locale.ROOT));
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("title", t);
+            row.put("resolved", hit != null);
+            row.put("shareId", hit == null ? null : hit.getShareId());
+            row.put("docId", hit == null ? null : hit.getId());
+            row.put("spaceName", hit == null ? null : hit.getSpaceName());
+            outList.add(row);
+        }
+
+        List<Map<String, Object>> backList = new ArrayList<>();
+        String selfTitle = target.getTitle() == null ? "" : target.getTitle().trim().toLowerCase(Locale.ROOT);
+        if (!selfTitle.isEmpty()) {
+            for (SharedDocument d : all) {
+                if (Objects.equals(d.getId(), target.getId())) continue;
+                boolean ref = extractLinkTitles(d.getContent()).stream()
+                        .anyMatch((t) -> t.trim().toLowerCase(Locale.ROOT).equals(selfTitle));
+                if (!ref) continue;
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("title", d.getTitle());
+                row.put("resolved", true);
+                row.put("shareId", d.getShareId());
+                row.put("docId", d.getId());
+                row.put("spaceName", d.getSpaceName());
+                backList.add(row);
+            }
+        }
+
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("out", outList);
+        ret.put("back", backList);
+        return ret;
+    }
+
     static String normalizeDocTags(List<String> tags) {
         if (tags == null || tags.isEmpty()) return "";
         LinkedHashMap<String, String> unique = new LinkedHashMap<>();

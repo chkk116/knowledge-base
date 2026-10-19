@@ -11,6 +11,7 @@ import {
   listDocMembers, setDocMember, clearDocMember,
   submitCapacityRequest, listCapacityRequests,
   searchShareUsers,
+  getDocLinks,
 } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import DocShareEditor from './DocShareEditor.vue'
@@ -141,6 +142,33 @@ const selectDoc = async (doc) => {
   } catch (e) {
     ElMessage.error('读取文档失败')
   }
+}
+
+// ---------- 双向链接（正文里的 [[文档名]]） ----------
+const links = ref({ out: [], back: [] })
+const linksLoading = ref(false)
+
+async function loadLinks() {
+  const d = activeDoc.value
+  if (!d?.id) { links.value = { out: [], back: [] }; return }
+  linksLoading.value = true
+  try {
+    const { data } = await getDocLinks(shareId.value, d.id)
+    links.value = { out: data?.out || [], back: data?.back || [] }
+  } catch {
+    // 拉不到就安静地不显示，别因为附加信息挡住写文档
+    links.value = { out: [], back: [] }
+  } finally {
+    linksLoading.value = false
+  }
+}
+watch(() => activeDoc.value?.id, () => { loadLinks() })
+
+/** 打开关联文档：同空间直接切，跨空间走路由跳转 */
+function openLinked(row) {
+  if (!row?.resolved || !row.docId) return
+  if (Number(row.shareId) === shareId.value) selectDoc({ id: row.docId })
+  else router.push(`/doc-shares/${row.shareId}?doc=${row.docId}`)
 }
 
 /** 图块专属文档判定：content 快照恰好是单个导图/流程图/电子表格块（无其他正文）
@@ -596,6 +624,29 @@ watch(() => route.query.doc, async (want) => {
                         :revision="activeDoc.yjsRev || 0"
                         :can-write="docCanWrite" :legacy-content="activeDoc.content"
                         :diagram="diagramKind" @reload-document="onDocReload" />
+
+        <!-- 双向链接：正文里写 [[文档名]] 即建立关联，这里同时列出「出链」与「反链」 -->
+        <div v-loading="linksLoading" class="doc-links">
+          <div class="dl-head">
+            <span class="dl-title">关联文档</span>
+            <span class="dl-tip">在正文输入 <code>[[文档名]]</code> 即可关联</span>
+          </div>
+          <div v-if="links.out.length" class="dl-group">
+            <span class="dl-label">本文引用</span>
+            <button v-for="(l, i) in links.out" :key="'o' + i" type="button"
+                    class="dl-chip" :class="{ miss: !l.resolved }"
+                    :title="l.resolved ? '' : '没有找到同名文档'" @click="openLinked(l)">
+              {{ l.title }}
+            </button>
+          </div>
+          <div v-if="links.back.length" class="dl-group">
+            <span class="dl-label">被引用</span>
+            <button v-for="(l, i) in links.back" :key="'b' + i" type="button" class="dl-chip" @click="openLinked(l)">
+              {{ l.title }}<span v-if="l.spaceName" class="dl-space">{{ l.spaceName }}</span>
+            </button>
+          </div>
+          <div v-if="!links.out.length && !links.back.length" class="dl-empty">还没有关联的文档</div>
+        </div>
       </main>
 
       <div v-else class="editor empty">
@@ -914,4 +965,20 @@ html.dark .title-bar .title-input:disabled { color: #c2c6d2; }
   .invite-row :deep(.el-select) { width: 100% !important; }
   .cap-req-row { flex-wrap: wrap; gap: 6px; }
 }
+
+/* ---------- 关联文档（双向链接） ---------- */
+.doc-links { margin: 10px 18px 18px; padding: 12px 14px; border: 1px solid var(--el-border-color-lighter, #eef0f3); border-radius: 10px; background: var(--el-fill-color-blank, #fafbfc); }
+.dl-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.dl-title { font-size: 13px; font-weight: 500; color: var(--el-text-color-primary, #1d2129); }
+.dl-tip { font-size: 11.5px; color: var(--el-text-color-placeholder, #a8a8b3); }
+.dl-tip code { padding: 1px 4px; border-radius: 3px; background: var(--el-fill-color, #f2f3f5); font-size: 11px; }
+.dl-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.dl-label { font-size: 11.5px; color: var(--el-text-color-secondary, #86909c); margin-right: 2px; }
+.dl-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 260px; padding: 3px 9px; border: 1px solid var(--el-color-primary-light-7, #c6e2ff); border-radius: 999px; background: var(--el-color-primary-light-9, #eff6ff); color: var(--el-color-primary, #1677ff); font-size: 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-chip:hover { border-color: var(--el-color-primary, #1677ff); }
+/* 引用了但找不到同名文档：灰掉，不假装是有效链接 */
+.dl-chip.miss { border-color: var(--el-border-color, #e5e6eb); background: var(--el-fill-color-light, #f7f8fa); color: var(--el-text-color-placeholder, #a8a8b3); cursor: not-allowed; text-decoration: line-through; }
+.dl-space { font-size: 10.5px; color: var(--el-text-color-placeholder, #a8a8b3); }
+.dl-empty { font-size: 12px; color: var(--el-text-color-placeholder, #a8a8b3); }
+html.dark .doc-links { background: #1c1c24; border-color: #2a2a35; }
 </style>

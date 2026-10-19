@@ -40,6 +40,19 @@ export const listAllShareDocs = (withContent = false) =>
  * 导出范围 = 后端按空间级/文档级逐条裁决后的「用户可读范围」，不存在越权。
  */
 export const exportAllShareDocs = () => api.get('/doc-shares/export', { responseType: 'blob' })
+/**
+ * 批量改标签：docs = [{ shareId, docId }]，add / remove 为标签数组。
+ * 后端逐条校验写权限，无权限或已删除的会被跳过并在 skipped 里返回，不会整批失败。
+ */
+export const batchSetDocTags = (docs, add, remove) =>
+  api.post('/doc-shares/docs/batch-tags', { docs, add, remove })
+
+/**
+ * 文档双向链接：{ out: [{title,resolved,shareId,docId,spaceName}], back: [...] }
+ * out = 本文引用的；back = 引用本文的。解析范围仅限当前用户可读的文档。
+ */
+export const getDocLinks = (shareId, docId) => api.get(`/doc-shares/${shareId}/docs/${docId}/links`)
+
 // 更新单篇文档标签（空数组清除标签）
 export const setShareDocTags = (id, docId, tags) =>
   api.put('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/tags', { tags })

@@ -11,7 +11,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Collection, Download } from '@element-plus/icons-vue'
 import { contentMatches, snippetOf, clearDocSearchCache } from '../utils/docSearch'
-import { listAllShareDocs, listMyShares, setShareDocTags, exportAllShareDocs } from '../api/docShare'
+import { listAllShareDocs, listMyShares, setShareDocTags, exportAllShareDocs, batchSetDocTags } from '../api/docShare'
 import { errMsg } from '../utils/errMsg'
 import { saveBinaryFile } from '../utils/shareOut'
 
@@ -201,6 +201,54 @@ async function doExport() {
     exporting.value = false
   }
 }
+
+// ---------- 多选与批量操作 ----------
+const tableRef = ref(null)
+const selected = ref([])
+const batchOpen = ref(false)
+const batchAdd = ref([])
+const batchRemove = ref([])
+const batching = ref(false)
+
+function onSelectionChange(rows) { selected.value = rows }
+function clearSelection() {
+  tableRef.value?.clearSelection()
+  selected.value = []
+}
+/** 点勾选框那一列不应该顺带打开文档 */
+function onRowClick(row, column) {
+  if (column?.type === 'selection') return
+  openDoc(row)
+}
+function openBatch() {
+  batchAdd.value = []
+  batchRemove.value = []
+  batchOpen.value = true
+}
+
+async function doBatch() {
+  const add = (batchAdd.value || []).map((x) => String(x).trim()).filter(Boolean)
+  const remove = (batchRemove.value || []).map((x) => String(x).trim()).filter(Boolean)
+  if (!add.length && !remove.length) return ElMessage.warning('请填写要添加或移除的标签')
+  if (!selected.value.length) return ElMessage.warning('请先选择文档')
+  batching.value = true
+  try {
+    const { data } = await batchSetDocTags(
+      selected.value.map((r) => ({ shareId: r.shareId, docId: r.id })), add, remove)
+    const ok = data?.ok || 0
+    const skipped = data?.skipped || []
+    // 部分跳过是正常结果（无写权限/文档已删），要说清楚而不是笼统报「成功」
+    if (skipped.length) ElMessage.warning(`成功 ${ok} 篇，跳过 ${skipped.length} 篇（${skipped.slice(0, 2).join('；')}）`)
+    else ElMessage.success(`已更新 ${ok} 篇文档的标签`)
+    batchOpen.value = false
+    await load()
+    clearSelection()
+  } catch (e) {
+    ElMessage.error('批量更新失败：' + errMsg(e))
+  } finally {
+    batching.value = false
+  }
+}
 </script>
 
 <template>
@@ -236,7 +284,16 @@ async function doExport() {
       共 {{ shown.length }} 篇<template v-if="filtersActive">（已筛选，全部 {{ docs.length }} 篇）</template>
     </div>
 
-    <el-table :data="shown" v-loading="loading" row-key="id" @row-click="openDoc" style="width: 100%">
+    <!-- 多选后出现的批量操作条 -->
+    <div v-if="selected.length" class="batch-bar">
+      <span class="bb-count">已选 {{ selected.length }} 篇</span>
+      <el-button size="small" type="primary" plain @click="openBatch">批量打标签</el-button>
+      <el-button size="small" text @click="clearSelection">取消选择</el-button>
+    </div>
+
+    <el-table ref="tableRef" :data="shown" v-loading="loading" row-key="id" @row-click="onRowClick"
+              @selection-change="onSelectionChange" style="width: 100%">
+      <el-table-column type="selection" width="44" />
       <el-table-column label="标题" min-width="280">
         <template #default="{ row }">
           <div class="t-title">{{ row.title || '未命名文档' }}</div>
@@ -288,6 +345,30 @@ async function doExport() {
         <el-button type="primary" :loading="tagSaving" @click="saveTags">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量打标签 -->
+    <el-dialog v-model="batchOpen" title="批量打标签" width="460px">
+      <div class="dlg-sub">将对已选的 {{ selected.length }} 篇文档生效</div>
+      <div style="margin-bottom:10px">
+        <div class="dlg-label">添加标签</div>
+        <el-select v-model="batchAdd" multiple filterable allow-create default-first-option
+                   placeholder="输入后回车，可多选" style="width: 100%">
+          <el-option v-for="t in allTags" :key="'a' + t" :label="t" :value="t" />
+        </el-select>
+      </div>
+      <div>
+        <div class="dlg-label">移除标签</div>
+        <el-select v-model="batchRemove" multiple filterable allow-create default-first-option
+                   placeholder="选中的标签会从这些文档上移除" style="width: 100%">
+          <el-option v-for="t in allTags" :key="'r' + t" :label="t" :value="t" />
+        </el-select>
+      </div>
+      <div class="dlg-hint">添加和移除可以只填一边。没有写入权限的文档会自动跳过，不会导致整批失败。</div>
+      <template #footer>
+        <el-button @click="batchOpen = false">取消</el-button>
+        <el-button type="primary" :loading="batching" @click="doBatch">应用到 {{ selected.length }} 篇</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -299,6 +380,14 @@ html.dark .title { color: #e2e8f0; }
 .spacer { flex: 1; }
 .summary { margin: 0 0 10px 2px; font-size: 12.5px; color: #64748b; }
 html.dark .summary { color: #94a3b8; }
+
+/* 多选后出现的批量操作条 */
+.batch-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 8px 12px; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe; }
+.batch-bar .bb-count { font-size: 13px; color: #1d4ed8; font-weight: 500; }
+html.dark .batch-bar { background: #1e293b; border-color: #334155; }
+html.dark .batch-bar .bb-count { color: #93c5fd; }
+.dlg-label { font-size: 12.5px; color: #64748b; margin-bottom: 6px; }
+html.dark .dlg-label { color: #94a3b8; }
 
 .t-title { font-size: 14px; font-weight: 500; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html.dark .t-title { color: #e2e8f0; }
