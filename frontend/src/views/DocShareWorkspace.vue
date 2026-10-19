@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MoreFilled, Document, Grid, Share, Connection, ArrowDown, Expand } from '@element-plus/icons-vue'
+import { MoreFilled, Document, Grid, Share, Connection, ArrowDown, Expand, Promotion } from '@element-plus/icons-vue'
 import {
   getShare, updateShare, listShareDocs, createShareDoc,
   getShareDoc, updateShareDoc, deleteShareDoc, moveShareDoc,
@@ -12,6 +12,7 @@ import {
   submitCapacityRequest, listCapacityRequests,
   searchShareUsers,
   getDocLinks,
+  mentionDocUser,
 } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import DocShareEditor from './DocShareEditor.vue'
@@ -169,6 +170,37 @@ function openLinked(row) {
   if (!row?.resolved || !row.docId) return
   if (Number(row.shareId) === shareId.value) selectDoc({ id: row.docId })
   else router.push(`/doc-shares/${row.shareId}?doc=${row.docId}`)
+}
+
+// ---------- 正文 @提及 ----------
+const editorRef = ref(null)
+const mentionOpen = ref(false)
+const mentioning = ref(false)
+const PERM_TEXT = { READ: '只读', WRITE: '可编辑', ADMIN: '管理员' }
+const permText = (p) => PERM_TEXT[p] || p || ''
+const mentionCandidates = computed(() =>
+  (members.value || []).filter((m) => String(m.userId) !== String(myId.value)))
+
+function openMention() { mentionOpen.value = true }
+
+/**
+ * 点选成员 → 发通知 + 往正文插 @名字。
+ * 通知与插入分开看：只读用户也能「叫对方来看」，只是插不进正文，不算失败。
+ */
+async function doMention(m) {
+  if (!activeDoc.value || mentioning.value) return
+  mentioning.value = true
+  try {
+    const { data } = await mentionDocUser(shareId.value, activeDoc.value.id, m.userId)
+    const name = data?.name || m.displayName || m.username
+    const inserted = editorRef.value?.insertMention?.(name)
+    ElMessage.success(inserted ? `已提及 ${name}，并已通知对方` : `已通知 ${name}（当前无编辑权限，未写入正文）`)
+    mentionOpen.value = false
+  } catch (e) {
+    ElMessage.error(errMsg(e, '提及失败'))
+  } finally {
+    mentioning.value = false
+  }
 }
 
 /** 图块专属文档判定：content 快照恰好是单个导图/流程图/电子表格块（无其他正文）
@@ -614,13 +646,18 @@ watch(() => route.query.doc, async (want) => {
       <main class="editor" v-if="activeDoc">
         <div class="title-bar">
           <input v-model="editorTitle" class="title-input" placeholder="无标题文档" :disabled="!canWrite" @change="saveTitle" />
+          <!-- 正文 @提及：点选空间成员，插入 @名字 并给对方发通知 -->
+          <button class="mention-btn" type="button" title="提及成员（会发通知给对方）" @click="openMention">
+            <el-icon><Promotion /></el-icon>
+            <span class="mb-txt">提及</span>
+          </button>
           <button class="reading-btn" type="button"
                   :title="readingMode ? '退出全屏阅读（Esc）' : '全屏阅读'"
                   @click="toggleReading">
             <el-icon><Expand /></el-icon>
           </button>
         </div>
-        <DocShareEditor :key="activeDoc.id + ':' + (activeDoc.yjsRev || 0)" :share-id="shareId" :doc-id="activeDoc.id"
+        <DocShareEditor ref="editorRef" :key="activeDoc.id + ':' + (activeDoc.yjsRev || 0)" :share-id="shareId" :doc-id="activeDoc.id"
                         :revision="activeDoc.yjsRev || 0"
                         :can-write="docCanWrite" :legacy-content="activeDoc.content"
                         :diagram="diagramKind" @reload-document="onDocReload" />
@@ -653,6 +690,24 @@ watch(() => route.query.doc, async (want) => {
         <el-empty description="选择左侧文档开始协作，或点击新建" />
       </div>
     </div>
+
+    <!-- 提及成员：点选即通知，并尝试往正文插入 @名字 -->
+    <el-dialog v-model="mentionOpen" title="提及成员" width="420px">
+      <div class="dlg-hint" style="margin-bottom:10px">
+        选中后会插入 <code>@名字</code>，并给对方发一条通知。
+      </div>
+      <div v-if="!mentionCandidates.length" class="dlg-hint">这个空间还没有其他成员。</div>
+      <button v-for="m in mentionCandidates" :key="m.userId" class="mention-row" type="button"
+              :disabled="mentioning" @click="doMention(m)">
+        <el-avatar v-if="m.avatar" :size="24" :src="m.avatar" />
+        <span v-else class="ava ava-tx sm">{{ (m.displayName || m.username || '?').slice(0, 1) }}</span>
+        <span class="mr-name">{{ m.displayName || m.username }}</span>
+        <span class="mr-perm">{{ permText(m.permission) }}</span>
+      </button>
+      <template #footer>
+        <el-button @click="mentionOpen = false">取消</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 成员管理 -->
     <el-dialog v-model="memberDialog" title="成员管理" width="560px">
@@ -981,4 +1036,15 @@ html.dark .title-bar .title-input:disabled { color: #c2c6d2; }
 .dl-space { font-size: 10.5px; color: var(--el-text-color-placeholder, #a8a8b3); }
 .dl-empty { font-size: 12px; color: var(--el-text-color-placeholder, #a8a8b3); }
 html.dark .doc-links { background: #1c1c24; border-color: #2a2a35; }
+/* ---------- 提及成员 ---------- */
+.mention-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px solid var(--el-border-color, #e5e6eb); border-radius: 999px; background: transparent; color: var(--el-text-color-secondary, #4e5969); font-size: 12px; cursor: pointer; }
+.mention-btn:hover { border-color: var(--el-color-primary, #1677ff); color: var(--el-color-primary, #1677ff); }
+.mb-txt { line-height: 1; }
+.mention-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; text-align: left; }
+.mention-row:hover { background: var(--el-fill-color-light, #f7f8fa); }
+.mention-row:disabled { opacity: .6; cursor: default; }
+.mr-name { flex: 1; min-width: 0; font-size: 13px; color: var(--el-text-color-primary, #1d2129); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-perm { font-size: 11.5px; color: var(--el-text-color-placeholder, #a8a8b3); }
+html.dark .mention-btn { border-color: #3a3a4a; color: #a8a8b3; }
+html.dark .mention-row:hover { background: #26262f; }
 </style>

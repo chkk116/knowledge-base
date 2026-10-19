@@ -23,6 +23,7 @@ public class Notification {
     private String type;          // COMMENT_MENTION 等
     private String actor;         // 触发者用户名
     private Long docId;           // 关联文档
+    private Long shareId;         // 共享文档所属空间（DOC_MENTION 跳转用；文章通知为空）
     private Long commentId;       // 关联评论
     @Column(columnDefinition = "text")
     private String summary;       // 评论摘要
@@ -44,6 +45,9 @@ public class Notification {
 
     public Long getDocId() { return docId; }
     public void setDocId(Long docId) { this.docId = docId; }
+
+    public Long getShareId() { return shareId; }
+    public void setShareId(Long shareId) { this.shareId = shareId; }
 
     public Long getCommentId() { return commentId; }
     public void setCommentId(Long commentId) { this.commentId = commentId; }

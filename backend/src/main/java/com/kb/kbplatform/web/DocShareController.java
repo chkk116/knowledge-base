@@ -337,6 +337,24 @@ public class DocShareController {
         return svc.docLinks(id, docId, resolveUserId(c), isSysAdmin(c));
     }
 
+    /**
+     * 正文 @提及：点选空间成员即发通知。
+     * 不解析正文——共享文档的正文要靠「保存快照」才落库，解析正文会漏掉没保存的编辑。
+     */
+    @PostMapping("/{id}/docs/{docId}/mention")
+    public Map<String, Object> mention(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                       @PathVariable Long docId, @RequestBody Map<String, Object> body) {
+        Long targetUserId = null;
+        Object raw = body.get("userId");
+        if (raw != null) {
+            try { targetUserId = Long.valueOf(String.valueOf(raw).trim()); } catch (NumberFormatException ignored) { /* 交给 service 报错 */ }
+        }
+        Map<String, Object> res = svc.mentionDoc(id, docId, targetUserId, resolveUserId(c), isSysAdmin(c));
+        audit.log(c.userId(), c.username(), "MENTION_SHARE_DOC", "SHARE_DOC", docId, null,
+                "在文档中提及用户：" + res.get("name"));
+        return res;
+    }
+
     /** 批量改标签：「全部文档」多选后使用。无写权限的逐条跳过，不整批回滚。 */
     @PostMapping("/docs/batch-tags")
     public Map<String, Object> batchTags(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {

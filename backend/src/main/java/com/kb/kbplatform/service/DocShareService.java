@@ -49,12 +49,15 @@ public class DocShareService {
     private final DocAnnotationRepository annoRepo;
     private final TransactionTemplate tx;
     private final RelayNotifier relayNotifier;
+    private final NotificationService notificationService;
 
     public DocShareService(DocShareRepository shareRepo, DocSharePermissionRepository permRepo,
                            SharedDocumentRepository docRepo, SharedDocPermissionRepository docPermRepo,
                            UserRepository userRepo, SharedDocVersionRepository sharedDocVerRepo,
-                           DocAnnotationRepository annoRepo, TransactionTemplate tx, RelayNotifier relayNotifier) {
+                           DocAnnotationRepository annoRepo, TransactionTemplate tx, RelayNotifier relayNotifier,
+                           NotificationService notificationService) {
         this.relayNotifier = relayNotifier;
+        this.notificationService = notificationService;
         this.shareRepo = shareRepo;
         this.permRepo = permRepo;
         this.docRepo = docRepo;
@@ -506,9 +509,46 @@ public class DocShareService {
         return list;
     }
 
+    /**
+     * 正文 @提及：点选空间成员即发通知。
+     *
+     * 为什么不去解析正文：共享文档的正文靠「保存快照」才落库，用户可能一直不点保存，
+     * 解析正文根本不会触发；而「我叫他来看这篇」这个动作本身是明确的，点选即通知更可靠。
+     */
     @Transactional(rollbackFor = Exception.class)
-    public DocSharePermission addMember(Long shareId, Long targetUserId, String permission, Long userId, boolean sysAdmin) {
+    public Map<String, Object> mentionDoc(Long shareId, Long docId, Long targetUserId, Long userId, boolean sysAdmin) {
         DocShare s = get(shareId, userId, sysAdmin);
+        if (targetUserId == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要提及的成员");
+        if (Objects.equals(targetUserId, userId))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能提及自己");
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        if (!canReadDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权在该文档中提及他人");
+
+        // 被提及者必须本来就能打开这篇文档，否则通知过去也是死链
+        boolean reachable = Objects.equals(s.getOwnerId(), targetUserId)
+                || permRepo.findByShareIdAndUserId(shareId, targetUserId).isPresent()
+                || docPermRepo.findByDocIdAndUserId(docId, targetUserId).isPresent();
+        if (!reachable)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该用户不在这个空间里，无法接收提及");
+
+        User target = userRepo.findById(targetUserId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在"));
+        String actor = userRepo.findById(userId).map(User::getUsername).orElse("");
+        notificationService.notifyDocMention(shareId, docId, d.getTitle(), userId, actor, targetUserId);
+
+        String name = target.getDisplayName() == null || target.getDisplayName().trim().isEmpty()
+                ? target.getUsername() : target.getDisplayName();
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("ok", true);
+        ret.put("name", name);
+        return ret;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public DocSharePermission addMember(Long shareId, Long targetUserId, String permission, Long userId, boolean sysAdmin) {        DocShare s = get(shareId, userId, sysAdmin);
         if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
         if (s.getOwnerId().equals(targetUserId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "所有者无需单独授权");
         User target = resolveUser(targetUserId);

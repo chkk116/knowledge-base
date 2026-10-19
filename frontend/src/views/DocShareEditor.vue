@@ -806,6 +806,20 @@ watch(() => props.canWrite, (w) => {
   if (!w) enforceReadOnly()
   else if (editor.value) editor.value.setEditable(true)
 }, { immediate: true })
+
+/**
+ * 供父组件插入 @提及 文本（光标处）。
+ * 只负责往正文里落字，通知由父组件调接口发出——插入成功与否不影响通知。
+ * @returns {boolean} 是否插入成功（只读时返回 false）
+ */
+function insertMention(name) {
+  if (!editor.value || !props.canWrite) return false
+  try {
+    editor.value.chain().focus().insertContent('@' + name + ' ').run()
+    return true
+  } catch { return false }
+}
+defineExpose({ insertMention })
 </script>
 
 <template>

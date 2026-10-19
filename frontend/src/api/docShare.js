@@ -48,6 +48,13 @@ export const batchSetDocTags = (docs, add, remove) =>
   api.post('/doc-shares/docs/batch-tags', { docs, add, remove })
 
 /**
+ * 正文 @提及：点选成员即发通知。后端会校验对方本来就能打开该文档，
+ * 否则拒绝（避免通知过去是死链）。返回 { ok, name }。
+ */
+export const mentionDocUser = (shareId, docId, userId) =>
+  api.post(`/doc-shares/${shareId}/docs/${docId}/mention`, { userId })
+
+/**
  * 文档双向链接：{ out: [{title,resolved,shareId,docId,spaceName}], back: [...] }
  * out = 本文引用的；back = 引用本文的。解析范围仅限当前用户可读的文档。
  */

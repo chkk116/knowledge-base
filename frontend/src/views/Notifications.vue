@@ -29,6 +29,7 @@ const pageSize = ref(15)
 const META = {
   SECURITY_ALERT:  { icon: Warning, color: '#C0392B' },
   COMMENT_MENTION: { icon: Promotion, color: '#185FA5' },
+  DOC_MENTION:     { icon: Promotion, color: '#185FA5' },
   COMMENT:         { icon: ChatLineRound, color: '#0F6E56' },
   COMMENT_REPLY:   { icon: ChatSquare, color: '#0F6E56' },
   LIKE:            { icon: Pointer, color: '#D4537E' },
@@ -54,7 +55,7 @@ const isShareReviewType = (t) => t != null && t.startsWith('SHARE_')
 
 const TAB_TYPES = {
   all: null,
-  interact: ['COMMENT_MENTION', 'COMMENT', 'COMMENT_REPLY'],
+  interact: ['COMMENT_MENTION', 'DOC_MENTION', 'COMMENT', 'COMMENT_REPLY'],
   like: ['LIKE'],
   review: ['REVIEW', 'REVIEW_SUBMIT',
     'SHARE_CREATE_APPROVED', 'SHARE_CREATE_REJECTED', 'SHARE_CREATE_PENDING',
@@ -133,6 +134,10 @@ const toggleAll = () => {
 
 const open = async (n) => {
   if (!n.read) { try { await notificationRead(n.id) } catch (e) {} }
+  // 共享文档里的 @提及：带 shareId 才能拼出空间文档的地址（不是文章页）
+  if (n.type === 'DOC_MENTION' && n.shareId && n.docId) {
+    router.push(`/doc-shares/${n.shareId}?doc=${n.docId}`); return
+  }
   if (n.docId) { router.push('/post/' + n.docId); return }
   // 共享空间待审批（管理员收到）→ 管理端审批页；审批结果 → 我的共享文档
   if (n.type === 'SHARE_CREATE_PENDING' || n.type === 'SHARE_CAPACITY_PENDING') {
@@ -256,7 +261,10 @@ onMounted(load)
               <el-icon :size="18"><component :is="meta(n).icon" /></el-icon>
             </span>
             <div class="body">
-              <template v-if="n.type === 'COMMENT_MENTION'">
+              <template v-if="n.type === 'DOC_MENTION'">
+                <div class="line"><b>{{ n.actor }}</b><span class="txt">在文档里 @ 了你</span></div>
+              </template>
+              <template v-else-if="n.type === 'COMMENT_MENTION'">
                 <div class="line"><b>{{ n.actor }}</b><span class="txt">在评论中 @ 了你</span></div>
               </template>
               <template v-else-if="n.type === 'COMMENT'">

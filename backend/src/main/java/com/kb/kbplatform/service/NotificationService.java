@@ -119,6 +119,24 @@ public class NotificationService {
         }
     }
 
+    /**
+     * 共享文档正文 @提及（点选成员即通知）。
+     * 与 COMMENT_MENTION 分开用 DOC_MENTION：前端据此跳到「空间文档」而不是文章页，
+     * 并带上 shareId 才能拼出 /doc-shares/{shareId}?doc={docId}。
+     */
+    public void notifyDocMention(Long shareId, Long docId, String docTitle, Long actorUserId,
+                                 String actorUsername, Long targetUserId) {
+        if (targetUserId == null || Objects.equals(targetUserId, actorUserId)) return;
+        Notification n = new Notification();
+        n.setUserId(targetUserId);
+        n.setType("DOC_MENTION");
+        n.setActor(actorName(actorUsername));
+        n.setDocId(docId);
+        n.setShareId(shareId);
+        n.setSummary(docTitle);
+        saveAndPush(n);
+    }
+
     /** 文章被评论：通知文章作者（评论自己文章不重复通知） */
     public void notifyComment(Long docId, Long docOwnerId, Long actorUserId, String actorUsername,
                               Long commentId, String docTitle, String preview) {

@@ -59,6 +59,7 @@ function titleOf(it) {
   const k = String(it.type || '').toUpperCase()
   const who = it.actor || '有人'
   if (k === 'LIKE') return `${who} 赞了你的文档`
+  if (k === 'DOC_MENTION') return `${who} 在文档里 @ 了你`
   if (k === 'COMMENT' || k === 'COMMENT_MENTION') return `${who} 评论了你的文档`
   if (k === 'COMMENT_REPLY') return `${who} 回复了你的评论`
   if (k.includes('SHARE')) return '共享文档空间有更新'
@@ -85,6 +86,8 @@ async function load() {
 function routeOf(it) {
   const t = String(it.type || '')
   if (t.startsWith('SHARE_')) return '/docs'
+  // 共享文档 @提及：直达那篇文档（手机端路由是 /doc/:shareId/:docId）
+  if (t === 'DOC_MENTION') return it.shareId && it.docId ? `/doc/${it.shareId}/${it.docId}` : null
   if (t === 'COMMENT' || t === 'COMMENT_MENTION' || t === 'COMMENT_REPLY' || t === 'LIKE') {
     // 直接 deep-link 到文章详情页（外部审查 2026-10-12：原跳 /embed/post 是 path:null
     // 的死页，用户点开是空白）
