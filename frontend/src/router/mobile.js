@@ -33,6 +33,8 @@ const routes = [
   { path: '/quick', component: () => import('../views/mobile/MobileQuickNote.vue'), meta: { title: '速记' } },
   // 网页剪藏：贴链接 → 服务端抓正文 → 预览后存成文档
   { path: '/clip', component: () => import('../views/mobile/MobileWebClip.vue'), meta: { title: '网页剪藏' } },
+  // 复习卡片：正面提问 → 显示答案 → 四档评分，按 SM-2 排下一次
+  { path: '/cards', component: () => import('../views/mobile/MobileFlashcards.vue'), meta: { title: '复习卡片' } },
   // 系统分享导入（Android 分享 PDF/图片/文本 → 建文档）
   { path: '/share-import', component: () => import('../views/mobile/MobileShareImport.vue'), meta: { title: '导入分享' } },
 
