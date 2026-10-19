@@ -91,6 +91,7 @@ function fmtTime(s) {
 // 金刚区入口：8 个（新增功能一律在这里露出，避免"加了但找不到"）
 const QUICKS = [
   { label: '拍照建文档', icon: 'Camera', color: 'grad', to: '/capture' },
+  { label: '速记', icon: 'EditPen', color: 'cyan', to: '/quick' },
   { label: '我的文档', icon: 'FolderOpened', color: 'blue', to: '/docs' },
   { label: 'AI 问答', icon: 'MagicStick', color: 'cyan', to: '/ai' },
   { label: '发现文章', icon: 'Compass', color: 'green', to: '/discover' },
