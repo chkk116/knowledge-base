@@ -92,6 +92,7 @@ function fmtTime(s) {
 const QUICKS = [
   { label: '拍照建文档', icon: 'Camera', color: 'grad', to: '/capture' },
   { label: '速记', icon: 'EditPen', color: 'cyan', to: '/quick' },
+  { label: '网页剪藏', icon: 'Link', color: 'blue', to: '/clip' },
   { label: '我的文档', icon: 'FolderOpened', color: 'blue', to: '/docs' },
   { label: 'AI 问答', icon: 'MagicStick', color: 'cyan', to: '/ai' },
   { label: '发现文章', icon: 'Compass', color: 'green', to: '/discover' },

@@ -31,6 +31,8 @@ const routes = [
   { path: '/capture', component: () => import('../views/mobile/MobileCapture.vue'), meta: { title: '拍照建文档' } },
   // 速记：一句话直接进「待整理箱」，支持 #标签；断网先存本机队列
   { path: '/quick', component: () => import('../views/mobile/MobileQuickNote.vue'), meta: { title: '速记' } },
+  // 网页剪藏：贴链接 → 服务端抓正文 → 预览后存成文档
+  { path: '/clip', component: () => import('../views/mobile/MobileWebClip.vue'), meta: { title: '网页剪藏' } },
   // 系统分享导入（Android 分享 PDF/图片/文本 → 建文档）
   { path: '/share-import', component: () => import('../views/mobile/MobileShareImport.vue'), meta: { title: '导入分享' } },
 
