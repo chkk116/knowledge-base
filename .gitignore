@@ -51,9 +51,13 @@ logs/
 # application.yml 以 optional 方式导入本文件；缺失时 AI 走管理页配置的模型即可
 backend/src/main/resources/application-secret.yml
 
-# 仓库只收「帮助文档/截图」与脱敏后的安全审查报告；其余内部 md 不入库（仅本地留档）
+# 仓库只收「帮助文档/截图」；内部 md 与安全审查报告一律不入库（仅本地留档，2026-10-19 用户明确）
 docs/回归测试体系.md
 docs/脑图连线自由拖拽-交接说明.md
+docs/安全审查-*.md
+安全审查报告-*.md
+# 审查引擎原始结果（含完整发现细节，仅本地留档）
+.ocr/
 
 # Capacitor 本地配置备份（.bak 仅为本地临时回滚用）
 mobile/capacitor.config.json.bak
