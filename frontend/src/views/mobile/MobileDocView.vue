@@ -22,6 +22,7 @@ import {
 } from '../../api/kb'
 import MobileCommentSection from './MobileCommentSection.vue'
 import { getCachedDoc, cacheDoc } from '../../utils/offlineStore'
+import { createFlashcard } from '../../api/flashcard'
 import { isBookmarked, toggleBookmark } from '../../utils/bookmarks'
 import { toWordHtml, toMarkdown, shareLink, qrDataUrl } from '../../utils/docExport'
 import { shareText, saveTextFile, safeName, copyText } from '../../utils/shareOut'
@@ -168,6 +169,39 @@ function startAnno() {
   annoDraft.value = { quote: p.quote, note: '', prefix: p.prefix, suffix: p.suffix }
   selTip.value.show = false
   try { window.getSelection()?.removeAllRanges() } catch { /* ignore */ }
+}
+
+// ---------- 选中文字 → 复习卡片 ----------
+const cardOpen = ref(false)
+const cardSaving = ref(false)
+const cardForm = ref({ front: '', back: '' })
+const cardQuote = ref('')
+
+/** 背面预填选中的原文；正面留空让用户自己提问（直接背原文记不住） */
+function startCard() {
+  const p = pendingSel.value
+  if (!p || p.quote.length < 2) { selTip.value.show = false; return }
+  cardQuote.value = p.quote
+  cardForm.value = { front: '', back: p.quote }
+  selTip.value.show = false
+  try { window.getSelection()?.removeAllRanges() } catch { /* ignore */ }
+  cardOpen.value = true
+}
+
+async function saveCard() {
+  const front = cardForm.value.front.trim()
+  const back = cardForm.value.back.trim()
+  if (!front || !back) { window.__kbMsg?.warning('正面和背面都要填'); return }
+  cardSaving.value = true
+  try {
+    await createFlashcard({ front, back, source: cardQuote.value, shareId: spaceId, docId })
+    cardOpen.value = false
+    window.__kbMsg?.success('已生成卡片，可在「复习卡片」里复习')
+  } catch (e) {
+    window.__kbMsg?.error(e?.response?.data?.error || '生成失败')
+  } finally {
+    cardSaving.value = false
+  }
 }
 
 async function confirmAnno() {
@@ -480,12 +514,17 @@ function fmtDate(s) {
       </button>
     </header>
 
-    <!-- 选中正文文字后浮出的「摘录」气泡 -->
-    <button v-if="selTip.show" type="button" class="anno-tip"
-            :style="{ left: selTip.x + 'px', top: selTip.y + 'px' }"
-            @mousedown.prevent @click="startAnno">
-      <el-icon><CollectionTag /></el-icon> 摘录
-    </button>
+    <!-- 选中正文文字后浮出的操作气泡：摘录 / 做成卡片 -->
+    <div v-if="selTip.show" class="anno-tip-wrap"
+         :style="{ left: selTip.x + 'px', top: selTip.y + 'px' }">
+      <button type="button" class="anno-tip-btn" @mousedown.prevent @click="startAnno">
+        <el-icon><CollectionTag /></el-icon> 摘录
+      </button>
+      <span class="anno-tip-sep"></span>
+      <button type="button" class="anno-tip-btn" @mousedown.prevent @click="startCard">
+        <el-icon><Postcard /></el-icon> 卡片
+      </button>
+    </div>
 
     <div class="dv-scroll" @scroll="onScroll">
       <div v-if="loading" class="body">
@@ -620,6 +659,24 @@ function fmtDate(s) {
           <button class="m-sheet-item cancel" type="button" @click="annoDraft = null">取消</button>
         </div>
       </div>
+
+      <!-- 选中文字 → 做成复习卡片（背面预填原文，正面让用户提问） -->
+      <div v-if="cardOpen" class="m-sheet-mask" @click.self="cardOpen = false">
+        <div class="m-sheet" @click.stop>
+          <div class="m-sheet-grip"></div>
+          <div class="m-sheet-title">做成复习卡片</div>
+          <div class="anno-quote">“{{ cardQuote }}”</div>
+          <div class="card-label">正面（问题）</div>
+          <textarea v-model="cardForm.front" class="anno-note" rows="2" maxlength="500"
+                    placeholder="想让自己记住什么？例如：这条规则的适用场景是什么？"></textarea>
+          <div class="card-label">背面（答案，已预填）</div>
+          <textarea v-model="cardForm.back" class="anno-note" rows="3" maxlength="5000"></textarea>
+          <button class="m-sheet-item primary" type="button" :disabled="cardSaving" @click="saveCard">
+            {{ cardSaving ? '保存中…' : '生成卡片' }}
+          </button>
+          <button class="m-sheet-item cancel" type="button" @click="cardOpen = false">取消</button>
+        </div>
+      </div>
     </transition>
 
     <!-- 二维码 -->
@@ -738,14 +795,22 @@ function fmtDate(s) {
 
 /* ---------- 摘录 / 批注 ---------- */
 /* 选中文字后浮出的气泡（position:fixed，按选区中心定位） */
-.anno-tip {
+.anno-tip-wrap {
   position: fixed; z-index: 2100; transform: translate(-50%, -100%);
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 7px 13px; border: none; border-radius: 999px;
-  background: var(--m-primary); color: #fff; font-size: 13px; font-family: inherit;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, .28); cursor: pointer;
+  display: inline-flex; align-items: center;
+  padding: 5px 4px; border-radius: 999px;
+  background: var(--m-primary); color: #fff;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .28);
 }
-.anno-tip:active { transform: translate(-50%, -100%) scale(.96); }
+.anno-tip-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border: none; border-radius: 999px;
+  background: transparent; color: #fff; font-size: 13px; font-family: inherit; cursor: pointer;
+}
+.anno-tip-btn:active { transform: scale(.96); }
+.anno-tip-sep { width: 1px; height: 14px; background: rgba(255, 255, 255, .35); }
+/* 卡片弹层里的字段标签 */
+.card-label { margin: 10px 0 5px; font-size: 12px; color: var(--m-text-dim, #86909c); }
 
 /* 正文里的摘录高亮 */
 .m-prose mark.kb-anno {

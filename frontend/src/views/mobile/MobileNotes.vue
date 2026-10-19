@@ -3,11 +3,50 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { listMyAnnotations, updateDocAnnotation, deleteDocAnnotation } from '../../api/docShare'
+import { createFlashcard } from '../../api/flashcard'
 
 const router = useRouter()
 const loading = ref(true)
 const items = ref([])
 const keyword = ref('')
+
+// ---------- 摘录 → 复习卡片 ----------
+const cardOpen = ref(false)
+const cardSaving = ref(false)
+const cardForm = ref({ front: '', back: '' })
+const cardMeta = ref({ quote: '', shareId: null, docId: null })
+
+function openCard(a) {
+  // 背面预填摘录（有笔记就一起带上），正面留空让用户写问题——
+  // 卡片的价值在「提问」，直接拿原文当正面就成了重读，记不住
+  cardForm.value = {
+    front: '',
+    back: a.note ? `${a.quote}\n\n${a.note}` : a.quote,
+  }
+  cardMeta.value = { quote: a.quote, shareId: a.shareId, docId: a.docId }
+  cardOpen.value = true
+}
+
+async function saveCard() {
+  const front = cardForm.value.front.trim()
+  const back = cardForm.value.back.trim()
+  if (!front || !back) { window.__kbMsg?.warning('正面和背面都要填'); return }
+  cardSaving.value = true
+  try {
+    await createFlashcard({
+      front, back,
+      source: cardMeta.value.quote,
+      shareId: cardMeta.value.shareId,
+      docId: cardMeta.value.docId,
+    })
+    cardOpen.value = false
+    window.__kbMsg?.success('已生成卡片，可在「复习卡片」里复习')
+  } catch (e) {
+    window.__kbMsg?.error(e?.response?.data?.error || '生成失败')
+  } finally {
+    cardSaving.value = false
+  }
+}
 
 const shown = computed(() => {
   const q = keyword.value.trim().toLowerCase()
@@ -119,6 +158,7 @@ onMounted(load)
             </div>
           </button>
           <div class="note-ops">
+            <button type="button" class="card-op" @click="openCard(a)">做卡片</button>
             <button type="button" @click="editNote(a)">编辑</button>
             <button type="button" class="danger" @click="remove(a)">删除</button>
           </div>
@@ -132,6 +172,28 @@ onMounted(load)
       </div>
       <div class="bottom-space"></div>
     </div>
+
+    <!-- 摘录 → 卡片：正面留空让用户写问题，背面预填摘录 -->
+    <transition name="sheet-up">
+      <div v-if="cardOpen" class="sheet-mask" @click.self="cardOpen = false">
+        <div class="sheet">
+          <div class="sheet-title">做成复习卡片</div>
+          <div class="sheet-quote">{{ cardMeta.quote }}</div>
+          <div class="field">
+            <label>正面（问题）· 必填</label>
+            <textarea v-model="cardForm.front" rows="2" maxlength="500" placeholder="想让自己记住什么？例如：这条规则的适用场景是什么？"></textarea>
+          </div>
+          <div class="field">
+            <label>背面（答案）· 已预填摘录</label>
+            <textarea v-model="cardForm.back" rows="4" maxlength="5000"></textarea>
+          </div>
+          <div class="sheet-actions">
+            <button class="ghost-btn" type="button" @click="cardOpen = false">取消</button>
+            <button class="primary-btn" type="button" :disabled="cardSaving" @click="saveCard">{{ cardSaving ? '保存中…' : '生成卡片' }}</button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -176,4 +238,17 @@ onMounted(load)
 .skeleton-row { padding: 13px 0; }
 .skeleton-row + .skeleton-row { border-top: 1px solid var(--m-border); }
 .bottom-space { height: 22px; }
+/* 摘录 → 卡片 */
+.card-op { color: var(--m-primary, #1677ff) !important; }
+.sheet-mask { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .35); display: flex; align-items: flex-end; }
+.sheet { width: 100%; background: var(--m-bg, #f5f6f7); border-radius: 16px 16px 0 0; padding: 16px 14px calc(16px + env(safe-area-inset-bottom)); }
+.sheet-title { font-size: 16px; font-weight: 500; color: var(--m-text); margin-bottom: 10px; }
+.sheet-quote { padding: 10px 12px; margin-bottom: 12px; border-left: 3px solid var(--m-primary, #1677ff); border-radius: 6px; background: #fff; font-size: 12.5px; line-height: 1.6; color: var(--m-text-dim, #4e5969); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12px; color: var(--m-text-dim, #86909c); margin-bottom: 6px; }
+.field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--m-border, #e5e6eb); border-radius: 10px; background: #fff; font: inherit; font-size: 14px; line-height: 1.6; color: var(--m-text); resize: none; }
+.sheet-actions { display: flex; gap: 10px; }
+.primary-btn { flex: 1; height: 44px; border: 0; border-radius: 12px; background: var(--m-primary, #1677ff); color: #fff; font-size: 15px; }
+.primary-btn:disabled { opacity: .45; }
+.ghost-btn { flex: none; width: 88px; height: 44px; border: 1px solid var(--m-border, #e5e6eb); border-radius: 12px; background: transparent; color: var(--m-text); font-size: 14px; }
 </style>
