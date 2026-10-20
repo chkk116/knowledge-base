@@ -63,6 +63,21 @@ const agentSteps = ref([])  // Agent 模式：步骤列表（累积展示，能�
 const agentStepsOpen = ref(true)  // 步骤折叠状态：执行中展开，完成后自动收起
 // 一次 Agent 任务内的确认状态（WEB/AI 出题只问一遍，模型重试时不再弹）
 const agentSession = ref({})
+// 历史消息里的「执行过程」折叠状态（按消息索引，默认收起）
+const msgStepsOpen = reactive({})
+
+/**
+ * 窗口用到 80% 时自动压缩一次。
+ * 之所以放在「发送前」而不是定时器：只有真要发消息时上下文才会继续涨，
+ * 空闲时压了也白压（还多花一次模型调用）。
+ */
+async function maybeAutoCompact() {
+  if (ctxPct.value < AUTO_COMPACT_AT * 100) return
+  if (compacting.value) return
+  if (Date.now() - lastAutoCompact < 60000) return
+  lastAutoCompact = Date.now()
+  await compactContext(true)
+}
 // 高消耗发送确认的开关与阈值（管理员在「AI 模型管理 → 消息设置」配置）
 const aiGuard = reactive({ enabled: true, imageThreshold: 2, textThreshold: 8000 })
 async function loadAiGuard() {
@@ -146,7 +161,16 @@ const ctxWindow = computed(() => Number(effectiveModel.value?.contextWindow) || 
 const activeMessages = computed(() => (currentId.value ? (convMessages.value[currentId.value] || []) : []))
 const historyTokens = computed(() => activeMessages.value.reduce((n, m) => n + estimateTokens(m.content), 0))
 const inputTokens = computed(() => estimateTokens(input.value))
-const usedTokens = computed(() => historyTokens.value + inputTokens.value)
+// 用量拆成几段，和「已用总量」对得上，也能看出到底是谁把窗口吃掉了
+const ctxParts = computed(() => {
+  const parts = [{ name: '系统提示词', value: 120, color: '#6366f1' }]
+  // Agent 模式的工具手册（TOOL_MANUAL）本身就有上千 token，且每步都会带上
+  if (mode.value === 'agent') parts.push({ name: '工具与技能', value: 1800, color: '#10b981' })
+  parts.push({ name: '对话消息', value: historyTokens.value, color: '#f59e0b' })
+  if (inputTokens.value > 0) parts.push({ name: '当前输入', value: inputTokens.value, color: '#a855f7' })
+  return parts
+})
+const usedTokens = computed(() => ctxParts.value.reduce((n, p) => n + p.value, 0))
 const ctxPct = computed(() => Math.min(100, Math.round((usedTokens.value / ctxWindow.value) * 100)))
 const ctxColor = computed(() => (ctxPct.value >= 85 ? '#dc2626' : ctxPct.value >= 60 ? '#d97706' : '#16a34a'))
 const ctxRing = computed(() => {
@@ -163,9 +187,13 @@ watch(think, (v) => {
 })
 
 const compacting = ref(false)
-async function compactContext() {
+/** 窗口用到这个比例就自动压一次（不必等用户发现「怎么开始变慢/报超长」） */
+const AUTO_COMPACT_AT = 0.8
+let lastAutoCompact = 0
+
+async function compactContext(auto = false) {
   const msgs = activeMessages.value.filter((m) => m && m.content)
-  if (msgs.length < 4) { ElMessage.info('对话还短，不需要压缩'); return }
+  if (msgs.length < 4) { if (!auto) ElMessage.info('对话还短，不需要压缩'); return }
   compacting.value = true
   try {
     const text = msgs.map((m) => (m.role === 'user' ? '用户：' : '助手：') + String(m.content)).join('\n\n')
@@ -180,9 +208,11 @@ async function compactContext() {
       { role: 'assistant', content: '【历史摘要】' + summary, mode: 'general', compacted: true },
       ...keep,
     ]
-    ElMessage.success(`已压缩：${msgs.length} 条 → 摘要 + 最近 ${keep.length} 条`)
+    ElMessage.success(auto
+      ? `上下文快满了，已自动压缩：${msgs.length} 条 → 摘要 + 最近 ${keep.length} 条`
+      : `已压缩：${msgs.length} 条 → 摘要 + 最近 ${keep.length} 条`)
   } catch (e) {
-    ElMessage.error('压缩失败：' + ((e && e.response && e.response.data && e.response.data.error) || (e && e.message) || '未知错误'))
+    if (!auto) ElMessage.error('压缩失败：' + ((e && e.response && e.response.data && e.response.data.error) || (e && e.message) || '未知错误'))
   } finally {
     compacting.value = false
   }
@@ -572,7 +602,10 @@ async function sendAgent(raw) {
         }
       }
     })
-    convMessages.value[convId] = [...convMessages.value[convId], { role: 'assistant', content: r.answer, mode: 'agent' }]
+    // steps 跟着消息存下来：否则执行过程只在 loading 里，回答一出来就再也看不到
+    convMessages.value[convId] = [...convMessages.value[convId], {
+      role: 'assistant', content: r.answer, mode: 'agent', steps: r.steps || [],
+    }]
   } catch (e) {
     const msg = String((e && e.message) || e || '')
     // 点「停止」或切走页面时 axios 抛的是取消，不是失败——写成「执行失败」只会让人以为坏了
@@ -596,6 +629,7 @@ async function send(text) {
   const hasAtt = attachments.value.length > 0
   if (!raw && !hasAtt) { ElMessage.warning('请输入内容'); return }
   if (loading.value) return
+  await maybeAutoCompact()
   // Agent 模式走独立链路（ReAct + 本地工具），不进后端会话
   if (mode.value === 'agent') { await sendAgent(raw); return }
 
@@ -1080,6 +1114,17 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                   <summary>💭 思考过程（{{ m.meta.reasoning.length }} 字）</summary>
                   <div class="ai-reasoning-body">{{ m.meta.reasoning }}</div>
                 </details>
+                <div v-if="m.steps && m.steps.length" class="ai-agent-steps msg-steps">
+                  <div class="ai-agent-head" @click="msgStepsOpen[i] = !msgStepsOpen[i]">
+                    <span>执行过程（{{ m.steps.length }} 步）</span>
+                    <span class="ai-agent-toggle">{{ msgStepsOpen[i] ? '收起' : '展开' }}</span>
+                  </div>
+                  <div v-show="msgStepsOpen[i]" class="ai-agent-list">
+                    <div v-for="(st, si) in m.steps" :key="si" class="ai-agent-step">
+                      <span class="ai-agent-dot"></span>{{ st }}
+                    </div>
+                  </div>
+                </div>
                 <div class="ai-flat" v-html="renderMarkdown(m.content)"></div>
 
                 <div v-if="m.sources && m.sources.length" class="ai-sources">
@@ -1213,11 +1258,17 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                     <span>上下文用量</span>
                     <b :style="{ color: ctxColor }">{{ ctxPct }}%</b>
                   </div>
-                  <div class="ctxp-bar"><i :style="{ width: ctxPct + '%', background: ctxColor }"></i></div>
-                  <div class="ctxp-row"><span>已用</span><b>{{ formatTokens(usedTokens) }} tokens</b></div>
-                  <div class="ctxp-row"><span>窗口</span><b>{{ formatTokens(ctxWindow) }}</b></div>
-                  <div class="ctxp-row"><span>模型</span><b>{{ effectiveModel?.name || '默认模型' }}</b></div>
-                  <div class="ctxp-row"><span>消息</span><b>{{ activeMessages.length }} 条</b></div>
+                  <div class="ctxp-bar seg">
+                    <i v-for="p in ctxParts" :key="p.name"
+                       :style="{ width: (p.value / ctxWindow) * 100 + '%', background: p.color }"></i>
+                  </div>
+                  <div v-for="p in ctxParts" :key="p.name" class="ctxp-row">
+                    <span class="ctxp-k"><i class="ctxp-dot" :style="{ background: p.color }"></i>{{ p.name }}</span>
+                    <b>{{ formatTokens(p.value) }}</b>
+                  </div>
+                  <div class="ctxp-foot">
+                    <span>窗口 {{ formatTokens(ctxWindow) }} · {{ effectiveModel?.name || '默认模型' }} · {{ activeMessages.length }} 条消息</span>
+                  </div>
 
                   <div class="ctxp-sec">思考强度</div>
                   <div class="ctxp-think">
@@ -1876,6 +1927,8 @@ html.dark .ai-foot-disclaimer { color: #5b5c74; }
   .ai-tobottom { bottom: 8px; }
 }
 
+.msg-steps { margin: 2px 0 6px; }
+
 /* ===== 上下文用量环（点开看明细 / 切思考强度 / 压缩历史） ===== */
 .ai-ctx {
   position: relative; width: 34px; height: 34px; padding: 0; margin-right: 4px;
@@ -1924,6 +1977,13 @@ html.dark .aimp-row:hover { background: rgba(255, 255, 255, .06); }
 .ctxp-head b { font-size: 15px; }
 .ctxp-bar { height: 6px; border-radius: 999px; background: var(--el-fill-color); overflow: hidden; margin-bottom: 10px; }
 .ctxp-bar i { display: block; height: 100%; border-radius: 999px; transition: width .3s ease; }
+.ctxp-bar.seg { display: flex; gap: 1px; }
+.ctxp-bar.seg i { flex: none; border-radius: 0; }
+.ctxp-bar.seg i:first-child { border-radius: 999px 0 0 999px; }
+.ctxp-bar.seg i:last-child { border-radius: 0 999px 999px 0; }
+.ctxp-k { display: inline-flex; align-items: center; gap: 6px; }
+.ctxp-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ctxp-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--el-border-color-lighter); font-size: 11px; color: var(--el-text-color-placeholder); }
 .ctxp-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 12px; color: var(--el-text-color-secondary); }
 .ctxp-row b { color: var(--el-text-color-primary); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctxp-sec { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--el-text-color-regular); }

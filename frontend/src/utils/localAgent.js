@@ -89,6 +89,13 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
     const out = String(await ask(parts.join('\n\n'), signal) || '').trim()
     if (signal && signal.aborted) { answer = '（已停止）'; break }
 
+    // 模型偶尔会把整段提示词原样复述回来（尤其带上长工具手册、轨迹里又有大段 JSON 时），
+    // 那不是答案——直接展示会让用户看到一屏 {"topic":...} 的原始参数。
+    if (/^【任务】/.test(out) || out.includes('【已执行的步骤与结果】') || /^【要求】/.test(out)) {
+      answer = '这次模型把任务描述原样复述了一遍，没给出结论。\n\n再发一次通常就好了；也可以把任务说小一点（例如「出 3 道关于 VLAN 的单选题，加进题库」）。'
+      break
+    }
+
     const m = out.match(/^\s*TOOL:\s*(\{[\s\S]*\})\s*$/m)
     if (!m) { answer = out || '（未得到回答）'; break }
 

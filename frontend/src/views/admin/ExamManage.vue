@@ -5,6 +5,12 @@
       <el-tab-pane label="题库" name="bank">
         <div class="bar">
           <el-button type="primary" @click="openQuestion()">新建题目</el-button>
+          <el-select v-model="qCat" placeholder="全部分类" clearable style="width: 180px"
+                     @change="loadQ" class="cat-sel">
+            <el-option v-for="c in categories" :key="c" :label="c" :value="c" />
+          </el-select>
+          <span class="count-hint">共 {{ questions.length }} 道{{ qCat ? '（' + qCat + '）' : '' }}</span>
+          <el-button v-if="qCat" type="primary" plain @click="assembleByCategory">用该分类组卷</el-button>
         </div>
         <el-table v-stack-table :data="questions" border stripe v-loading="loadingQ">
           <el-table-column prop="id" label="ID" width="70"  class-name="stack-hide" />
@@ -132,12 +138,22 @@ import {
 } from '../../api/training'
 
 const tab = ref('bank')
+const qCat = ref('')
 const questions = ref([])
 const loadingQ = ref(false)
 const papers = ref([])
 const loadingP = ref(false)
 
 const typeText = (t) => ({ SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }[t] || t)
+// 分类列表从当前题目里提取：AI 批量出题后分类会杂，靠它快速归堆
+const categories = computed(() => {
+  const set = new Set()
+  for (const q of questions.value) {
+    const c = (q.category || '').trim()
+    if (c) set.add(c)
+  }
+  return [...set].sort()
+})
 const hasOptions = computed(() => ['SINGLE', 'MULTI', 'JUDGE'].includes(qForm.value.type))
 
 // 题目
@@ -225,7 +241,44 @@ const doAssemble = () => {
     .finally(() => saving.value = false)
 }
 
-const loadQ = () => { loadingQ.value = true; adminQuestions().then(r => { questions.value = r.data || r || [] }).catch(() => {}).finally(() => loadingQ.value = false) }
+/** 把当前分类下的题一次性组成试卷：AI 批量出题后逐题勾选太累，这也是「生成了用不上」的根源 */
+const assembleByCategory = async () => {
+  const list = questions.value.filter((q) => (q.category || '') === qCat.value)
+  if (!list.length) { ElMessage.warning('该分类下没有题目'); return }
+  try {
+    await ElMessageBox.confirm(
+      `将用「${qCat.value}」下的 ${list.length} 道题新建一份试卷，每题默认 5 分、及格 60 分，生成后可直接在「在线考试」里考。`,
+      '按分类组卷', { type: 'info', confirmButtonText: '生成试卷', cancelButtonText: '取消' },
+    )
+  } catch { return }
+  saving.value = true
+  try {
+    const { data: paper } = await adminCreatePaper({
+      title: qCat.value + ' 试卷',
+      description: '由题库分类自动组卷',
+      passScore: 60,
+      durationMin: 60,
+      status: 'PUBLISHED',
+    })
+    const items = list.map((q) => ({ questionId: q.id, score: 5 }))
+    await adminAssemble(paper.id, items)
+    ElMessage.success(`已生成试卷《${paper.title}》：${items.length} 题 / ${items.length * 5} 分`)
+    loadP()
+    tab.value = 'papers'
+  } catch (e) {
+    ElMessage.error(errMsg(e, '组卷失败'))
+  } finally {
+    saving.value = false
+  }
+}
+
+const loadQ = () => {
+  loadingQ.value = true
+  adminQuestions(qCat.value || undefined)
+    .then(r => { questions.value = r.data || r || [] })
+    .catch(e => ElMessage.error(errMsg(e, '加载题库失败')))
+    .finally(() => loadingQ.value = false)
+}
 const loadP = () => { loadingP.value = true; adminPapers().then(r => { papers.value = r.data || r || [] }).catch(() => {}).finally(() => loadingP.value = false) }
 
 onMounted(() => { loadQ(); loadP() })
@@ -239,6 +292,8 @@ onMounted(() => { loadQ(); loadP() })
 .orow .lab { width: 22px; font-weight: 700; }
 .oc { flex: 1; }
 .sf { max-width: 240px; }
+.count-hint { font-size: 12px; color: var(--el-text-color-secondary); margin-right: auto; }
+.cat-sel { flex: none; }
 
 /* ===== 响应式（统一断点 1024 / 640，只写布局与尺寸） ===== */
 @media (max-width: 1024px) {
