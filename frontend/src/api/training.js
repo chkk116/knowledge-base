@@ -86,6 +86,10 @@ export const adminUpdateQuestion = (id, question, options) =>
 export const adminDeleteQuestion = (id) =>
   api.delete('/admin/exams/questions/' + id)
 
+/** 批量删除题目：{ ids: [..] }，后端逐条走级联清理（组卷关联 + 试卷总分重算） */
+export const adminBatchDeleteQuestions = (ids) =>
+  api.post('/admin/exams/questions/batch-delete', { ids })
+
 /**
  * AI 出题：只生成候选题目，不落库（保存走 adminBatchCreateQuestions）
  *
@@ -110,6 +114,10 @@ export const adminUpdatePaper = (id, p) =>
 
 export const adminDeletePaper = (id) =>
   api.delete('/admin/exams/papers/' + id)
+
+/** 批量删除试卷：{ ids: [..] }，连带清理组卷关联与作答记录 */
+export const adminBatchDeletePapers = (ids) =>
+  api.post('/admin/exams/papers/batch-delete', { ids })
 
 export const adminAssemble = (paperId, items) =>
   api.post('/admin/exams/papers/' + paperId + '/assemble', { items })

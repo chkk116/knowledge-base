@@ -11,8 +11,11 @@
           </el-select>
           <span class="count-hint">共 {{ questions.length }} 道{{ qCat ? '（' + qCat + '）' : '' }}</span>
           <el-button v-if="qCat" type="primary" plain @click="assembleByCategory">用该分类组卷</el-button>
+          <el-button v-if="qSel.length" type="danger" plain @click="delQuestionsBatch">批量删除（{{ qSel.length }}）</el-button>
         </div>
-        <el-table v-stack-table :data="questions" border stripe v-loading="loadingQ">
+        <el-table v-stack-table :data="questions" border stripe v-loading="loadingQ"
+                   @selection-change="(rows) => qSel = rows.map(r => r.id)">
+          <el-table-column type="selection" width="46" />
           <el-table-column prop="id" label="ID" width="70"  class-name="stack-hide" />
           <el-table-column label="题型" width="90">
             <template #default="{ row }">{{ typeText(row.type) }}</template>
@@ -33,8 +36,12 @@
       <el-tab-pane label="试卷" name="papers">
         <div class="bar">
           <el-button type="primary" @click="openPaper()">新建试卷</el-button>
+          <span class="count-hint">共 {{ papers.length }} 份</span>
+          <el-button v-if="pSel.length" type="danger" plain @click="delPapersBatch">批量删除（{{ pSel.length }}）</el-button>
         </div>
-        <el-table v-stack-table :data="papers" border stripe v-loading="loadingP">
+        <el-table v-stack-table :data="papers" border stripe v-loading="loadingP"
+                   @selection-change="(rows) => pSel = rows.map(r => r.id)">
+          <el-table-column type="selection" width="46" />
           <el-table-column prop="id" label="ID" width="70"  class-name="stack-hide" />
           <el-table-column prop="title" label="标题" min-width="160" />
           <el-table-column prop="questionCount" label="题量" width="80" />
@@ -129,12 +136,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { errMsg } from '../../utils/errMsg'
 import {
   adminQuestions, adminCreateQuestion, adminUpdateQuestion, adminDeleteQuestion, adminGetQuestion,
-  adminPapers, adminCreatePaper, adminUpdatePaper, adminDeletePaper, adminAssemble
+  adminPapers, adminCreatePaper, adminUpdatePaper, adminDeletePaper, adminAssemble,
+  adminBatchDeleteQuestions, adminBatchDeletePapers
 } from '../../api/training'
 
 const tab = ref('bank')
@@ -143,6 +151,12 @@ const questions = ref([])
 const loadingQ = ref(false)
 const papers = ref([])
 const loadingP = ref(false)
+// 多选删除
+const qSel = ref([])
+const pSel = ref([])
+// 切换页签 / 改筛选都清掉勾选：留着已删除的行会带着脏 id 去请求
+watch(tab, () => { qSel.value = []; pSel.value = [] })
+watch(qCat, () => { qSel.value = [] })
 
 const typeText = (t) => ({ SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }[t] || t)
 // 分类列表从当前题目里提取：AI 批量出题后分类会杂，靠它快速归堆
@@ -199,6 +213,20 @@ const saveQuestion = () => {
 const delQuestion = (row) => ElMessageBox.confirm('确定删除该题目？关联试卷将丢失此题目。', '提示', { type: 'warning' })
   .then(() => adminDeleteQuestion(row.id)).then(() => { ElMessage.success('已删除'); loadQ() }).catch(() => {})
 
+/** 批量删除题目：把影响面说清楚（不是不可逆到说不清，但试卷关联会被清） */
+const delQuestionsBatch = () => ElMessageBox.confirm(
+  `确定删除选中的 ${qSel.value.length} 道题目？\n\n这些题目在相关试卷里的关联也会一并移除，试卷总分会重新计算。`,
+  '批量删除', { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' },
+)
+  .then(() => adminBatchDeleteQuestions(qSel.value))
+  .then((r) => {
+    ElMessage.success(`已删除 ${r.data?.deleted ?? qSel.value.length} 道题目`)
+    qSel.value = []
+    loadQ()
+    loadP()   // 试卷总分/题量可能被重算，顺手刷新
+  })
+  .catch((e) => { if (e !== 'cancel' && e !== 'close') ElMessage.error(errMsg(e, '批量删除失败')) })
+
 // 试卷
 const pDlg = ref(false)
 const editingP = ref(null)
@@ -216,6 +244,19 @@ const savePaper = () => {
 }
 const delPaper = (row) => ElMessageBox.confirm('删除试卷会同时删除相关考试记录，确定？', '提示', { type: 'warning' })
   .then(() => adminDeletePaper(row.id)).then(() => { ElMessage.success('已删除'); loadP() }).catch(() => {})
+
+/** 批量删除试卷：考试记录会一并删除，提示要比单条更醒目 */
+const delPapersBatch = () => ElMessageBox.confirm(
+  `确定删除选中的 ${pSel.value.length} 份试卷？\n\n这些试卷下的组卷关联和考生的考试记录都会一并删除，且无法恢复。`,
+  '批量删除', { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' },
+)
+  .then(() => adminBatchDeletePapers(pSel.value))
+  .then((r) => {
+    ElMessage.success(`已删除 ${r.data?.deleted ?? pSel.value.length} 份试卷`)
+    pSel.value = []
+    loadP()
+  })
+  .catch((e) => { if (e !== 'cancel' && e !== 'close') ElMessage.error(errMsg(e, '批量删除失败')) })
 
 // 组卷
 const aDlg = ref(false)

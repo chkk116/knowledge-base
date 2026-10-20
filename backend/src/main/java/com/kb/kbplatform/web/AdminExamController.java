@@ -83,6 +83,20 @@ public class AdminExamController {
         return Map.of("ok", true);
     }
 
+    /** 删除题目（批量）：逐条复用 adminDeleteQuestion，级联清理组卷关联与试卷总分不变 */
+    @PostMapping("/questions/batch-delete")
+    public Map<String, Object> deleteQuestions(@RequestAttribute("kbUser") TokenClaims c, @RequestBody IdsReq req) {
+        requirePerm(c, "EXAM_MANAGE");
+        List<Long> ids = req.ids == null ? List.of() : req.ids.stream().distinct().toList();
+        if (ids.isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "未选择要删除的题目");
+        int n = 0;
+        for (Long id : ids) {
+            svc.adminDeleteQuestion(id);
+            n++;
+        }
+        return Map.of("ok", true, "deleted", n);
+    }
+
     // ---------- AI 出题 ----------
 
     /**
@@ -146,6 +160,25 @@ public class AdminExamController {
         requirePerm(c, "EXAM_MANAGE");
         svc.adminDeletePaper(id);
         return Map.of("ok", true);
+    }
+
+    /** 删除试卷（批量）：连带清理组卷关联与作答记录 */
+    @PostMapping("/papers/batch-delete")
+    public Map<String, Object> deletePapers(@RequestAttribute("kbUser") TokenClaims c, @RequestBody IdsReq req) {
+        requirePerm(c, "EXAM_MANAGE");
+        List<Long> ids = req.ids == null ? List.of() : req.ids.stream().distinct().toList();
+        if (ids.isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "未选择要删除的试卷");
+        int n = 0;
+        for (Long id : ids) {
+            svc.adminDeletePaper(id);
+            n++;
+        }
+        return Map.of("ok", true, "deleted", n);
+    }
+
+    /** 批量删除入参 { ids: [..] } */
+    public static class IdsReq {
+        public List<Long> ids;
     }
 
     /** 组卷：替换题目与分值，回写总分/题量 */
