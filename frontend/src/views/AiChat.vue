@@ -156,7 +156,49 @@ const currentModelLabel = computed(() => currentModel.value?.name || '默认模�
 // 窗口大小由管理员在「AI 模型管理」里按模型配置（64K~1M 差得很远，写死只会两头不讨好）
 const effectiveModel = computed(() =>
   currentModel.value || modelList.value.find((m) => m.isDefault) || modelList.value[0] || null)
-const ctxWindow = computed(() => Number(effectiveModel.value?.contextWindow) || 128000)
+// 模型本身能吃的最大窗口（管理员配置，作为上限）
+const modelMaxWindow = computed(() => Number(effectiveModel.value?.contextWindow) || 128000)
+/**
+ * 用户可把窗口「调小」用（模型 1M 但只想用 200K：省 token、控成本、避免长上下文变慢）。
+ * 只能往下调、不能超过模型上限，所以取 min。0 / 空 = 跟随模型最大值。
+ * 按模型 id 分别记，换模型不会互相污染。
+ */
+const CTX_SET_KEY = 'kb_ai_ctx_window'
+const ctxWindowSet = ref(0)
+const ctxWindow = computed(() => {
+  const max = modelMaxWindow.value
+  const v = Number(ctxWindowSet.value) || 0
+  return v > 0 ? Math.min(Math.max(v, 8000), max) : max
+})
+// 窗口档位说明（对齐截图里的「1M 上下文·超长」那种语义）
+const ctxWindowLabel = computed(() => {
+  const w = ctxWindow.value
+  if (w >= modelMaxWindow.value) return '模型上限'
+  if (w >= 500000) return '超长'
+  if (w >= 128000) return '长'
+  if (w >= 32000) return '标准'
+  return '精简'
+})
+function loadCtxWindow() {
+  try {
+    const raw = localStorage.getItem(CTX_SET_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    const id = effectiveModel.value?.id || 'default'
+    ctxWindowSet.value = Number(map[id]) || 0
+  } catch { ctxWindowSet.value = 0 }
+}
+function saveCtxWindow() {
+  try {
+    const raw = localStorage.getItem(CTX_SET_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    const id = effectiveModel.value?.id || 'default'
+    if (ctxWindowSet.value > 0) map[id] = ctxWindowSet.value
+    else delete map[id]
+    localStorage.setItem(CTX_SET_KEY, JSON.stringify(map))
+  } catch { /* 存不了就算了，只影响下次进页面 */ }
+}
+watch(effectiveModel, () => loadCtxWindow())
+
 
 const activeMessages = computed(() => (currentId.value ? (convMessages.value[currentId.value] || []) : []))
 const historyTokens = computed(() => activeMessages.value.reduce((n, m) => n + estimateTokens(m.content), 0))
@@ -964,6 +1006,7 @@ onMounted(async () => {
   bodyRef.value?.addEventListener('click', onBodyClick)
   // 先拉可用模型，头部下拉与发送时的 modelId 都依赖它
   await loadModels()
+  loadCtxWindow()   // 模型拿到后才能按 id 恢复用户调过的上下文窗口
   await loadConversations()
   const saved = localStorage.getItem(STORAGE_KEY)
   if (saved && conversations.value.some((c) => String(c.id) === saved)) {
@@ -1268,6 +1311,17 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                   </div>
                   <div class="ctxp-foot">
                     <span>窗口 {{ formatTokens(ctxWindow) }} · {{ effectiveModel?.name || '默认模型' }} · {{ activeMessages.length }} 条消息</span>
+                  </div>
+
+                  <div class="ctxp-sec">上下文窗口</div>
+                  <el-slider
+                    :model-value="ctxWindow" :min="8000" :max="modelMaxWindow" :step="1000"
+                    :show-tooltip="false" class="ctxp-slider"
+                    @update:model-value="(v) => { ctxWindowSet = v; saveCtxWindow() }" />
+                  <div class="ctxp-slider-label">
+                    <span><b>{{ formatTokens(ctxWindow) }}</b> 上下文 · {{ ctxWindowLabel }}</span>
+                    <button v-if="ctxWindowSet > 0" type="button" class="ctxp-reset"
+                            @click="ctxWindowSet = 0; saveCtxWindow()">恢复上限</button>
                   </div>
 
                   <div class="ctxp-sec">思考强度</div>
@@ -1984,6 +2038,21 @@ html.dark .aimp-row:hover { background: rgba(255, 255, 255, .06); }
 .ctxp-k { display: inline-flex; align-items: center; gap: 6px; }
 .ctxp-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .ctxp-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--el-border-color-lighter); font-size: 11px; color: var(--el-text-color-placeholder); }
+/* 上下文窗口滑块：只能往下调（不超过模型上限），用来省 token / 避免长上下文变慢 */
+.ctxp-slider { padding: 0 4px; margin: 2px 0 0; }
+.ctxp-slider :deep(.el-slider__runway) { height: 6px; border-radius: 999px; }
+.ctxp-slider :deep(.el-slider__bar) { height: 6px; border-radius: 999px; background: #10b981; }
+.ctxp-slider :deep(.el-slider__button) { width: 16px; height: 16px; border: 2px solid #10b981; }
+.ctxp-slider-label {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; color: var(--el-text-color-secondary); margin-bottom: 4px;
+}
+.ctxp-slider-label b { color: #10b981; font-weight: 600; }
+.ctxp-reset {
+  border: none; background: transparent; color: var(--el-color-primary);
+  font-size: 11px; cursor: pointer; padding: 2px 4px; font-family: inherit;
+}
+.ctxp-reset:hover { text-decoration: underline; }
 .ctxp-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 12px; color: var(--el-text-color-secondary); }
 .ctxp-row b { color: var(--el-text-color-primary); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctxp-sec { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--el-text-color-regular); }

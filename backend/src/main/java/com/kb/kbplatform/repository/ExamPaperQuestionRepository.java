@@ -14,6 +14,9 @@ public interface ExamPaperQuestionRepository extends JpaRepository<ExamPaperQues
     List<ExamPaperQuestion> findByPaperIdOrderBySortOrderAscIdAsc(Long paperId);
     void deleteByPaperId(Long paperId);
 
+    /** 试卷题量：ExamPaper.questionCount 是 @Transient（不落库），列表页必须用它回填 */
+    long countByPaperId(Long paperId);
+
     /** 题目删除时级联清理组卷关联（2026-10-13 审查 H4）；调用方需在事务内 */
     List<ExamPaperQuestion> findByQuestionId(Long questionId);
     void deleteByQuestionId(Long questionId);

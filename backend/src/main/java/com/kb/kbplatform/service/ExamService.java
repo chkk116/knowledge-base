@@ -348,8 +348,10 @@ public class ExamService {
 
     /** 定向取单份试卷（同 M9） */
     public ExamPaper adminGetPaper(Long id) {
-        return paperRepo.findById(id)
+        ExamPaper p = paperRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "试卷不存在"));
+        p.setQuestionCount((int) pqRepo.countByPaperId(id));   // @Transient，不补就是 0
+        return p;
     }
 
     /** 保存题目：选项清理为派生删除（需事务），且多步写入需原子 */
@@ -418,7 +420,13 @@ public class ExamService {
     }
 
     public List<ExamPaper> adminListPapers() {
-        return paperRepo.findAllByOrderByCreatedAtDesc();
+        List<ExamPaper> list = paperRepo.findAllByOrderByCreatedAtDesc();
+        // ⚠️ questionCount 在实体里是 @Transient（不落库），这里不补就永远是 0 ——
+        // 后台试卷列表此前一直显示「0 题」，即使组卷成功（2026-10-20 用户反馈）。
+        for (ExamPaper p : list) {
+            p.setQuestionCount((int) pqRepo.countByPaperId(p.getId()));
+        }
+        return list;
     }
 
     /** 删除试卷：连带清理试卷题目与作答记录，整体需事务保证原子性 */
