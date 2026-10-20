@@ -38,6 +38,16 @@ TOOL: {"tool":"工具名","args":{...}}
     · shape 取值：ellipse 开始/结束、rect 普通步骤、diamond 判断分支、doc 文档、db 数据库、sub 子流程。
     · **只需给节点和连线，坐标由前端自动排版**，不要自己编位置。
     · 适用：「画个流程」「生成审批流程图」「把步骤画成图」这类要求。
+11. create_questions —— **用 AI 生成考试题目并加入题库**。参数：
+    {"topic":"出题主题","count":5,"types":["SINGLE","MULTI","JUDGE"],"sourceType":"DOC|WEB|AI","urls":["链接"],"category":"分类","extra":"额外要求"}
+    · types：SINGLE 单选 / MULTI 多选 / JUDGE 判断 / FILL 填空 / ESSAY 简答；count 最多 20。
+    · **sourceType 默认用 DOC**（依据知识库文档）：宿主会自动取该空间最近 8 篇文档作依据，
+      **不需要先 search_kb**——search_kb 查到的是「我的文档」id，和共享空间文档 id 不是同一套，别拿来当 docIds。
+    · 只有用户明确说「不限于知识库」「凭你自己的想法」「从网上找」时才用 AI 或 WEB；这两档宿主会自动弹确认，你不用自己问。
+    · **不要因为检索不到内容就擅自改成 AI**——那会绕开用户的制度文档，出的题可能跟实际规定不符。拿不准就用 DOC。
+    · 生成后宿主会问用户「要不要入库」，入库成功才算完成。
+    · 只有拥有「考试管理」权限的账号可用；没权限会返回明确失败原因。
+    · 适用：「帮我出几道关于 xx 的题」「根据某篇文档出考题」。用户没说要几道时按 5 道、以单选为主。
 
 工作方式要求：
 - 用户说「审查/优化/改写我某篇文档」时：先用 list_my_docs（或 search_kb）定位到文档 → read_doc 读全文 → 分析 → 用 update_doc 写回优化后的**完整正文**（不是只给建议，要真正落地）。
@@ -55,7 +65,7 @@ TOOL: {"tool":"工具名","args":{...}}
  *   ask       (text, signal) => Promise<string>  单轮 LLM 调用（通用模式，无知识库注入）
  *   onStep    (text) => void                      每步进展回调（UI 展示）
  *   signal    AbortSignal
- *   hooks     { navigate?, createDoc?, updateDoc?, listMyDocs?, listMyFiles?, insertFlowchart?, askUser? }
+ *   hooks     { navigate?, createDoc?, updateDoc?, listMyDocs?, listMyFiles?, insertFlowchart?, createQuestions?, askUser? }
  *             宿主能力集合，未传的对应工具返回「不支持」
  * @returns {Promise<{answer:string, steps:string[]}>}
  */
@@ -154,6 +164,19 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
           } else {
             // buildFlowchartGraph 内部会把节点截到 40 / 连线截到 60，播报数量须与之一致
             result = await hooks.insertFlowchart({ title, docId: args.docId, nodes: ns, edges: es })
+          }
+        }
+      } else if (tool === 'create_questions') {
+        if (typeof hooks.createQuestions !== 'function') {
+          result = '当前环境不支持 AI 出题'
+        } else {
+          const topic = String(args.topic || '').slice(0, 200)
+          if (!topic) {
+            result = '缺少出题主题'
+          } else {
+            say('📝 AI 出题：' + topic.slice(0, 30))
+            // 确认（外网/通用知识）、生成、入库都封在宿主里：这里只管调与回填
+            result = await hooks.createQuestions({ ...args, topic })
           }
         }
       } else if (tool === 'create_doc') {

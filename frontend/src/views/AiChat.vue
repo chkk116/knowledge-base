@@ -21,6 +21,7 @@ import api from '../api/request'
 import { buildFlowchartGraph, flowchartHtml } from '../utils/flowchartGen'
 import { createShareDoc, updateShareDoc, getShareDoc } from '../api/docShare'
 import { resolveDefaultSpaceId } from '../utils/spaceResolver'
+import { agentCreateQuestions } from '../utils/questionGen'
 // ⚠️ 必须走 utils/prism 这一层包装，不能直接 `import Prism from 'prismjs'`：
 // prismjs 是 CJS，构建后 `global` 不存在，语言组件又直接读写全局 Prism，
 // 运行时会抛 "ReferenceError: Prism is not defined"。原因与顺序要求见 utils/prism.js。
@@ -205,9 +206,9 @@ const generalSuggestions = [
 ]
 const agentSuggestions = [
   '帮我写一篇关于「消防演练注意事项」的文档，存进知识库',
+  '帮我出 5 道关于请假流程的单选题，加进题库',
   '审查我最近的一篇文档，指出问题并优化',
   '把知识库里关于报销的内容找出来，对比有没有矛盾',
-  '列出我最近写的文档',
 ]
 const emptyCopy = computed(() => {
   if (mode.value === 'agent') {
@@ -481,6 +482,7 @@ async function sendAgent(raw) {
             return '生成流程图失败：' + ((e && e.message) || e)
           }
         },
+        createQuestions: (args) => agentCreateQuestions(args, { askUser, isDemo: auth.isDemo }),
         createDoc: async ({ title, content, status }) => {
           // 演示账号后端会 403，提前给出明确原因，免得 Agent 白跑几步再失败
           if (auth.isDemo) return '演示账号是只读的，无法创建文档（请用正式账号登录后再试）'

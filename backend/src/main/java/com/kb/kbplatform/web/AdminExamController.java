@@ -49,6 +49,13 @@ public class AdminExamController {
         return svc.adminListQuestions(category);
     }
 
+    /** 单题详情（含选项）：编辑弹窗要用。列表接口不返回 options，没这个端点时编辑等于重填。 */
+    @GetMapping("/questions/{id}")
+    public Question getQuestion(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requirePerm(c, "EXAM_MANAGE");
+        return svc.adminGetQuestionWithOptions(id);
+    }
+
     @PostMapping("/questions")
     public Question createQuestion(@RequestAttribute("kbUser") TokenClaims c, @RequestBody QuestionReq req) {
         requirePerm(c, "EXAM_MANAGE");

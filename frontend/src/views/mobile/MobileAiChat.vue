@@ -27,6 +27,7 @@ import api from '../../api/request'
 import { buildFlowchartGraph, flowchartHtml } from '../../utils/flowchartGen'
 import { createShareDoc, updateShareDoc, getShareDoc } from '../../api/docShare'
 import { resolveDefaultSpaceId } from '../../utils/spaceResolver'
+import { agentCreateQuestions } from '../../utils/questionGen'
 import MarkdownIt from 'markdown-it'
 
 const router = useRouter()
@@ -93,7 +94,7 @@ const userInitial = computed(() => (userName.value || '我').charAt(0).toUpperCa
 // 空状态文案跟随模式：切到「通用」后不能再挂着知识库口吻，否则用户以为模式没生效
 const KB_SUGS = ['如何发布一篇文章？', '知识库支持哪些内容格式？', '怎么查看我的积分明细？', '帮我总结一下知识库的常见用法']
 const GENERAL_SUGS = ['用三句话解释什么是向量数据库', '帮我把这段话润色得更正式', '推荐几本讲系统设计的好书', '写一个 Python 读取 Excel 的例子']
-const AGENT_SUGS = ['帮我梳理知识库里关于入职流程的全部文档并给出要点', '检索项目资料并写一份周报草稿', '把我的会议记录整理成待办清单']
+const AGENT_SUGS = ['帮我出 5 道关于请假流程的单选题，加进题库', '帮我梳理知识库里关于入职流程的全部文档并给出要点', '检索项目资料并写一份周报草稿']
 const sugs = computed(() => (mode.value === 'agent' ? AGENT_SUGS : (mode.value === 'general' ? GENERAL_SUGS : KB_SUGS)))
 const agentReady = computed(() => !!localStorage.getItem('kb_agent_endpoint'))
 
@@ -606,6 +607,7 @@ async function send(text) {
                 return '生成流程图失败：' + ((e && e.message) || e)
               }
             },
+            createQuestions: (args) => agentCreateQuestions(args, { askUser, isDemo: auth.isDemo }),
             createDoc: async ({ title, content, status }) => {
               // 演示账号后端会 403，提前给出明确原因，免得 Agent 白跑几步再失败
               if (auth.isDemo) return '演示账号是只读的，无法创建文档（请用正式账号登录后再试）'

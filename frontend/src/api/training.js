@@ -76,6 +76,10 @@ export const adminQuestions = (category) =>
 export const adminCreateQuestion = (question, options) =>
   api.post('/admin/exams/questions', { question, options })
 
+/** 单题详情（含选项）：列表接口不返回 options，编辑前必须先拉一次 */
+export const adminGetQuestion = (id) =>
+  api.get('/admin/exams/questions/' + id)
+
 export const adminUpdateQuestion = (id, question, options) =>
   api.put('/admin/exams/questions/' + id, { question, options })
 

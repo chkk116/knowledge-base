@@ -339,6 +339,13 @@ public class ExamService {
                 .orElseThrow(() -> new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "题目不存在"));
     }
 
+    /** 单题 + 选项：编辑页要用（列表接口为了省流量不返回 options，以前编辑时选项是空的） */
+    public Question adminGetQuestionWithOptions(Long id) {
+        Question q = adminGetQuestion(id);
+        q.setOptions(optionRepo.findByQuestionIdOrderByLabelAsc(id));
+        return q;
+    }
+
     /** 定向取单份试卷（同 M9） */
     public ExamPaper adminGetPaper(Long id) {
         return paperRepo.findById(id)
