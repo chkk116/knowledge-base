@@ -330,6 +330,15 @@ public class AdminAiModelController {
         if (body.get("name") != null) m.setName(String.valueOf(body.get("name")).trim());
         if (body.get("baseUrl") != null) m.setBaseUrl(String.valueOf(body.get("baseUrl")).trim());
         if (body.get("model") != null) m.setModel(String.valueOf(body.get("model")).trim());
+        if (body.get("contextWindow") != null) {
+            // 兜底夹到合理区间：太小等于没有历史，太大会被上游直接拒绝
+            try {
+                int cw = Integer.parseInt(String.valueOf(body.get("contextWindow")).trim());
+                m.setContextWindow(Math.max(4000, Math.min(2_000_000, cw)));
+            } catch (NumberFormatException ignored) {
+                // 非法值不覆盖原配置
+            }
+        }
         if (body.get("apiKey") != null) {
             String k = String.valueOf(body.get("apiKey")).trim();
             // 空串 / 含 ****（前端回显的脱敏值）= 未改动，保留原值

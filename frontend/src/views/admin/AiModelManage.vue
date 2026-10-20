@@ -131,7 +131,7 @@ const dialog = ref(false)
 const saving = ref(false)
 const form = reactive({
   id: null, provider: 'DEEPSEEK', name: '', baseUrl: '', model: '', apiKey: '',
-  enabled: true, isDefault: false, keyMasked: ''
+  enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000,
 })
 
 /**
@@ -164,7 +164,7 @@ watch(() => form.model, (val, old) => {
 const openAddFor = (key) => {
   Object.assign(form, {
     id: null, provider: key || 'DEEPSEEK', name: '', baseUrl: '', model: '', apiKey: '',
-    enabled: true, isDefault: false, keyMasked: ''
+    enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000
   })
   onProviderChange()
   dialog.value = true
@@ -175,7 +175,8 @@ const openEdit = (row) => {
     id: row.id, provider: row.provider, name: row.name, baseUrl: row.baseUrl,
     model: row.model, enabled: row.enabled, isDefault: row.isDefault,
     // 回显脱敏值：后端据此判断「Key 没改」，不会把原 Key 覆盖掉
-    apiKey: row.keyMasked || '', keyMasked: row.keyMasked || ''
+    apiKey: row.keyMasked || '', keyMasked: row.keyMasked || '',
+    contextWindow: Number(row.contextWindow) || 128000
   })
   // 编辑时平台不可改，模型下拉仍要按当前平台渲染
   const p = currentPlatform.value
@@ -204,6 +205,7 @@ const submit = async () => {
       name: form.name, baseUrl: form.baseUrl, model: form.model,
       enabled: !!form.enabled, isDefault: !!form.isDefault,
       hasKey: true, keyMasked: form.keyMasked || '',
+      contextWindow: Number(form.contextWindow) || 128000,
     }
     const idx = models.value.findIndex(m => m.id === row.id)
     if (idx >= 0) models.value.splice(idx, 1, { ...models.value[idx], ...row })
@@ -641,6 +643,14 @@ onUnmounted(() => {
               <span class="mono">{{ form.model || '（空）' }}</span> 就是实际调用的模型名。
             </template>
             <template v-else>自定义平台请直接输入模型名，如 gpt-4o-mini。</template>
+          </div>
+        </el-form-item>
+        <el-form-item label="上下文窗口">
+          <el-input-number v-model="form.contextWindow" :min="4000" :max="2000000" :step="16000" style="width: 200px" />
+          <span class="hint inline">tokens</span>
+          <div class="hint">
+            用户端据此决定「带多少历史」并画用量环。按该模型官方标注的窗口填（常见 64K / 128K / 200K / 1M）；
+            填小了会提前压缩，填大了请求可能被上游拒绝。
           </div>
         </el-form-item>
         <el-form-item label="API Key">

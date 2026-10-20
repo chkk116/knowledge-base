@@ -59,6 +59,8 @@ public class AiModelClient {
             r.put("name", m.getName());
             r.put("model", m.getModel());
             r.put("isDefault", m.isDefaultModel());
+            // 前端要按窗口大小决定带多少历史、画用量环
+            r.put("contextWindow", m.getContextWindow());
             out.add(r);
         }
         return out;

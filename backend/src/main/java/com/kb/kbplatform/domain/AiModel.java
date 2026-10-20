@@ -65,6 +65,14 @@ public class AiModel {
 
     private int sortOrder = 0;
 
+    /**
+     * 上下文窗口（token）。前端据此算「历史带多少 / 用了多少」。
+     * 不给死值是因为各家差得远（64K / 128K / 200K / 1M），写死只会两种结果：
+     * 要么白白浪费大窗口，要么把小窗口撑爆。
+     */
+    @Column(name = "context_window")
+    private int contextWindow = 128000;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     private LocalDateTime updatedAt = LocalDateTime.now();
@@ -101,6 +109,8 @@ public class AiModel {
 
     public int getSortOrder() { return sortOrder; }
     public void setSortOrder(int sortOrder) { this.sortOrder = sortOrder; }
+    public int getContextWindow() { return contextWindow; }
+    public void setContextWindow(int contextWindow) { this.contextWindow = contextWindow; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

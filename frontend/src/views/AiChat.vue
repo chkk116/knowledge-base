@@ -22,6 +22,10 @@ import { buildFlowchartGraph, flowchartHtml } from '../utils/flowchartGen'
 import { createShareDoc, updateShareDoc, getShareDoc } from '../api/docShare'
 import { resolveDefaultSpaceId } from '../utils/spaceResolver'
 import { agentCreateQuestions } from '../utils/questionGen'
+import {
+  estimateTokens, formatTokens, pickHistory, historyToText,
+  COMPACT_INSTRUCTION, THINK_LEVELS, thinkPrefix,
+} from '../utils/aiContext'
 // ⚠️ 必须走 utils/prism 这一层包装，不能直接 `import Prism from 'prismjs'`：
 // prismjs 是 CJS，构建后 `global` 不存在，语言组件又直接读写全局 Prism，
 // 运行时会抛 "ReferenceError: Prism is not defined"。原因与顺序要求见 utils/prism.js。
@@ -130,6 +134,57 @@ function onModelChange() {
 const currentModel = computed(() =>
   modelList.value.find((m) => String(m.id) === String(selectedModelId.value)) || null)
 const currentModelLabel = computed(() => currentModel.value?.name || '默认模型')
+
+// ---------- 上下文预算 / 用量环 / 思考强度 / 压缩 ----------
+// 窗口大小由管理员在「AI 模型管理」里按模型配置（64K~1M 差得很远，写死只会两头不讨好）
+const effectiveModel = computed(() =>
+  currentModel.value || modelList.value.find((m) => m.isDefault) || modelList.value[0] || null)
+const ctxWindow = computed(() => Number(effectiveModel.value?.contextWindow) || 128000)
+
+const activeMessages = computed(() => (currentId.value ? (convMessages.value[currentId.value] || []) : []))
+const historyTokens = computed(() => activeMessages.value.reduce((n, m) => n + estimateTokens(m.content), 0))
+const inputTokens = computed(() => estimateTokens(input.value))
+const usedTokens = computed(() => historyTokens.value + inputTokens.value)
+const ctxPct = computed(() => Math.min(100, Math.round((usedTokens.value / ctxWindow.value) * 100)))
+const ctxColor = computed(() => (ctxPct.value >= 85 ? '#dc2626' : ctxPct.value >= 60 ? '#d97706' : '#16a34a'))
+const ctxRing = computed(() => {
+  const c = 2 * Math.PI * 15.5
+  return `${(ctxPct.value / 100) * c} ${c}`
+})
+
+// 思考强度：作用于提示词而非厂商私有参数，所以对所有模型都成立（原生 reasoning 参数各家不统一）
+const think = ref(localStorage.getItem('kb_ai_think') || 'normal')
+watch(think, (v) => {
+  localStorage.setItem('kb_ai_think', v)
+  const t = THINK_LEVELS.find((x) => x.value === v)
+  ElMessage.success('思考强度：' + (t ? t.label : v))
+})
+
+const compacting = ref(false)
+async function compactContext() {
+  const msgs = activeMessages.value.filter((m) => m && m.content)
+  if (msgs.length < 4) { ElMessage.info('对话还短，不需要压缩'); return }
+  compacting.value = true
+  try {
+    const text = msgs.map((m) => (m.role === 'user' ? '用户：' : '助手：') + String(m.content)).join('\n\n')
+    const { data } = await aiAsk(COMPACT_INSTRUCTION + text, null, 'general', {
+      modelId: selectedModelId.value || null,
+    })
+    const summary = String((data && data.answer) || '').trim()
+    if (!summary) { ElMessage.warning('压缩失败：模型没有返回内容'); return }
+    // 留最后两条原文做衔接，其余全部收进摘要——否则摘要完立刻接不上当前话题
+    const keep = msgs.slice(-2)
+    convMessages.value[currentId.value] = [
+      { role: 'assistant', content: '【历史摘要】' + summary, mode: 'general', compacted: true },
+      ...keep,
+    ]
+    ElMessage.success(`已压缩：${msgs.length} 条 → 摘要 + 最近 ${keep.length} 条`)
+  } catch (e) {
+    ElMessage.error('压缩失败：' + ((e && e.response && e.response.data && e.response.data.error) || (e && e.message) || '未知错误'))
+  } finally {
+    compacting.value = false
+  }
+}
 const currentModelProvider = computed(() => currentModel.value?.provider || '')
 function pickModel(id) {
   if (String(selectedModelId.value) === String(id)) return
@@ -411,15 +466,10 @@ async function sendAgent(raw) {
     }
   }
 
-  // 带上最近的对话：Agent 每轮只拿「任务」本身，不记得上文，
-  // 用户说「继续」「再出 3 道」时它会答「没有上下文」。这里把最近几轮拼进去。
-  // 只取最近 6 条、每条截断 400 字——太长会把工具手册挤出模型的注意力。
-  const history = (convMessages.value[convId] || [])
-    .filter((m) => m && m.content)
-    .slice(-6)
-    .map((m) => (m.role === 'user' ? '用户：' : '助手：') + String(m.content).replace(/\s+/g, ' ').slice(0, 400))
-    .join('\n')
-  const task = history ? `【最近的对话】\n${history}\n\n【本次任务】${raw}` : raw
+  // 历史按模型窗口的 35% 取（其余留给工具手册、资料与回答），不再写死「6 条 × 400 字」
+  const budget = Math.max(2000, Math.floor(ctxWindow.value * 0.35))
+  const history = historyToText(pickHistory(convMessages.value[convId] || [], budget))
+  const task = thinkPrefix(think.value) + (history ? `【最近的对话】\n${history}\n\n【本次任务】${raw}` : raw)
 
   convMessages.value[convId] = [...(convMessages.value[convId] || []), { role: 'user', content: raw }]
   input.value = ''
@@ -613,7 +663,8 @@ async function send(text) {
 
   try {
     abortCtrl.value = new AbortController()
-    const { data } = await aiAsk(q, convId, mode.value, {
+    // 思考强度作用于提示词：普通问答也带上，保持和 Agent 模式一致的风格控制
+    const { data } = await aiAsk(thinkPrefix(think.value) + q, convId, mode.value, {
       modelId: selectedModelId.value || null, signal: abortCtrl.value.signal,
       images: images.length ? images : null
     })
@@ -969,6 +1020,45 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
           </div>
         </div>
         <div class="ai-head-right">
+          <!-- 上下文用量环：点开可以看明细、切思考强度、压缩历史 -->
+          <el-popover placement="bottom-end" :width="304" trigger="click"
+                      popper-class="ai-ctx-pop" :show-arrow="false" :offset="8">
+            <template #reference>
+              <button type="button" class="ai-ctx"
+                      :title="`上下文 ${formatTokens(usedTokens)} / ${formatTokens(ctxWindow)}（${ctxPct}%）`">
+                <svg viewBox="0 0 36 36" class="ai-ctx-ring" aria-hidden="true">
+                  <circle cx="18" cy="18" r="15.5" class="ai-ctx-bg" />
+                  <circle cx="18" cy="18" r="15.5" class="ai-ctx-fg"
+                          :stroke="ctxColor" :stroke-dasharray="ctxRing" />
+                </svg>
+                <span class="ai-ctx-num">{{ ctxPct }}</span>
+              </button>
+            </template>
+            <div class="ctxp">
+              <div class="ctxp-head">
+                <span>上下文用量</span>
+                <b :style="{ color: ctxColor }">{{ ctxPct }}%</b>
+              </div>
+              <div class="ctxp-bar"><i :style="{ width: ctxPct + '%', background: ctxColor }"></i></div>
+              <div class="ctxp-row"><span>已用</span><b>{{ formatTokens(usedTokens) }} tokens</b></div>
+              <div class="ctxp-row"><span>窗口</span><b>{{ formatTokens(ctxWindow) }}</b></div>
+              <div class="ctxp-row"><span>模型</span><b>{{ effectiveModel?.name || '默认模型' }}</b></div>
+              <div class="ctxp-row"><span>消息</span><b>{{ activeMessages.length }} 条</b></div>
+
+              <div class="ctxp-sec">思考强度</div>
+              <div class="ctxp-think">
+                <button v-for="t in THINK_LEVELS" :key="t.value" type="button"
+                        class="ctxp-tbtn" :class="{ on: think === t.value }" :title="t.tip"
+                        @click="think = t.value">{{ t.label }}</button>
+              </div>
+
+              <div class="ctxp-sec">压缩上下文</div>
+              <button type="button" class="ctxp-act" :disabled="compacting" @click="compactContext">
+                {{ compacting ? '压缩中…' : '把历史压成摘要' }}
+              </button>
+              <p class="ctxp-tip">保留目标、结果和未完成事项，细节会丢。对话很长、开始变慢或报超长时用。</p>
+            </div>
+          </el-popover>
           <el-popover
             v-if="modelList.length"
             placement="bottom-end" :width="288" trigger="click"
@@ -1773,6 +1863,18 @@ html.dark .ai-foot-disclaimer { color: #5b5c74; }
   .ai-foot-disclaimer { font-size: 11px; }
   .ai-tobottom { bottom: 8px; }
 }
+
+/* ===== 上下文用量环（点开看明细 / 切思考强度 / 压缩历史） ===== */
+.ai-ctx {
+  position: relative; width: 34px; height: 34px; padding: 0; margin-right: 4px;
+  border: 0; background: none; border-radius: 50%; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+}
+.ai-ctx:hover { background: var(--el-fill-color-light); }
+.ai-ctx-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.ai-ctx-bg { fill: none; stroke: var(--el-border-color-lighter); stroke-width: 3; }
+.ai-ctx-fg { fill: none; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray .3s ease, stroke .3s ease; }
+.ai-ctx-num { position: relative; font-size: 10px; font-weight: 700; line-height: 1; color: var(--el-text-color-secondary); }
 </style>
 
 <!-- 模型选择弹层：el-popover 挂到 body，scoped 样式作用不到，需非 scoped（2026-10-18） -->
@@ -1799,4 +1901,34 @@ html.dark .aimp-popover.el-popover.el-popper { box-shadow: 0 12px 32px rgba(0, 0
 .aimp-check { color: var(--el-color-primary); flex: none; font-size: 15px; }
 .aimp-row .aimp-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--el-color-primary-light-5); }
 html.dark .aimp-row:hover { background: rgba(255, 255, 255, .06); }
+
+/* 上下文弹层：el-popover 同样挂到 body，scoped 作用不到（与模型弹层同理） */
+.ai-ctx-pop.el-popover.el-popper {
+  padding: 12px 14px; border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .14), 0 2px 8px rgba(15, 23, 42, .06);
+}
+.ctxp { font-size: 13px; }
+.ctxp-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; margin-bottom: 8px; }
+.ctxp-head b { font-size: 15px; }
+.ctxp-bar { height: 6px; border-radius: 999px; background: var(--el-fill-color); overflow: hidden; margin-bottom: 10px; }
+.ctxp-bar i { display: block; height: 100%; border-radius: 999px; transition: width .3s ease; }
+.ctxp-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 12px; color: var(--el-text-color-secondary); }
+.ctxp-row b { color: var(--el-text-color-primary); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctxp-sec { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--el-text-color-regular); }
+.ctxp-think { display: flex; gap: 6px; }
+.ctxp-tbtn {
+  flex: 1 1 0; padding: 6px 0; border-radius: 8px; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--el-border-color); background: transparent;
+  font-size: 12px; color: var(--el-text-color-regular); transition: all .12s;
+}
+.ctxp-tbtn:hover { border-color: var(--el-color-primary-light-5); }
+.ctxp-tbtn.on { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary); color: var(--el-color-primary); font-weight: 600; }
+.ctxp-act {
+  width: 100%; padding: 8px 0; border-radius: 8px; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--el-border-color); background: transparent;
+  font-size: 13px; color: var(--el-text-color-regular); transition: all .12s;
+}
+.ctxp-act:hover:not(:disabled) { border-color: var(--el-color-primary); color: var(--el-color-primary); }
+.ctxp-act:disabled { opacity: .6; cursor: default; }
+.ctxp-tip { margin: 8px 0 0; font-size: 11px; line-height: 1.6; color: var(--el-text-color-placeholder); }
 </style>
