@@ -539,8 +539,13 @@ async function send(text) {
         answer = r
       } else {
         agentSteps.value = [...agentSteps.value, '启动本地 Agent…']
+        // 本地引擎每轮只拿「任务」本身，不记得上文；不带上历史，用户说「继续」它会答「没有上下文」
+        const histText = hist
+          .map((m) => (m.role === 'user' ? '用户：' : '助手：') + String(m.content || '').replace(/\s+/g, ' ').slice(0, 400))
+          .join('\n')
+        const task = histText ? `【最近的对话】\n${histText}\n\n【本次任务】${withAtt}` : withAtt
         const r = await runLocalAgent({
-          question: withAtt,
+          question: task,
           ask: async (text, sig) => {
             const { data } = await aiAsk(text, null, 'general', {
               modelId: selectedModelId.value || null, signal: sig || signal

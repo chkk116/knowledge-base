@@ -411,6 +411,16 @@ async function sendAgent(raw) {
     }
   }
 
+  // 带上最近的对话：Agent 每轮只拿「任务」本身，不记得上文，
+  // 用户说「继续」「再出 3 道」时它会答「没有上下文」。这里把最近几轮拼进去。
+  // 只取最近 6 条、每条截断 400 字——太长会把工具手册挤出模型的注意力。
+  const history = (convMessages.value[convId] || [])
+    .filter((m) => m && m.content)
+    .slice(-6)
+    .map((m) => (m.role === 'user' ? '用户：' : '助手：') + String(m.content).replace(/\s+/g, ' ').slice(0, 400))
+    .join('\n')
+  const task = history ? `【最近的对话】\n${history}\n\n【本次任务】${raw}` : raw
+
   convMessages.value[convId] = [...(convMessages.value[convId] || []), { role: 'user', content: raw }]
   input.value = ''
   attachments.value = []
@@ -423,7 +433,7 @@ async function sendAgent(raw) {
   try {
     abortCtrl.value = new AbortController()
     const r = await runLocalAgent({
-      question: raw,
+      question: task,
       ask: async (t, sig) => {
         const { data } = await aiAsk(t, null, 'general', {
           modelId: selectedModelId.value || null, signal: sig || abortCtrl.value.signal
@@ -511,7 +521,14 @@ async function sendAgent(raw) {
     })
     convMessages.value[convId] = [...convMessages.value[convId], { role: 'assistant', content: r.answer, mode: 'agent' }]
   } catch (e) {
-    convMessages.value[convId] = [...convMessages.value[convId], { role: 'assistant', content: 'Agent 执行失败：' + ((e && e.message) || e), mode: 'agent' }]
+    const msg = String((e && e.message) || e || '')
+    // 点「停止」或切走页面时 axios 抛的是取消，不是失败——写成「执行失败」只会让人以为坏了
+    const canceled = /cancel(ed|elled)|abort/i.test(msg) || (e && (e.name === 'CanceledError' || e.code === 'ERR_CANCELED'))
+    convMessages.value[convId] = [...convMessages.value[convId], {
+      role: 'assistant',
+      content: canceled ? '（已停止）' : 'Agent 执行失败：' + (msg || '未知错误'),
+      mode: 'agent',
+    }]
   } finally {
     agentStepsOpen.value = false   // 完成后自动收起步骤（数据保留，可点「展开」回看）
     loadingSet.value.delete(convId)
