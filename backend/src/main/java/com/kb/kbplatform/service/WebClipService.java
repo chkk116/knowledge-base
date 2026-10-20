@@ -84,6 +84,25 @@ public class WebClipService {
         return extract(page);
     }
 
+    /**
+     * 供内部批量场景（AI 出题取参考资料）使用：**不做用户级节流**——一次要抓多篇，
+     * 逐个 1.5s 会把整个请求拖到十几秒。SSRF 校验（safeUri/fetch 逐跳）照旧全走。
+     * 调用方需自己控频（见 AiQuestionService 的整体限流）。
+     */
+    public Map<String, Object> fetchForAi(String rawUrl) {
+        URI uri = safeUri(rawUrl);
+        Fetched page;
+        try {
+            page = fetch(uri);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("AI 出题取资料抓取失败 url={} err={}", uri, e.toString());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "抓取失败：" + e.getMessage());
+        }
+        return extract(page);
+    }
+
     private void throttle(Long userId) {
         long now = System.currentTimeMillis();
         Long prev = lastCall.get(userId);

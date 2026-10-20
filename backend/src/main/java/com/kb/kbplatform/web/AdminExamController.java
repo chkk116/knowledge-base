@@ -9,13 +9,17 @@ import com.kb.kbplatform.domain.ExamPaper;
 import com.kb.kbplatform.domain.Question;
 import com.kb.kbplatform.domain.QuestionOption;
 import com.kb.kbplatform.security.TokenClaims;
+import com.kb.kbplatform.service.AiQuestionService;
 import com.kb.kbplatform.service.ExamService;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
@@ -24,9 +28,11 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class AdminExamController {
 
     private final ExamService svc;
+    private final AiQuestionService aiQuestions;
 
-    public AdminExamController(ExamService svc) {
+    public AdminExamController(ExamService svc, AiQuestionService aiQuestions) {
         this.svc = svc;
+        this.aiQuestions = aiQuestions;
     }
 
     private void requirePerm(TokenClaims c, String code) {
@@ -68,6 +74,38 @@ public class AdminExamController {
         requirePerm(c, "EXAM_MANAGE");
         svc.adminDeleteQuestion(id);
         return Map.of("ok", true);
+    }
+
+    // ---------- AI 出题 ----------
+
+    /**
+     * AI 生成候选题目：只返回，不落库。前端预览勾选后再调 /questions/batch 保存。
+     *
+     * sourceType：DOC=知识库文档 / WEB=指定网页 / AI=模型通用知识。
+     * WEB 与 AI 都要前端先弹确认——前者会真的去访问外部网站，后者内容未经知识库校验。
+     */
+    @PostMapping("/ai/generate")
+    public Map<String, Object> aiGenerate(@RequestAttribute("kbUser") TokenClaims c,
+                                          @RequestBody AiQuestionService.GenReq req) {
+        requirePerm(c, "EXAM_MANAGE");
+        if (c.isDemo()) throw new ResponseStatusException(FORBIDDEN, "演示账号不能使用 AI 出题");
+        return aiQuestions.generate(req, c.userId(), c.isAdmin());
+    }
+
+    /** 批量入库：一次事务，任一条不合法整批回滚（避免只存进去一半） */
+    @PostMapping("/questions/batch")
+    @Transactional(rollbackFor = Exception.class)
+    public List<Question> batchCreate(@RequestAttribute("kbUser") TokenClaims c, @RequestBody List<QuestionReq> reqs) {
+        requirePerm(c, "EXAM_MANAGE");
+        if (reqs == null || reqs.isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "没有要保存的题目");
+        if (reqs.size() > 50) throw new ResponseStatusException(BAD_REQUEST, "一次最多保存 50 道题");
+        List<Question> saved = new ArrayList<>();
+        for (QuestionReq req : reqs) {
+            if (req == null || req.question == null) continue;
+            req.question.setId(null);
+            saved.add(svc.adminSaveQuestion(req.question, req.options));
+        }
+        return saved;
     }
 
     // ---------- 试卷 ----------

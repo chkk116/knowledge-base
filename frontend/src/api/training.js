@@ -82,6 +82,14 @@ export const adminUpdateQuestion = (id, question, options) =>
 export const adminDeleteQuestion = (id) =>
   api.delete('/admin/exams/questions/' + id)
 
+/** AI 出题：只生成候选题目，不落库（保存走 adminBatchCreateQuestions） */
+export const adminAiGenerateQuestions = (payload) =>
+  api.post('/admin/exams/ai/generate', payload)
+
+/** 批量入库：后端一个事务，任一条不合法整批回滚 */
+export const adminBatchCreateQuestions = (items) =>
+  api.post('/admin/exams/questions/batch', items)
+
 export const adminPapers = () =>
   api.get('/admin/exams/papers')
 
