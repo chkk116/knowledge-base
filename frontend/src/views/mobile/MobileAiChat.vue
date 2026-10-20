@@ -57,6 +57,8 @@ const attBusy = ref(false)
 // Hermes 部署在用户自己的机器/服务器上（hermes gateway + API_SERVER_ENABLED=true），
 // 端点形如 http://<ip>:8642/v1。端点与 Key 只存本机 localStorage，不入仓库。
 const agentSteps = ref([])       // Agent 步骤列表（累积展示，用户能看到它做了哪些事）
+// 一次 Agent 任务内的确认状态（WEB/AI 出题只问一遍）
+const agentSession = ref({})
 const agentStepsOpen = ref(true) // 步骤折叠状态：执行中展开，完成后自动收起
 const agentOpen = ref(false)      // Agent 设置弹层
 const agentEngine = ref(localStorage.getItem('kb_agent_engine') || 'local')   // local | hermes
@@ -538,7 +540,8 @@ async function send(text) {
         const r = await callHermes(withAtt, hist, signal)
         answer = r
       } else {
-        agentSteps.value = [...agentSteps.value, '启动本地 Agent…']
+        agentSession.value = {}
+      agentSteps.value = [...agentSteps.value, '启动本地 Agent…']
         // 本地引擎每轮只拿「任务」本身，不记得上文；不带上历史，用户说「继续」它会答「没有上下文」
         const histText = hist
           .map((m) => (m.role === 'user' ? '用户：' : '助手：') + String(m.content || '').replace(/\s+/g, ' ').slice(0, 400))
@@ -612,7 +615,7 @@ async function send(text) {
                 return '生成流程图失败：' + ((e && e.message) || e)
               }
             },
-            createQuestions: (args) => agentCreateQuestions(args, { askUser, isDemo: auth.isDemo }),
+            createQuestions: (args) => agentCreateQuestions(args, { askUser, isDemo: auth.isDemo, session: agentSession.value }),
             createDoc: async ({ title, content, status }) => {
               // 演示账号后端会 403，提前给出明确原因，免得 Agent 白跑几步再失败
               if (auth.isDemo) return '演示账号是只读的，无法创建文档（请用正式账号登录后再试）'

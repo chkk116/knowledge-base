@@ -61,6 +61,8 @@ const started = computed(() => messages.value.length > 0)
 const mode = ref('kb')
 const agentSteps = ref([])  // Agent 模式：步骤列表（累积展示，能看到它做了什么）
 const agentStepsOpen = ref(true)  // 步骤折叠状态：执行中展开，完成后自动收起
+// 一次 Agent 任务内的确认状态（WEB/AI 出题只问一遍，模型重试时不再弹）
+const agentSession = ref({})
 // 高消耗发送确认的开关与阈值（管理员在「AI 模型管理 → 消息设置」配置）
 const aiGuard = reactive({ enabled: true, imageThreshold: 2, textThreshold: 8000 })
 async function loadAiGuard() {
@@ -477,6 +479,7 @@ async function sendAgent(raw) {
   loadingSet.value.add(convId)
   agentSteps.value = []
   agentStepsOpen.value = true
+  agentSession.value = {}
   await nextTick()
   scrollToBottom()
 
@@ -542,7 +545,7 @@ async function sendAgent(raw) {
             return '生成流程图失败：' + ((e && e.message) || e)
           }
         },
-        createQuestions: (args) => agentCreateQuestions(args, { askUser, isDemo: auth.isDemo }),
+        createQuestions: (args) => agentCreateQuestions(args, { askUser, isDemo: auth.isDemo, session: agentSession.value }),
         createDoc: async ({ title, content, status }) => {
           // 演示账号后端会 403，提前给出明确原因，免得 Agent 白跑几步再失败
           if (auth.isDemo) return '演示账号是只读的，无法创建文档（请用正式账号登录后再试）'

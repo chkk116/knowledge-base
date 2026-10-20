@@ -39,10 +39,12 @@ function normUrls(raw) {
 /**
  * 供 runLocalAgent 的 hooks.createQuestions 调用。
  * @param {object} args 模型给的参数 {topic,count,types,sourceType,shareId,urls,category,extra}
- * @param {object} opts { askUser, isDemo }
+ * @param {object} opts { askUser, isDemo, session }
+ *   session 由宿主在一次 Agent 任务内复用（{ webOk, aiOk }）：
+ *   模型失败后常会用同样参数重试，若每次都重新弹确认，用户会被问 5、6 遍（2026-10-20 实际发生）。
  * @returns {Promise<string>} 回填进 agent 轨迹的文本
  */
-export async function agentCreateQuestions(args = {}, { askUser, isDemo } = {}) {
+export async function agentCreateQuestions(args = {}, { askUser, isDemo, session } = {}) {
   if (isDemo) return '演示账号是只读的，不能出题（请用正式账号登录后再试）'
   if (typeof askUser !== 'function') return '当前环境不支持向用户确认，无法出题'
 
@@ -54,21 +56,30 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo } = {}) 
     ? String(args.sourceType).toUpperCase() : 'DOC'
   const types = normTypes(args.types)
   const urls = normUrls(args.urls)
+  const s = session || {}
 
-  // ---- 先确认：这两档都会离开知识库的边界 ----
+  // ---- 先确认：这两档都会离开知识库的边界。同一次任务只问一次，拒绝后也不再问 ----
   if (sourceType === 'WEB') {
+    if (s.webOk === false) return '用户之前已拒绝联网出题，不要重试。请改用 DOC，或直接问用户怎么处理'
     if (!urls.length) return '出题失败：依据网页出题需要提供至少一个参考链接'
-    const ans = await askUser(
-      `将让服务器访问这些网页、抓取正文作为出题依据：\n${urls.join('\n')}\n\n确认继续？`,
-      ['继续', '取消'],
-    )
-    if (!String(ans).includes('继续')) return '用户取消了联网出题'
+    if (s.webOk !== true) {
+      const ans = await askUser(
+        `将让服务器访问这些网页、抓取正文作为出题依据：\n${urls.join('\n')}\n\n确认继续？`,
+        ['继续', '取消'],
+      )
+      s.webOk = String(ans).includes('继续')
+      if (!s.webOk) return '用户取消了联网出题，不要重试'
+    }
   } else if (sourceType === 'AI') {
-    const ans = await askUser(
-      '这组题将完全不依据知识库内容，由 AI 凭通用知识生成，可能与你们的实际制度不符。确认继续？',
-      ['继续', '取消'],
-    )
-    if (!String(ans).includes('继续')) return '用户取消了通用知识出题'
+    if (s.aiOk === false) return '用户之前已拒绝凭通用知识出题，不要重试。请改用 DOC，或直接问用户怎么处理'
+    if (s.aiOk !== true) {
+      const ans = await askUser(
+        '这组题将完全不依据知识库内容，由 AI 凭通用知识生成，可能与你们的实际制度不符。确认继续？',
+        ['继续', '取消'],
+      )
+      s.aiOk = String(ans).includes('继续')
+      if (!s.aiOk) return '用户取消了通用知识出题，不要重试'
+    }
   }
 
   // ---- DOC 模式：没指定空间就用最近可用的一个 ----
@@ -103,6 +114,9 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo } = {}) 
     const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message || ''
     if (code === 403) return '出题失败：当前账号没有「考试管理」权限，无法写入题库'
     if (code === 429) return '出题失败：操作太频繁，请稍等一会儿再试'
+    if (/timeout/i.test(msg) || e?.code === 'ECONNABORTED') {
+      return `出题超时：生成 ${count} 道题一般要 20~60 秒，这次等了 3 分钟还没回来。建议把题量减到 5 道以内再试`
+    }
     return '出题失败：' + (msg || 'AI 服务暂时不可用')
   }
 

@@ -56,6 +56,8 @@ TOOL: {"tool":"工具名","args":{...}}
 - 正文用 Markdown 写（标题 #、列表 -、加粗 **、代码块 \`\`\`）。
 - **预计消耗大的操作先问用户**：例如要连续读 3 篇以上长文档、反复多次调用工具、或写入很长的正文时，
   先用 ask_user 说明「这一步会消耗较多 token」并确认，别闷头把额度烧掉。
+- 工具返回「失败 / 超时」时，**不要用同样的参数再调一次**；最多调整一次参数，仍失败就如实告诉用户失败原因并停下。
+  把步数全耗在重复同一个调用上，用户只会看到一条报错。
 - 信息足够时直接给出最终答案（不要再输出 TOOL 行）。不要编造工具。`
 
 /**
@@ -74,6 +76,8 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
   const say = (t) => { steps.push(t); onStep && onStep(t) }
   const trace = []
   let answer = ''
+  let lastTool = ''
+  let lastResult = ''
 
   for (let step = 1; step <= MAX_STEPS; step++) {
     if (signal && signal.aborted) { answer = '（已停止）'; break }
@@ -217,10 +221,13 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
       result = '工具执行失败：' + ((e && e.message) || e)
     }
     trace.push(`[${step}] TOOL ${tool} ${JSON.stringify(args)}\n结果：${result}`)
+    lastTool = tool
+    lastResult = String(result || '')
   }
 
   if (!answer) {
-    answer = '任务未在 ' + MAX_STEPS + ' 步内完成。已收集的信息：\n\n' + trace.join('\n\n')
+    const tail = lastResult ? `\n\n最后一步（${lastTool}）：${lastResult.slice(0, 200)}` : ''
+    answer = `这次没在 ${MAX_STEPS} 步内做完。${tail}\n\n可以换个说法再试，或者把任务拆小一点（比如先出 3 道试试）。`
   }
   return { answer, steps }
 }

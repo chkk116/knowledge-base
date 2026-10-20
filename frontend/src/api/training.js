@@ -86,13 +86,18 @@ export const adminUpdateQuestion = (id, question, options) =>
 export const adminDeleteQuestion = (id) =>
   api.delete('/admin/exams/questions/' + id)
 
-/** AI 出题：只生成候选题目，不落库（保存走 adminBatchCreateQuestions） */
+/**
+ * AI 出题：只生成候选题目，不落库（保存走 adminBatchCreateQuestions）
+ *
+ * ⚠️ 必须单独放宽超时：全局是 15s，而一次生成要 20~60s（要取资料 + 调模型）。
+ * 用默认超时会导致每次都 timeout，Agent 于是反复重试、反复弹确认框（2026-10-20 实际踩到）。
+ */
 export const adminAiGenerateQuestions = (payload) =>
-  api.post('/admin/exams/ai/generate', payload)
+  api.post('/admin/exams/ai/generate', payload, { timeout: 180000 })
 
-/** 批量入库：后端一个事务，任一条不合法整批回滚 */
+/** 批量入库：后端一个事务，任一条不合法整批回滚（50 条也不慢，但仍给足余量） */
 export const adminBatchCreateQuestions = (items) =>
-  api.post('/admin/exams/questions/batch', items)
+  api.post('/admin/exams/questions/batch', items, { timeout: 60000 })
 
 export const adminPapers = () =>
   api.get('/admin/exams/papers')
