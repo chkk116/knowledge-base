@@ -1019,86 +1019,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
             <div class="ai-sub">{{ mode === 'agent' ? 'Agent 模式 · 自主检索 / 写文档 / 改文档' : (mode === 'general' ? '通用模式 · 直接作答' : '基于知识库作答 · 库里没有也能通用问答') }}</div>
           </div>
         </div>
-        <div class="ai-head-right">
-          <!-- 上下文用量环：点开可以看明细、切思考强度、压缩历史 -->
-          <el-popover placement="bottom-end" :width="304" trigger="click"
-                      popper-class="ai-ctx-pop" :show-arrow="false" :offset="8">
-            <template #reference>
-              <button type="button" class="ai-ctx"
-                      :title="`上下文 ${formatTokens(usedTokens)} / ${formatTokens(ctxWindow)}（${ctxPct}%）`">
-                <svg viewBox="0 0 36 36" class="ai-ctx-ring" aria-hidden="true">
-                  <circle cx="18" cy="18" r="15.5" class="ai-ctx-bg" />
-                  <circle cx="18" cy="18" r="15.5" class="ai-ctx-fg"
-                          :stroke="ctxColor" :stroke-dasharray="ctxRing" />
-                </svg>
-                <span class="ai-ctx-num">{{ ctxPct }}</span>
-              </button>
-            </template>
-            <div class="ctxp">
-              <div class="ctxp-head">
-                <span>上下文用量</span>
-                <b :style="{ color: ctxColor }">{{ ctxPct }}%</b>
-              </div>
-              <div class="ctxp-bar"><i :style="{ width: ctxPct + '%', background: ctxColor }"></i></div>
-              <div class="ctxp-row"><span>已用</span><b>{{ formatTokens(usedTokens) }} tokens</b></div>
-              <div class="ctxp-row"><span>窗口</span><b>{{ formatTokens(ctxWindow) }}</b></div>
-              <div class="ctxp-row"><span>模型</span><b>{{ effectiveModel?.name || '默认模型' }}</b></div>
-              <div class="ctxp-row"><span>消息</span><b>{{ activeMessages.length }} 条</b></div>
 
-              <div class="ctxp-sec">思考强度</div>
-              <div class="ctxp-think">
-                <button v-for="t in THINK_LEVELS" :key="t.value" type="button"
-                        class="ctxp-tbtn" :class="{ on: think === t.value }" :title="t.tip"
-                        @click="think = t.value">{{ t.label }}</button>
-              </div>
-
-              <div class="ctxp-sec">压缩上下文</div>
-              <button type="button" class="ctxp-act" :disabled="compacting" @click="compactContext">
-                {{ compacting ? '压缩中…' : '把历史压成摘要' }}
-              </button>
-              <p class="ctxp-tip">保留目标、结果和未完成事项，细节会丢。对话很长、开始变慢或报超长时用。</p>
-            </div>
-          </el-popover>
-          <el-popover
-            v-if="modelList.length"
-            placement="bottom-end" :width="288" trigger="click"
-            popper-class="aimp-popover" :show-arrow="false" :offset="8">
-            <template #reference>
-              <button type="button" class="aimp-trigger" :title="currentModel ? currentModel.name + ' · ' + currentModel.model : '使用默认模型'">
-                <ProviderLogo v-if="currentModelProvider" :provider="currentModelProvider" :size="16" />
-                <span v-else class="aimp-dot"></span>
-                <span class="aimp-label">{{ currentModelLabel }}</span>
-                <el-icon class="aimp-caret"><ArrowDown /></el-icon>
-              </button>
-            </template>
-
-            <div class="aimp-list">
-              <div class="aimp-head">选择模型</div>
-              <button type="button" class="aimp-row" :class="{ on: !selectedModelId }" @click="pickModel('')">
-                <span class="aimp-ico"><span class="aimp-dot"></span></span>
-                <span class="aimp-main">
-                  <span class="aimp-name">默认模型</span>
-                  <span class="aimp-sub">由管理员指定</span>
-                </span>
-                <el-icon v-if="!selectedModelId" class="aimp-check"><Select /></el-icon>
-              </button>
-              <button
-                v-for="m in modelList" :key="m.id" type="button"
-                class="aimp-row" :class="{ on: String(selectedModelId) === String(m.id) }"
-                @click="pickModel(String(m.id))">
-                <span class="aimp-ico"><ProviderLogo :provider="m.provider" :size="18" /></span>
-                <span class="aimp-main">
-                  <span class="aimp-name">{{ m.name }}</span>
-                  <span class="aimp-sub">{{ m.model }}<template v-if="m.isDefault"> · 默认</template></span>
-                </span>
-                <el-icon v-if="String(selectedModelId) === String(m.id)" class="aimp-check"><Select /></el-icon>
-              </button>
-            </div>
-          </el-popover>
-          <el-tooltip v-else content="管理员尚未配置可用模型，AI 暂不可用" placement="bottom" :show-after="200">
-            <span class="ai-model-tag is-empty"><span class="ai-dot"></span>未配置模型</span>
-          </el-tooltip>
-        </div>
       </div>
 
       <div class="ai-body" ref="bodyRef" v-loading="loadingMessages">
@@ -1269,6 +1190,86 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
               <el-tooltip content="上传文件（图片 OCR / 文本类）" placement="top" :show-after="300">
                 <button type="button" class="ai-round-btn ghost" @click="pickFiles" :disabled="attBusy"><el-icon><Paperclip /></el-icon></button>
               </el-tooltip>
+              <div class="ai-input-tools">
+              <!-- 上下文用量环：点开可以看明细、切思考强度、压缩历史 -->
+              <el-popover placement="top-end" :width="304" trigger="click"
+                          popper-class="ai-ctx-pop" :show-arrow="false" :offset="8">
+                <template #reference>
+                  <button type="button" class="ai-ctx"
+                          :title="`上下文 ${formatTokens(usedTokens)} / ${formatTokens(ctxWindow)}（${ctxPct}%）`">
+                    <svg viewBox="0 0 36 36" class="ai-ctx-ring" aria-hidden="true">
+                      <circle cx="18" cy="18" r="15.5" class="ai-ctx-bg" />
+                      <circle cx="18" cy="18" r="15.5" class="ai-ctx-fg"
+                              :stroke="ctxColor" :stroke-dasharray="ctxRing" />
+                    </svg>
+                    <span class="ai-ctx-num">{{ ctxPct }}</span>
+                  </button>
+                </template>
+                <div class="ctxp">
+                  <div class="ctxp-head">
+                    <span>上下文用量</span>
+                    <b :style="{ color: ctxColor }">{{ ctxPct }}%</b>
+                  </div>
+                  <div class="ctxp-bar"><i :style="{ width: ctxPct + '%', background: ctxColor }"></i></div>
+                  <div class="ctxp-row"><span>已用</span><b>{{ formatTokens(usedTokens) }} tokens</b></div>
+                  <div class="ctxp-row"><span>窗口</span><b>{{ formatTokens(ctxWindow) }}</b></div>
+                  <div class="ctxp-row"><span>模型</span><b>{{ effectiveModel?.name || '默认模型' }}</b></div>
+                  <div class="ctxp-row"><span>消息</span><b>{{ activeMessages.length }} 条</b></div>
+
+                  <div class="ctxp-sec">思考强度</div>
+                  <div class="ctxp-think">
+                    <button v-for="t in THINK_LEVELS" :key="t.value" type="button"
+                            class="ctxp-tbtn" :class="{ on: think === t.value }" :title="t.tip"
+                            @click="think = t.value">{{ t.label }}</button>
+                  </div>
+
+                  <div class="ctxp-sec">压缩上下文</div>
+                  <button type="button" class="ctxp-act" :disabled="compacting" @click="compactContext">
+                    {{ compacting ? '压缩中…' : '把历史压成摘要' }}
+                  </button>
+                  <p class="ctxp-tip">保留目标、结果和未完成事项，细节会丢。对话很长、开始变慢或报超长时用。</p>
+                </div>
+              </el-popover>
+              <el-popover
+                v-if="modelList.length"
+                placement="top-end" :width="288" trigger="click"
+                popper-class="aimp-popover" :show-arrow="false" :offset="8">
+                <template #reference>
+                  <button type="button" class="aimp-trigger" :title="currentModel ? currentModel.name + ' · ' + currentModel.model : '使用默认模型'">
+                    <ProviderLogo v-if="currentModelProvider" :provider="currentModelProvider" :size="16" />
+                    <span v-else class="aimp-dot"></span>
+                    <span class="aimp-label">{{ currentModelLabel }}</span>
+                    <el-icon class="aimp-caret"><ArrowDown /></el-icon>
+                  </button>
+                </template>
+
+                <div class="aimp-list">
+                  <div class="aimp-head">选择模型</div>
+                  <button type="button" class="aimp-row" :class="{ on: !selectedModelId }" @click="pickModel('')">
+                    <span class="aimp-ico"><span class="aimp-dot"></span></span>
+                    <span class="aimp-main">
+                      <span class="aimp-name">默认模型</span>
+                      <span class="aimp-sub">由管理员指定</span>
+                    </span>
+                    <el-icon v-if="!selectedModelId" class="aimp-check"><Select /></el-icon>
+                  </button>
+                  <button
+                    v-for="m in modelList" :key="m.id" type="button"
+                    class="aimp-row" :class="{ on: String(selectedModelId) === String(m.id) }"
+                    @click="pickModel(String(m.id))">
+                    <span class="aimp-ico"><ProviderLogo :provider="m.provider" :size="18" /></span>
+                    <span class="aimp-main">
+                      <span class="aimp-name">{{ m.name }}</span>
+                      <span class="aimp-sub">{{ m.model }}<template v-if="m.isDefault"> · 默认</template></span>
+                    </span>
+                    <el-icon v-if="String(selectedModelId) === String(m.id)" class="aimp-check"><Select /></el-icon>
+                  </button>
+                </div>
+              </el-popover>
+              <el-tooltip v-else content="管理员尚未配置可用模型，AI 暂不可用" placement="top" :show-after="200">
+                <span class="ai-model-tag is-empty"><span class="ai-dot"></span>未配置模型</span>
+              </el-tooltip>
+              </div>
               <button v-if="!loading" type="button" class="ai-send" @click="send()">
                 <el-icon><Promotion /></el-icon>
                 <span>发送</span>
@@ -1712,7 +1713,7 @@ html.dark .ai-input-wrap { background: #16162e; border-top-color: #26264a; }
 html.dark .ai-input-card { background: #1b1b35; border-color: #2b2c4d; }
 .ai-text { flex: 1; width: 100%; resize: none; border: none; outline: none; font-size: 14.5px; font-family: inherit; color: #0f172a; background: transparent; line-height: 1.6; }
 html.dark .ai-text { color: #e7e7ee; }
-.ai-input-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.ai-input-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
 /* ---------- 附件（上传的本地解析内容） ---------- */
 .ai-atts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -1741,7 +1742,7 @@ html.dark .ai-att-mode { background: rgba(129,140,248,.22); color: #c7d2fe; }
 }
 
 /* 模式切换（滑动指示器） */
-.ai-mode { position: relative; display: inline-flex; background: #f1f5f9; border-radius: 10px; padding: 3px; }
+.ai-mode { position: relative; display: inline-flex; flex: none; background: #f1f5f9; border-radius: 10px; padding: 3px; }
 html.dark .ai-mode { background: #14142a; }
 .ai-mode-thumb {
   position: absolute; top: 3px; left: 3px; width: calc((100% - 6px) / 3); height: calc(100% - 6px);
@@ -1751,14 +1752,19 @@ html.dark .ai-mode { background: #14142a; }
 html.dark .ai-mode-thumb { background: #2b2c4d; }
 .ai-mode-btn {
   position: relative; z-index: 1; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  border: none; background: transparent; color: #64748b; font-size: 13px; padding: 6px 16px; border-radius: 8px;
-  cursor: pointer; transition: color .18s;
+  border: none; background: transparent; color: #64748b; font-size: 13px; padding: 6px 12px; border-radius: 8px;
+  cursor: pointer; transition: color .18s; white-space: nowrap;
 }
 .ai-mode-btn .el-icon { font-size: 14px; }
 .ai-mode-btn.active { color: #4f46e5; font-weight: 600; }
 html.dark .ai-mode-btn.active { color: #a5b4fc; }
 
 .ai-input-right { display: flex; align-items: center; gap: 8px; }
+
+/* 上下文环 + 模型选择：2026-10-20 从标题栏移到输入栏（对齐 WorkBuddy 的输入框布局） */
+.ai-input-tools { display: flex; align-items: center; gap: 2px; }
+.ai-input-tools .ai-ctx { margin-right: 0; }
+.ai-input-tools .aimp-trigger { height: 28px; max-width: 176px; }
 .ai-round-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; border-radius: 50%; border: 1px solid #e2e8f0;
@@ -1859,6 +1865,9 @@ html.dark .ai-foot-disclaimer { color: #5b5c74; }
   .ai-input-wrap { padding: 8px 10px 10px; gap: 4px; }
   .ai-input-card { border-radius: 16px; padding: 10px 10px 8px; }
   .ai-input-bar { flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  /* 窄屏放不下模型名，只留品牌图标；点开弹层仍能看到完整列表 */
+  .ai-input-tools .aimp-label, .ai-input-tools .aimp-caret { display: none; }
+  .ai-input-tools .aimp-trigger { max-width: 44px; padding: 0 9px; }
   .ai-mode-btn { padding: 6px 12px; }
   .ai-foot-disclaimer { font-size: 11px; }
   .ai-tobottom { bottom: 8px; }
