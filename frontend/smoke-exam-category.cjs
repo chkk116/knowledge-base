@@ -3,7 +3,7 @@ const { chromium } = require('playwright-core')
 const TOKEN = process.argv[2]
 
 ;(async () => {
-  const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--host-resolver-rules=MAP www.chkk116.cloud 106.55.227.106'] })
+  const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--host-resolver-rules=MAP www.你的域名 106.55.227.106'] })
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } })
   await ctx.addInitScript(([t]) => {
     localStorage.setItem('kb_token', t)
@@ -22,7 +22,7 @@ const TOKEN = process.argv[2]
     if (u.includes('/assemble')) console.log('组卷:', r.status())
   })
 
-  await p.goto('https://www.chkk116.cloud/admin/exams', { waitUntil: 'commit', timeout: 90000 })
+  await p.goto('https://www.你的域名/admin/exams', { waitUntil: 'commit', timeout: 90000 })
   await p.waitForTimeout(9000)
 
   console.log('分类下拉:', await p.locator('.cat-sel').count())

@@ -9,7 +9,7 @@ const { chromium } = require('playwright-core')
 
 const TOKEN = process.argv[2]
 if (!TOKEN) { console.error('缺少 token'); process.exit(1) }
-const BASE = 'https://www.chkk116.cloud'
+const BASE = 'https://www.你的域名'
 const API = BASE + '/api'
 const SHARE = 1
 const DOC = 11

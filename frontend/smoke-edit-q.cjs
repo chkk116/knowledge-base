@@ -11,7 +11,7 @@ const TOKEN = process.argv[2]
   const p = await ctx.newPage()
   const errs = []
   p.on('pageerror', (e) => errs.push('PAGEERROR ' + e.message))
-  await p.goto('https://www.chkk116.cloud/admin/exams', { waitUntil: 'domcontentloaded' })
+  await p.goto('https://www.你的域名/admin/exams', { waitUntil: 'domcontentloaded' })
   await p.waitForTimeout(4000)
   await p.locator('.el-table__row').first().getByRole('button', { name: '编辑' }).click()
   await p.waitForTimeout(2000)

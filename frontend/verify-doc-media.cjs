@@ -10,7 +10,7 @@
  */
 const { chromium } = require('playwright-core')
 
-const BASE = 'https://www.chkk116.cloud'
+const BASE = 'https://www.你的域名'
 const CONTENT = [
   '<p>这里是正文开头。</p>',
   '<p><img src="/uploads/test-pic.jpg" alt="测试图" data-full="/uploads/test-pic.jpg" /></p>',

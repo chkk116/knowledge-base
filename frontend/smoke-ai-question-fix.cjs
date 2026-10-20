@@ -26,7 +26,7 @@ const TASK = process.argv[3] || '帮我出 3 道关于 TCP/IP 模型的单选题
     }
   })
 
-  await p.goto('https://www.chkk116.cloud/ai/chat', { waitUntil: 'commit', timeout: 90000 })
+  await p.goto('https://www.你的域名/ai/chat', { waitUntil: 'commit', timeout: 90000 })
   await p.waitForTimeout(11000)
   await p.locator('.ai-mode-btn').nth(2).click()
   await p.waitForTimeout(600)

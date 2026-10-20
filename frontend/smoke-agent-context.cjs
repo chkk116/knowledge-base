@@ -1,7 +1,7 @@
 // 验证 Agent 是否带上文：先说一件事，再追问，看它记不记得
 const { chromium } = require('playwright-core')
 const TOKEN = process.argv[2]
-const BASE = 'https://www.chkk116.cloud'
+const BASE = 'https://www.你的域名'
 
 ;(async () => {
   const b = await chromium.launch({ channel: 'chrome', headless: true })

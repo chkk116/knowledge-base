@@ -1,7 +1,7 @@
 // AI 出题 UI 冒烟：入口 → 弹窗 → 三档依据切换的确认框 → 取消回退
 const { chromium } = require('playwright-core')
 const TOKEN = process.argv[2]
-const BASE = 'https://www.chkk116.cloud'
+const BASE = 'https://www.你的域名'
 
 ;(async () => {
   const b = await chromium.launch({ channel: 'chrome', headless: true })

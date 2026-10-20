@@ -10,7 +10,7 @@
  */
 const { chromium } = require('playwright-core')
 
-const BASE = 'https://www.chkk116.cloud'
+const BASE = 'https://www.你的域名'
 const TOKEN = process.env.KB_TOKEN || ''
 
 const PAGES = [

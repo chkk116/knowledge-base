@@ -2,7 +2,7 @@
 const { chromium } = require('playwright-core')
 const TOKEN = process.argv[2]
 const TASK = process.argv[3] || '帮我出 3 道关于请假流程的单选题，加进题库'
-const BASE = 'https://www.chkk116.cloud'
+const BASE = 'https://www.你的域名'
 
 ;(async () => {
   const b = await chromium.launch({ channel: 'chrome', headless: true })

@@ -9,7 +9,7 @@ const { chromium } = require('playwright-core')
 
 const TOKEN = process.argv[2]
 if (!TOKEN) { console.error('缺少 token'); process.exit(1) }
-const BASE = 'https://www.chkk116.cloud'
+const BASE = 'https://www.你的域名'
 
 ;(async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true })

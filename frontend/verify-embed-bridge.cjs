@@ -59,11 +59,11 @@ const MIME = {
     await page.goto('https://localhost/embed/' + kind, { waitUntil: 'domcontentloaded', timeout: 45000 })
     await page.waitForTimeout(6500)
 
-    const frames = page.frames().filter((f) => f.url().includes('chkk116.cloud'))
+    const frames = page.frames().filter((f) => f.url().includes('你的域名'))
     const target = frames[0] ? frames[0].url() : '(没有 iframe)'
     // ⚠️ 别用 /\/login/ —— /admin/login-qr 也含 "/login"，会误判成登录页
     const onLogin = /\/login(\/|\?|$)/.test(target)
-    console.log(`  ${kind.padEnd(16)} → ${target.replace('https://www.chkk116.cloud', '')}  ${onLogin ? '✗ 被弹到登录页' : '✓ 进入管理页'}`)
+    console.log(`  ${kind.padEnd(16)} → ${target.replace('https://www.你的域名', '')}  ${onLogin ? '✗ 被弹到登录页' : '✓ 进入管理页'}`)
     if (onLogin) fail++
   }
 

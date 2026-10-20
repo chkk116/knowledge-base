@@ -1,7 +1,7 @@
 // 上下文用量环 / 思考强度 / 压缩 的 UI 冒烟
 const { chromium } = require('playwright-core')
 const TOKEN = process.argv[2]
-const BASE = 'https://www.chkk116.cloud'
+const BASE = 'https://www.你的域名'
 
 ;(async () => {
   const b = await chromium.launch({ channel: 'chrome', headless: true })

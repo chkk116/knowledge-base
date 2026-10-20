@@ -71,7 +71,7 @@ if (!/^mobile-/.test(entryChunk)) {
 //   打成热更包下发后 App 全站接口 ERR_CONNECTION_REFUSED（表现为「发现」空白、管理页「连不上服务器」），
 //   而且因为连不上后端 → 拿不到后续修好的热更包 → **无法自愈，只能装新 APK 覆盖**。
 //   这里在打包前拦截，杜绝再产出这种坏包。
-const NATIVE_HOST = process.env.KB_NATIVE_HOST || 'chkk116.cloud'
+const NATIVE_HOST = process.env.KB_NATIVE_HOST || '你的域名'
 {
   const assetsDir = path.join(distDir, 'assets')
   const rbFiles = fs.existsSync(assetsDir)
@@ -177,7 +177,7 @@ buildZip().then(() => {
   console.log('上传：把 zip 传到服务器 /opt/kb/app-bundles/ （nginx 暴露为 /app-bundles/）')
   console.log('然后把下面这段写进后台 SysSetting 的 app_bundle：')
   console.log('')
-  const base = process.env.KB_BASE || 'https://www.chkk116.cloud'
+  const base = process.env.KB_BASE || 'https://www.你的域名'
   console.log(JSON.stringify({
     version,
     url: `${base}/app-bundles/${zipName}`,
