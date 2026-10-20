@@ -28,6 +28,8 @@ public class AiModel {
     public static final String PROVIDER_ZHIPU = "ZHIPU";
     /** OpenCode 推理服务（opencode.ai，OpenAI 兼容端点） */
     public static final String PROVIDER_OPENCODE = "OPENCODE";
+    /** 小米 MiMo 开放平台（api.xiaomimimo.com/v1，OpenAI 兼容；v2.6 系列为思考模型） */
+    public static final String PROVIDER_MIMO = "MIMO";
     public static final String PROVIDER_CUSTOM = "CUSTOM";
 
     @Id

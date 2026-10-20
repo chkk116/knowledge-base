@@ -32,6 +32,7 @@ const BRAND = {
   DASHSCOPE: '#615ced',
   ZHIPU: '#3859ff',
   OPENCODE: '#1f2937',
+  MIMO: '#ff6900',
   CUSTOM: '#64748b',
 }
 

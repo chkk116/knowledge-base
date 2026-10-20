@@ -120,6 +120,19 @@ public class AdminAiModelController {
             mv("minimax-m2.7", "MiniMax M2.7（付费）"));
 
     /**
+     * 小米 MiMo 开放平台（OpenAI 兼容端点 https://api.xiaomimimo.com/v1）。
+     *
+     * 实测记录（2026-10-20，Bearer 鉴权通）：v2.6 系列是**思考模型**，返回
+     * `reasoning_content` + `content` 双字段；max_tokens 过小会被思考过程吃光导致
+     * content 为空，调用方需留足预算（本系统默认 16384，足够）。
+     */
+    static final List<Map<String, Object>> MIMO_MODELS = List.of(
+            mv("mimo-v2.6-flash", "MiMo v2.6 Flash（推荐，100 RPM / 10M TPM）"),
+            mv("mimo-v2.6-pro", "MiMo v2.6 Pro（旗舰，100 RPM / 10M TPM）"),
+            mv("mimo-v2.6-pro-ultraspeed", "MiMo v2.6 Pro UltraSpeed（定制服务，需开通）"),
+            mv("mimo-v2.5", "MiMo v2.5（即将下线）"));
+
+    /**
      * 支持的平台：各平台都提供 OpenAI 兼容端点。
      * baseUrl 由平台固定（官方端点，管理页自动填充，无需管理员手抄）；defaultModel + models
      * 供管理页的「模型版本」下拉使用，选中即填入实际调用的模型名。
@@ -145,6 +158,10 @@ public class AdminAiModelController {
                     "baseUrl", "https://opencode.ai/inference/openai/v1",
                     "defaultModel", "deepseek-v4.1-flash", "models", OPENCODE_MODELS,
                     "doc", "https://opencode.ai/v2/docs/console/models/"),
+            Map.of("key", AiModel.PROVIDER_MIMO, "label", "小米 MiMo 开放平台",
+                    "baseUrl", "https://api.xiaomimimo.com/v1",
+                    "defaultModel", "mimo-v2.6-flash", "models", MIMO_MODELS,
+                    "doc", "https://mimo.mi.com/docs/zh-CN/quick-start/summary/first-api-call"),
             Map.of("key", AiModel.PROVIDER_CUSTOM, "label", "自定义（任何 OpenAI 兼容端点）",
                     "baseUrl", "https://api.openai.com/v1",
                     "defaultModel", "", "models", List.of(),
