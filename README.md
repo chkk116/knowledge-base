@@ -57,7 +57,7 @@ Web 全功能 + Electron 桌面客户端 + Capacitor Android，内网 / 公网 H
 
 ## 在线演示
 
-公网演示环境：**https://www.chkk116.cloud**
+公网演示环境：~~https://www.chkk116.cloud~~（**域名过期，暂时下线**——调整中，恢复后另行公布）
 
 | 账号 | 密码 | 说明 |
 |---|---|---|
