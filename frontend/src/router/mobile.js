@@ -92,6 +92,8 @@ const routes = [
   { path: '/course/:id/chapter/:chId', component: () => import('../views/mobile/MobileChapter.vue'), meta: { title: '章节' } },
   { path: '/exams', component: () => import('../views/mobile/MobileExams.vue'), meta: { title: '考试中心' } },
   { path: '/exam/practice', component: () => import('../views/mobile/MobileExamPractice.vue'), meta: { title: '练习' } },
+  // 错题本：必须排在 /exam/:id 之前，否则 wrong 会被当成试卷 id
+  { path: '/exam/wrong', component: () => import('../views/mobile/MobilePracticeWrong.vue'), meta: { title: '错题本' } },
   { path: '/exam/:id', component: () => import('../views/mobile/MobileExamTake.vue'), meta: { title: '考试' } },
   { path: '/exam/mine', component: () => import('../views/mobile/MobileExamMine.vue'), meta: { title: '我的考试' } },
 

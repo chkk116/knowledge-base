@@ -32,6 +32,12 @@ public class ExamPaper {
      */
     private Boolean practiceEnabled = Boolean.TRUE;
 
+    /**
+     * 是否为全站「模拟卷」：试卷自身的属性，在试卷列表的操作里直接勾选（2026-10-21 改）。
+     * 全站最多一份；设为 true 时服务端会把其它试卷的该标记清掉。
+     */
+    private Boolean mockEnabled = Boolean.FALSE;
+
     private Integer durationMin = 0;
 
     @Column(nullable = false)
@@ -56,6 +62,8 @@ public class ExamPaper {
     public void setPassScore(int passScore) { this.passScore = passScore; }
     public Boolean getPracticeEnabled() { return practiceEnabled; }
     public void setPracticeEnabled(Boolean practiceEnabled) { this.practiceEnabled = practiceEnabled; }
+    public Boolean getMockEnabled() { return mockEnabled; }
+    public void setMockEnabled(Boolean mockEnabled) { this.mockEnabled = mockEnabled; }
     public Integer getDurationMin() { return durationMin; }
     public void setDurationMin(Integer durationMin) { this.durationMin = durationMin; }
     public String getStatus() { return status; }

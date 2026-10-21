@@ -47,7 +47,9 @@ const routes = [
   // 考试测评：学员侧列表 / 答题 / 成绩
   { path: '/exams', component: () => import('../views/ExamList.vue'), meta: { title: '在线考试', maintenance: 'exams' } },
   // 模拟练习：答一题判一题，不落成绩（2026-10-21）
-  { path: '/exams/practice', component: () => import('../views/ExamPractice.vue'), meta: { title: '模拟练习', maintenance: 'exams' } },
+  { path: '/exams/practice', component: () => import('../views/ExamPractice.vue'), meta: { title: '练习', maintenance: 'exams' } },
+  // 错题本：练习流水派生（必须排在 /exams/:id 之类动态路由之前）
+  { path: '/exams/wrong', component: () => import('../views/PracticeWrong.vue'), meta: { title: '错题本', maintenance: 'exams' } },
   // 全新答题首页（蓝白风，参照 Farm2）：/quiz 入口
   { path: '/quiz', component: () => import('../views/QuizHome.vue'), meta: { title: '答题闯关', maintenance: 'quiz' } },
   { path: '/exams/:id/take', component: () => import('../views/ExamTake.vue'), meta: { title: '开始答题', maintenance: 'exams' } },

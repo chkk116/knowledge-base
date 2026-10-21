@@ -35,6 +35,7 @@ public class ExamService {
     private final CourseService courseService;
     private final NotificationService notificationService;
     private final SysSettingRepository settingRepo;
+    private final PracticeLogRepository practiceLogRepo;
 
     public ExamService(QuestionRepository questionRepo, QuestionOptionRepository optionRepo,
                        ExamPaperRepository paperRepo, ExamPaperQuestionRepository pqRepo,
@@ -43,6 +44,7 @@ public class ExamService {
                        CourseChapterRepository chapterRepo, LearningProgressRepository progressRepo,
                        CourseService courseService, NotificationService notificationService,
                        SysSettingRepository settingRepo,
+                       PracticeLogRepository practiceLogRepo,
                        org.springframework.transaction.support.TransactionTemplate txTemplate) {
         this.questionRepo = questionRepo;
         this.optionRepo = optionRepo;
@@ -57,6 +59,7 @@ public class ExamService {
         this.courseService = courseService;
         this.settingRepo = settingRepo;
         this.notificationService = notificationService;
+        this.practiceLogRepo = practiceLogRepo;
         this.txTemplate = txTemplate;
     }
 
@@ -536,8 +539,9 @@ public class ExamService {
         return res;
     }
 
-    /** 练习：单题判分，返回正确答案与解析（主观题不自动判分，只给参考答案） */
-    public Map<String, Object> practiceCheck(Long questionId, List<String> answer) {
+    /** 练习：单题判分，返回正确答案与解析（主观题不自动判分，只给参考答案）
+     *  userId 非空时落一条练习流水，用于错题本与正确率统计（2026-10-21）。 */
+    public Map<String, Object> practiceCheck(Long userId, Long questionId, List<String> answer) {
         Question q = questionRepo.findById(questionId).orElseThrow(() -> new IllegalArgumentException("题目不存在"));
         List<QuestionOption> opts = optionRepo.findByQuestionIdOrderByLabelAsc(questionId);
         List<String> correct = new ArrayList<>();
@@ -550,8 +554,10 @@ public class ExamService {
             m.put("content", o.getContent());
             correctList.add(m);
         }
+        List<String> ans = answer == null ? List.of() : answer;
         boolean manual = "FILL".equals(q.getType()) || "ESSAY".equals(q.getType());
-        boolean ok = !manual && judge(q.getType(), answer == null ? List.of() : answer, correct);
+        boolean ok = !manual && judge(q.getType(), ans, correct);
+        if (userId != null) recordPractice(userId, questionId, ok, manual, ans);
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("correct", ok);
         res.put("manual", manual);
@@ -561,39 +567,131 @@ public class ExamService {
         return res;
     }
 
-    // ===================== 固定模拟卷（2026-10-21） =====================
-    // 管理员在「考试管理」里指定一份已发布试卷作为全站统一的模拟卷；
-    // 学员端「模拟练习」直接进这份卷（答一题判一题），没配时才退回随机抽题。
-    private static final String MOCK_KEY = "exam_mock_paper";
-
-    private Long configuredMockId() {
-        return settingRepo.findByKey(MOCK_KEY).map((s) -> {
-            try { return Long.valueOf(s.getValue().trim()); } catch (Exception e) { return null; }
-        }).orElse(null);
+    /** 写练习流水；主观题不判分，也就没有对错，不记（否则错题本会被主观题塞满） */
+    private void recordPractice(Long userId, Long questionId, boolean correct, boolean manual, List<String> ans) {
+        if (manual) return;
+        try {
+            PracticeLog log = new PracticeLog();
+            log.setUserId(userId);
+            log.setQuestionId(questionId);
+            log.setCorrect(correct);
+            String joined = String.join(",", ans);
+            log.setAnswer(joined.length() > 500 ? joined.substring(0, 500) : joined);
+            practiceLogRepo.save(log);
+        } catch (Exception ignore) {
+            // 练习流水只是辅助数据，写失败不能影响判分
+        }
     }
+
+    /** 练习统计：累计答题 / 正确 / 正确率 / 待复习错题数 */
+    public Map<String, Object> practiceStats(Long userId) {
+        long total = practiceLogRepo.countByUserId(userId);
+        long correct = practiceLogRepo.countByUserIdAndCorrectTrue(userId);
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("total", total);
+        res.put("correct", correct);
+        res.put("rate", total > 0 ? Math.round(correct * 100.0 / total) : 0);
+        res.put("wrong", wrongQuestions(userId).size());
+        return res;
+    }
+
+    /**
+     * 错题本：每道题只看最近一次作答，最近一次答错的才算「待复习」。
+     * 答对即自动移出（不需要学员手动清理），点「已掌握」也可强制移除。
+     */
+    public List<Map<String, Object>> wrongQuestions(Long userId) {
+        List<PracticeLog> logs = practiceLogRepo.findTop300ByUserIdOrderByIdDesc(userId);
+        Set<Long> seen = new LinkedHashSet<>();
+        Set<Long> handled = new HashSet<>();
+        Map<Long, String> lastAnswer = new HashMap<>();
+        for (PracticeLog l : logs) {
+            if (!handled.add(l.getQuestionId())) continue;   // 只认每题最近一次作答
+            if (l.isCorrect()) continue;
+            seen.add(l.getQuestionId());
+            lastAnswer.put(l.getQuestionId(), l.getAnswer());
+            if (seen.size() >= 100) break;
+        }
+        if (seen.isEmpty()) return List.of();
+        Map<Long, Question> qMap = new LinkedHashMap<>();
+        for (Question q : questionRepo.findByIdIn(new ArrayList<>(seen))) qMap.put(q.getId(), q);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Long qid : seen) {
+            Question q = qMap.get(qid);
+            if (q == null) continue;   // 题目已被删
+            Map<String, Object> m = practiceQuestion(q);
+            List<Map<String, Object>> correctList = new ArrayList<>();
+            for (QuestionOption o : optionRepo.findByQuestionIdOrderByLabelAsc(qid)) {
+                if (!o.isCorrect()) continue;
+                Map<String, Object> c = new LinkedHashMap<>();
+                c.put("label", o.getLabel());
+                c.put("content", o.getContent());
+                correctList.add(c);
+            }
+            m.put("correctAnswer", correctList);
+            m.put("analysis", q.getAnalysis());
+            m.put("lastAnswer", lastAnswer.get(qid));
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** 移除某题错题记录（学员自认已掌握） */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> clearWrong(Long userId, Long questionId) {
+        long n = practiceLogRepo.deleteByUserIdAndQuestionId(userId, questionId);
+        return Map.of("ok", true, "removed", n);
+    }
+
+    // ===================== 固定模拟卷（2026-10-21） =====================
+    // 改为试卷自身属性 mockEnabled：管理员在试卷列表的操作里直接「设为模拟卷」，
+    // 全站最多一份（设置时自动清掉其它试卷的标记）。
+    // 兼容旧版：老配置存在 kb_sys_setting(exam_mock_paper)，读到后自动迁移到列上。
+    private static final String MOCK_KEY = "exam_mock_paper";
 
     /** 当前模拟卷（未配置或试卷已删 → paperId 为 null） */
     public Map<String, Object> mockPaper() {
         Map<String, Object> res = new LinkedHashMap<>();
-        Long id = configuredMockId();
-        ExamPaper p = id == null ? null : paperRepo.findById(id).orElse(null);
+        ExamPaper p = currentMock();
         res.put("paperId", p == null ? null : p.getId());
         res.put("title", p == null ? null : p.getTitle());
         res.put("questionCount", p == null ? 0 : (int) pqRepo.countByPaperId(p.getId()));
         return res;
     }
 
-    /** 设置固定模拟卷；paperId 为空/≤0 表示取消配置 */
-    @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> setMockPaper(Long paperId) {
-        if (paperId == null || paperId <= 0) {
+    private ExamPaper currentMock() {
+        List<ExamPaper> list = paperRepo.findByMockEnabledTrueOrderByIdAsc();
+        if (!list.isEmpty()) return list.get(0);
+        // 旧版配置迁移：读到就写回列，然后删掉旧 key
+        Long legacy = settingRepo.findByKey(MOCK_KEY).map((s) -> {
+            try { return Long.valueOf(s.getValue().trim()); } catch (Exception e) { return null; }
+        }).orElse(null);
+        if (legacy == null) return null;
+        ExamPaper p = paperRepo.findById(legacy).orElse(null);
+        if (p == null) return null;
+        try {
+            p.setMockEnabled(Boolean.TRUE);
+            paperRepo.save(p);
             settingRepo.findByKey(MOCK_KEY).ifPresent(settingRepo::delete);
-        } else {
-            ExamPaper p = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
-            if (!"PUBLISHED".equals(p.getStatus()))
-                throw new IllegalArgumentException("只能把「已发布」的试卷设为模拟卷");
-            settingRepo.save(new SysSetting(MOCK_KEY, String.valueOf(paperId)));
+        } catch (Exception ignore) {
+            // 迁移失败不影响返回（GET 里写库，可能撞只读/并发）
         }
+        return p;
+    }
+
+    /** 把某份试卷设为/取消全站模拟卷；设为 true 时清掉其它试卷的标记 */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> setPaperMock(Long paperId, boolean enabled) {
+        ExamPaper target = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
+        if (enabled && !"PUBLISHED".equals(target.getStatus()))
+            throw new IllegalArgumentException("只能把「已发布」的试卷设为模拟卷");
+        if (enabled) {
+            for (ExamPaper p : paperRepo.findByMockEnabledTrueOrderByIdAsc()) {
+                if (!p.getId().equals(paperId)) { p.setMockEnabled(Boolean.FALSE); paperRepo.save(p); }
+            }
+        }
+        target.setMockEnabled(enabled);
+        paperRepo.save(target);
+        settingRepo.findByKey(MOCK_KEY).ifPresent(settingRepo::delete);   // 清掉旧配置，避免两份来源打架
         return mockPaper();
     }
 

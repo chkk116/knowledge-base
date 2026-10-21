@@ -34,20 +34,11 @@
 
       <!-- ============ 试卷 ============ -->
       <el-tab-pane label="试卷" name="papers">
-        <!-- 固定模拟卷：全站统一一份，学员「模拟练习」直接进这份卷 -->
-        <div class="mock-bar">
-          <span class="mock-lab">模拟卷</span>
-          <el-select v-model="mockPaperId" placeholder="未配置（学员默认随机抽题）" clearable style="width:280px" size="small">
-            <el-option v-for="p in papers" :key="p.id" :value="p.id" :label="p.title + '（' + (p.questionCount||0) + ' 题）'"
-                       :disabled="p.status !== 'PUBLISHED'" />
-          </el-select>
-          <el-button size="small" type="primary" :loading="mockSaving" @click="saveMock">保存</el-button>
-          <span class="mock-hint">配置后学员端「模拟练习」固定使用这份卷；清空保存即取消</span>
-        </div>
         <div class="bar">
           <el-button type="primary" @click="openPaper()">新建试卷</el-button>
           <span class="count-hint">共 {{ papers.length }} 份</span>
           <el-button v-if="pSel.length" type="danger" plain @click="delPapersBatch">批量删除（{{ pSel.length }}）</el-button>
+          <span class="mock-hint">「模拟卷」开关：全站学员的「模拟练习」固定用这份卷，同时只能有一份</span>
         </div>
         <el-table v-stack-table :data="papers" border stripe v-loading="loadingP"
                    @selection-change="(rows) => pSel = rows.map(r => r.id)">
@@ -57,14 +48,27 @@
           <el-table-column prop="questionCount" label="题量" width="80" />
           <el-table-column prop="totalScore" label="满分" width="80" />
           <el-table-column prop="passScore" label="及格" width="80" />
-          <el-table-column label="模拟" width="80">
+          <el-table-column label="模拟卷" width="92">
+            <template #default="{ row }">
+              <el-switch :model-value="row.mockEnabled === true" :loading="mockSaving === row.id"
+                         :disabled="row.status !== 'PUBLISHED'"
+                         @change="(v) => toggleMock(row, v)" />
+            </template>
+          </el-table-column>
+          <el-table-column label="练习" width="80">
             <template #default="{ row }">
               <el-tag :type="row.practiceEnabled === false ? 'info' : 'success'" size="small" effect="plain">
                 {{ row.practiceEnabled === false ? '关闭' : '开启' }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="90" />
+          <el-table-column label="状态" width="86">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'PUBLISHED' ? 'success' : 'info'" size="small" effect="plain">
+                {{ row.status === 'PUBLISHED' ? '已发布' : '草稿' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" min-width="220">
             <template #default="{ row }">
               <el-button size="small" type="primary" @click="openAssemble(row)">组卷</el-button>
@@ -185,7 +189,7 @@ import { errMsg } from '../../utils/errMsg'
 import {
   adminQuestions, adminCreateQuestion, adminUpdateQuestion, adminDeleteQuestion, adminGetQuestion,
   adminPapers, adminCreatePaper, adminUpdatePaper, adminDeletePaper, adminAssemble,
-  adminBatchDeleteQuestions, adminBatchDeletePapers, adminGetMockPaper, adminSetMockPaper
+  adminBatchDeleteQuestions, adminBatchDeletePapers, adminSetPaperMock
 } from '../../api/training'
 
 const tab = ref('bank')
@@ -309,19 +313,27 @@ const savePaper = () => {
 const delPaper = (row) => ElMessageBox.confirm('删除试卷会同时删除相关考试记录，确定？', '提示', { type: 'warning' })
   .then(() => adminDeletePaper(row.id)).then(() => { ElMessage.success('已删除'); loadP() }).catch(() => {})
 
-// 固定模拟卷（2026-10-21）
-const mockPaperId = ref(null)
-const mockSaving = ref(false)
-const loadMock = () => adminGetMockPaper().then(r => { mockPaperId.value = (r.data || r)?.paperId ?? null }).catch(() => {})
-const saveMock = () => {
-  mockSaving.value = true
-  adminSetMockPaper(mockPaperId.value || 0)
-    .then((r) => {
-      mockPaperId.value = (r.data || r)?.paperId ?? null
-      ElMessage.success(mockPaperId.value ? '模拟卷已设置' : '已取消模拟卷配置')
-    })
-    .catch(e => ElMessage.error(errMsg(e, '保存失败')))
-    .finally(() => { mockSaving.value = false })
+// 模拟卷：试卷自身的属性，直接在列表里拨开关（2026-10-21 改）
+const mockSaving = ref(0)
+async function toggleMock(row, enabled) {
+  if (enabled) {
+    const ok = await ElMessageBox.confirm(
+      `把《${row.title}》设为全站模拟卷？\n\n学员端「模拟练习」会固定进入这份卷，原来设的那份自动取消。`,
+      '设为模拟卷', { type: 'info', confirmButtonText: '确定' },
+    ).then(() => true).catch(() => false)
+    if (!ok) return
+  }
+  mockSaving.value = row.id
+  try {
+    await adminSetPaperMock(row.id, enabled)
+    ElMessage.success(enabled ? '已设为模拟卷' : '已取消模拟卷')
+    loadP()
+  } catch (e) {
+    ElMessage.error(errMsg(e, '保存失败'))
+    loadP()
+  } finally {
+    mockSaving.value = 0
+  }
 }
 
 /** 批量删除试卷：考试记录会一并删除，提示要比单条更醒目 */
@@ -449,7 +461,7 @@ const loadQ = () => {
 }
 const loadP = () => { loadingP.value = true; adminPapers().then(r => { papers.value = r.data || r || [] }).catch(() => {}).finally(() => loadingP.value = false) }
 
-onMounted(() => { loadQ(); loadP(); loadMock() })
+onMounted(() => { loadQ(); loadP() })
 </script>
 
 <style scoped>
@@ -461,10 +473,7 @@ onMounted(() => { loadQ(); loadP(); loadMock() })
 .cf-row { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; color: #475569; }
 .cf-row b { color: #0f172a; font-weight: 600; }
 .cf-tip { font-size: 12px; color: #94a3b8; line-height: 1.5; }
-.mock-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 12px;
-  background: #f8fafc; border: 1px solid #eef2f7; border-radius: 10px; }
-.mock-lab { font-size: 13px; color: #475569; }
-.mock-hint { font-size: 12px; color: #94a3b8; }
+.mock-hint { margin-left: auto; font-size: 12px; color: #94a3b8; }
 .form-hint { margin-left: 10px; font-size: 12px; color: #94a3b8; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
 .orow { display: flex; align-items: center; gap: 8px; }

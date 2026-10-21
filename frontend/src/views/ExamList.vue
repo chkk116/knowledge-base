@@ -7,15 +7,16 @@
 
     <div class="bar" v-if="loggedIn">
       <el-button text type="primary" @click="goMine">我的成绩</el-button>
+      <el-button text type="primary" @click="router.push('/exams/wrong')">错题本</el-button>
     </div>
 
-    <!-- 管理员指定的固定模拟卷 -->
+    <!-- 管理员设为「模拟卷」的那份试卷（试卷属性，在考试管理里拨开关） -->
     <div v-if="mock.paperId" class="mock">
       <div class="mock-info">
-        <b>模拟练习卷：{{ mock.title }}</b>
+        <b>模拟卷：{{ mock.title }}</b>
         <span>{{ mock.questionCount }} 题 · 答一题看一题解析，不计成绩</span>
       </div>
-      <el-button type="primary" plain @click="goMock">开始模拟</el-button>
+      <el-button type="primary" plain @click="goMock">开始练习</el-button>
     </div>
 
     <div v-if="loading" class="tip">加载中…</div>
@@ -36,7 +37,7 @@
         </div>
         <div class="acts">
           <el-button type="primary" :disabled="p.status !== 'PUBLISHED'" @click="start(p)">开始考试</el-button>
-          <el-button plain :disabled="p.status !== 'PUBLISHED' || p.practiceEnabled === false" @click="practice(p)">模拟练习</el-button>
+          <el-button plain :disabled="p.status !== 'PUBLISHED' || p.practiceEnabled === false" @click="practice(p)">练习</el-button>
         </div>
       </div>
     </div>

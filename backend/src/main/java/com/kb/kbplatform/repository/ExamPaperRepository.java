@@ -15,4 +15,7 @@ public interface ExamPaperRepository extends JpaRepository<ExamPaper, Long> {
 
     /** 全部试卷按创建时间倒序（管理端「全部试卷」列表） */
     List<ExamPaper> findAllByOrderByCreatedAtDesc();
+
+    /** 全站模拟卷（正常最多一份；历史脏数据取最早那份） */
+    List<ExamPaper> findByMockEnabledTrueOrderByIdAsc();
 }

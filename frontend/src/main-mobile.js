@@ -48,6 +48,7 @@ import {
   Download, Share, Link, TrendCharts, Cloudy, Unlock, Key,
   Compass, StarFilled, Guide, Odometer, Medal, Notebook, Aim, Histogram,
   Crop, RefreshLeft, RefreshRight, Postcard,   // 扫描编辑器（裁剪/旋转）+ 证件扫描
+  Lightning, CircleCheck,   // 考试中心「模拟练习」卡片 + 错题本空态（此前 Lightning 漏注册 → 图标空白）
   Coin, SuccessFilled   // 积分/考试结果图标
 } from '@element-plus/icons-vue'
 
@@ -96,7 +97,7 @@ const icons = {
   DataLine, Avatar, CollectionTag, Brush,
   Download, Share, Link, TrendCharts, Cloudy, Unlock, Key,
   Compass, StarFilled, Guide, Odometer, Medal, Notebook, Aim, Histogram,
-  Crop, RefreshLeft, RefreshRight, Postcard, Coin, SuccessFilled
+  Crop, RefreshLeft, RefreshRight, Postcard, Coin, SuccessFilled, Lightning, CircleCheck
 }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)

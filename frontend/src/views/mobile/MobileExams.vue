@@ -67,14 +67,17 @@ onMounted(load)
         <div class="m-title">考试中心</div>
         <div class="m-sub">检验你的学习成果</div>
       </div>
-      <button class="m-header-act" @click="router.push('/exam/mine')">我的成绩</button>
+      <div class="hd-acts">
+        <button class="m-header-act" @click="router.push('/exam/wrong')">错题本</button>
+        <button class="m-header-act" @click="router.push('/exam/mine')">我的成绩</button>
+      </div>
     </div>
     <div class="body">
       <!-- 模拟练习入口：不落成绩、答一题判一题 -->
       <button class="sim-card" type="button" @click="enterSim">
         <span class="sim-ico"><el-icon :size="20"><Lightning /></el-icon></span>
         <span class="sim-body">
-          <b>{{ mock.paperId ? '模拟练习 · ' + mock.title : '模拟练习' }}</b>
+          <b>{{ mock.paperId ? '练习 · ' + mock.title : '随机练习' }}</b>
           <span v-if="mock.paperId">{{ mock.questionCount }} 题 · 答一题看一题解析，不计入成绩</span>
           <span v-else>从题库随机抽题，答一题看一题解析，不计入成绩</span>
         </span>
@@ -163,6 +166,10 @@ onMounted(load)
 
 <style scoped>
 .exams { min-height: 100%; }
+.hd-acts { display: flex; gap: 6px; align-items: center; flex: none; }
+.hd-acts .m-header-act { width: auto; height: 28px; padding: 0 10px; border-radius: 999px;
+  background: var(--m-card); border: 1px solid var(--m-border); color: var(--m-text-sub);
+  font-size: 12px; font-family: inherit; white-space: nowrap; }
 .body { padding: 0 16px; }
 .sim-card { display: flex; align-items: center; gap: 12px; width: 100%; margin: 12px 0 10px; padding: 14px;
   border: 1px solid var(--m-border); border-radius: 14px; background: var(--m-card); text-align: left; font-family: inherit; }

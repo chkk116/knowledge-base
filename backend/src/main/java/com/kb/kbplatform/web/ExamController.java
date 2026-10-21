@@ -74,10 +74,29 @@ public class ExamController {
         return svc.mockPaper();
     }
 
-    /** 练习：逐题判分，返回正确答案与解析 */
+    /** 练习：逐题判分，返回正确答案与解析；顺带写练习流水（错题本用） */
     @PostMapping("/practice/check")
-    public Map<String, Object> practiceCheck(@RequestBody PracticeCheckReq req) {
-        return svc.practiceCheck(req.questionId, req.answer);
+    public Map<String, Object> practiceCheck(@RequestAttribute("kbUser") TokenClaims c,
+                                             @RequestBody PracticeCheckReq req) {
+        return svc.practiceCheck(resolveOwner(c), req.questionId, req.answer);
+    }
+
+    /** 练习统计：累计答题 / 正确率 / 待复习错题数 */
+    @GetMapping("/practice/stats")
+    public Map<String, Object> practiceStats(@RequestAttribute("kbUser") TokenClaims c) {
+        return svc.practiceStats(resolveOwner(c));
+    }
+
+    /** 错题本：最近一次答错的题（含答案与解析），答对自动移出 */
+    @GetMapping("/practice/wrong")
+    public List<Map<String, Object>> practiceWrong(@RequestAttribute("kbUser") TokenClaims c) {
+        return svc.wrongQuestions(resolveOwner(c));
+    }
+
+    /** 错题本：标记已掌握（删除该题练习记录） */
+    @DeleteMapping("/practice/wrong/{qid}")
+    public Map<String, Object> clearWrong(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long qid) {
+        return svc.clearWrong(resolveOwner(c), qid);
     }
 
     public static class PracticeCheckReq {

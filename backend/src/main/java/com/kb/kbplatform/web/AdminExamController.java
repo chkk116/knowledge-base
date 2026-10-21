@@ -41,27 +41,23 @@ public class AdminExamController {
         }
     }
 
-    // ---------- 固定模拟卷 ----------
-    /** 当前模拟卷配置（未配置 paperId 为 null） */
+    // ---------- 模拟卷（2026-10-21 改为试卷属性，在试卷列表的操作里设置） ----------
+    /** 当前模拟卷（未配置 paperId 为 null） */
     @GetMapping("/mock")
     public Map<String, Object> getMock(@RequestAttribute("kbUser") TokenClaims c) {
         requirePerm(c, "EXAM_MANAGE");
         return svc.mockPaper();
     }
 
-    /** 指定全站模拟卷；paperId 传 0 或 null 表示取消 */
-    @PostMapping("/mock")
-    public Map<String, Object> setMock(@RequestAttribute("kbUser") TokenClaims c,
-                                       @RequestBody Map<String, Object> body) {
+    /** 把某份试卷设为/取消全站模拟卷；body { enabled: true|false } */
+    @PostMapping("/papers/{id}/mock")
+    public Map<String, Object> setPaperMock(@RequestAttribute("kbUser") TokenClaims c,
+                                            @PathVariable Long id,
+                                            @RequestBody(required = false) Map<String, Object> body) {
         requirePerm(c, "EXAM_MANAGE");
-        Object raw = body.get("paperId");
-        Long paperId = null;
-        if (raw instanceof Number n) paperId = n.longValue();
-        else if (raw != null && !String.valueOf(raw).isBlank()) {
-            try { paperId = Long.valueOf(String.valueOf(raw).trim()); }
-            catch (NumberFormatException e) { throw new ResponseStatusException(BAD_REQUEST, "paperId 不合法"); }
-        }
-        return svc.setMockPaper(paperId);
+        Object raw = body == null ? null : body.get("enabled");
+        boolean enabled = raw == null || Boolean.parseBoolean(String.valueOf(raw));
+        return svc.setPaperMock(id, enabled);
     }
 
     // ---------- 题库 ----------
@@ -175,6 +171,8 @@ public class AdminExamController {
         if (paper.getPassScore() != 0) ex.setPassScore(paper.getPassScore());
         if (paper.getDurationMin() != null) ex.setDurationMin(paper.getDurationMin());
         if (paper.getStatus() != null) ex.setStatus(paper.getStatus());
+        // 「允许模拟」开关之前只写库不改值（PUT 里漏了），现在补上；null 表示前端没传，保持原值
+        if (paper.getPracticeEnabled() != null) ex.setPracticeEnabled(paper.getPracticeEnabled());
         return svc.adminSavePaper(ex);
     }
 

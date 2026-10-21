@@ -82,16 +82,29 @@ export const practiceRandomQuestions = (category, count) =>
 export const practiceCheck = (questionId, answer) =>
   api.post('/exams/practice/check', { questionId, answer })
 
-/** 当前固定模拟卷（未配置时 paperId 为 null） */
+/** 练习统计：{ total, correct, rate, wrong } */
+export const practiceStats = () =>
+  api.get('/exams/practice/stats')
+
+/** 错题本：最近一次答错的题（含答案与解析） */
+export const practiceWrongList = () =>
+  api.get('/exams/practice/wrong')
+
+/** 错题本：标记已掌握 */
+export const practiceWrongClear = (questionId) =>
+  api.delete('/exams/practice/wrong/' + questionId)
+
+/** 当前模拟卷（未配置时 paperId 为 null） */
 export const getMockPaper = () =>
   api.get('/exams/mock')
 
-/** 管理端：读取 / 设置固定模拟卷（paperId=0 取消） */
+/** 管理端：当前模拟卷 */
 export const adminGetMockPaper = () =>
   api.get('/admin/exams/mock')
 
-export const adminSetMockPaper = (paperId) =>
-  api.post('/admin/exams/mock', { paperId })
+/** 管理端：把某份试卷设为 / 取消全站模拟卷（试卷自身的属性） */
+export const adminSetPaperMock = (paperId, enabled) =>
+  api.post('/admin/exams/papers/' + paperId + '/mock', { enabled })
 
 // ===================== 考试（管理侧） =====================
 export const adminQuestions = (category) =>
