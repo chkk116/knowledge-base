@@ -970,7 +970,9 @@ function highlightCode(code, lang) {
 }
 md.renderer.rules.fence = (tokens, idx) => {
   const info = (tokens[idx].info || '').trim()
-  const lang = info ? info.toLowerCase() : ''
+  // 语言标识进 class 前必须做字符白名单（审查 r9 Critical / r10 复现）：
+  // 模型输出（可被检索内容提示注入）写 ```x" onmouseover=... 即可闭合属性注入事件处理器
+  const lang = info ? info.toLowerCase().split(/[\s,;:]/)[0].replace(/[^a-z0-9_+#.-]/g, '') : ''
   const cls = lang ? ' language-' + lang : ''
   const code = highlightCode(tokens[idx].content, lang)
   return '<div class="md-code-block"><button type="button" class="md-copy-btn">复制</button>'

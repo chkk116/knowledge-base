@@ -59,7 +59,7 @@ if (!fs.existsSync(path.join(distDir, 'index.html'))) {
 }
 
 const mobileHtml = fs.readFileSync(mobileHtmlPath, 'utf8')
-const entryChunk = (mobileHtml.match(/assets\/([A-Za-z0-9_.-]+\.js)/) || [])[1] || ''
+const entryChunk = (mobileHtml.match(/<script[^>]+src="[^"]*assets\/([A-Za-z0-9_.-]+\.js)"/) || [])[1] || ''
 if (!/^mobile-/.test(entryChunk)) {
   console.error('[FAIL] mobile.html 的入口不是 mobile-*.js（实际：' + (entryChunk || '未找到') + '）—— 构建产物异常，已中止')
   process.exit(1)
@@ -99,10 +99,11 @@ const NATIVE_HOST = process.env.KB_NATIVE_HOST || '你的域名'
 
 fs.mkdirSync(outDir, { recursive: true })
 
-// 版本号用时间戳：单调递增、肉眼可读，且天然避免与上一次重名
+// 版本号用时间戳（精确到秒）：单调递增、肉眼可读，同分钟两次构建也不会重名
+// （审查 r10-10：分钟精度下第二次构建会撞同一个 zipPath）
 const d = new Date()
 const p2 = (n) => String(n).padStart(2, '0')
-const version = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}`
+const version = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`
 const zipName = `kb-app-${version}.zip`
 const zipPath = path.join(outDir, zipName)
 if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
@@ -137,10 +138,15 @@ function buildZip() {
   })
 }
 
-/** 从 zip 里取某个条目的内容（系统 unzip；命令不存在时返回 {missing:true}） */
+/** 从 zip 里取某个条目的内容（系统 unzip；命令不存在时返回 {missing:true}，其余错误 fail-closed） */
 function readZipEntry(name) {
   const r = spawnSync('unzip', ['-p', zipPath, name], { maxBuffer: 8 * 1024 * 1024 })
-  if (r.error) return { toolMissing: true }
+  // 2026-10-21：只有「unzip 没装」才允许跳过复检；其他 spawn 错误（权限/资源）必须失败，
+  // 否则校验被静默跳过，坏包照样出（审查 r10-10 High）
+  if (r.error) {
+    if (r.error.code === 'ENOENT') return { toolMissing: true }
+    throw new Error('zip 复检失败（unzip 无法执行）：' + r.error.message)
+  }
   return { content: r.status === 0 && r.stdout ? r.stdout.toString('utf8') : '' }
 }
 
@@ -159,7 +165,7 @@ buildZip().then(() => {
       console.error('[FAIL] zip 里没有 index.html —— 这个包装上去会白屏，已删除坏包')
       process.exit(1)
     }
-    const entry = (html.match(/assets\/([A-Za-z0-9_.-]+\.js)/) || [])[1] || ''
+    const entry = (html.match(/<script[^>]+src="[^"]*assets\/([A-Za-z0-9_.-]+\.js)"/) || [])[1] || ''
     if (!/^mobile-/.test(entry)) {
       fs.unlinkSync(zipPath)
       console.error('[FAIL] zip 内 index.html 的入口是 ' + (entry || '未知') + '（应为 mobile-*.js）')

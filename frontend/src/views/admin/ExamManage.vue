@@ -173,6 +173,7 @@ const hasOptions = computed(() => ['SINGLE', 'MULTI', 'JUDGE'].includes(qForm.va
 // 题目
 const qDlg = ref(false)
 const editingQ = ref(null)
+let qLoadSeq = 0   // 题目详情请求代次（防回填竞态）
 const saving = ref(false)
 const qForm = ref(blankQ())
 function blankQ() { return { type: 'SINGLE', content: '', analysis: '', difficulty: 1, category: '', options: [{ label: 'A', content: '', isCorrect: false }] } }
@@ -186,16 +187,20 @@ const openQuestion = async (row) => {
     return
   }
   // 列表接口为了省流量不返回 options；直接拿列表行会得到空选项，保存就把原选项清空了
+  // 请求代次守卫（审查 r10 High）：回填完成前用户可能关闭弹窗/切到另一题，晚到的响应不能覆盖
+  const seq = ++qLoadSeq
   qForm.value = { ...row, options: [] }
   qDlg.value = true
   try {
     const { data } = await adminGetQuestion(row.id)
+    if (seq !== qLoadSeq || !qDlg.value) return
     const opts = (data.options || []).map((o) => ({ label: o.label, content: o.content, isCorrect: !!o.isCorrect }))
     qForm.value = {
       ...data,
       options: opts.length ? opts : [{ label: 'A', content: '', isCorrect: false }],
     }
   } catch (e) {
+    if (seq !== qLoadSeq) return
     ElMessage.error(errMsg(e, '读取题目详情失败'))
     qDlg.value = false
   }
@@ -203,15 +208,31 @@ const openQuestion = async (row) => {
 const saveQuestion = () => {
   saving.value = true
   const f = qForm.value
-  const q = { type: f.type, content: f.content, analysis: f.analysis, difficulty: f.difficulty, category: f.category }
-  const opts = hasOptions.value ? f.options.map((o, i) => ({ label: String.fromCharCode(65 + i), content: o.content, isCorrect: !!o.isCorrect })) : []
+  // 保存前校验（审查 r10 High）：空题干 / 空选项 / 无正确项不能入库——
+  // 后端不校验，脏数据会直接影响考生（无答案题/0 分题）
+  const content = String(f.content || '').trim()
+  if (!content) { ElMessage.warning('题干不能为空'); saving.value = false; return }
+  const q = { type: f.type, content, analysis: f.analysis, difficulty: f.difficulty, category: f.category }
+  const opts = hasOptions.value ? f.options.map((o, i) => ({ label: String.fromCharCode(65 + i), content: String(o.content || '').trim(), isCorrect: !!o.isCorrect })) : []
+  if (hasOptions.value) {
+    if (opts.length < 2) { ElMessage.warning('客观题至少需要 2 个选项'); saving.value = false; return }
+    if (opts.some((o) => !o.content)) { ElMessage.warning('存在空选项，请补全内容或删掉该行'); saving.value = false; return }
+    const correct = opts.filter((o) => o.isCorrect).length
+    if (f.type === 'SINGLE' || f.type === 'JUDGE') {
+      if (correct !== 1) { ElMessage.warning(f.type === 'SINGLE' ? '单选题必须有且只有 1 个正确项' : '判断题必须有且只有 1 个正确项'); saving.value = false; return }
+    } else if (f.type === 'MULTI' && correct < 2) {
+      ElMessage.warning('多选题至少要有 2 个正确项'); saving.value = false; return
+    }
+  }
   const req = editingQ.value ? adminUpdateQuestion(editingQ.value.id, q, opts) : adminCreateQuestion(q, opts)
   req.then(() => { ElMessage.success('已保存'); qDlg.value = false; loadQ() })
     .catch(e => ElMessage.error(errMsg(e, '保存失败')))
     .finally(() => saving.value = false)
 }
 const delQuestion = (row) => ElMessageBox.confirm('确定删除该题目？关联试卷将丢失此题目。', '提示', { type: 'warning' })
-  .then(() => adminDeleteQuestion(row.id)).then(() => { ElMessage.success('已删除'); loadQ() }).catch(() => {})
+  .then(() => adminDeleteQuestion(row.id)).then(() => { ElMessage.success('已删除'); loadQ() })
+  // 删除失败不能静默（审查 r10 Medium）：网络/权限/外键失败要让用户知道，否则以为已删
+  .catch((e) => { if (e !== 'cancel' && e !== 'close') ElMessage.error(errMsg(e, '删除失败')) })
 
 /** 批量删除题目：把影响面说清楚（不是不可逆到说不清，但试卷关联会被清） */
 const delQuestionsBatch = () => ElMessageBox.confirm(
@@ -302,7 +323,13 @@ const assembleByCategory = async () => {
       status: 'PUBLISHED',
     })
     const items = list.map((q) => ({ questionId: q.id, score: 5 }))
-    await adminAssemble(paper.id, items)
+    try {
+      await adminAssemble(paper.id, items)
+    } catch (e2) {
+      // 组卷失败要回滚空试卷（审查 r10 High）：否则留下 0 题 0 分的「已发布」卷，考生端可见
+      await adminDeletePaper(paper.id).catch(() => {})
+      throw e2
+    }
     ElMessage.success(`已生成试卷《${paper.title}》：${items.length} 题 / ${items.length * 5} 分`)
     loadP()
     tab.value = 'papers'

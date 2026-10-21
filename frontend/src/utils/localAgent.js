@@ -86,7 +86,19 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
     parts.push('【要求】\n' + TOOL_MANUAL + '\n\n继续任务：信息足够请直接给出最终答案；需要工具则输出 TOOL 行。')
 
     say(step === 1 ? '正在规划任务…' : `第 ${step}/${MAX_STEPS} 步推理…`)
-    const out = String(await ask(parts.join('\n\n'), signal) || '').trim()
+    // LLM 调用单独兜底（审查 r10 High）：网络/超时/后端 5xx 不能把整个 Agent 打穿——
+    // 已收集的步骤轨迹要保留下来一并展示，否则用户只看到「Agent 执行失败」毫无上下文
+    let out
+    try {
+      out = String(await ask(parts.join('\n\n'), signal) || '').trim()
+    } catch (e) {
+      if (signal && signal.aborted) { answer = '（已停止）'; break }
+      const why = String((e && e.message) || e).slice(0, 200)
+      answer = 'AI 服务调用失败：' + why +
+        (trace.length ? '\n\n已完成的步骤（结果仍有效）：\n' + trace.join('\n') : '') +
+        '\n\n请稍后重试；持续失败请检查网络或联系管理员。'
+      break
+    }
     if (signal && signal.aborted) { answer = '（已停止）'; break }
 
     // 模型偶尔会把整段提示词原样复述回来（尤其带上长工具手册、轨迹里又有大段 JSON 时），
@@ -129,10 +141,12 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
           result = '当前环境不支持页面跳转'
         } else {
           // 应用内路径白名单：Agent 输出可能被检索内容 prompt injection 影响，
-          // 放行 //evil.com 或 https:// 形式会跳出应用（外部复审 2026-10-08）
+          // 放行 //evil.com 或 https:// 形式会跳出应用（外部复审 2026-10-08）；
+          // 反斜杠也要拦（审查 r10 High）：URL 解析器会把 /\evil.com 归一成 //evil.com
           const path = String(args.path || '').slice(0, 200).trim()
-          if (!path.startsWith('/') || path.startsWith('//')) {
-            result = 'path 必须是应用内绝对路径（以单个 / 开头），如 /m/docs/123'
+          if (!path.startsWith('/') || path.startsWith('//')
+              || path.includes('\\') || /[\x00-\x1f\x7f]/.test(path)) {
+            result = 'path 必须是应用内绝对路径（以单个 / 开头、不含反斜杠与控制字符），如 /m/docs/123'
           } else {
             say('➡️ 跳转到 ' + path)
             result = await hooks.navigate(path)

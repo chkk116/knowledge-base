@@ -182,33 +182,38 @@ public class WebClipService {
 
             HttpResponse<InputStream> res = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
             int code = res.statusCode();
+            try {
+                if (code >= 300 && code < 400) {
+                    String loc = res.headers().firstValue("location").orElse(null);
+                    if (loc == null || loc.isBlank())
+                        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "页面跳转异常（无 Location）");
+                    cur = cur.resolve(loc);
+                    String scheme = cur.getScheme() == null ? "" : cur.getScheme().toLowerCase(Locale.ROOT);
+                    if (!scheme.equals("http") && !scheme.equals("https"))
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的跳转地址");
+                    assertPublicHost(cur.getHost());     // 每一跳都要重新校验，别被重定向绕过
+                    continue;
+                }
 
-            if (code >= 300 && code < 400) {
-                String loc = res.headers().firstValue("location").orElse(null);
-                if (loc == null || loc.isBlank())
-                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "页面跳转异常（无 Location）");
-                cur = cur.resolve(loc);
-                String scheme = cur.getScheme() == null ? "" : cur.getScheme().toLowerCase(Locale.ROOT);
-                if (!scheme.equals("http") && !scheme.equals("https"))
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的跳转地址");
-                assertPublicHost(cur.getHost());     // 每一跳都要重新校验，别被重定向绕过
-                continue;
+                if (code >= 400)
+                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "抓取失败（HTTP " + code + "）");
+
+                String ct = res.headers().firstValue("content-type").orElse("");
+                String ctLower = ct.toLowerCase(Locale.ROOT);
+                if (!ctLower.isEmpty() && !ctLower.contains("html") && !ctLower.contains("xml")
+                        && !ctLower.contains("text/plain")) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "这不是网页内容（" + ct + "），无法剪藏");
+                }
+
+                byte[] bytes = readLimited(res.body(), MAX_BYTES);
+                Charset cs = charsetOf(ct, bytes);
+                return new Fetched(cur.toString(), new String(bytes, cs));
+            } finally {
+                // 任何分支（重定向 continue / 4xx / 非网页 throw）都必须关响应流（审查 r8-r10 High）：
+                // 否则连接与文件句柄泄漏，高并发或恶意目标可耗尽
+                try { res.body().close(); } catch (Exception ignore) { /* ignore */ }
             }
-
-            if (code >= 400)
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "抓取失败（HTTP " + code + "）");
-
-            String ct = res.headers().firstValue("content-type").orElse("");
-            String ctLower = ct.toLowerCase(Locale.ROOT);
-            if (!ctLower.isEmpty() && !ctLower.contains("html") && !ctLower.contains("xml")
-                    && !ctLower.contains("text/plain")) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "这不是网页内容（" + ct + "），无法剪藏");
-            }
-
-            byte[] bytes = readLimited(res.body(), MAX_BYTES);
-            Charset cs = charsetOf(ct, bytes);
-            return new Fetched(cur.toString(), new String(bytes, cs));
         }
         throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "跳转次数过多，已中止");
     }

@@ -13,6 +13,12 @@
 #   4) 校验公网可下载
 #
 # 注意：版本号取「时间戳」，与旧版本不同即可触发更新。原生改动（插件/权限/图标）热更覆盖不了，必须发 APK。
+#
+# 2026-10-21 安全加固：
+#   - SQL 注入：旧版把 $NOTES/$URL 等直接拼进远端 SQL（外层 heredoc 未加引号），
+#     含引号/换行即可注入任意 SQL。现在本地构造 JSON → base64 → 远端 psql 变量绑定（:'val'）。
+#   - 先上传 .part 再 mv 原子替换，旧包在新包就位前不删（上传中断不再断供）。
+#   - 去掉 `| grep -v Warning || true`——它把所有步骤的失败都吞成成功。
 set -euo pipefail
 
 VER="${1:?用法: publish-app-bundle.sh <dist后缀> [notes]}"
@@ -25,6 +31,9 @@ KEY="$ROOT/outputs/.deploykey"
 SSH="ssh -i $KEY -o StrictHostKeyChecking=yes $KB_DEPLOY_TARGET"
 DOMAIN="https://www.你的域名"
 
+# JSON 字符串转义（含换行→删；引号/反斜杠转义），供嵌入 JSON 值
+json_str() { printf '%s' "$1" | tr -d '\r\n' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
 echo "== 1. 打 zip =="
 cd "$ROOT"
 NODE_OPTIONS='' node outputs/build-app-bundle.cjs "$VER" 2>&1 | grep -E "打包完成|体积|SHA-256" || true
@@ -36,24 +45,24 @@ BVER=$(echo "$NAME" | sed -E 's/kb-app-(.*)\.zip/\1/')
 URL="$DOMAIN/app-bundles/$NAME"
 echo "包: $NAME  版本: $BVER"
 
-echo "== 2. 上传 =="
-$SSH 'rm -f /opt/kb/app-bundles/*.zip' 2>&1 | grep -v Warning || true
-# 用 ssh + cat 上传（比 scp 少开一个连接）
-$SSH "cat > /opt/kb/app-bundles/$NAME" < "$ZIP" 2>&1 | grep -v Warning || true
+echo "== 2. 上传（.part → mv 原子替换，成功后才清旧包） =="
+$SSH "cat > /opt/kb/app-bundles/${NAME}.part" < "$ZIP"
+$SSH "mv -f /opt/kb/app-bundles/${NAME}.part /opt/kb/app-bundles/${NAME}"
+$SSH "find /opt/kb/app-bundles -maxdepth 1 -name 'kb-app-*.zip' ! -name '$NAME' -delete"
 
 echo "== 3. 写 SysSetting.app_bundle =="
-$SSH "bash -s" << REMOTE 2>&1 | grep -v Warning
-cat > /tmp/kb_bundle.sql << 'SQL'
-insert into kb_sys_setting(setting_key, setting_value, updated_at)
-values ('app_bundle', '{"version":"$BVER","url":"$URL","checksum":"$SHA","notes":"$NOTES"}', now())
-on conflict (setting_key) do update set setting_value = excluded.setting_value, updated_at = now();
-SQL
-/www/server/pgsql/bin/psql -h 127.0.0.1 -p 5433 -U kb -d kb -f /tmp/kb_bundle.sql
-rm -f /tmp/kb_bundle.sql
+# 本地构造 JSON（全部字段做 JSON 转义）→ base64 → 远端 psql 变量绑定，杜绝 SQL 注入
+JSON="{\"version\":\"$(json_str "$BVER")\",\"url\":\"$(json_str "$URL")\",\"checksum\":\"$(json_str "$SHA")\",\"notes\":\"$(json_str "$NOTES")\"}"
+B64=$(printf '%s' "$JSON" | base64 | tr -d '\n')
+$SSH "KB_JSON_B64='$B64' bash -s" << 'REMOTE' 2>&1
+set -euo pipefail
+JSON=$(printf '%s' "$KB_JSON_B64" | base64 -d)
+/www/server/pgsql/bin/psql -h 127.0.0.1 -p 5433 -U kb -d kb -v val="$JSON" -c \
+  "insert into kb_sys_setting(setting_key, setting_value, updated_at) values ('app_bundle', :'val', now()) on conflict (setting_key) do update set setting_value = excluded.setting_value, updated_at = now()"
 REMOTE
 
 echo "== 4. 校验 =="
 sleep 2
-echo -n "接口: "; curl -s -m 15 "$DOMAIN/api/public/app-bundle"; echo ""
-curl -s -o /dev/null -w "zip : %{http_code}  %{size_download} bytes\n" -m 120 "$URL"
+echo -n "接口: "; curl -fsS -m 15 "$DOMAIN/api/public/app-bundle"; echo ""
+curl -fsS -o /dev/null -w "zip : %{http_code}  %{size_download} bytes\n" -m 120 "$URL"
 echo "✓ 发布完成"

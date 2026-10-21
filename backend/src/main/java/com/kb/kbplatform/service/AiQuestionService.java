@@ -146,8 +146,11 @@ public class AiQuestionService {
         if (req.shareId == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择知识库空间");
 
+        // 显式传入的 docIds 也要受 MAX_DOCS 约束（审查 r9 High）：否则可一次拉几十篇 × 8k 字
         List<Long> ids = req.docIds == null ? List.of()
-                : req.docIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+                : req.docIds.stream().filter(java.util.Objects::nonNull).distinct().limit(MAX_DOCS).toList();
+        if (req.docIds != null && req.docIds.size() > MAX_DOCS)
+            warnings.add("指定文档超出上限，已只取前 " + MAX_DOCS + " 篇");
         if (ids.isEmpty()) {
             // 没指定就用该空间最近的若干篇，省得用户逐篇勾
             ids = docShare.listDocs(req.shareId, userId, sysAdmin).stream()
