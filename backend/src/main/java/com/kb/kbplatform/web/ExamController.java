@@ -55,6 +55,30 @@ public class ExamController {
         return svc.submit(resolveOwner(c), req.recordId, req.items);
     }
 
+    /** 练习：按试卷取题（无需 start、不落成绩，不含答案） */
+    @GetMapping("/{id}/practice")
+    public Map<String, Object> practicePaper(@PathVariable Long id) {
+        return svc.practicePaper(id);
+    }
+
+    /** 练习：题库随机抽题（可按分类） */
+    @GetMapping("/practice/random")
+    public Map<String, Object> practiceRandom(@RequestParam(required = false) String category,
+                                              @RequestParam(required = false) Integer count) {
+        return svc.practiceRandom(category, count);
+    }
+
+    /** 练习：逐题判分，返回正确答案与解析 */
+    @PostMapping("/practice/check")
+    public Map<String, Object> practiceCheck(@RequestBody PracticeCheckReq req) {
+        return svc.practiceCheck(req.questionId, req.answer);
+    }
+
+    public static class PracticeCheckReq {
+        public Long questionId;
+        public List<String> answer;
+    }
+
     /** 登录：我的成绩 */
     @GetMapping("/mine")
     public List<ExamRecord> mine(@RequestAttribute("kbUser") TokenClaims c) {

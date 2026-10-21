@@ -91,6 +91,7 @@ const routes = [
   { path: '/course/:id', component: () => import('../views/mobile/MobileCourseDetail.vue'), meta: { title: '课程' } },
   { path: '/course/:id/chapter/:chId', component: () => import('../views/mobile/MobileChapter.vue'), meta: { title: '章节' } },
   { path: '/exams', component: () => import('../views/mobile/MobileExams.vue'), meta: { title: '考试中心' } },
+  { path: '/exam/practice', component: () => import('../views/mobile/MobileExamPractice.vue'), meta: { title: '练习' } },
   { path: '/exam/:id', component: () => import('../views/mobile/MobileExamTake.vue'), meta: { title: '考试' } },
   { path: '/exam/mine', component: () => import('../views/mobile/MobileExamMine.vue'), meta: { title: '我的考试' } },
 

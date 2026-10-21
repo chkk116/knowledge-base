@@ -112,6 +112,13 @@
       <el-alert v-if="assembleNote" type="info" :closable="false" :title="assembleNote" style="margin-bottom:10px" />
       <div class="bar">
         <el-input v-model="qSearch" placeholder="筛选题干关键词" class="sf" />
+        <div class="score-set">
+          <span class="ss-lab">总分</span>
+          <el-input-number v-model="aTotal" :min="1" :max="2000" size="small" style="width:110px" />
+          <el-button size="small" plain @click="applyTotal">按总分分配</el-button>
+          <span class="ss-lab">及格</span>
+          <el-input-number v-model="aPass" :min="0" :max="2000" size="small" style="width:110px" />
+        </div>
       </div>
       <el-table v-stack-table :data="filteredQ" border max-height="420">
         <el-table-column width="50">
@@ -130,6 +137,21 @@
       <template #footer>
         <el-button @click="aDlg = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="doAssemble">保存组卷</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 按分类组卷：先定总分/及格分，保存时平均分配到各题 -->
+    <el-dialog v-model="catDlg" title="按分类组卷" width="420px">
+      <div class="cat-form">
+        <div class="cf-row"><span>分类</span><b>{{ qCat }}</b></div>
+        <div class="cf-row"><span>题数</span><b>{{ catCount }} 题</b></div>
+        <div class="cf-row"><span>总分</span><el-input-number v-model="catTotal" :min="1" :max="2000" /></div>
+        <div class="cf-row"><span>及格分</span><el-input-number v-model="catPass" :min="0" :max="2000" /></div>
+        <div class="cf-tip">总分按题数平均分配（余数补给前面的题），生成后可在试卷里继续调整。</div>
+      </div>
+      <template #footer>
+        <el-button @click="catDlg = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="confirmCatAssemble">生成试卷</el-button>
       </template>
     </el-dialog>
   </div>
@@ -286,6 +308,17 @@ const assembleNote = ref('勾选题目并设置分值，保存后自动计算总
 const qSearch = ref('')
 const pick = reactive({})
 const scores = reactive({})
+const aTotal = ref(100)   // 组卷目标总分（按勾选题平均分配）
+const aPass = ref(60)     // 及格分（保存时写回试卷）
+/** 把总分平均分到已勾选的题目上（余数补给前面的题），管理员不用逐题算分值 */
+function applyTotal() {
+  const ids = Object.keys(pick).filter((id) => pick[id])
+  if (!ids.length) { ElMessage.warning('先勾选题目'); return }
+  const total = Math.max(1, Number(aTotal.value) || 0)
+  const base = Math.floor(total / ids.length)
+  let rem = total % ids.length
+  ids.forEach((id) => { scores[id] = base + (rem > 0 ? 1 : 0); if (rem > 0) rem -= 1 })
+}
 const filteredQ = computed(() => questions.value.filter(q => !qSearch.value || (q.content || '').includes(qSearch.value)))
 const openAssemble = (row) => {
   selPaper.value = row
@@ -296,33 +329,63 @@ const openAssemble = (row) => {
 const doAssemble = () => {
   const items = Object.keys(pick).filter(id => pick[id]).map(id => ({ questionId: Number(id), score: scores[id] || 0 }))
   if (!items.length) { ElMessage.warning('请至少勾选一题'); return }
+  // 及格分不能高于总分（总分 = 各题分值之和）
+  const sum = items.reduce((s, it) => s + it.score, 0)
+  if (aPass.value > sum) { ElMessage.warning(`及格分（${aPass.value}）不能高于总分（${sum}）`); return }
   saving.value = true
   adminAssemble(selPaper.value.id, items)
+    .then(() => {
+      // 组卷后写回及格分（试卷表单里也能改，这里让组卷一步到位）
+      if (selPaper.value && selPaper.value.passScore !== aPass.value) {
+        const s = selPaper.value
+        return adminUpdatePaper(s.id, {
+          title: s.title, description: s.description, passScore: aPass.value,
+          durationMin: s.durationMin, status: s.status,
+        })
+      }
+      return null
+    })
     .then(() => { ElMessage.success('组卷成功'); aDlg.value = false; loadP() })
     .catch(e => ElMessage.error(errMsg(e, '组卷失败')))
     .finally(() => saving.value = false)
 }
 
 /** 把当前分类下的题一次性组成试卷：AI 批量出题后逐题勾选太累，这也是「生成了用不上」的根源 */
-const assembleByCategory = async () => {
+const catDlg = ref(false)
+const catCount = ref(0)
+const catTotal = ref(100)
+const catPass = ref(60)
+
+function assembleByCategory() {
   const list = questions.value.filter((q) => (q.category || '') === qCat.value)
   if (!list.length) { ElMessage.warning('该分类下没有题目'); return }
-  try {
-    await ElMessageBox.confirm(
-      `将用「${qCat.value}」下的 ${list.length} 道题新建一份试卷，每题默认 5 分、及格 60 分，生成后可直接在「在线考试」里考。`,
-      '按分类组卷', { type: 'info', confirmButtonText: '生成试卷', cancelButtonText: '取消' },
-    )
-  } catch { return }
+  catCount.value = list.length
+  catTotal.value = Math.max(100, list.length * 5)   // 默认每题 5 分，至少 100
+  catPass.value = Math.round(catTotal.value * 0.6)
+  catDlg.value = true
+}
+
+async function confirmCatAssemble() {
+  const list = questions.value.filter((q) => (q.category || '') === qCat.value)
+  if (!list.length) { ElMessage.warning('该分类下没有题目'); return }
+  if (catPass.value > catTotal.value) { ElMessage.warning('及格分不能高于总分'); return }
   saving.value = true
   try {
     const { data: paper } = await adminCreatePaper({
       title: qCat.value + ' 试卷',
       description: '由题库分类自动组卷',
-      passScore: 60,
+      passScore: catPass.value,
       durationMin: 60,
       status: 'PUBLISHED',
     })
-    const items = list.map((q) => ({ questionId: q.id, score: 5 }))
+    // 总分平均分到各题（余数补给前面的题）
+    const base = Math.floor(catTotal.value / list.length)
+    let rem = catTotal.value % list.length
+    const items = list.map((q) => {
+      const s = base + (rem > 0 ? 1 : 0)
+      if (rem > 0) rem -= 1
+      return { questionId: q.id, score: s }
+    })
     try {
       await adminAssemble(paper.id, items)
     } catch (e2) {
@@ -330,7 +393,8 @@ const assembleByCategory = async () => {
       await adminDeletePaper(paper.id).catch(() => {})
       throw e2
     }
-    ElMessage.success(`已生成试卷《${paper.title}》：${items.length} 题 / ${items.length * 5} 分`)
+    ElMessage.success(`已生成试卷《${paper.title}》：${items.length} 题 / ${catTotal.value} 分（及格 ${catPass.value}）`)
+    catDlg.value = false
     loadP()
     tab.value = 'papers'
   } catch (e) {
@@ -355,6 +419,12 @@ onMounted(() => { loadQ(); loadP() })
 <style scoped>
 .page { padding: 20px; max-width: 1000px; margin: 0 auto; }
 .bar { margin-bottom: 12px; display: flex; gap: 10px; }
+.score-set { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.ss-lab { font-size: 12.5px; color: #94a3b8; }
+.cat-form { display: flex; flex-direction: column; gap: 12px; }
+.cf-row { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; color: #475569; }
+.cf-row b { color: #0f172a; font-weight: 600; }
+.cf-tip { font-size: 12px; color: #94a3b8; line-height: 1.5; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
 .orow { display: flex; align-items: center; gap: 8px; }
 .orow .lab { width: 22px; font-weight: 700; }

@@ -69,6 +69,19 @@ export const myExams = () =>
 export const examRecord = (rid) =>
   api.get('/exams/records/' + rid)
 
+// ---- 练习模式（2026-10-21）：不落成绩、逐题判分 ----
+/** 按试卷取练习题（无需 start，不含答案） */
+export const practicePaperQuestions = (paperId) =>
+  api.get('/exams/' + paperId + '/practice')
+
+/** 题库随机抽题（可按分类，count 默认 10，后端上限 50） */
+export const practiceRandomQuestions = (category, count) =>
+  api.get('/exams/practice/random', { params: { category: category || undefined, count } })
+
+/** 逐题判分：返回 { correct, manual, correctAnswer:[{label,content}], analysis } */
+export const practiceCheck = (questionId, answer) =>
+  api.post('/exams/practice/check', { questionId, answer })
+
 // ===================== 考试（管理侧） =====================
 export const adminQuestions = (category) =>
   api.get('/admin/exams/questions', { params: category ? { category } : {} })

@@ -466,6 +466,95 @@ public class ExamService {
         return paperRepo.save(paper);
     }
 
+    // ===================== 练习模式（2026-10-21） =====================
+    // 与考试的区别：不创建考试记录、不限时、不落库成绩；逐题判分，答案在判分时才下发，
+    // 避免「一次性拿到整卷答案」（练习也需要防泄题的场景：同一份试卷还要考试用）。
+
+    /** 练习题目 DTO：不含正确答案（答案只在 practiceCheck 返回） */
+    private Map<String, Object> practiceQuestion(Question q) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", q.getId());
+        m.put("type", q.getType());
+        m.put("content", q.getContent());
+        m.put("category", q.getCategory());
+        List<Map<String, Object>> opts = new ArrayList<>();
+        for (QuestionOption o : optionRepo.findByQuestionIdOrderByLabelAsc(q.getId())) {
+            Map<String, Object> om = new LinkedHashMap<>();
+            om.put("id", o.getId());
+            om.put("label", o.getLabel());
+            om.put("content", o.getContent());
+            opts.add(om);
+        }
+        m.put("options", opts);
+        return m;
+    }
+
+    /** 练习：按试卷取题（无需 start，不落记录） */
+    public Map<String, Object> practicePaper(Long paperId) {
+        ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
+        if (!"PUBLISHED".equals(paper.getStatus()))
+            throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
+        List<ExamPaperQuestion> pqs = pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(paperId);
+        List<Long> ids = new ArrayList<>();
+        for (ExamPaperQuestion pq : pqs) ids.add(pq.getQuestionId());
+        Map<Long, Question> qMap = new LinkedHashMap<>();
+        for (Question q : questionRepo.findByIdIn(ids)) qMap.put(q.getId(), q);
+        List<Map<String, Object>> qs = new ArrayList<>();
+        for (ExamPaperQuestion pq : pqs) {
+            Question q = qMap.get(pq.getQuestionId());
+            if (q == null) continue;   // 组卷后题目被删，跳过而不是 500
+            qs.add(practiceQuestion(q));
+        }
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("paper", paper);
+        res.put("questions", qs);
+        return res;
+    }
+
+    /** 练习：题库随机抽题（可按分类），不落记录 */
+    public Map<String, Object> practiceRandom(String category, Integer count) {
+        int n = Math.min(Math.max(count == null ? 10 : count, 1), 50);
+        String cat = category == null ? "" : category.trim();
+        List<Question> pool = cat.isEmpty()
+                ? questionRepo.findAllByOrderByCreatedAtDesc()
+                : questionRepo.findByCategoryOrderByCreatedAtDesc(cat);
+        if (pool.isEmpty())
+            throw new ResponseStatusException(BAD_REQUEST, "题库里没有可用题目");
+        List<Question> shuffled = new ArrayList<>(pool);
+        Collections.shuffle(shuffled, new Random());
+        List<Map<String, Object>> qs = new ArrayList<>();
+        for (Question q : shuffled.subList(0, Math.min(n, shuffled.size()))) qs.add(practiceQuestion(q));
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("questions", qs);
+        res.put("total", qs.size());
+        return res;
+    }
+
+    /** 练习：单题判分，返回正确答案与解析（主观题不自动判分，只给参考答案） */
+    public Map<String, Object> practiceCheck(Long questionId, List<String> answer) {
+        Question q = questionRepo.findById(questionId).orElseThrow(() -> new IllegalArgumentException("题目不存在"));
+        List<QuestionOption> opts = optionRepo.findByQuestionIdOrderByLabelAsc(questionId);
+        List<String> correct = new ArrayList<>();
+        List<Map<String, Object>> correctList = new ArrayList<>();
+        for (QuestionOption o : opts) {
+            if (!o.isCorrect()) continue;
+            correct.add(o.getLabel());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("label", o.getLabel());
+            m.put("content", o.getContent());
+            correctList.add(m);
+        }
+        boolean manual = "FILL".equals(q.getType()) || "ESSAY".equals(q.getType());
+        boolean ok = !manual && judge(q.getType(), answer == null ? List.of() : answer, correct);
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("correct", ok);
+        res.put("manual", manual);
+        res.put("type", q.getType());
+        res.put("correctAnswer", correctList);
+        res.put("analysis", q.getAnalysis());
+        return res;
+    }
+
     // ===================== 内部 =====================
 
     private boolean judge(String type, List<String> userAns, List<String> correct) {
