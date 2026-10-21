@@ -68,6 +68,12 @@ public class ExamController {
         return svc.practiceRandom(category, count);
     }
 
+    /** 学员端：当前配置的固定模拟卷（未配置返回 paperId=null） */
+    @GetMapping("/mock")
+    public Map<String, Object> mock() {
+        return svc.mockPaper();
+    }
+
     /** 练习：逐题判分，返回正确答案与解析 */
     @PostMapping("/practice/check")
     public Map<String, Object> practiceCheck(@RequestBody PracticeCheckReq req) {

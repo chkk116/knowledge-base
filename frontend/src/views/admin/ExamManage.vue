@@ -34,6 +34,16 @@
 
       <!-- ============ 试卷 ============ -->
       <el-tab-pane label="试卷" name="papers">
+        <!-- 固定模拟卷：全站统一一份，学员「模拟练习」直接进这份卷 -->
+        <div class="mock-bar">
+          <span class="mock-lab">模拟卷</span>
+          <el-select v-model="mockPaperId" placeholder="未配置（学员默认随机抽题）" clearable style="width:280px" size="small">
+            <el-option v-for="p in papers" :key="p.id" :value="p.id" :label="p.title + '（' + (p.questionCount||0) + ' 题）'"
+                       :disabled="p.status !== 'PUBLISHED'" />
+          </el-select>
+          <el-button size="small" type="primary" :loading="mockSaving" @click="saveMock">保存</el-button>
+          <span class="mock-hint">配置后学员端「模拟练习」固定使用这份卷；清空保存即取消</span>
+        </div>
         <div class="bar">
           <el-button type="primary" @click="openPaper()">新建试卷</el-button>
           <span class="count-hint">共 {{ papers.length }} 份</span>
@@ -175,7 +185,7 @@ import { errMsg } from '../../utils/errMsg'
 import {
   adminQuestions, adminCreateQuestion, adminUpdateQuestion, adminDeleteQuestion, adminGetQuestion,
   adminPapers, adminCreatePaper, adminUpdatePaper, adminDeletePaper, adminAssemble,
-  adminBatchDeleteQuestions, adminBatchDeletePapers
+  adminBatchDeleteQuestions, adminBatchDeletePapers, adminGetMockPaper, adminSetMockPaper
 } from '../../api/training'
 
 const tab = ref('bank')
@@ -298,6 +308,21 @@ const savePaper = () => {
 }
 const delPaper = (row) => ElMessageBox.confirm('删除试卷会同时删除相关考试记录，确定？', '提示', { type: 'warning' })
   .then(() => adminDeletePaper(row.id)).then(() => { ElMessage.success('已删除'); loadP() }).catch(() => {})
+
+// 固定模拟卷（2026-10-21）
+const mockPaperId = ref(null)
+const mockSaving = ref(false)
+const loadMock = () => adminGetMockPaper().then(r => { mockPaperId.value = (r.data || r)?.paperId ?? null }).catch(() => {})
+const saveMock = () => {
+  mockSaving.value = true
+  adminSetMockPaper(mockPaperId.value || 0)
+    .then((r) => {
+      mockPaperId.value = (r.data || r)?.paperId ?? null
+      ElMessage.success(mockPaperId.value ? '模拟卷已设置' : '已取消模拟卷配置')
+    })
+    .catch(e => ElMessage.error(errMsg(e, '保存失败')))
+    .finally(() => { mockSaving.value = false })
+}
 
 /** 批量删除试卷：考试记录会一并删除，提示要比单条更醒目 */
 const delPapersBatch = () => ElMessageBox.confirm(
@@ -424,7 +449,7 @@ const loadQ = () => {
 }
 const loadP = () => { loadingP.value = true; adminPapers().then(r => { papers.value = r.data || r || [] }).catch(() => {}).finally(() => loadingP.value = false) }
 
-onMounted(() => { loadQ(); loadP() })
+onMounted(() => { loadQ(); loadP(); loadMock() })
 </script>
 
 <style scoped>
@@ -436,6 +461,10 @@ onMounted(() => { loadQ(); loadP() })
 .cf-row { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; color: #475569; }
 .cf-row b { color: #0f172a; font-weight: 600; }
 .cf-tip { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+.mock-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 12px;
+  background: #f8fafc; border: 1px solid #eef2f7; border-radius: 10px; }
+.mock-lab { font-size: 13px; color: #475569; }
+.mock-hint { font-size: 12px; color: #94a3b8; }
 .form-hint { margin-left: 10px; font-size: 12px; color: #94a3b8; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
 .orow { display: flex; align-items: center; gap: 8px; }

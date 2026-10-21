@@ -9,6 +9,15 @@
       <el-button text type="primary" @click="goMine">我的成绩</el-button>
     </div>
 
+    <!-- 管理员指定的固定模拟卷 -->
+    <div v-if="mock.paperId" class="mock">
+      <div class="mock-info">
+        <b>模拟练习卷：{{ mock.title }}</b>
+        <span>{{ mock.questionCount }} 题 · 答一题看一题解析，不计成绩</span>
+      </div>
+      <el-button type="primary" plain @click="goMock">开始模拟</el-button>
+    </div>
+
     <div v-if="loading" class="tip">加载中…</div>
     <div v-else-if="!papers.length" class="empty">暂无可用试卷。</div>
 
@@ -37,7 +46,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { listPapers } from '../api/training'
+import { listPapers, getMockPaper } from '../api/training'
 import { useAuthStore } from '../store/auth'
 
 const router = useRouter()
@@ -45,11 +54,17 @@ const auth = useAuthStore()
 const loggedIn = computed(() => auth.loggedIn)
 const papers = ref([])
 const loading = ref(false)
+const mock = ref({ paperId: null, title: '', questionCount: 0 })
 
-onMounted(() => { loading.value = true; listPapers().then(r => { papers.value = r.data || r || [] }).catch(() => { papers.value = [] }).finally(() => loading.value = false) })
+onMounted(() => {
+  loading.value = true
+  listPapers().then(r => { papers.value = r.data || r || [] }).catch(() => { papers.value = [] }).finally(() => loading.value = false)
+  getMockPaper().then(r => { mock.value = r.data || r || mock.value }).catch(() => {})
+})
 
 const start = (p) => router.push('/exams/' + p.id + '/take')
 const practice = (p) => router.push({ path: '/exams/practice', query: { paperId: p.id } })
+const goMock = () => router.push({ path: '/exams/practice', query: { paperId: mock.value.paperId } })
 const goMine = () => router.push('/exams/mine')
 </script>
 
@@ -66,6 +81,11 @@ const goMine = () => router.push('/exams/mine')
 .desc { color: #64748b; font-size: 13px; line-height: 1.6; min-height: 38px; margin: 10px 0; }
 .stats { display: flex; flex-wrap: wrap; gap: 12px; color: #94a3b8; font-size: 12px; margin-bottom: 14px; }
 .acts { display: flex; gap: 10px; }
+.mock { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; margin: 0 0 16px;
+  background: #eef2ff; border: 1px solid #dbe3ff; border-radius: 14px; }
+.mock-info { display: flex; flex-direction: column; gap: 4px; }
+.mock-info b { font-size: 15px; color: #312e81; }
+.mock-info span { font-size: 12px; color: #6366f1; }
 :deep(html.dark) .card { background: #1b1b2e; border-color: #2c2c44; }
 
 /* ===================== 响应式布局（追加在末尾） ===================== */

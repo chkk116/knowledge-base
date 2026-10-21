@@ -41,6 +41,29 @@ public class AdminExamController {
         }
     }
 
+    // ---------- 固定模拟卷 ----------
+    /** 当前模拟卷配置（未配置 paperId 为 null） */
+    @GetMapping("/mock")
+    public Map<String, Object> getMock(@RequestAttribute("kbUser") TokenClaims c) {
+        requirePerm(c, "EXAM_MANAGE");
+        return svc.mockPaper();
+    }
+
+    /** 指定全站模拟卷；paperId 传 0 或 null 表示取消 */
+    @PostMapping("/mock")
+    public Map<String, Object> setMock(@RequestAttribute("kbUser") TokenClaims c,
+                                       @RequestBody Map<String, Object> body) {
+        requirePerm(c, "EXAM_MANAGE");
+        Object raw = body.get("paperId");
+        Long paperId = null;
+        if (raw instanceof Number n) paperId = n.longValue();
+        else if (raw != null && !String.valueOf(raw).isBlank()) {
+            try { paperId = Long.valueOf(String.valueOf(raw).trim()); }
+            catch (NumberFormatException e) { throw new ResponseStatusException(BAD_REQUEST, "paperId 不合法"); }
+        }
+        return svc.setMockPaper(paperId);
+    }
+
     // ---------- 题库 ----------
     @GetMapping("/questions")
     public List<Question> questions(@RequestAttribute("kbUser") TokenClaims c,

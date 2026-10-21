@@ -34,6 +34,7 @@ public class ExamService {
     private final LearningProgressRepository progressRepo;
     private final CourseService courseService;
     private final NotificationService notificationService;
+    private final SysSettingRepository settingRepo;
 
     public ExamService(QuestionRepository questionRepo, QuestionOptionRepository optionRepo,
                        ExamPaperRepository paperRepo, ExamPaperQuestionRepository pqRepo,
@@ -41,6 +42,7 @@ public class ExamService {
                        AuthService authService, CourseRepository courseRepo,
                        CourseChapterRepository chapterRepo, LearningProgressRepository progressRepo,
                        CourseService courseService, NotificationService notificationService,
+                       SysSettingRepository settingRepo,
                        org.springframework.transaction.support.TransactionTemplate txTemplate) {
         this.questionRepo = questionRepo;
         this.optionRepo = optionRepo;
@@ -53,6 +55,7 @@ public class ExamService {
         this.chapterRepo = chapterRepo;
         this.progressRepo = progressRepo;
         this.courseService = courseService;
+        this.settingRepo = settingRepo;
         this.notificationService = notificationService;
         this.txTemplate = txTemplate;
     }
@@ -556,6 +559,42 @@ public class ExamService {
         res.put("correctAnswer", correctList);
         res.put("analysis", q.getAnalysis());
         return res;
+    }
+
+    // ===================== 固定模拟卷（2026-10-21） =====================
+    // 管理员在「考试管理」里指定一份已发布试卷作为全站统一的模拟卷；
+    // 学员端「模拟练习」直接进这份卷（答一题判一题），没配时才退回随机抽题。
+    private static final String MOCK_KEY = "exam_mock_paper";
+
+    private Long configuredMockId() {
+        return settingRepo.findByKey(MOCK_KEY).map((s) -> {
+            try { return Long.valueOf(s.getValue().trim()); } catch (Exception e) { return null; }
+        }).orElse(null);
+    }
+
+    /** 当前模拟卷（未配置或试卷已删 → paperId 为 null） */
+    public Map<String, Object> mockPaper() {
+        Map<String, Object> res = new LinkedHashMap<>();
+        Long id = configuredMockId();
+        ExamPaper p = id == null ? null : paperRepo.findById(id).orElse(null);
+        res.put("paperId", p == null ? null : p.getId());
+        res.put("title", p == null ? null : p.getTitle());
+        res.put("questionCount", p == null ? 0 : (int) pqRepo.countByPaperId(p.getId()));
+        return res;
+    }
+
+    /** 设置固定模拟卷；paperId 为空/≤0 表示取消配置 */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> setMockPaper(Long paperId) {
+        if (paperId == null || paperId <= 0) {
+            settingRepo.findByKey(MOCK_KEY).ifPresent(settingRepo::delete);
+        } else {
+            ExamPaper p = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
+            if (!"PUBLISHED".equals(p.getStatus()))
+                throw new IllegalArgumentException("只能把「已发布」的试卷设为模拟卷");
+            settingRepo.save(new SysSetting(MOCK_KEY, String.valueOf(paperId)));
+        }
+        return mockPaper();
     }
 
     // ===================== 内部 =====================

@@ -5,7 +5,7 @@
  */
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { listPapers } from '../../api/training'
+import { listPapers, getMockPaper } from '../../api/training'
 
 const router = useRouter()
 const loading = ref(true)
@@ -23,12 +23,24 @@ function startSim() {
   router.push({ path: '/exam/practice', query: q })
 }
 
+// 固定模拟卷（管理员在考试管理里指定）：配置了就直接进这份卷，没配才走随机抽题
+const mock = ref({ paperId: null, title: '', questionCount: 0 })
+
+function enterSim() {
+  if (mock.value.paperId) {
+    router.push({ path: '/exam/practice', query: { paperId: mock.value.paperId } })
+  } else {
+    simOpen.value = true
+  }
+}
+
 async function load() {
   loading.value = true
   try {
     const r = await listPapers().then((x) => (Array.isArray(x.data) ? x.data : [])).catch(() => [])
     papers.value = r
   } finally { loading.value = false }
+  getMockPaper().then((x) => { mock.value = x.data || x || { paperId: null, title: '', questionCount: 0 } }).catch(() => {})
 }
 // 答题模式选择（2026-10-21）：考试 = 计时计分；练习 = 逐题判分看解析（管理员可按试卷关闭）
 const modeOpen = ref(false)
@@ -59,11 +71,12 @@ onMounted(load)
     </div>
     <div class="body">
       <!-- 模拟练习入口：不落成绩、答一题判一题 -->
-      <button class="sim-card" type="button" @click="simOpen = true">
+      <button class="sim-card" type="button" @click="enterSim">
         <span class="sim-ico"><el-icon :size="20"><Lightning /></el-icon></span>
         <span class="sim-body">
-          <b>模拟练习</b>
-          <span>从题库随机抽题，答一题看一题解析，不计入成绩</span>
+          <b>{{ mock.paperId ? '模拟练习 · ' + mock.title : '模拟练习' }}</b>
+          <span v-if="mock.paperId">{{ mock.questionCount }} 题 · 答一题看一题解析，不计入成绩</span>
+          <span v-else>从题库随机抽题，答一题看一题解析，不计入成绩</span>
         </span>
         <el-icon class="m-row-extra"><Right /></el-icon>
       </button>
