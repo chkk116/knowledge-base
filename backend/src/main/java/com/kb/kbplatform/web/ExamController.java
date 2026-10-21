@@ -74,11 +74,18 @@ public class ExamController {
         return svc.mockPaper();
     }
 
+    /** 练习：开启会话（返回 sessionId + 题目；判分必须带 sessionId） */
+    @PostMapping("/practice/session")
+    public Map<String, Object> practiceSession(@RequestAttribute("kbUser") TokenClaims c,
+                                               @RequestBody PracticeSessionReq req) {
+        return svc.startPractice(resolveOwner(c), req.paperId, req.category, req.count);
+    }
+
     /** 练习：逐题判分，返回正确答案与解析；顺带写练习流水（错题本用） */
     @PostMapping("/practice/check")
     public Map<String, Object> practiceCheck(@RequestAttribute("kbUser") TokenClaims c,
                                              @RequestBody PracticeCheckReq req) {
-        return svc.practiceCheck(resolveOwner(c), req.questionId, req.answer);
+        return svc.practiceCheck(resolveOwner(c), req.sessionId, req.questionId, req.answer);
     }
 
     /** 练习统计：累计答题 / 正确率 / 待复习错题数 */
@@ -100,8 +107,15 @@ public class ExamController {
     }
 
     public static class PracticeCheckReq {
+        public String sessionId;
         public Long questionId;
         public List<String> answer;
+    }
+
+    public static class PracticeSessionReq {
+        public Long paperId;
+        public String category;
+        public Integer count;
     }
 
     /** 登录：我的成绩 */

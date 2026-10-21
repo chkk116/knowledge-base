@@ -283,8 +283,16 @@ public class AiQuestionService {
                     warnings.add("丢弃一道没有正确答案的" + typeName(type) + "：" + brief(content));
                     continue;
                 }
-                if ("MULTI".equals(type) && correct < 2)
-                    warnings.add("有一道多选题只有 1 个正确答案，建议人工改成单选：" + brief(content));
+                // 单选/判断必须且只能 1 个正确项；多选至少 2 个（审查 r11 High：
+                // 原来只拦 0 个，单选出现 2 个正确项也会入库，判分取任一即算对，成绩失真）
+                if (("SINGLE".equals(type) || "JUDGE".equals(type)) && correct != 1) {
+                    warnings.add("丢弃一道有 " + correct + " 个正确答案的" + typeName(type) + "：" + brief(content));
+                    continue;
+                }
+                if ("MULTI".equals(type) && correct < 2) {
+                    warnings.add("丢弃一道只有 1 个正确答案的多选题（应为单选）：" + brief(content));
+                    continue;
+                }
             } else {
                 opts = List.of();
             }

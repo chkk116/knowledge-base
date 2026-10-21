@@ -104,6 +104,7 @@ public class AdminExamController {
 
     /** 删除题目（批量）：逐条复用 adminDeleteQuestion，级联清理组卷关联与试卷总分不变 */
     @PostMapping("/questions/batch-delete")
+    @Transactional(rollbackFor = Exception.class)   // 审查 r11：批量必须整体原子，不能删一半
     public Map<String, Object> deleteQuestions(@RequestAttribute("kbUser") TokenClaims c, @RequestBody IdsReq req) {
         requirePerm(c, "EXAM_MANAGE");
         List<Long> ids = req.ids == null ? List.of() : req.ids.stream().distinct().toList();
@@ -141,7 +142,9 @@ public class AdminExamController {
         if (reqs.size() > 50) throw new ResponseStatusException(BAD_REQUEST, "一次最多保存 50 道题");
         List<Question> saved = new ArrayList<>();
         for (QuestionReq req : reqs) {
-            if (req == null || req.question == null) continue;
+            // 契约是「任一条不合法整批回滚」，不能静默跳过（审查 r9/r11）
+            if (req == null || req.question == null)
+                throw new ResponseStatusException(BAD_REQUEST, "第 " + (saved.size() + 1) + " 条数据为空，已整批取消保存");
             req.question.setId(null);
             saved.add(svc.adminSaveQuestion(req.question, req.options));
         }
@@ -185,6 +188,7 @@ public class AdminExamController {
 
     /** 删除试卷（批量）：连带清理组卷关联与作答记录 */
     @PostMapping("/papers/batch-delete")
+    @Transactional(rollbackFor = Exception.class)   // 审查 r11：批量整体原子
     public Map<String, Object> deletePapers(@RequestAttribute("kbUser") TokenClaims c, @RequestBody IdsReq req) {
         requirePerm(c, "EXAM_MANAGE");
         List<Long> ids = req.ids == null ? List.of() : req.ids.stream().distinct().toList();

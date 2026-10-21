@@ -78,9 +78,13 @@ export const practicePaperQuestions = (paperId) =>
 export const practiceRandomQuestions = (category, count) =>
   api.get('/exams/practice/random', { params: { category: category || undefined, count } })
 
+/** 开启练习会话：返回 { sessionId, paper, questions }；判分必须带 sessionId（防答案查询） */
+export const startPractice = (params) =>
+  api.post('/exams/practice/session', params || {})
+
 /** 逐题判分：返回 { correct, manual, correctAnswer:[{label,content}], analysis } */
-export const practiceCheck = (questionId, answer) =>
-  api.post('/exams/practice/check', { questionId, answer })
+export const practiceCheck = (sessionId, questionId, answer) =>
+  api.post('/exams/practice/check', { sessionId, questionId, answer })
 
 /** 练习统计：{ total, correct, rate, wrong } */
 export const practiceStats = () =>

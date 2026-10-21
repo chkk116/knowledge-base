@@ -58,6 +58,8 @@ public class OcrService {
     private final boolean enabled;
     private final AiModelRepository modelRepo;
     private final AiKeyCipher cipher;
+    /** baseUrl|apiKey → RestClient：避免每次识别都新建连接池与 selector 线程（审查 r11 High） */
+    private final Map<String, RestClient> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public OcrService(@Value("${kb.ai.enabled:false}") boolean enabled,
                       AiModelRepository modelRepo,
@@ -144,18 +146,9 @@ public class OcrService {
                     ? "OCR 未启用：请在「AI 模型管理」勾选「用于图片 OCR」并填好模型名与 API Key（或配置智谱 ZHIPU 条目 / 把多模态模型设为默认）"
                     : "OCR 未启用：kb.ai.enabled=false，请先在配置中开启 AI 功能");
         }
-        // 与 AI 模型调用同理：不给超时，模型端 hang 住会把请求线程一直占着
-        JdkClientHttpRequestFactory rf = new JdkClientHttpRequestFactory(
-                java.net.http.HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofSeconds(10))
-                        .build());
-        rf.setReadTimeout(Duration.ofSeconds(120));
-        RestClient client = RestClient.builder()
-                .baseUrl(conf.baseUrl())
-                .requestFactory(rf)
-                .defaultHeader("Authorization", "Bearer " + conf.apiKey())
-                .defaultHeader("Content-Type", "application/json")
-                .build();
+        // 客户端复用（审查 r11 High）：原来每次识别都新建 HttpClient + RestClient，
+        // 每次带独立连接池与 selector 线程，高并发下线程/FD 会堆积
+        RestClient client = clientFor(conf);
         String mime = contentType.toLowerCase().contains("jpg") ? "image/jpeg" : contentType.toLowerCase();
         String dataUrl = "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(imageBytes);
 
@@ -192,6 +185,15 @@ public class OcrService {
                     continue;
                 }
                 return cleaned;
+            } catch (org.springframework.web.client.RestClientResponseException e) {
+                // retrieve() 对 4xx/5xx 直接抛异常，把响应体丢掉会让排障只剩「服务不可用」
+                String body = e.getResponseBodyAsString();
+                if (body != null && body.length() > 300) body = body.substring(0, 300);
+                log.warn("OCR 模型 {} 返回 {}：{}", model, e.getStatusCode().value(), body);
+                int sc = e.getStatusCode().value();
+                lastErr = sc == 429 ? "识别服务繁忙（限流），请稍后重试"
+                        : (sc == 401 || sc == 403 ? "识别服务鉴权失败，请检查 API Key"
+                        : "识别服务暂时不可用（HTTP " + sc + "）");
             } catch (OcrModelException e) {
                 // 模型侧拥挤/不可用：记下原因，降级到链上下一个
                 log.info("OCR 模型 {} 不可用: {}", model, e.getMessage());
@@ -202,6 +204,25 @@ public class OcrService {
             }
         }
         throw new IllegalStateException(lastErr);
+    }
+
+    /** 按「端点 + Key」缓存 RestClient；配置换了才会新建（Key 轮换时旧实例自然被淘汰） */
+    private RestClient clientFor(VisionConfig conf) {
+        String cacheKey = conf.baseUrl() + "|" + conf.apiKey();
+        if (clientCache.size() > 8) clientCache.clear();   // 极端情况防止无限增长
+        return clientCache.computeIfAbsent(cacheKey, (k) -> {
+            JdkClientHttpRequestFactory rf = new JdkClientHttpRequestFactory(
+                    java.net.http.HttpClient.newBuilder()
+                            .connectTimeout(Duration.ofSeconds(10))
+                            .build());
+            rf.setReadTimeout(Duration.ofSeconds(120));
+            return RestClient.builder()
+                    .baseUrl(conf.baseUrl())
+                    .requestFactory(rf)
+                    .defaultHeader("Authorization", "Bearer " + conf.apiKey())
+                    .defaultHeader("Content-Type", "application/json")
+                    .build();
+        });
     }
 
     /** 识别文本 → 简单段落 HTML（<p>每行一段</p>），交给 HtmlSanitizer 净化后可直接作为 Tiptap 文档内容 */

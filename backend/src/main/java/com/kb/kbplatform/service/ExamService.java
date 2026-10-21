@@ -7,6 +7,7 @@ package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.*;
 import com.kb.kbplatform.repository.*;
+import com.kb.kbplatform.security.HtmlSanitizer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -14,10 +15,12 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
+import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 
 @Service
 public class ExamService {
@@ -101,14 +104,14 @@ public class ExamService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", q.getId());
             m.put("type", q.getType());
-            m.put("content", q.getContent());
+            m.put("content", HtmlSanitizer.sanitize(q.getContent()));
             m.put("score", pqMap.get(q.getId()).getScore());
             List<Map<String, Object>> opts = new ArrayList<>();
             for (QuestionOption o : optionRepo.findByQuestionIdOrderByLabelAsc(q.getId())) {
                 Map<String, Object> om = new LinkedHashMap<>();
                 om.put("id", o.getId());
                 om.put("label", o.getLabel());
-                om.put("content", o.getContent());
+                om.put("content", HtmlSanitizer.sanitize(o.getContent()));
                 opts.add(om);
             }
             m.put("options", opts);
@@ -307,18 +310,18 @@ public class ExamService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("questionId", q.getId());
             m.put("type", q.getType());
-            m.put("content", q.getContent());
+            m.put("content", HtmlSanitizer.sanitize(q.getContent()));
             m.put("userAnswer", ea.getAnswer());
             if (reveal) {
                 m.put("correct", ea.isCorrect());
                 m.put("score", ea.getScore());
-                m.put("analysis", q.getAnalysis());
+                m.put("analysis", HtmlSanitizer.sanitize(q.getAnalysis()));
             }
             List<Map<String, Object>> opts = new ArrayList<>();
             for (QuestionOption o : optMap.get(q.getId())) {
                 Map<String, Object> om = new LinkedHashMap<>();
                 om.put("label", o.getLabel());
-                om.put("content", o.getContent());
+                om.put("content", HtmlSanitizer.sanitize(o.getContent()));
                 if (reveal) om.put("isCorrect", o.isCorrect());
                 opts.add(om);
             }
@@ -481,18 +484,110 @@ public class ExamService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", q.getId());
         m.put("type", q.getType());
-        m.put("content", q.getContent());
+        m.put("content", HtmlSanitizer.sanitize(q.getContent()));
         m.put("category", q.getCategory());
         List<Map<String, Object>> opts = new ArrayList<>();
         for (QuestionOption o : optionRepo.findByQuestionIdOrderByLabelAsc(q.getId())) {
             Map<String, Object> om = new LinkedHashMap<>();
             om.put("id", o.getId());
             om.put("label", o.getLabel());
-            om.put("content", o.getContent());
+            om.put("content", HtmlSanitizer.sanitize(o.getContent()));
             opts.add(om);
         }
         m.put("options", opts);
         return m;
+    }
+
+    // ---- 练习会话（2026-10-21 加固）：防止练习判分接口被当成「答案查询器」 ----
+    private static final class PracticeSession {
+        final Long userId;
+        final Set<Long> qids;
+        final long expireAt;
+        PracticeSession(Long userId, Set<Long> qids, long expireAt) {
+            this.userId = userId; this.qids = qids; this.expireAt = expireAt;
+        }
+    }
+    private static final Map<String, PracticeSession> SESSIONS = new ConcurrentHashMap<>();
+    private static final Map<Long, long[]> CHECK_RATE = new ConcurrentHashMap<>();
+    private static final long SESSION_TTL_MS = 2 * 60 * 60 * 1000L;
+
+    /** 用户「进行中考试」涉及的所有题目：这些题在交卷前不允许通过练习接口取答案 */
+    private Set<Long> runningExamQuestions(Long userId) {
+        Set<Long> qids = new HashSet<>();
+        for (ExamRecord r : recordRepo.findByUserIdOrderByStartedAtDesc(userId)) {
+            if (r.getSubmittedAt() != null || expired(r)) continue;
+            for (ExamPaperQuestion pq : pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(r.getPaperId()))
+                qids.add(pq.getQuestionId());
+        }
+        return qids;
+    }
+
+    /** 判分限流：每用户每分钟最多 120 次（同时防止刷流水写爆 kb_practice_log） */
+    private void checkPracticeRate(Long userId) {
+        long now = System.currentTimeMillis();
+        long[] st = CHECK_RATE.computeIfAbsent(userId, (k) -> new long[]{now, 0});
+        synchronized (st) {
+            if (now - st[0] > 60_000L) { st[0] = now; st[1] = 0; }
+            if (++st[1] > 120)
+                throw new ResponseStatusException(TOO_MANY_REQUESTS, "练习判分太频繁，请稍后再试");
+        }
+    }
+
+    /**
+     * 开启练习会话：返回 sessionId + 题目（不含答案）。
+     * 判分时必须带上 sessionId，且题目必须在本次会话内——否则练习接口就是「按 id 查答案」。
+     */
+    public Map<String, Object> startPractice(Long userId, Long paperId, String category, Integer count) {
+        Set<Long> running = runningExamQuestions(userId);
+        List<Map<String, Object>> qs = new ArrayList<>();
+        ExamPaper paper = null;
+
+        if (paperId != null) {
+            paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
+            if (!"PUBLISHED".equals(paper.getStatus()))
+                throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
+            if (Boolean.FALSE.equals(paper.getPracticeEnabled()))
+                throw new ResponseStatusException(FORBIDDEN, "该试卷未开启模拟练习");
+            boolean inExam = recordRepo.findByUserIdOrderByStartedAtDesc(userId).stream()
+                    .anyMatch((r) -> r.getSubmittedAt() == null && !expired(r) && paperId.equals(r.getPaperId()));
+            if (inExam) throw new ResponseStatusException(FORBIDDEN, "该试卷正在考试中，交卷后再练习");
+            List<ExamPaperQuestion> pqs = pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(paperId);
+            List<Long> ids = new ArrayList<>();
+            for (ExamPaperQuestion pq : pqs) ids.add(pq.getQuestionId());
+            Map<Long, Question> qMap = new LinkedHashMap<>();
+            for (Question q : questionRepo.findByIdIn(ids)) qMap.put(q.getId(), q);
+            for (ExamPaperQuestion pq : pqs) {
+                Question q = qMap.get(pq.getQuestionId());
+                if (q != null) qs.add(practiceQuestion(q));
+            }
+        } else {
+            int n = Math.min(Math.max(count == null ? 10 : count, 1), 50);
+            String cat = category == null ? "" : category.trim();
+            List<Question> pool = cat.isEmpty()
+                    ? questionRepo.findAllByOrderByCreatedAtDesc()
+                    : questionRepo.findByCategoryOrderByCreatedAtDesc(cat);
+            if (pool.isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "题库里没有可用题目");
+            // 跳过正在考的题：随机练习也不能把考试答案喂出来
+            List<Question> usable = new ArrayList<>();
+            for (Question q : pool) if (!running.contains(q.getId())) usable.add(q);
+            if (usable.isEmpty())
+                throw new ResponseStatusException(FORBIDDEN, "题库中的题目正在考试中使用，请交卷后再练习");
+            Collections.shuffle(usable, new Random());
+            for (Question q : usable.subList(0, Math.min(n, usable.size()))) qs.add(practiceQuestion(q));
+        }
+
+        long now = System.currentTimeMillis();
+        SESSIONS.entrySet().removeIf((e) -> e.getValue().expireAt < now);
+        Set<Long> qids = new HashSet<>();
+        for (Map<String, Object> m : qs) qids.add(((Number) m.get("id")).longValue());
+        String sid = UUID.randomUUID().toString().replace("-", "");
+        SESSIONS.put(sid, new PracticeSession(userId, qids, now + SESSION_TTL_MS));
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("sessionId", sid);
+        res.put("paper", paper);
+        res.put("questions", qs);
+        return res;
     }
 
     /** 练习：按试卷取题（无需 start，不落记录） */
@@ -541,7 +636,24 @@ public class ExamService {
 
     /** 练习：单题判分，返回正确答案与解析（主观题不自动判分，只给参考答案）
      *  userId 非空时落一条练习流水，用于错题本与正确率统计（2026-10-21）。 */
-    public Map<String, Object> practiceCheck(Long userId, Long questionId, List<String> answer) {
+    public Map<String, Object> practiceCheck(Long userId, String sessionId, Long questionId, List<String> answer) {
+        checkPracticeRate(userId);
+        // 会话校验（审查 r11 High）：没有会话就只能按「非考试题」兜底，
+        // 否则任意 questionId 都能换出答案，考试防泄题形同虚设
+        if (sessionId != null && !sessionId.isBlank()) {
+            PracticeSession s = SESSIONS.get(sessionId);
+            if (s == null) throw new ResponseStatusException(BAD_REQUEST, "练习会话已失效，请重新开始练习");
+            if (s.expireAt < System.currentTimeMillis()) {
+                SESSIONS.remove(sessionId);
+                throw new ResponseStatusException(BAD_REQUEST, "练习会话已过期，请重新开始练习");
+            }
+            if (!s.userId.equals(userId))
+                throw new ResponseStatusException(FORBIDDEN, "无权使用该练习会话");
+            if (!s.qids.contains(questionId))
+                throw new ResponseStatusException(BAD_REQUEST, "该题不在本次练习范围内");
+        } else if (runningExamQuestions(userId).contains(questionId)) {
+            throw new ResponseStatusException(FORBIDDEN, "考试进行中，暂不能查看该题答案");
+        }
         Question q = questionRepo.findById(questionId).orElseThrow(() -> new IllegalArgumentException("题目不存在"));
         List<QuestionOption> opts = optionRepo.findByQuestionIdOrderByLabelAsc(questionId);
         List<String> correct = new ArrayList<>();
@@ -551,7 +663,7 @@ public class ExamService {
             correct.add(o.getLabel());
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("label", o.getLabel());
-            m.put("content", o.getContent());
+            m.put("content", HtmlSanitizer.sanitize(o.getContent()));
             correctList.add(m);
         }
         List<String> ans = answer == null ? List.of() : answer;
@@ -563,7 +675,7 @@ public class ExamService {
         res.put("manual", manual);
         res.put("type", q.getType());
         res.put("correctAnswer", correctList);
-        res.put("analysis", q.getAnalysis());
+        res.put("analysis", HtmlSanitizer.sanitize(q.getAnalysis()));
         return res;
     }
 
@@ -591,8 +703,20 @@ public class ExamService {
         res.put("total", total);
         res.put("correct", correct);
         res.put("rate", total > 0 ? Math.round(correct * 100.0 / total) : 0);
-        res.put("wrong", wrongQuestions(userId).size());
+        res.put("wrong", wrongCount(userId));
         return res;
+    }
+
+    /** 只数「最近一次判错」的题，不组装题干/选项（审查 r11 Medium：统计接口原来把整份错题都查出来） */
+    private int wrongCount(Long userId) {
+        Set<Long> handled = new HashSet<>();
+        int n = 0;
+        for (PracticeLog l : practiceLogRepo.findTop300ByUserIdOrderByIdDesc(userId)) {
+            if (!handled.add(l.getQuestionId())) continue;
+            if (!l.isCorrect()) n++;
+            if (n >= 100) break;
+        }
+        return n;
     }
 
     /**
@@ -624,11 +748,11 @@ public class ExamService {
                 if (!o.isCorrect()) continue;
                 Map<String, Object> c = new LinkedHashMap<>();
                 c.put("label", o.getLabel());
-                c.put("content", o.getContent());
+                c.put("content", HtmlSanitizer.sanitize(o.getContent()));
                 correctList.add(c);
             }
             m.put("correctAnswer", correctList);
-            m.put("analysis", q.getAnalysis());
+            m.put("analysis", HtmlSanitizer.sanitize(q.getAnalysis()));
             m.put("lastAnswer", lastAnswer.get(qid));
             out.add(m);
         }

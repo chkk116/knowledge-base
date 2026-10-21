@@ -10,7 +10,7 @@
  *   s.pick(label) / s.submit() / s.next() / s.prev() / s.jump(i) / s.restart()
  */
 import { computed, reactive, ref } from 'vue'
-import { practicePaperQuestions, practiceRandomQuestions, practiceCheck } from '../api/training'
+import { startPractice, practiceCheck } from '../api/training'
 
 const TYPE_CN = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }
 
@@ -21,6 +21,8 @@ export function usePracticeSession() {
   const questions = ref([])
   const idx = ref(0)
   const checking = ref(false)
+  /** 本次练习的服务端会话 id（判分校验用） */
+  const sessionId = ref('')
   /** qid -> 选项 label 数组；填空/简答为 [文本] */
   const answers = reactive({})
   /** qid -> { correct, manual, correctAnswer, analysis } */
@@ -63,15 +65,17 @@ export function usePracticeSession() {
     idx.value = 0
     try {
       const pid = Number(params.paperId)
-      if (pid) {
-        const { data } = await practicePaperQuestions(pid)
-        questions.value = data?.questions || []
-        title.value = (data?.paper?.title || '试卷') + ' · 练习'
-      } else {
-        const { data } = await practiceRandomQuestions(String(params.category || ''), Number(params.count) || 10)
-        questions.value = data?.questions || []
-        title.value = params.category ? `${params.category} · 练习` : '随机练习'
-      }
+      // 统一走「开启会话」接口：服务端把本次题目登记进 session，判分只认这份会话，
+      // 防止练习接口被拿 questionId 当答案查询器（审查 r11 High）
+      const payload = pid
+        ? { paperId: pid }
+        : { category: String(params.category || ''), count: Number(params.count) || 10 }
+      const { data } = await startPractice(payload)
+      sessionId.value = data?.sessionId || ''
+      questions.value = data?.questions || []
+      title.value = pid
+        ? ((data?.paper?.title || '试卷') + ' · 练习')
+        : (params.category ? `${params.category} · 练习` : '随机练习')
       if (!questions.value.length) errMsg.value = '没有可练习的题目'
     } catch (e) {
       errMsg.value = e?.response?.data?.error || e?.message || '加载失败'
@@ -116,7 +120,7 @@ export function usePracticeSession() {
     try {
       const ans = [...curAnswer.value]
       if (q.type === 'MULTI') ans.sort()
-      const { data } = await practiceCheck(q.id, ans)
+      const { data } = await practiceCheck(sessionId.value, q.id, ans)
       results[q.id] = data || {}
       return results[q.id]
     } catch (e) {

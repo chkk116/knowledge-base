@@ -237,7 +237,6 @@ const openQuestion = async (row) => {
   }
   // 列表接口为了省流量不返回 options；直接拿列表行会得到空选项，保存就把原选项清空了
   // 请求代次守卫（审查 r10 High）：回填完成前用户可能关闭弹窗/切到另一题，晚到的响应不能覆盖
-  const seq = ++qLoadSeq
   qForm.value = { ...row, options: [] }
   qDlg.value = true
   try {
@@ -432,7 +431,8 @@ async function confirmCatAssemble() {
       description: '由题库分类自动组卷',
       passScore: catPass.value,
       durationMin: 60,
-      status: 'PUBLISHED',
+      // 先建草稿再装题，最后才发布（审查 r11：直接发布会让考生看到 0 题 0 分的空卷）
+      status: 'DRAFT',
     })
     // 总分平均分到各题（余数补给前面的题）
     const base = Math.floor(catTotal.value / list.length)
@@ -444,6 +444,13 @@ async function confirmCatAssemble() {
     })
     try {
       await adminAssemble(paper.id, items)
+      // 装题成功后再发布，避免中间态被学员看到空卷
+      await adminUpdatePaper(paper.id, {
+        title: paper.title, description: paper.description, passScore: catPass.value,
+        durationMin: paper.durationMin, status: 'PUBLISHED',
+        practiceEnabled: paper.practiceEnabled !== false, mockEnabled: !!paper.mockEnabled,
+        totalScore: catTotal.value,
+      })
     } catch (e2) {
       // 组卷失败要回滚空试卷（审查 r10 High）：否则留下 0 题 0 分的「已发布」卷，考生端可见
       await adminDeletePaper(paper.id).catch(() => {})
