@@ -57,8 +57,14 @@ B64=$(printf '%s' "$JSON" | base64 | tr -d '\n')
 $SSH "KB_JSON_B64='$B64' bash -s" << 'REMOTE' 2>&1
 set -euo pipefail
 JSON=$(printf '%s' "$KB_JSON_B64" | base64 -d)
-/www/server/pgsql/bin/psql -h 127.0.0.1 -p 5433 -U kb -d kb -v val="$JSON" -c \
-  "insert into kb_sys_setting(setting_key, setting_value, updated_at) values ('app_bundle', :'val', now()) on conflict (setting_key) do update set setting_value = excluded.setting_value, updated_at = now()"
+# ⚠️ 必须用 stdin 喂 SQL，不能用 `psql -c "..."`：
+#    psql 的变量插值（:'val'）只在「脚本文件 / stdin」路径生效，-c 传的单条命令
+#    不会替换，直接报 syntax error at or near ":"（2026-10-21 踩过）。
+/www/server/pgsql/bin/psql -h 127.0.0.1 -p 5433 -U kb -d kb -v val="$JSON" <<'SQL'
+insert into kb_sys_setting(setting_key, setting_value, updated_at)
+values ('app_bundle', :'val', now())
+on conflict (setting_key) do update set setting_value = excluded.setting_value, updated_at = now();
+SQL
 REMOTE
 
 echo "== 4. 校验 =="

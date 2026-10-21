@@ -263,7 +263,10 @@ onUnmounted(() => { if (particleCleanup) particleCleanup() })
       <div class="forgot"><span @click="onForgot">忘记密码？</span></div>
     </div>
 
-    <SiteFooter compact :filing="false" />
+    <!-- 备案号统一展示：手机浏览器与 App 内都显示。
+         工信部要求网站底部展示备案号；App 里多显示一次不算违规（少显示才有风险），
+         用户也要求两端一致。 -->
+    <SiteFooter compact />
 
     <transition name="sheet-up">
       <div v-if="showCaptcha" class="m-sheet-mask" @click.self="showCaptcha = false">
