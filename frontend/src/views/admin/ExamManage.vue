@@ -47,6 +47,13 @@
           <el-table-column prop="questionCount" label="题量" width="80" />
           <el-table-column prop="totalScore" label="满分" width="80" />
           <el-table-column prop="passScore" label="及格" width="80" />
+          <el-table-column label="模拟" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.practiceEnabled === false ? 'info' : 'success'" size="small" effect="plain">
+                {{ row.practiceEnabled === false ? '关闭' : '开启' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="status" label="状态" width="90" />
           <el-table-column label="操作" min-width="220">
             <template #default="{ row }">
@@ -97,6 +104,10 @@
         <el-form-item label="说明"><el-input v-model="pForm.description" type="textarea" :rows="2" /></el-form-item>
         <el-form-item label="及格分"><el-input-number v-model="pForm.passScore" :min="0" /></el-form-item>
         <el-form-item label="时长(分)"><el-input-number v-model="pForm.durationMin" :min="0" /></el-form-item>
+        <el-form-item label="允许模拟">
+          <el-switch v-model="pForm.practiceEnabled" />
+          <span class="form-hint">开启后学员可选「练习模式」：答一题判一题看解析，不计成绩</span>
+        </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="pForm.status"><el-option value="PUBLISHED" label="已发布" /><el-option value="DRAFT" label="草稿" /></el-select>
         </el-form-item>
@@ -274,12 +285,12 @@ const delQuestionsBatch = () => ElMessageBox.confirm(
 const pDlg = ref(false)
 const editingP = ref(null)
 const pForm = ref(blankP())
-function blankP() { return { title: '', description: '', passScore: 60, durationMin: 0, status: 'PUBLISHED' } }
-const openPaper = (row) => { editingP.value = row || null; pForm.value = row ? { ...row } : blankP(); pDlg.value = true }
+function blankP() { return { title: '', description: '', passScore: 60, durationMin: 0, status: 'PUBLISHED', practiceEnabled: true } }
+const openPaper = (row) => { editingP.value = row || null; pForm.value = row ? { ...row, practiceEnabled: row.practiceEnabled !== false } : blankP(); pDlg.value = true }
 const savePaper = () => {
   saving.value = true
   const f = pForm.value
-  const p = { title: f.title, description: f.description, passScore: f.passScore, durationMin: f.durationMin, status: f.status }
+  const p = { title: f.title, description: f.description, passScore: f.passScore, durationMin: f.durationMin, status: f.status, practiceEnabled: f.practiceEnabled !== false }
   const req = editingP.value ? adminUpdatePaper(editingP.value.id, p) : adminCreatePaper(p)
   req.then(() => { ElMessage.success('已保存'); pDlg.value = false; loadP() })
     .catch(e => ElMessage.error(errMsg(e, '保存失败')))
@@ -425,6 +436,7 @@ onMounted(() => { loadQ(); loadP() })
 .cf-row { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; color: #475569; }
 .cf-row b { color: #0f172a; font-weight: 600; }
 .cf-tip { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+.form-hint { margin-left: 10px; font-size: 12px; color: #94a3b8; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
 .orow { display: flex; align-items: center; gap: 8px; }
 .orow .lab { width: 22px; font-weight: 700; }

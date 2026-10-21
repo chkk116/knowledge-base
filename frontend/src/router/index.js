@@ -46,6 +46,8 @@ const routes = [
   { path: '/study/courses/:courseId/chapters/:chapterId', component: () => import('../views/ChapterDetail.vue'), meta: { title: '章节学习', maintenance: 'courses' } },
   // 考试测评：学员侧列表 / 答题 / 成绩
   { path: '/exams', component: () => import('../views/ExamList.vue'), meta: { title: '在线考试', maintenance: 'exams' } },
+  // 模拟练习：答一题判一题，不落成绩（2026-10-21）
+  { path: '/exams/practice', component: () => import('../views/ExamPractice.vue'), meta: { title: '模拟练习', maintenance: 'exams' } },
   // 全新答题首页（蓝白风，参照 Farm2）：/quiz 入口
   { path: '/quiz', component: () => import('../views/QuizHome.vue'), meta: { title: '答题闯关', maintenance: 'quiz' } },
   { path: '/exams/:id/take', component: () => import('../views/ExamTake.vue'), meta: { title: '开始答题', maintenance: 'exams' } },

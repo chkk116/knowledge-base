@@ -25,7 +25,10 @@
           <span>及格 {{ p.passScore }}</span>
           <span v-if="p.durationMin">时长 {{ p.durationMin }} 分</span>
         </div>
-        <el-button type="primary" :disabled="p.status !== 'PUBLISHED'" @click="start(p)">开始考试</el-button>
+        <div class="acts">
+          <el-button type="primary" :disabled="p.status !== 'PUBLISHED'" @click="start(p)">开始考试</el-button>
+          <el-button plain :disabled="p.status !== 'PUBLISHED' || p.practiceEnabled === false" @click="practice(p)">模拟练习</el-button>
+        </div>
       </div>
     </div>
   </div>
@@ -46,6 +49,7 @@ const loading = ref(false)
 onMounted(() => { loading.value = true; listPapers().then(r => { papers.value = r.data || r || [] }).catch(() => { papers.value = [] }).finally(() => loading.value = false) })
 
 const start = (p) => router.push('/exams/' + p.id + '/take')
+const practice = (p) => router.push({ path: '/exams/practice', query: { paperId: p.id } })
 const goMine = () => router.push('/exams/mine')
 </script>
 
@@ -61,6 +65,7 @@ const goMine = () => router.push('/exams/mine')
 .top h3 { margin: 0; font-size: 17px; }
 .desc { color: #64748b; font-size: 13px; line-height: 1.6; min-height: 38px; margin: 10px 0; }
 .stats { display: flex; flex-wrap: wrap; gap: 12px; color: #94a3b8; font-size: 12px; margin-bottom: 14px; }
+.acts { display: flex; gap: 10px; }
 :deep(html.dark) .card { background: #1b1b2e; border-color: #2c2c44; }
 
 /* ===================== 响应式布局（追加在末尾） ===================== */

@@ -26,6 +26,12 @@ public class ExamPaper {
 
     private int passScore = 60;
 
+    /**
+     * 是否允许学员以「练习模式」作答（不落成绩、逐题看解析）。
+     * 用包装类型并允许为 null：老数据没有这列，null 视为允许（2026-10-21）。
+     */
+    private Boolean practiceEnabled = Boolean.TRUE;
+
     private Integer durationMin = 0;
 
     @Column(nullable = false)
@@ -48,6 +54,8 @@ public class ExamPaper {
     public void setTotalScore(int totalScore) { this.totalScore = totalScore; }
     public int getPassScore() { return passScore; }
     public void setPassScore(int passScore) { this.passScore = passScore; }
+    public Boolean getPracticeEnabled() { return practiceEnabled; }
+    public void setPracticeEnabled(Boolean practiceEnabled) { this.practiceEnabled = practiceEnabled; }
     public Integer getDurationMin() { return durationMin; }
     public void setDurationMin(Integer durationMin) { this.durationMin = durationMin; }
     public String getStatus() { return status; }

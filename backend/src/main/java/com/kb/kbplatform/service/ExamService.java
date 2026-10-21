@@ -494,6 +494,9 @@ public class ExamService {
         ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
         if (!"PUBLISHED".equals(paper.getStatus()))
             throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
+        // 管理员可以关闭某份试卷的模拟练习（null 视为允许，兼容老数据）
+        if (Boolean.FALSE.equals(paper.getPracticeEnabled()))
+            throw new ResponseStatusException(FORBIDDEN, "该试卷未开启模拟练习");
         List<ExamPaperQuestion> pqs = pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(paperId);
         List<Long> ids = new ArrayList<>();
         for (ExamPaperQuestion pq : pqs) ids.add(pq.getQuestionId());

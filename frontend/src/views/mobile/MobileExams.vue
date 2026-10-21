@@ -30,14 +30,18 @@ async function load() {
     papers.value = r
   } finally { loading.value = false }
 }
-function open(id) { modePaper.value = id; modeOpen.value = true }
-
-// 答题模式选择（2026-10-21）：考试 = 计时计分；练习 = 逐题判分看解析、不落成绩
+// 答题模式选择（2026-10-21）：考试 = 计时计分；练习 = 逐题判分看解析（管理员可按试卷关闭）
 const modeOpen = ref(false)
 const modePaper = ref(null)
-const modeTitle = ref('')
+const modeEnabled = ref(true)
+function open(p) {
+  modePaper.value = p.id
+  modeEnabled.value = p.practiceEnabled !== false
+  modeOpen.value = true
+}
 function goExam() { const id = modePaper.value; modeOpen.value = false; router.push(`/exam/${id}`) }
 function goPracticePaper() {
+  if (!modeEnabled.value) return
   const id = modePaper.value; modeOpen.value = false
   router.push({ path: '/exam/practice', query: { paperId: id } })
 }
@@ -67,7 +71,8 @@ onMounted(load)
         <div v-for="i in 3" :key="i" style="padding:14px"><div class="m-skel" style="height:46px"></div></div>
       </div>
       <div v-else-if="papers.length" class="m-card">
-        <button v-for="p in papers" :key="p.id" class="m-row" type="button" @click="open(p.id)">          <span class="m-ico orange"><el-icon><EditPen /></el-icon></span>
+        <button v-for="p in papers" :key="p.id" class="m-row" type="button" @click="open(p)">
+          <span class="m-ico orange"><el-icon><EditPen /></el-icon></span>
           <span class="m-row-body">
             <span class="m-row-title">{{ p.title }}</span>
             <span class="m-row-desc">
@@ -101,11 +106,12 @@ onMounted(load)
             </span>
             <el-icon class="m-row-extra"><Right /></el-icon>
           </button>
-          <button class="mode-item" type="button" @click="goPracticePaper">
+          <button class="mode-item" type="button" :class="{ disabled: !modeEnabled }" :disabled="!modeEnabled" @click="goPracticePaper">
             <span class="mode-ico practice"><el-icon :size="18"><Reading /></el-icon></span>
             <span class="mode-body">
               <b>练习模式</b>
-              <span>不限时，答一题立即判分并显示答案解析，不计成绩</span>
+              <span v-if="modeEnabled">不限时，答一题立即判分并显示答案解析，不计成绩</span>
+              <span v-else>该试卷未开启模拟练习</span>
             </span>
             <el-icon class="m-row-extra"><Right /></el-icon>
           </button>
@@ -173,6 +179,7 @@ onMounted(load)
 .mode-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .mode-body b { font-size: 14.5px; color: var(--m-text); }
 .mode-body span { font-size: 11.5px; color: var(--m-text-dim); line-height: 1.4; }
+.mode-item.disabled { opacity: .5; }
 .ghost-btn { flex: none; width: 88px; height: 44px; border: 1px solid var(--m-border); border-radius: 12px;
   background: transparent; color: var(--m-text); font-size: 14px; font-family: inherit; }
 .primary-btn { flex: 1; height: 44px; border: none; border-radius: 12px; background: var(--m-primary);
