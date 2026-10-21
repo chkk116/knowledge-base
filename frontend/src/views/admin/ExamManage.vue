@@ -228,6 +228,8 @@ const onTypeChange = () => { if (hasOptions.value && (!qForm.value.options || !q
 
 const openQuestion = async (row) => {
   editingQ.value = row || null
+  // 代次要在这里也自增（审查 r11 High）：新建入口本来不 bump，慢回填的旧请求会覆盖空白表单
+  const seq = ++qLoadSeq
   if (!row) {
     qForm.value = blankQ()
     qDlg.value = true
@@ -304,7 +306,12 @@ const openPaper = (row) => { editingP.value = row || null; pForm.value = row ? {
 const savePaper = () => {
   saving.value = true
   const f = pForm.value
-  const p = { title: f.title, description: f.description, passScore: f.passScore, durationMin: f.durationMin, status: f.status, practiceEnabled: f.practiceEnabled !== false }
+  // 带上 practiceEnabled / mockEnabled：后端 adminSavePaper 是整实体 save，
+  // 请求体漏字段会把库里已有值覆盖成 null（审查 r11 High：组卷后模拟卷标记被清掉）
+  const p = {
+    title: f.title, description: f.description, passScore: f.passScore, durationMin: f.durationMin,
+    status: f.status, practiceEnabled: f.practiceEnabled !== false, mockEnabled: !!f.mockEnabled,
+  }
   const req = editingP.value ? adminUpdatePaper(editingP.value.id, p) : adminCreatePaper(p)
   req.then(() => { ElMessage.success('已保存'); pDlg.value = false; loadP() })
     .catch(e => ElMessage.error(errMsg(e, '保存失败')))
@@ -389,6 +396,7 @@ const doAssemble = () => {
         return adminUpdatePaper(s.id, {
           title: s.title, description: s.description, passScore: aPass.value,
           durationMin: s.durationMin, status: s.status,
+          practiceEnabled: s.practiceEnabled !== false, mockEnabled: !!s.mockEnabled,
         })
       }
       return null
