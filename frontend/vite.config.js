@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { gzipSync, brotliCompressSync, constants } from 'node:zlib'
 import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join, extname, relative, isAbsolute, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -67,8 +68,10 @@ function precompressPlugin() {
 
 export default defineConfig({
   // 缓存目录挪到系统临时目录：node_modules/.vite 里的 deps_temp_* 批量清理
-  // 会触发 safe-delete 钩子（>50 文件要求确认，fail-closed 直接崩进程）
-  cacheDir: 'C:/Users/Administrator/AppData/Local/Temp/kb-vite-cache',
+  // 会触发 safe-delete 钩子（>50 文件要求确认，fail-closed 直接崩进程）。
+  // ⚠️ 必须用 os.tmpdir()，不能写死 C:/Users/<某个人>——换机器/换用户名时该路径不存在，
+  //    Vite 建不了缓存目录，依赖预构建会卡在 scanning dependencies（2026-10-21 实锤）。
+  cacheDir: join(tmpdir(), 'kb-vite-cache'),
   // 构建期常量：版本号来自 package.json（页脚展示用）
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version)
