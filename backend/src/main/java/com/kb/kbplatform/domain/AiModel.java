@@ -73,6 +73,19 @@ public class AiModel {
     @Column(name = "context_window")
     private int contextWindow = 128000;
 
+    /**
+     * 是否可作为「图片 OCR / 视觉识别」使用。
+     *
+     * 勾选后 OcrService 会**优先**用这一条：端点 + Key + 模型名全部取本行配置，
+     * 因此换视觉模型（qwen-vl / glm-4.6v-flash / 自建多模态…）只要在管理页改一行，
+     * 不用改代码重新发版。
+     *
+     * 历史行为保留：没有勾选任何条目时，仍按「智谱条目 + 内置视觉降级链」走。
+     * ⚠️ 勾了但模型其实不支持图片输入 → OCR 会失败，报错会提示检查这个开关。
+     */
+    @Column(name = "vision")
+    private boolean vision = false;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     private LocalDateTime updatedAt = LocalDateTime.now();
@@ -111,6 +124,9 @@ public class AiModel {
     public void setSortOrder(int sortOrder) { this.sortOrder = sortOrder; }
     public int getContextWindow() { return contextWindow; }
     public void setContextWindow(int contextWindow) { this.contextWindow = contextWindow; }
+
+    public boolean isVision() { return vision; }
+    public void setVision(boolean vision) { this.vision = vision; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

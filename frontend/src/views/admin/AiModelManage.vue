@@ -131,7 +131,7 @@ const dialog = ref(false)
 const saving = ref(false)
 const form = reactive({
   id: null, provider: 'DEEPSEEK', name: '', baseUrl: '', model: '', apiKey: '',
-  enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000,
+  enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000, vision: false,
 })
 
 /**
@@ -164,7 +164,7 @@ watch(() => form.model, (val, old) => {
 const openAddFor = (key) => {
   Object.assign(form, {
     id: null, provider: key || 'DEEPSEEK', name: '', baseUrl: '', model: '', apiKey: '',
-    enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000
+    enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000, vision: false
   })
   onProviderChange()
   dialog.value = true
@@ -176,7 +176,8 @@ const openEdit = (row) => {
     model: row.model, enabled: row.enabled, isDefault: row.isDefault,
     // 回显脱敏值：后端据此判断「Key 没改」，不会把原 Key 覆盖掉
     apiKey: row.keyMasked || '', keyMasked: row.keyMasked || '',
-    contextWindow: Number(row.contextWindow) || 128000
+    contextWindow: Number(row.contextWindow) || 128000,
+    vision: !!row.vision
   })
   // 编辑时平台不可改，模型下拉仍要按当前平台渲染
   const p = currentPlatform.value
@@ -206,6 +207,7 @@ const submit = async () => {
       enabled: !!form.enabled, isDefault: !!form.isDefault,
       hasKey: true, keyMasked: form.keyMasked || '',
       contextWindow: Number(form.contextWindow) || 128000,
+      vision: !!form.vision,
     }
     const idx = models.value.findIndex(m => m.id === row.id)
     if (idx >= 0) models.value.splice(idx, 1, { ...models.value[idx], ...row })
@@ -647,6 +649,13 @@ onUnmounted(() => {
         </el-form-item>
         <el-form-item label="上下文窗口">
           <el-input-number v-model="form.contextWindow" :min="4000" :max="2000000" :step="16000" style="width: 200px" />
+        </el-form-item>
+        <el-form-item label="图片 OCR">
+          <el-checkbox v-model="form.vision">用于图片 OCR / 视觉识别</el-checkbox>
+          <div class="hint-line">
+            勾选后，「拍照建文档」「图片导入」会用<b>本条的模型名</b>识别文字，换视觉模型只需改这里。
+            必须是支持图片输入的多模态模型（如 glm-4.6v-flash、qwen-vl-max）；多条勾选时按排序取第一条。
+          </div>
           <span class="hint inline">tokens</span>
           <div class="hint">
             用户端据此决定「带多少历史」并画用量环。按该模型官方标注的窗口填（常见 64K / 128K / 200K / 1M）；
@@ -825,6 +834,9 @@ html.dark .row .v { color: #d5d7e0; }
 .muted { color: #94a3b8; }
 .hint { color: #909399; font-size: 12px; line-height: 1.6; }
 .hint.inline { margin-left: 10px; }
+/* 表单里跟在控件下方的一行说明（勾选框、上下文窗口等） */
+.hint-line { color: #909399; font-size: 12px; line-height: 1.7; margin-top: 6px; max-width: 560px; }
+.hint-line b { color: #606266; font-weight: 600; }
 
 /* ===== 模型详情抽屉 ===== */
 .dwrap { display: flex; flex-direction: column; gap: 8px; }

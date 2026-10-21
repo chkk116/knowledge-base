@@ -302,6 +302,9 @@ public class AdminAiModelController {
             r.put("model", m.getModel());
             r.put("enabled", m.isEnabled());
             r.put("isDefault", m.isDefaultModel());
+            // 列表是手拼 Map，实体新增字段必须在这里补 —— 漏了前端编辑弹窗就只能读到默认值
+            r.put("contextWindow", m.getContextWindow());
+            r.put("vision", m.isVision());
             r.put("hasKey", plain != null && !plain.isBlank());
             r.put("keyMasked", cipher.mask(plain));
             r.put("updatedAt", m.getUpdatedAt());
@@ -346,6 +349,10 @@ public class AdminAiModelController {
         }
         if (body.get("enabled") != null) {
             m.setEnabled(Boolean.parseBoolean(String.valueOf(body.get("enabled"))));
+        }
+        // 「用于图片 OCR」：勾选后 OcrService 优先用本条的端点/Key/模型名
+        if (body.get("vision") != null) {
+            m.setVision(Boolean.parseBoolean(String.valueOf(body.get("vision"))));
         }
         boolean wantDefault = body.get("isDefault") != null
                 && Boolean.parseBoolean(String.valueOf(body.get("isDefault")));

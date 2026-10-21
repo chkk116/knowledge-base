@@ -75,6 +75,7 @@ public class OcrService {
     /**
      * 取可用的视觉模型配置（含解密后的 Key 与候选模型名）。
      * 选择顺序：
+     *   0) 管理页勾选了「用于图片 OCR」的条目 —— 端点/Key/模型名全用它，最灵活；
      *   1) 优先智谱（ZHIPU）—— 沿用历史行为，候选为智谱视觉模型降级链；
      *   2) 否则取平台默认模型（is_default），再退首个启用模型 —— 支持任意**原生多模态**模型
      *      （如 DeepSeek-V4.1-Flash），候选即该模型自身。
@@ -83,7 +84,21 @@ public class OcrService {
      */
     private VisionConfig visionConfig() {
         List<AiModel> all = modelRepo.findByEnabledTrueOrderBySortOrderAscIdAsc();
-        // 1) 智谱优先
+
+        // 0) 最高优先级：管理页显式勾选「用于图片 OCR」的条目。
+        //    端点 + Key + **模型名**全部取本行配置 —— 换视觉模型只改管理页，不用发版。
+        //    多条勾选时按 sortOrder 取第一条（管理页可调排序）。
+        for (AiModel m : all) {
+            if (!m.isVision()) continue;
+            String key = cipher.decrypt(m.getApiKey());
+            if (key == null || key.isBlank()) continue;
+            if (m.getModel() == null || m.getModel().isBlank()) continue;   // 没填模型名直接跳过，别 NPE
+            String base = m.getBaseUrl() == null || m.getBaseUrl().isBlank() ? ZHIPU_DEFAULT_BASE : m.getBaseUrl().trim();
+            log.info("OCR 使用显式指定的视觉模型：{} ({})", m.getModel(), m.getName());
+            return new VisionConfig(base, key.trim(), List.of(m.getModel()));
+        }
+
+        // 1) 智谱优先（历史行为，未勾选视觉模型时走这里）
         for (AiModel m : all) {
             if (!AiModel.PROVIDER_ZHIPU.equalsIgnoreCase(m.getProvider())) continue;
             String key = cipher.decrypt(m.getApiKey());
@@ -126,7 +141,7 @@ public class OcrService {
         VisionConfig conf = enabled ? visionConfig() : null;
         if (conf == null) {
             throw new IllegalStateException(enabled
-                    ? "OCR 未启用：请在「AI 模型管理」配置一个支持视觉的多模态模型（智谱 ZHIPU，或把多模态模型设为默认）并填写 API Key"
+                    ? "OCR 未启用：请在「AI 模型管理」勾选「用于图片 OCR」并填好模型名与 API Key（或配置智谱 ZHIPU 条目 / 把多模态模型设为默认）"
                     : "OCR 未启用：kb.ai.enabled=false，请先在配置中开启 AI 功能");
         }
         // 与 AI 模型调用同理：不给超时，模型端 hang 住会把请求线程一直占着
