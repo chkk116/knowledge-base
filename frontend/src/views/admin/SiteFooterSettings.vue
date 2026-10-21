@@ -22,6 +22,25 @@ import { APP_VERSION } from '../../utils/appInfo'
 
 const siteInfo = useSiteInfoStore()
 const saving = ref(false)
+const toggling = ref(false)
+
+/**
+ * 「显示页脚」开关拨动即保存。
+ * 之前开关只改内存状态，必须再点「保存配置」才落库 —— 用户以为关了立即生效，
+ * 结果刷新后页脚还在（2026-10-21 反馈）。这里直接落库，失败则回滚开关。
+ */
+async function onToggleFooter(v) {
+  toggling.value = true
+  try {
+    await siteInfo.save()
+    ElMessage.success(v ? '已开启页脚，全站生效' : '已关闭页脚，全站生效')
+  } catch (e) {
+    siteInfo.enabled = !v   // 保存失败回滚，避免界面与线上不一致
+    ElMessage.error('保存失败：' + (e?.response?.data?.error || e?.message || '请检查网络'))
+  } finally {
+    toggling.value = false
+  }
+}
 
 onMounted(() => { if (!siteInfo.loaded) siteInfo.load() })
 
@@ -80,8 +99,8 @@ async function clearAll() {
 
       <el-form label-width="110px" label-position="left">
         <el-form-item label="显示页脚">
-          <el-switch v-model="siteInfo.enabled" />
-          <span class="hint">关闭后全站不再显示页脚（含已填写的内容）</span>
+          <el-switch v-model="siteInfo.enabled" :loading="toggling" @change="onToggleFooter" />
+          <span class="hint">关闭后全站不再显示页脚（含已填写的内容）。开关拨动即保存，无需再点下方按钮</span>
         </el-form-item>
 
         <el-form-item label="ICP 备案号">
