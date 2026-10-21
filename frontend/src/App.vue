@@ -796,7 +796,16 @@ html.dark .tab-menu button.danger:hover { background: #2a1a1a; }
    max-width + margin:0 auto 的页面（收藏/排行/勋章/考试等）会被**收缩成内容宽**
    （实测 /favorites 根被压到 311px），表现为「页面被压扁/从手机宽度往外延伸」。
    width:100% + max-width + auto 外边距 = 恢复与块级布局一致的居中收窄行为。 */
-.main > :not(.site-footer):not(.demo-banner) { flex: 1 1 0%; width: 100%; }
+.main > :not(.site-footer):not(.demo-banner) {
+  flex: 1 1 0%;
+  /* ⚠️ min-height:auto 必须显式写：flex item 的默认值就是 auto（=「不小于内容高度」），
+     但页面根元素常自己写 min-height:100%（如 .exam），100% 解析成「父容器的 100%」这个
+     固定值，会**覆盖掉 auto 的语义** → 内容超过该值时溢出到盒子外，直接画在页脚上，
+     表现为「页脚浮在题目/列表中间」（2026-10-21 考试页实测：元素高 669，内容 1837）。
+     这里用更高优先级把它拉回 auto：内容多时元素跟着长，页脚自然落在内容之后。 */
+  min-height: auto;
+  width: 100%;
+}
 .main > .site-footer { margin-top: auto; }
 
 /* 演示账号横幅：全局只读提示，粘在内容区顶部 */
