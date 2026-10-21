@@ -123,7 +123,10 @@ export default defineConfig({
   },
   // 预打包 wangEditor 核心（ESM/CJS 互操作，避免 dev/build 报错）
   optimizeDeps: {
-    include: ['@wangeditor/editor', '@wangeditor/plugin-md']
+    include: ['@wangeditor/editor', '@wangeditor/plugin-md'],
+    // 只在懒加载路由里用到、且本身是 ESM 的重依赖，不参与冷启动预构建：
+    // 否则 dev 首次启动要等它把 pdfjs/流程图 也打一遍，慢到看起来像卡死（2026-10-21 实测）
+    exclude: ['pdfjs-dist', '@vue-flow/core', 'driver.js'],
   },
   build: {
     target: 'es2020',

@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && node build-inject-sw.cjs dist",
-    "build:prod": "vite build --mode production --outDir dist-prod && node build-inject-sw.cjs dist-prod",
-    "build:test": "vite build --mode test --outDir dist-test && node build-inject-sw.cjs dist-test",
+    "dev": "node node_modules/vite/bin/vite.js",
+    "build": "node node_modules/vite/bin/vite.js build && node build-inject-sw.cjs dist",
+    "build:prod": "node node_modules/vite/bin/vite.js build --mode production --outDir dist-prod && node build-inject-sw.cjs dist-prod",
+    "build:test": "node node_modules/vite/bin/vite.js build --mode test --outDir dist-test && node build-inject-sw.cjs dist-test",
     "build:sw": "node build-inject-sw.cjs",
-    "preview": "vite preview",
+    "preview": "node node_modules/vite/bin/vite.js preview",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix"
   },
