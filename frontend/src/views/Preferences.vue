@@ -50,7 +50,7 @@
               <span class="layout-name">{{ m.name }}</span>
             </button>
           </div>
-          <p class="sec-tip">顶部导航适合宽屏，侧边导航能容纳更多层级菜单。</p>
+          <p class="sec-tip">侧边导航：菜单全在左侧；混合双列：顶部放一级、左侧放二级（图标条 + 二级列）；顶部导航：全部横排。</p>
         </section>
 
         <section class="pf-sec">
@@ -168,7 +168,7 @@ const THEMES = [
 ]
 const NAV_MODES = [
   { key: 'side', name: '侧边导航' },
-  { key: 'dual', name: '双列菜单' },
+  { key: 'dual', name: '混合双列' },
   { key: 'top', name: '顶部导航' },
 ]
 const WIDTHS = [
@@ -222,10 +222,11 @@ void DEFAULTS
 .mini .m-top { left: 0; right: 0; top: 0; height: 12px; background: var(--el-color-primary); opacity: .85; }
 .mini .m-body { left: 26px; right: 8px; top: 20px; height: 30px; background: var(--el-fill-color-dark); }
 .mini-side .m-top { display: none; }
-.mini-dual .m-top { display: none; }
-.mini-dual .m-side { width: 13px; }
-.mini-dual .m-body { left: 32px; top: 10px; bottom: 10px; height: auto; }
-.mini-dual .m-body::before { content: ''; position: absolute; left: -11px; top: -10px; bottom: -10px; width: 1px; background: var(--el-border-color); }
+/* 混合双列：顶部一级条 + 左侧图标条 + 二级列 */
+.mini-dual .m-top { height: 9px; }
+.mini-dual .m-side { width: 12px; top: 9px; }
+.mini-dual .m-body { left: 30px; right: 6px; top: 15px; height: 32px; }
+.mini-dual .m-body::before { content: ''; position: absolute; left: -10px; top: -6px; bottom: -6px; width: 1px; background: var(--el-border-color); }
 .mini-side .m-body { left: 26px; top: 12px; }
 .mini-top .m-side { display: none; }
 .mini-top .m-body { left: 8px; right: 8px; top: 20px; }

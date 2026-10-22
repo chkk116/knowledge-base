@@ -123,11 +123,15 @@ const menuCollapsed = computed(() => !isNarrow.value && collapsed.value
 // 顶部导航只在宽屏生效：窄屏放不下横排菜单，一律回退到侧边抽屉
 const isTopNav = computed(() => prefs.state.navMode === 'top' && !isNarrow.value)
 // 侧栏是否渲染：窄屏始终保留（抽屉），宽屏看偏好里的「显示侧边栏」
-const showAside = computed(() => !isTopNav.value
-  && (isNarrow.value || prefs.state.sidebarVisible || drawerOpen.value))
+const showAside = computed(() => {
+  if (isNarrow.value) return true                       // 窄屏一律走抽屉
+  if (isMixedNav.value) return true                     // 混合双列：左侧二级栏常驻
+  if (isTopNav.value) return false
+  return prefs.state.sidebarVisible || drawerOpen.value
+})
 const asideWidth = computed(() => {
   if (isNarrow.value) return '210px'
-  if (isDualNav.value) return '250px'
+  if (isMixedNav.value) return '240px'
   return menuCollapsed.value ? '64px' : '210px'
 })
 
@@ -373,7 +377,10 @@ const orderedMenus = computed(() => {
 })
 
 // 双列菜单：只在宽屏生效（窄屏没有横向空间，回退侧边抽屉）
-const isDualNav = computed(() => prefs.state.navMode === 'dual' && !isNarrow.value)
+// 混合双列：顶部放一级导航，左侧保留双列（窄图标栏 + 二级列），只在宽屏生效
+const isMixedNav = computed(() => prefs.state.navMode === 'dual' && !isNarrow.value)
+// 顶部条：纯顶部导航 或 混合双列 都要渲染
+const showTopBar = computed(() => isTopNav.value || isMixedNav.value)
 
 // 双列左栏选中的一级菜单：默认跟随当前路由，点其它一级时临时切换
 const primaryOverride = ref('')
@@ -391,6 +398,11 @@ const secondaryItems = computed(() => {
   // 有子项时同样走自定义排序，和侧边栏共用一份顺序
   return m.children && m.children.length ? orderedChildren(m) : [m]
 })
+function onMixedPrimaryClick(m) {
+  if (m.children && m.children.length) pickPrimary(m)
+  else { primaryOverride.value = ''; router.push(m.index) }
+}
+
 function pickPrimary(m) {
   // 没有子项的一级菜单点了就直接跳
   if (!m.children || !m.children.length) {
@@ -584,14 +596,14 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
     :rotate="wm.config.rotate"
     :gap="wmGap"
     :z-index="wm.config.zIndex">
-  <el-container class="layout" :class="{ 'is-narrow': isNarrow, 'nav-top': isTopNav }">
+  <el-container class="layout" :class="{ 'is-narrow': isNarrow, 'nav-top': isTopNav, 'nav-mixed': isMixedNav }">
     <!-- 窄屏抽屉遮罩：点击关闭 -->
     <div v-if="isNarrow && drawerOpen" class="aside-mask" @click="drawerOpen = false"></div>
     <el-aside v-if="showAside"
               :width="asideWidth"
               class="aside"
               :class="{ collapsed: menuCollapsed, 'is-drawer': isNarrow, 'drawer-open': drawerOpen,
-                        'dark-menu': prefs.state.sidebarDark, dual: isDualNav }"
+                        'dark-menu': prefs.state.sidebarDark, dual: isMixedNav }"
               @mouseenter="hoveringAside = true" @mouseleave="hoveringAside = false">
       <div class="brand" :title="menuCollapsed ? '知识库' : ''" @click="goHome">
         <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
@@ -599,7 +611,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
       </div>
 
       <!-- 双列菜单：左窄栏一级（可拖拽排序）+ 右列当前一级的二级项 -->
-      <div v-if="isDualNav" class="dual-wrap">
+      <div v-if="isMixedNav" class="dual-wrap">
         <div class="dual-primary">
           <button v-for="(m, i) in orderedMenus" :key="m.index" type="button"
                   class="dp-item" :class="{ on: m.index === activePrimaryIndex, 'drag-over': dragOver === i }"
@@ -665,7 +677,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
     <el-container>
       <el-header class="header">
         <div class="head-left">
-          <el-button v-if="!isTopNav && !isDualNav" class="fold-btn" text
+          <el-button v-if="!isTopNav && !isMixedNav" class="fold-btn" text
                      :title="isNarrow ? '打开菜单'
                        : (!prefs.state.sidebarVisible ? '显示侧边栏' : (menuCollapsed ? '展开菜单' : '收起菜单'))"
                      @click="toggleMenu">
@@ -738,9 +750,17 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
         </div>
       </el-header>
 
-      <!-- 顶部导航模式：菜单横向铺在顶栏下方（偏好设置 · 布局 → 导航位置） -->
-      <nav v-if="isTopNav" class="top-nav">
-        <el-menu mode="horizontal" :default-active="route.path" router :ellipsis="true" class="top-menu">
+      <!-- 顶部导航条：纯顶部模式（含二级下拉）或混合双列模式（只放一级，点它切左侧） -->
+      <nav v-if="showTopBar" class="top-nav" :class="{ 'top-nav--mixed': isMixedNav }">
+        <div v-if="isMixedNav" class="mixed-bar">
+          <button v-for="m in orderedMenus" :key="m.index" type="button" class="mb-item"
+                  :class="{ on: m.index === activePrimaryIndex }" :title="m.title"
+                  @click="onMixedPrimaryClick(m)">
+            <MenuIcon :name="m.icon" :size="16" />
+            <span>{{ m.title }}</span>
+          </button>
+        </div>
+        <el-menu v-else mode="horizontal" :default-active="route.path" router :ellipsis="true" class="top-menu">
           <template v-for="m in menus" :key="m.index">
             <el-sub-menu v-if="m.children" :index="m.index">
               <template #title>
@@ -975,6 +995,22 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
   color: var(--el-color-primary); border-bottom-color: var(--el-color-primary);
 }
 html.dark .top-nav { background: #17171f; border-bottom-color: #26262f; }
+/* 混合双列的顶部一级条（文字在这里，左侧图标条只做快捷切换） */
+.top-nav--mixed { padding: 0 8px; }
+.mixed-bar { display: flex; align-items: center; gap: 2px; height: 44px; overflow-x: auto; scrollbar-width: none; }
+.mixed-bar::-webkit-scrollbar { display: none; }
+.mb-item { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: none;
+  border-radius: 8px; background: transparent; cursor: pointer; font-family: inherit; font-size: 13px;
+  color: #475569; white-space: nowrap; }
+.mb-item:hover { background: #f1f5f9; color: var(--el-color-primary); }
+.mb-item.on { background: #eef2ff; color: var(--el-color-primary); font-weight: 600; }
+html.dark .mb-item { color: #c7c8d4; }
+html.dark .mb-item:hover { background: #23232e; color: #a5b4fc; }
+html.dark .mb-item.on { background: #232347; color: #a5b4fc; }
+/* 混合双列：左窄栏只留图标（一级文字在顶部），右列是二级 */
+.aside.dual .dp-txt { display: none; }
+.aside.dual .dual-primary { width: 52px; padding: 8px 2px; }
+.aside.dual .dp-item { padding: 9px 0; }
 html.dark .top-menu.el-menu--horizontal > .el-menu-item,
 html.dark .top-menu.el-menu--horizontal > .el-sub-menu .el-sub-menu__title { color: #c7c8d4; }
 /* 顶栏右侧所有元素统一垂直居中（含不同尺寸的圆形按钮、弹层、头像、徽章组），
