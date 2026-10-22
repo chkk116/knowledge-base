@@ -112,6 +112,7 @@ Web 全功能 + Electron 桌面客户端 + Capacitor Android，内网 / 公网 H
 - 用户 / 角色 / 权限码 / 部门管理，细粒度权限码集中管理（`Perm` 白名单）
 - 审核中心、资产管理（借用归还 / Excel 导出）、数据看板、审计与登录日志、公告管理
 - **系统外观**：站点 Logo / 资料页背景图自定义，登录页二维码、全局水印、功能开关（维护页 / 隐藏双模式）
+- **偏好设置**：导航位置（侧边 / 双列 / 顶部）、侧边栏显隐与深色、内容宽度、密度、强调色、主题跟随系统、起始页；菜单支持拖拽排序（分组内子菜单也可拖），偏好存本机 `localStorage`
 
 ### AI 问答
 - 标准 OpenAI 协议接入（管理页自定义端点 / Key / 模型名，DeepSeek、GLM、GPT、通义、OpenCode、小米 MiMo 等皆可）+ RAG 检索增强：Meili 命中 → 数据库可见性核对 → 注入模型上下文
@@ -224,8 +225,13 @@ cd backend && mvn spring-boot:run
 ### 3. 启动前端
 
 ```bash
-cd frontend && npm install && npm run dev   # http://localhost:5173
+cd frontend
+npm ci                 # 或 npm install；下载的包不含 node_modules，必须先装
+npm run dev            # http://localhost:5173
 ```
+
+Windows 也可以直接双击 `frontend\dev.cmd`（自动检测并安装依赖后启动）。
+**首次启动需预构建依赖，约 2~3 分钟属正常**（之后约 5 秒）；若依赖装过仍报「vite 不是内部或外部命令」，脚本已改为显式 `node node_modules/vite/bin/vite.js`，与本机 PATH 无关。
 
 前端代理已配好（`vite.config.js`：`/api` 与 `/uploads` 转发到 `localhost:8080`），无需改任何地址；后端换端口时同步改这里。
 
