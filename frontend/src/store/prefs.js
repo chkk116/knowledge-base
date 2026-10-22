@@ -23,7 +23,7 @@ export const ACCENTS = [
 ]
 
 export const DEFAULTS = {
-  navMode: 'side',        // side=左侧导航 / top=顶部导航
+  navMode: 'side',        // side=侧边导航 / dual=双列菜单 / top=顶部导航
   sidebarVisible: true,   // 侧边栏是否显示（仅 side 模式）
   sidebarDark: false,     // 深色菜单
   hoverExpand: true,      // 折叠后鼠标悬停临时展开
@@ -32,6 +32,7 @@ export const DEFAULTS = {
   accent: 'indigo',       // 强调色（见 ACCENTS）
   theme: 'auto',          // auto=跟随系统 / light / dark
   startPage: 'last',      // last=上次访问 / home=首页（登录后落地）
+  menuOrder: [],          // 侧边/双列一级菜单的自定义顺序（存 menu.index 数组）
 }
 
 function hexToRgb(hex) {

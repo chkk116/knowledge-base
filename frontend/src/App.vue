@@ -125,7 +125,11 @@ const isTopNav = computed(() => prefs.state.navMode === 'top' && !isNarrow.value
 // 侧栏是否渲染：窄屏始终保留（抽屉），宽屏看偏好里的「显示侧边栏」
 const showAside = computed(() => !isTopNav.value
   && (isNarrow.value || prefs.state.sidebarVisible || drawerOpen.value))
-const asideWidth = computed(() => (isNarrow.value ? '210px' : (menuCollapsed.value ? '64px' : '210px')))
+const asideWidth = computed(() => {
+  if (isNarrow.value) return '210px'
+  if (isDualNav.value) return '250px'
+  return menuCollapsed.value ? '64px' : '210px'
+})
 
 // ---------- 响应式骨架 ----------
 // ≤1024px 视为窄屏：侧边栏改为抽屉（覆盖式滑出 + 遮罩），不再占文档流宽度；
@@ -352,6 +356,74 @@ const menus = computed(() => {
   return base
 })
 
+// ---- 菜单排序 & 双列导航（2026-10-22）----
+// 一级菜单顺序：偏好里存 index 数组；没存过按默认顺序，新出现的菜单自动排到末尾
+const orderedMenus = computed(() => {
+  const list = menus.value
+  const order = prefs.state.menuOrder || []
+  if (!order.length) return list
+  const map = new Map(list.map((m) => [m.index, m]))
+  const out = []
+  for (const idx of order) {
+    const m = map.get(idx)
+    if (m) { out.push(m); map.delete(idx) }
+  }
+  for (const m of map.values()) out.push(m)
+  return out
+})
+
+// 双列菜单：只在宽屏生效（窄屏没有横向空间，回退侧边抽屉）
+const isDualNav = computed(() => prefs.state.navMode === 'dual' && !isNarrow.value)
+
+// 双列左栏选中的一级菜单：默认跟随当前路由，点其它一级时临时切换
+const primaryOverride = ref('')
+const activePrimaryIndex = computed(() => {
+  if (primaryOverride.value) return primaryOverride.value
+  const hit = orderedMenus.value.find((m) => route.path === m.index
+    || (m.children || []).some((c) => route.path === c.index || route.path.startsWith(c.index + '/')))
+  return hit ? hit.index : (orderedMenus.value[0]?.index || '')
+})
+const activePrimaryMenu = computed(
+  () => orderedMenus.value.find((m) => m.index === activePrimaryIndex.value) || null)
+const secondaryItems = computed(() => {
+  const m = activePrimaryMenu.value
+  if (!m) return []
+  return m.children && m.children.length ? m.children : [m]
+})
+function pickPrimary(m) {
+  // 没有子项的一级菜单点了就直接跳
+  if (!m.children || !m.children.length) {
+    primaryOverride.value = ''
+    router.push(m.index)
+    return
+  }
+  primaryOverride.value = m.index
+}
+watch(() => route.fullPath, () => { primaryOverride.value = '' })
+
+// 拖拽排序（HTML5 drag）：把拖起的项插到落点位置，顺序存进偏好
+const dragFrom = ref(-1)
+const dragOver = ref(-1)
+function onMenuDragStart(i, e) {
+  dragFrom.value = i
+  try {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(i))
+  } catch { /* 部分环境不允许设置 dataTransfer，忽略 */ }
+}
+function onMenuDragOver(i, e) { e.preventDefault(); dragOver.value = i }
+function onMenuDragEnd() { dragFrom.value = -1; dragOver.value = -1 }
+function onMenuDrop(i) {
+  const from = dragFrom.value
+  onMenuDragEnd()
+  if (from < 0 || from === i) return
+  const arr = orderedMenus.value.map((m) => m.index)
+  const [moved] = arr.splice(from, 1)
+  arr.splice(i, 0, moved)
+  prefs.set({ menuOrder: arr })
+  ElMessage.success('菜单顺序已保存')
+}
+
 function onLogout() {
   auth.logout()
   ElMessage.success('已退出登录')
@@ -469,16 +541,44 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
               :width="asideWidth"
               class="aside"
               :class="{ collapsed: menuCollapsed, 'is-drawer': isNarrow, 'drawer-open': drawerOpen,
-                        'dark-menu': prefs.state.sidebarDark }"
+                        'dark-menu': prefs.state.sidebarDark, dual: isDualNav }"
               @mouseenter="hoveringAside = true" @mouseleave="hoveringAside = false">
       <div class="brand" :title="menuCollapsed ? '知识库' : ''" @click="goHome">
         <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
         <span v-show="!menuCollapsed" class="brand-txt">知识库</span>
       </div>
-      <el-menu :default-active="route.path" router class="menu"
+
+      <!-- 双列菜单：左窄栏一级（可拖拽排序）+ 右列当前一级的二级项 -->
+      <div v-if="isDualNav" class="dual-wrap">
+        <div class="dual-primary">
+          <button v-for="(m, i) in orderedMenus" :key="m.index" type="button"
+                  class="dp-item" :class="{ on: m.index === activePrimaryIndex, 'drag-over': dragOver === i }"
+                  draggable="true" :title="m.title"
+                  @click="pickPrimary(m)"
+                  @dragstart="onMenuDragStart(i, $event)" @dragover="onMenuDragOver(i, $event)"
+                  @drop="onMenuDrop(i)" @dragend="onMenuDragEnd">
+            <MenuIcon :name="m.icon" :size="20" />
+            <span class="dp-txt">{{ m.title }}</span>
+          </button>
+        </div>
+        <div class="dual-secondary">
+          <div class="ds-title">{{ activePrimaryMenu ? activePrimaryMenu.title : '' }}</div>
+          <button v-for="it in secondaryItems" :key="it.index" type="button"
+                  class="ds-item" :class="{ on: route.path === it.index }"
+                  @click="router.push(it.index)">
+            <MenuIcon :name="it.icon" :size="16" />
+            <span class="ds-txt">{{ it.title }}</span>
+          </button>
+        </div>
+      </div>
+
+      <el-menu v-else :default-active="route.path" router class="menu"
                :collapse="menuCollapsed" :collapse-transition="false">
-        <template v-for="m in menus" :key="m.index">
-          <el-sub-menu v-if="m.children" :index="m.index">
+        <template v-for="(m, i) in orderedMenus" :key="m.index">
+          <el-sub-menu v-if="m.children" :index="m.index" class="drag-item"
+                       :class="{ 'drag-over': dragOver === i }" draggable="true"
+                       @dragstart="onMenuDragStart(i, $event)" @dragover="onMenuDragOver(i, $event)"
+                       @drop="onMenuDrop(i)" @dragend="onMenuDragEnd">
             <template #title>
               <MenuIcon :name="m.icon" :size="20" />
               <span>{{ m.title }}</span>
@@ -488,7 +588,10 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
               <span>{{ c.title }}</span>
             </el-menu-item>
           </el-sub-menu>
-          <el-menu-item v-else :index="m.index">
+          <el-menu-item v-else :index="m.index" class="drag-item"
+                        :class="{ 'drag-over': dragOver === i }" draggable="true"
+                        @dragstart="onMenuDragStart(i, $event)" @dragover="onMenuDragOver(i, $event)"
+                        @drop="onMenuDrop(i)" @dragend="onMenuDragEnd">
             <MenuIcon :name="m.icon" :size="20" />
             <span>{{ m.title }}</span>
           </el-menu-item>
@@ -499,7 +602,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
     <el-container>
       <el-header class="header">
         <div class="head-left">
-          <el-button v-if="!isTopNav" class="fold-btn" text
+          <el-button v-if="!isTopNav && !isDualNav" class="fold-btn" text
                      :title="isNarrow ? '打开菜单'
                        : (!prefs.state.sidebarVisible ? '显示侧边栏' : (menuCollapsed ? '展开菜单' : '收起菜单'))"
                      @click="toggleMenu">
@@ -699,6 +802,48 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
 .aside.dark-menu .menu .el-sub-menu .el-menu-item { color: #a5b4fc; }
 .aside.dark-menu .el-menu--inline { background: transparent; }
 .aside.dark-menu .menu .el-sub-menu .el-menu-item::after { background: rgba(255, 255, 255, .12); }
+
+/* ---- 双列菜单（偏好设置 · 布局 → 双列菜单）---- */
+.aside.dual { overflow: hidden; }
+.dual-wrap { flex: 1 1 auto; display: flex; min-height: 0; border-top: 1px solid #eef1f6; }
+.dual-primary { flex: none; width: 66px; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 4px; overflow-y: auto; overflow-x: hidden; background: #fafbfc; border-right: 1px solid #eef1f6; }
+.dp-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px;
+  border: none; border-radius: 10px; background: transparent; cursor: pointer; font-family: inherit; color: #64748b; }
+.dp-item:hover { background: #eef2ff; color: var(--el-color-primary); }
+.dp-item.on { background: #eef2ff; color: var(--el-color-primary); font-weight: 600; }
+.dp-txt { font-size: 10px; line-height: 1.2; text-align: center; max-width: 58px; word-break: break-all;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dual-secondary { flex: 1 1 auto; min-width: 0; padding: 8px 6px 12px; overflow-y: auto; overflow-x: hidden; }
+.ds-title { font-size: 12px; font-weight: 600; color: #94a3b8; padding: 4px 8px 8px; }
+.ds-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; margin-bottom: 2px;
+  border: none; border-radius: 9px; background: transparent; cursor: pointer; font-family: inherit;
+  font-size: 13px; color: #475569; text-align: left; }
+.ds-item:hover { background: #f1f5f9; color: var(--el-color-primary); }
+.ds-item.on { background: #eff0fe; color: var(--el-color-primary); font-weight: 600; }
+.ds-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.dark .dual-wrap { border-top-color: #2a2a35; }
+html.dark .dual-primary { background: #131320; border-right-color: #2a2a35; }
+html.dark .dp-item { color: #c7c8d4; }
+html.dark .dp-item:hover, html.dark .dp-item.on { background: #232347; color: #a5b4fc; }
+html.dark .ds-item { color: #c7c8d4; }
+html.dark .ds-item:hover { background: #23232e; color: #a5b4fc; }
+html.dark .ds-item.on { background: #232347; color: #a5b4fc; }
+html.dark .ds-title { color: #7c7f92; }
+/* 深色菜单（偏好里的独立开关）叠加时优先深色菜单配色 */
+.aside.dark-menu .dual-wrap { border-top-color: rgba(255, 255, 255, .08); }
+.aside.dark-menu .dual-primary { background: rgba(0, 0, 0, .16); border-right-color: rgba(255, 255, 255, .08); }
+.aside.dark-menu .dp-item { color: #c7d2fe; }
+.aside.dark-menu .dp-item:hover, .aside.dark-menu .dp-item.on { background: rgba(129, 140, 248, .22); color: #fff; }
+.aside.dark-menu .ds-item { color: #c7d2fe; }
+.aside.dark-menu .ds-item:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.aside.dark-menu .ds-item.on { background: rgba(129, 140, 248, .28); color: #fff; }
+.aside.dark-menu .ds-title { color: #8b93c9; }
+
+/* 拖拽排序（偏好设置 · 布局 → 菜单排序）：落点处画一条主色线 */
+.drag-item { cursor: grab; }
+.drag-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
+.dp-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
 .brand {
   flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
   padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;

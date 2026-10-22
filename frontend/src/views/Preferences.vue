@@ -92,6 +92,17 @@
             </el-radio-group>
           </div>
         </section>
+
+        <section class="pf-sec">
+          <div class="sec-title">菜单排序</div>
+          <div class="switch-row">
+            <div class="sw-txt">
+              <b>拖拽调整菜单顺序</b>
+              <span>在侧边栏（或双列左栏）按住菜单项上下拖动，松手即保存；只影响你自己的界面，新上线的菜单会自动排在最后</span>
+            </div>
+            <el-button size="small" plain :disabled="!hasCustomOrder" @click="resetMenuOrder">恢复默认顺序</el-button>
+          </div>
+        </section>
       </el-tab-pane>
 
       <!-- ============ 快捷键 ============ -->
@@ -144,6 +155,11 @@ import { usePrefsStore, ACCENTS, DEFAULTS } from '../store/prefs'
 const prefs = usePrefsStore()
 const p = computed(() => prefs.state)
 const tab = ref('layout')
+const hasCustomOrder = computed(() => (prefs.state.menuOrder || []).length > 0)
+function resetMenuOrder() {
+  prefs.set({ menuOrder: [] })
+  ElMessage.success('已恢复默认菜单顺序')
+}
 
 const THEMES = [
   { key: 'auto', name: '跟随系统' },
@@ -152,6 +168,7 @@ const THEMES = [
 ]
 const NAV_MODES = [
   { key: 'side', name: '侧边导航' },
+  { key: 'dual', name: '双列菜单' },
   { key: 'top', name: '顶部导航' },
 ]
 const WIDTHS = [
@@ -205,6 +222,10 @@ void DEFAULTS
 .mini .m-top { left: 0; right: 0; top: 0; height: 12px; background: var(--el-color-primary); opacity: .85; }
 .mini .m-body { left: 26px; right: 8px; top: 20px; height: 30px; background: var(--el-fill-color-dark); }
 .mini-side .m-top { display: none; }
+.mini-dual .m-top { display: none; }
+.mini-dual .m-side { width: 13px; }
+.mini-dual .m-body { left: 32px; top: 10px; bottom: 10px; height: auto; }
+.mini-dual .m-body::before { content: ''; position: absolute; left: -11px; top: -10px; bottom: -10px; width: 1px; background: var(--el-border-color); }
 .mini-side .m-body { left: 26px; top: 12px; }
 .mini-top .m-side { display: none; }
 .mini-top .m-body { left: 8px; right: 8px; top: 20px; }
