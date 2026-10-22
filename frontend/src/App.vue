@@ -131,7 +131,7 @@ const showAside = computed(() => {
 })
 const asideWidth = computed(() => {
   if (isNarrow.value) return '210px'
-  if (isMixedNav.value) return '240px'
+  if (isMixedNav.value) return secondaryItems.value.length ? '240px' : '52px'
   return menuCollapsed.value ? '64px' : '210px'
 })
 
@@ -393,8 +393,10 @@ const activePrimaryMenu = computed(
 const secondaryItems = computed(() => {
   const m = activePrimaryMenu.value
   if (!m) return []
-  // 有子项时同样走自定义排序，和侧边栏共用一份顺序
-  return m.children && m.children.length ? orderedChildren(m) : [m]
+  // 没有子项的一级菜单（知识库首页、写文章…）右列留空，点了直接跳转，不再把自己当二级项重复显示
+  if (!m.children || !m.children.length) return []
+  // 有子项时走自定义排序，和侧边栏共用一份顺序
+  return orderedChildren(m)
 })
 function onMixedPrimaryClick(m) {
   if (m.children && m.children.length) pickPrimary(m)
@@ -637,7 +639,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
             <span class="dp-txt">{{ m.title }}</span>
           </button>
         </div>
-        <div class="dual-secondary">
+        <div v-if="secondaryItems.length" class="dual-secondary">
           <div class="ds-title">{{ activePrimaryMenu ? activePrimaryMenu.title : '' }}</div>
           <button v-for="(it, ii) in secondaryItems" :key="it.index" type="button"
                   class="ds-item" :class="{ on: route.path === it.index,
