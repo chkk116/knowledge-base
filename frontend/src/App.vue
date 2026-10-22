@@ -275,6 +275,11 @@ function onThemeChanged(e) {
 window.addEventListener('kb:theme', onThemeChanged)
 onUnmounted(() => window.removeEventListener('kb:theme', onThemeChanged))
 
+// 拖拽结束后的那次 click 不能触发菜单跳转
+window.addEventListener('click', onCaptureClick, true)
+onUnmounted(() => window.removeEventListener('click', onCaptureClick, true))
+
+
 // 菜单项：按角色个性化
 //  - 所有登录用户：写文章、我的帖子
 //  - 管理类按细粒度权限归入「用户与权限」「内容管理」「站点设置」三个二级分组（ADMIN 隐式拥有全部，可见全部分组）
@@ -377,6 +382,21 @@ const orderedMenus = computed(() => {
 })
 
 // 双列菜单：只在宽屏生效（窄屏没有横向空间，回退侧边抽屉）
+/** 分组内子菜单排序：按 subMenuOrder[分组 index] 排，没排过的保持默认，新子项排末尾 */
+function orderedChildren(m) {
+  const list = m.children || []
+  const order = (prefs.state.subMenuOrder || {})[m.index] || []
+  if (!order.length) return list
+  const map = new Map(list.map((c) => [c.index, c]))
+  const out = []
+  for (const idx of order) {
+    const c = map.get(idx)
+    if (c) { out.push(c); map.delete(idx) }
+  }
+  for (const c of map.values()) out.push(c)
+  return out
+}
+
 // 混合双列：顶部放一级导航，左侧保留双列（窄图标栏 + 二级列），只在宽屏生效
 const isMixedNav = computed(() => prefs.state.navMode === 'dual' && !isNarrow.value)
 
@@ -414,76 +434,148 @@ function pickPrimary(m) {
 }
 watch(() => route.fullPath, () => { primaryOverride.value = '' })
 
-// 拖拽排序（HTML5 drag）：把拖起的项插到落点位置，顺序存进偏好
+// ---- 菜单拖拽排序（pointer 事件，桌面 + 触屏通用）----
+// 不用 HTML5 drag：它在 <button> 上不派发 dragover，el-menu 的 drop 也不可靠（实测过）。
+// 动画只动 transform / opacity，走合成层，不触发布局。
 const dragFrom = ref(-1)
 const dragOver = ref(-1)
-function onMenuDragStart(i, e) {
-  dragFrom.value = i
-  try {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', String(i))
-  } catch { /* 部分环境不允许设置 dataTransfer，忽略 */ }
-}
-function onMenuDragOver(i, e) { e.preventDefault(); dragOver.value = i }
-function onMenuDragEnd() { dragFrom.value = -1; dragOver.value = -1 }
-function onMenuDrop(i) {
-  const from = dragFrom.value
-  onMenuDragEnd()
-  if (from < 0 || from === i) return
-  const arr = orderedMenus.value.map((m) => m.index)
-  const [moved] = arr.splice(from, 1)
-  arr.splice(i, 0, moved)
-  prefs.set({ menuOrder: arr })
-  ElMessage.success('菜单顺序已保存')
-}
-
-// 分组内子菜单排序：按 subMenuOrder[分组 index] 排，没排过的保持默认，新子项排末尾
-function orderedChildren(m) {
-  const list = m.children || []
-  const order = (prefs.state.subMenuOrder || {})[m.index] || []
-  if (!order.length) return list
-  const map = new Map(list.map((c) => [c.index, c]))
-  const out = []
-  for (const idx of order) {
-    const c = map.get(idx)
-    if (c) { out.push(c); map.delete(idx) }
-  }
-  for (const c of map.values()) out.push(c)
-  return out
-}
-
-// 子项拖拽：只在同一分组内排序（跨组移动没意义，菜单层级由后端权限结构决定）
+const dragStep = ref(48)
 const subDrag = ref({ group: '', from: -1 })
 const subOver = ref({ group: '', index: -1 })
-function onSubDragStart(group, i, e) {
-  e.stopPropagation()   // 关键：不阻断会冒泡到父级 el-sub-menu，变成整组移动
-  subDrag.value = { group, from: i }
-  try {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', String(i))
-  } catch { /* ignore */ }
+const subStep = ref(60)
+const justDragged = ref(false)
+let press = null
+
+function measureStep(el, gap) {
+  if (!el) return 48
+  const cs = getComputedStyle(el)
+  const mt = parseFloat(cs.marginTop) || 0
+  const mb = parseFloat(cs.marginBottom) || 0
+  return Math.round((el.offsetHeight || 42) + mt + mb + (gap || 0))
 }
-function onSubDragOver(group, i, e) {
-  e.preventDefault()
-  e.stopPropagation()
-  subOver.value = { group, index: i }
+function rectsOf(items) {
+  return items.map((el) => {
+    const r = el.getBoundingClientRect()
+    return { top: r.top, bottom: r.bottom }
+  })
 }
-function onSubDragEnd() {
+function indexAtY(rects, y) {
+  for (let i = 0; i < rects.length; i++) if (y >= rects[i].top && y <= rects[i].bottom) return i
+  if (!rects.length) return -1
+  return y < rects[0].top ? 0 : rects.length - 1
+}
+/** 让位位移：from<over 时区间内整体上移一格，from>over 时下移一格 */
+function menuShift(i) {
+  const from = dragFrom.value, over = dragOver.value
+  if (from < 0 || over < 0 || from === over || i === from) return 0
+  if (from < over && i > from && i <= over) return -dragStep.value
+  if (from > over && i >= over && i < from) return dragStep.value
+  return 0
+}
+function menuStyle(i) {
+  const y = menuShift(i)
+  return y ? { transform: 'translateY(' + y + 'px)' } : null
+}
+function subShift(i) {
+  const from = subDrag.value.from, over = subOver.value.index
+  if (subDrag.value.group !== subOver.value.group) return 0
+  if (from < 0 || over < 0 || from === over || i === from) return 0
+  if (from < over && i > from && i <= over) return -subStep.value
+  if (from > over && i >= over && i < from) return subStep.value
+  return 0
+}
+function subStyle(i) {
+  const y = subShift(i)
+  return y ? { transform: 'translateY(' + y + 'px)' } : null
+}
+
+function onPressStart(kind, group, i, e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  const el = e.currentTarget
+  const box = el && el.parentElement
+  const sel = kind === 'primary' ? ':scope > li' : ':scope > .ms-item, :scope > .el-menu-item'
+  const items = box ? [...box.querySelectorAll(sel)] : [el]
+  press = {
+    kind,
+    group,
+    i,
+    y: e.clientY,
+    active: false,
+    rects: rectsOf(items),
+    step: measureStep(el, kind === 'sub' && el.classList.contains('ms-item') ? 4 : 0),
+  }
+  window.addEventListener('pointermove', onPressMove)
+  window.addEventListener('pointerup', onPressUp, { once: true })
+  window.addEventListener('pointercancel', onPressUp, { once: true })
+}
+
+function onPressMove(e) {
+  if (!press) return
+  if (!press.active) {
+    if (Math.abs(e.clientY - press.y) < 5) return   // 5px 内视为点击，不打断正常跳转
+    press.active = true
+    if (press.kind === 'primary') {
+      dragStep.value = press.step
+      dragFrom.value = press.i
+      dragOver.value = press.i
+    } else {
+      subStep.value = press.step
+      subDrag.value = { group: press.group, from: press.i }
+      subOver.value = { group: press.group, index: press.i }
+    }
+    document.body.classList.add('kb-dragging')
+  }
+  const i = indexAtY(press.rects, e.clientY)
+  if (i < 0) return
+  if (press.kind === 'primary') dragOver.value = i
+  else subOver.value = { group: press.group, index: i }
+}
+
+function onPressUp() {
+  window.removeEventListener('pointermove', onPressMove)
+  if (!press) return
+  const { kind, group, i, active } = press
+  press = null
+  document.body.classList.remove('kb-dragging')
+  if (!active) return
+  justDragged.value = true
+  setTimeout(() => { justDragged.value = false }, 0)
+  if (kind === 'primary') commitMenuOrder(i, dragOver.value)
+  else commitSubOrder(group, i, subOver.value.index)
+  dragFrom.value = -1
+  dragOver.value = -1
   subDrag.value = { group: '', from: -1 }
   subOver.value = { group: '', index: -1 }
 }
-function onSubDrop(group, i, e) {
-  e.stopPropagation()
-  const from = subDrag.value.group === group ? subDrag.value.from : -1
-  onSubDragEnd()
-  if (from < 0 || from === i) return
+
+function commitMenuOrder(from, to) {
+  if (from < 0 || to < 0 || from === to) return
+  const arr = orderedMenus.value.map((m) => m.index)
+  const [moved] = arr.splice(from, 1)
+  arr.splice(to, 0, moved)
+  prefs.set({ menuOrder: arr })
+  ElMessage.success('菜单顺序已保存')
+}
+function commitSubOrder(group, from, to) {
+  if (from < 0 || to < 0 || from === to) return
   const m = orderedMenus.value.find((x) => x.index === group)
   if (!m) return
   const arr = orderedChildren(m).map((c) => c.index)
   const [moved] = arr.splice(from, 1)
-  arr.splice(i, 0, moved)
+  arr.splice(to, 0, moved)
   prefs.set({ subMenuOrder: { ...(prefs.state.subMenuOrder || {}), [group]: arr } })
   ElMessage.success('子菜单顺序已保存')
+}
+
+/** 拖拽结束后紧跟的 click 要吞掉，否则会误跳转 */
+function onCaptureClick(e) {
+  if (!justDragged.value) return
+  e.stopPropagation()
+  e.preventDefault()
+}
+function onMixedItemClick(it) {
+  if (justDragged.value) return
+  router.push(it.index)
 }
 
 function onLogout() {
@@ -627,49 +719,47 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
       </div>
 
       <!-- 混合双列：左侧只有当前一级的二级项（图标 + 竖排文字，可拖拽排序），一级在顶部通栏 -->
-      <div v-if="isMixedNav" class="mixed-side">
+      <Transition v-if="isMixedNav" name="ms-switch" mode="out-in">
+      <div :key="activePrimaryIndex" class="mixed-side">
         <button v-for="(it, ii) in secondaryItems" :key="it.index" type="button"
                 class="ms-item"
                 :class="{ on: route.path === it.index,
-                          'drag-over': subOver.group === activePrimaryIndex && subOver.index === ii }"
-                :draggable="secondaryItems.length > 1" :title="it.title"
-                @click="router.push(it.index)"
-                @dragstart="onSubDragStart(activePrimaryIndex, ii, $event)"
-                @dragover="onSubDragOver(activePrimaryIndex, ii, $event)"
-                @drop="onSubDrop(activePrimaryIndex, ii, $event)"
-                @dragend="onSubDragEnd">
+                          'drag-over': subOver.group === activePrimaryIndex && subOver.index === ii,
+                          'is-dragging': subDrag.group === activePrimaryIndex && subDrag.from === ii }"
+                :style="subStyle(ii)" :title="it.title"
+                @pointerdown="onPressStart('sub', activePrimaryIndex, ii, $event)"
+                @click="onMixedItemClick(it)">
           <MenuIcon :name="it.icon" :size="22" />
           <span class="ms-txt">{{ it.title }}</span>
         </button>
       </div>
+      </Transition>
 
       <el-menu v-else :default-active="route.path" router class="menu"
                :collapse="menuCollapsed" :collapse-transition="false">
         <template v-for="(m, i) in orderedMenus" :key="m.index">
           <el-sub-menu v-if="m.children" :index="m.index" class="drag-item"
-                       :class="{ 'drag-over': dragOver === i }" draggable="true"
-                       @dragstart="onMenuDragStart(i, $event)" @dragover="onMenuDragOver(i, $event)"
-                       @drop="onMenuDrop(i)" @dragend="onMenuDragEnd">
+                       :class="{ 'drag-over': dragOver === i, 'is-dragging': dragFrom === i }"
+                       :style="menuStyle(i)"
+                       @pointerdown="onPressStart('primary', '', i, $event)">
             <template #title>
               <MenuIcon :name="m.icon" :size="20" />
               <span>{{ m.title }}</span>
             </template>
             <el-menu-item v-for="(c, ci) in orderedChildren(m)" :key="c.index" :index="c.index"
                           class="sub-item drag-item"
-                          :class="{ 'drag-over': subOver.group === m.index && subOver.index === ci }"
-                          draggable="true"
-                          @dragstart="onSubDragStart(m.index, ci, $event)"
-                          @dragover="onSubDragOver(m.index, ci, $event)"
-                          @drop="onSubDrop(m.index, ci, $event)"
-                          @dragend="onSubDragEnd">
+                          :class="{ 'drag-over': subOver.group === m.index && subOver.index === ci,
+                                    'is-dragging': subDrag.group === m.index && subDrag.from === ci }"
+                          :style="subStyle(ci)"
+                          @pointerdown.stop="onPressStart('sub', m.index, ci, $event)">
               <MenuIcon :name="c.icon" :size="18" />
               <span>{{ c.title }}</span>
             </el-menu-item>
           </el-sub-menu>
           <el-menu-item v-else :index="m.index" class="drag-item"
-                        :class="{ 'drag-over': dragOver === i }" draggable="true"
-                        @dragstart="onMenuDragStart(i, $event)" @dragover="onMenuDragOver(i, $event)"
-                        @drop="onMenuDrop(i)" @dragend="onMenuDragEnd">
+                        :class="{ 'drag-over': dragOver === i, 'is-dragging': dragFrom === i }"
+                        :style="menuStyle(i)"
+                        @pointerdown="onPressStart('primary', '', i, $event)">
             <MenuIcon :name="m.icon" :size="20" />
             <span>{{ m.title }}</span>
           </el-menu-item>
@@ -897,7 +987,16 @@ html.dark .brand-top .brand-txt { color: #a5b4fc; }
   padding: 10px 6px 14px; overflow-y: auto; overflow-x: hidden; border-top: 1px solid #eef1f6; }
 .ms-item { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 2px;
   border: none; border-radius: 10px; background: transparent; cursor: pointer; font-family: inherit;
-  color: #64748b; flex: none; }
+  color: #64748b; flex: none; transition: background-color .13s ease, color .13s ease, transform .16s ease; }
+/* 切换一级时左侧列表的过渡：只做 opacity / transform（GPU 合成，不触发布局重排） */
+.ms-switch-enter-active { transition: opacity .14s ease-out, transform .14s ease-out; }
+.ms-switch-leave-active { transition: opacity .08s ease-in; }
+.ms-switch-enter-from { opacity: 0; transform: translateX(-5px); }
+.ms-switch-leave-to { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .ms-switch-enter-active, .ms-switch-leave-active { transition: none; }
+  .ms-item { transition: none; }
+}
 .ms-item:hover { background: #eef2ff; color: var(--el-color-primary); }
 /* 当前项用主色实底（对齐参考站：蓝底白字） */
 .ms-item.on { background: var(--el-color-primary); color: #fff; font-weight: 600; }
@@ -915,6 +1014,12 @@ html.dark .ms-item.on { background: var(--el-color-primary); color: #fff; }
 /* 拖拽排序（偏好设置 · 布局 → 菜单排序）：落点处画一条主色线 */
 .drag-item { cursor: grab; }
 .drag-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
+body.kb-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+/* 拖起项淡一点，让位的项用 transform 平移（合成层，无重排） */
+.drag-item.is-dragging, .ms-item.is-dragging { opacity: .45; }
+@media (prefers-reduced-motion: reduce) {
+  .drag-item, .ms-item { transition: none !important; }
+}
 .ms-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
 .brand {
   flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
@@ -947,13 +1052,13 @@ html.dark .aside.collapsed .brand:hover { background: #2a2a35; }
 html.dark .aside { background: #14142b; border-right-color: #26264a; }
 
 /* 二级分组（el-sub-menu）标题：圆角 pill + 加粗，作为层级锚点 */
-.menu .el-sub-menu__title { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 10px; color: #334155; font-weight: 600; transition: background-color .15s, color .15s; }
+.menu .el-sub-menu__title { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 10px; color: #334155; font-weight: 600; transition: background-color .15s, color .15s, transform .16s ease; }
 html.dark .menu .el-sub-menu__title { color: #c3c4d8; }
 .menu .el-sub-menu__title:hover { background: #f1f5f9; color: #4f46e5; }
 html.dark .menu .el-sub-menu__title:hover { background: #23234a; color: #a5b4fc; }
 
 /* 菜单项：圆角 pill。过渡只用 background/color，无重排重绘 */
-.menu .el-menu-item { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 10px; color: #475569; position: relative; transition: background-color .15s, color .15s; }
+.menu .el-menu-item { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 10px; color: #475569; position: relative; transition: background-color .15s, color .15s, transform .16s ease; }
 html.dark .menu .el-menu-item { color: #b7b8cd; }
 .menu .el-menu-item:hover { background: #f1f5f9; color: #4f46e5; }
 html.dark .menu .el-menu-item:hover { background: #23234a; color: #a5b4fc; }
@@ -989,7 +1094,7 @@ html.dark .top-nav { background: #17171f; border-bottom-color: #26262f; }
 .mixed-bar::-webkit-scrollbar { display: none; }
 .mb-item { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: none;
   border-radius: 8px; background: transparent; cursor: pointer; font-family: inherit; font-size: 13px;
-  color: #475569; white-space: nowrap; }
+  color: #475569; white-space: nowrap; transition: background-color .13s ease, color .13s ease; }
 .mb-item:hover { background: #f1f5f9; color: var(--el-color-primary); }
 .mb-item.on { background: #eef2ff; color: var(--el-color-primary); font-weight: 600; }
 html.dark .mb-item { color: #c7c8d4; }
