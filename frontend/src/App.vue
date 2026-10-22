@@ -344,6 +344,8 @@ const menus = computed(() => {
   if (siteConfig.length) base.push({ index: 'g-site', title: '站点设置', icon: 'Setting', children: siteConfig })
 
   if (auth.loggedIn) {
+    // 偏好设置紧邻个人资料（2026-10-22：只放头像下拉时用户找不到，提到侧边栏一级入口）
+    base.push({ index: '/preferences', title: '偏好设置', icon: 'Setting' })
     // 个人资料放在最底部，符合常见布局习惯
     base.push({ index: '/profile', title: '个人资料', icon: 'UserFilled' })
   }
@@ -512,6 +514,10 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                  @keyup.enter="doGlobalSearch" />
         </div>
         <div class="right">
+          <el-button v-if="auth.loggedIn" class="pref-btn" text circle title="偏好设置"
+                     @click="router.push('/preferences')">
+            <el-icon size="18"><Setting /></el-icon>
+          </el-button>
           <el-button class="help-btn" text circle title="帮助中心" @click="openHelp">
             <el-icon size="18"><InfoFilled /></el-icon>
           </el-button>
@@ -939,6 +945,11 @@ html.dark .cmd-k { background: #23232e; border-color: #3a3a4a; color: #8b8b9a; }
 .help-btn:hover { background: #eef2ff; }
 html.dark .help-btn { color: #c7c8d4; }
 html.dark .help-btn:hover { background: #232347; }
+/* 偏好设置齿轮：与帮助按钮同尺寸同色系，放在其左侧 */
+.pref-btn { padding: 7px; color: #64748b; }
+.pref-btn:hover { background: #f1f5f9; }
+html.dark .pref-btn { color: #c7c8d4; }
+html.dark .pref-btn:hover { background: #232347; }
 
 /* 帮助中心弹窗 */
 .help-wrap { display: flex; gap: 16px; height: 60vh; }
