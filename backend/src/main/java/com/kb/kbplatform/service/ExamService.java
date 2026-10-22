@@ -127,11 +127,6 @@ public class ExamService {
     public ExamRecord start(Long userId, Long paperId) {
         ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
         if (!"PUBLISHED".equals(paper.getStatus())) throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
-        // 考试次数上限（外部审查 2026-10-11）：同一试卷不限次重考可反复刷通过记录/积分，
-        // 上限 10 次（含进行中）。到限后联系管理员删除记录重置。
-        if (recordRepo.countByUserIdAndPaperId(userId, paperId) >= 10) {
-            throw new ResponseStatusException(BAD_REQUEST, "该试卷考试次数已达上限（10 次），如需重考请联系管理员");
-        }
         // #4 复用进行中记录：避免刷新/重连产生孤儿记录。
         // 但已超时的进行中记录不能再复用（否则等于把限时考试变成不限时）：
         // 就地按「超时未交」结算关闭，再新建一条记录（F07）。
@@ -141,6 +136,12 @@ public class ExamService {
         for (ExamRecord old : inProgress) {
             if (!expired(old)) return old;
             settleExpired(old);
+        }
+        // 考试次数上限（外部审查 2026-10-11）：同一试卷不限次重考可反复刷通过记录/积分，
+        // 上限 10 次。**必须在复用/结算之后**判断（审查 r12）：否则 9 次已完成 + 1 条进行中
+        // 会被直接拒绝，而那条进行中本可以继续作答。
+        if (recordRepo.countByUserIdAndPaperId(userId, paperId) >= 10) {
+            throw new ResponseStatusException(BAD_REQUEST, "该试卷考试次数已达上限（10 次），如需重考请联系管理员");
         }
         // #2 结业考试前置校验：若该试卷是某课程的结业考试，须学完所有章节才能考
         // 结业考试可能被多门课程绑定：必须学完【每一门】绑定课程的全部章节（此前只校验第一门，
@@ -509,6 +510,8 @@ public class ExamService {
     }
     private static final Map<String, PracticeSession> SESSIONS = new ConcurrentHashMap<>();
     private static final Map<Long, long[]> CHECK_RATE = new ConcurrentHashMap<>();
+    /** 限流表清理计数器（每 200 次判分扫一次过期条目，避免每次请求都 O(n)） */
+    private final java.util.concurrent.atomic.AtomicInteger rateSweep = new java.util.concurrent.atomic.AtomicInteger();
     private static final long SESSION_TTL_MS = 2 * 60 * 60 * 1000L;
 
     /** 用户「进行中考试」涉及的所有题目：这些题在交卷前不允许通过练习接口取答案 */
@@ -530,6 +533,10 @@ public class ExamService {
             if (now - st[0] > 60_000L) { st[0] = now; st[1] = 0; }
             if (++st[1] > 120)
                 throw new ResponseStatusException(TOO_MANY_REQUESTS, "练习判分太频繁，请稍后再试");
+        }
+        // 只增不删会让这张表按用户数无限长（审查 r12 Medium）：过阈值时按窗口清理过期条目
+        if (CHECK_RATE.size() > 2000 && (rateSweep.incrementAndGet() % 200 == 0)) {
+            CHECK_RATE.entrySet().removeIf((e) -> now - e.getValue()[0] > 120_000L);
         }
     }
 
@@ -578,6 +585,14 @@ public class ExamService {
 
         long now = System.currentTimeMillis();
         SESSIONS.entrySet().removeIf((e) -> e.getValue().expireAt < now);
+        // 上限保护（审查 r12）：内存会话表不能无界增长，超量时按到期时间淘汰最早的一批
+        if (SESSIONS.size() > 3000) {
+            SESSIONS.entrySet().stream()
+                    .sorted(java.util.Comparator.comparingLong((Map.Entry<String, PracticeSession> e) -> e.getValue().expireAt))
+                    .limit(SESSIONS.size() - 2500L)
+                    .map(Map.Entry::getKey).toList()
+                    .forEach(SESSIONS::remove);
+        }
         Set<Long> qids = new HashSet<>();
         for (Map<String, Object> m : qs) qids.add(((Number) m.get("id")).longValue());
         String sid = UUID.randomUUID().toString().replace("-", "");

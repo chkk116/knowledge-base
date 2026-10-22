@@ -56,8 +56,9 @@ public class AdminExamController {
                                             @RequestBody(required = false) Map<String, Object> body) {
         requirePerm(c, "EXAM_MANAGE");
         Object raw = body == null ? null : body.get("enabled");
-        boolean enabled = raw == null || Boolean.parseBoolean(String.valueOf(raw));
-        return svc.setPaperMock(id, enabled);
+        // 缺省即生效太危险（空 body 会把试卷设为全站模拟卷，审查 r12）：必须显式传 enabled
+        if (raw == null) throw new ResponseStatusException(BAD_REQUEST, "缺少 enabled 参数");
+        return svc.setPaperMock(id, Boolean.parseBoolean(String.valueOf(raw)));
     }
 
     // ---------- 题库 ----------
@@ -78,6 +79,8 @@ public class AdminExamController {
     @PostMapping("/questions")
     public Question createQuestion(@RequestAttribute("kbUser") TokenClaims c, @RequestBody QuestionReq req) {
         requirePerm(c, "EXAM_MANAGE");
+        if (req == null || req.question == null)
+            throw new ResponseStatusException(BAD_REQUEST, "缺少题目内容");
         req.question.setId(null);   // 同 H1：POST 强制新建，防 id 指定覆盖已有题目
         return svc.adminSaveQuestion(req.question, req.options);
     }
@@ -85,6 +88,8 @@ public class AdminExamController {
     @PutMapping("/questions/{id}")
     public Question updateQuestion(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id, @RequestBody QuestionReq req) {
         requirePerm(c, "EXAM_MANAGE");
+        if (req == null || req.question == null)
+            throw new ResponseStatusException(BAD_REQUEST, "缺少题目内容");
         // 定向 findById 替代「全量拉题库再 stream 过滤」（2026-10-13 审查 M9）
         Question ex = svc.adminGetQuestion(id);
         if (req.question.getContent() != null) ex.setContent(req.question.getContent());
@@ -111,8 +116,8 @@ public class AdminExamController {
         if (ids.isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "未选择要删除的题目");
         int n = 0;
         for (Long id : ids) {
-            svc.adminDeleteQuestion(id);
-            n++;
+            // 并发/重复点击时 id 可能已被删：跳过而不是整批 500（审查 r12）
+            try { svc.adminDeleteQuestion(id); n++; } catch (IllegalArgumentException ignore) { }
         }
         return Map.of("ok", true, "deleted", n);
     }
@@ -195,8 +200,7 @@ public class AdminExamController {
         if (ids.isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "未选择要删除的试卷");
         int n = 0;
         for (Long id : ids) {
-            svc.adminDeletePaper(id);
-            n++;
+            try { svc.adminDeletePaper(id); n++; } catch (IllegalArgumentException ignore) { }
         }
         return Map.of("ok", true, "deleted", n);
     }

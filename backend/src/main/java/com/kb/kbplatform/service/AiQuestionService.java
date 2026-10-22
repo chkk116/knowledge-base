@@ -345,11 +345,15 @@ public class AiQuestionService {
 
     private void throttle(Long userId) {
         long now = System.currentTimeMillis();
-        Long prev = lastCall.get(userId);
-        if (prev != null && now - prev < MIN_INTERVAL_MS)
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "出题请求太频繁，请稍后再试");
-        lastCall.put(userId, now);
-        if (lastCall.size() > 5000) lastCall.clear();
+        // 出题是低频重操作，直接串行化判定，避免 check-then-act 竞态（审查 r12）
+        synchronized (lastCall) {
+            Long prev = lastCall.get(userId);
+            if (prev != null && now - prev < MIN_INTERVAL_MS)
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "出题请求太频繁，请稍后再试");
+            lastCall.put(userId, now);
+            // 全量 clear 会把所有人的窗口一起清空：只清超过窗口期的旧条目
+            if (lastCall.size() > 5000) lastCall.entrySet().removeIf((e) -> now - e.getValue() > MIN_INTERVAL_MS);
+        }
     }
 
     private static List<String> cleanUrls(List<String> raw) {

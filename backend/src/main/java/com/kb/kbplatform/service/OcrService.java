@@ -149,7 +149,8 @@ public class OcrService {
         // 客户端复用（审查 r11 High）：原来每次识别都新建 HttpClient + RestClient，
         // 每次带独立连接池与 selector 线程，高并发下线程/FD 会堆积
         RestClient client = clientFor(conf);
-        String mime = contentType.toLowerCase().contains("jpg") ? "image/jpeg" : contentType.toLowerCase();
+        String ct = contentType == null ? "" : contentType.toLowerCase();   // public 方法自保（审查 r12）
+        String mime = ct.contains("jpg") ? "image/jpeg" : (ct.isEmpty() ? "image/jpeg" : ct);
         String dataUrl = "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(imageBytes);
 
         Map<String, Object> textPart = Map.of("type", "text", "text",
@@ -209,20 +210,28 @@ public class OcrService {
     /** 按「端点 + Key」缓存 RestClient；配置换了才会新建（Key 轮换时旧实例自然被淘汰） */
     private RestClient clientFor(VisionConfig conf) {
         String cacheKey = conf.baseUrl() + "|" + conf.apiKey();
-        if (clientCache.size() > 8) clientCache.clear();   // 极端情况防止无限增长
-        return clientCache.computeIfAbsent(cacheKey, (k) -> {
+        RestClient hit = clientCache.get(cacheKey);
+        if (hit != null) return hit;
+        // 持锁创建/清理：原来的「size>8 就 clear」是 check-then-act，并发下会清掉
+        // 别的线程刚建好、正在复用的实例（审查 r12）
+        synchronized (clientCache) {
+            hit = clientCache.get(cacheKey);
+            if (hit != null) return hit;
+            if (clientCache.size() > 8) clientCache.clear();
             JdkClientHttpRequestFactory rf = new JdkClientHttpRequestFactory(
                     java.net.http.HttpClient.newBuilder()
                             .connectTimeout(Duration.ofSeconds(10))
                             .build());
             rf.setReadTimeout(Duration.ofSeconds(120));
-            return RestClient.builder()
+            RestClient created = RestClient.builder()
                     .baseUrl(conf.baseUrl())
                     .requestFactory(rf)
                     .defaultHeader("Authorization", "Bearer " + conf.apiKey())
                     .defaultHeader("Content-Type", "application/json")
                     .build();
-        });
+            clientCache.put(cacheKey, created);
+            return created;
+        }
     }
 
     /** 识别文本 → 简单段落 HTML（<p>每行一段</p>），交给 HtmlSanitizer 净化后可直接作为 Tiptap 文档内容 */
@@ -243,10 +252,16 @@ public class OcrService {
         String t = s.trim();
         // 4.1V-Thinking：正式答案夹在 box 标记之间，标记外是模型解释，只取标记内
         if (t.contains(BOX_BEGIN)) {
-            int b = t.indexOf(BOX_BEGIN) + BOX_BEGIN.length();
-            int e = t.indexOf(BOX_END, b);
-            if (e > b) t = t.substring(b, e);
-            else t = t.substring(b);
+            // 思考模型会输出多对标记（思考过程一对、最终答案一对）：取**最后一对**，
+            // 取第一对会把思考草稿当正文（审查 r12）
+            int end = t.lastIndexOf(BOX_END);
+            int begin = end > 0 ? t.lastIndexOf(BOX_BEGIN, end) : -1;
+            if (begin >= 0 && end > begin + BOX_BEGIN.length()) {
+                t = t.substring(begin + BOX_BEGIN.length(), end);
+            } else {
+                int b = t.indexOf(BOX_BEGIN) + BOX_BEGIN.length();
+                t = t.substring(b).replace(BOX_END, "");
+            }
         }
         t = t.trim();
         if (t.startsWith("```")) {
@@ -267,12 +282,15 @@ public class OcrService {
     static boolean looksLikeChatter(String s) {
         if (s == null || s.isBlank()) return false;
         String t = s.trim();
-        if (t.length() > 60) return false;                 // 够长一般是真内容
+        if (t.length() > 60 || t.contains("\n")) return false;   // 够长/多行 = 真内容
         for (String mk : CHATTER_MARKERS) {
             if (t.contains(mk)) return true;
         }
-        // 截断特征：结尾停在「内容」/「如下」/「：」，说明句子没写完
-        return t.endsWith("内容") || t.endsWith("如下") || t.endsWith("：") || t.endsWith(":");
+        // 只把「很短 + 冒号结尾 + 带元描述词」当标题式前言。
+        // 原来还判「以『内容/如下』结尾」，会把『以下内容仅供参考：』这类真实告示误杀（审查 r12）
+        if (!(t.endsWith("：") || t.endsWith(":"))) return false;
+        if (t.length() > 24) return false;
+        return t.contains("识别") || t.contains("提取") || t.contains("整理");
     }
 
     private static String escapeHtml(String s) {

@@ -37,7 +37,9 @@ export const DEFAULTS = {
 }
 
 function hexToRgb(hex) {
-  const h = String(hex || '').replace('#', '')
+  let h = String(hex || '').replace('#', '').trim()
+  // 非法色值会让 mix() 算出 NaN，写出 #NaNNaNNaN 到 CSS 变量（审查 r12 Low）
+  if (!/^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(h)) h = '4f46e5'
   const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
   return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)]
 }
@@ -93,17 +95,45 @@ export function applyPrefs(p) {
   }
 }
 
+/** 枚举型偏好的合法取值：localStorage 被改坏时回落到默认值 */
+const ENUMS = {
+  navMode: ['side', 'dual', 'top'],
+  contentWidth: ['fluid', 'fixed'],
+  density: ['normal', 'compact'],
+  theme: ['auto', 'light', 'dark'],
+  startPage: ['last', 'home'],
+}
+
+/** 收敛外部数据（localStorage）形状：类型/枚举/数组元素都要校验，非法值丢弃而非整份信任 */
+function sanitizePrefs(raw) {
+  const out = { ...DEFAULTS, menuOrder: [], subMenuOrder: {} }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out
+  for (const k of ['sidebarVisible', 'sidebarDark', 'hoverExpand']) {
+    if (typeof raw[k] === 'boolean') out[k] = raw[k]
+  }
+  for (const [k, allowed] of Object.entries(ENUMS)) {
+    if (allowed.includes(raw[k])) out[k] = raw[k]
+  }
+  if (ACCENTS.some((a) => a.key === raw.accent)) out.accent = raw.accent
+  if (Array.isArray(raw.menuOrder)) out.menuOrder = raw.menuOrder.filter((x) => typeof x === 'string')
+  if (raw.subMenuOrder && typeof raw.subMenuOrder === 'object' && !Array.isArray(raw.subMenuOrder)) {
+    for (const [k, v] of Object.entries(raw.subMenuOrder)) {
+      if (Array.isArray(v)) out.subMenuOrder[k] = v.filter((x) => typeof x === 'string')
+    }
+  }
+  return out
+}
+
 export const usePrefsStore = defineStore('prefs', () => {
   const state = ref({ ...DEFAULTS })
 
   function load() {
     try {
       const raw = JSON.parse(localStorage.getItem(KEY) || '{}')
-      state.value = { ...DEFAULTS, ...(raw && typeof raw === 'object' ? raw : {}) }
+      state.value = sanitizePrefs(raw)
     } catch {
-      state.value = { ...DEFAULTS }
+      state.value = sanitizePrefs(null)
     }
-    // 兼容旧版折叠开关（kb_sidebar_collapsed），第一次读取时并入
     return state.value
   }
 
@@ -116,7 +146,8 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   function reset() {
-    state.value = { ...DEFAULTS }
+    // 子菜单顺序也要清（审查 r12）：「恢复默认顺序」原来只清了一级菜单
+    state.value = { ...DEFAULTS, menuOrder: [], subMenuOrder: {} }
   }
 
   watch(state, () => { save(); applyPrefs(state.value) }, { deep: true })

@@ -317,7 +317,8 @@ const savePaper = () => {
     .finally(() => saving.value = false)
 }
 const delPaper = (row) => ElMessageBox.confirm('删除试卷会同时删除相关考试记录，确定？', '提示', { type: 'warning' })
-  .then(() => adminDeletePaper(row.id)).then(() => { ElMessage.success('已删除'); loadP() }).catch(() => {})
+  .then(() => adminDeletePaper(row.id)).then(() => { ElMessage.success('已删除'); loadP() })
+  .catch((e) => { if (e !== 'cancel' && e !== 'close') ElMessage.error(errMsg(e, '删除失败')) })
 
 // 模拟卷：试卷自身的属性，直接在列表里拨开关（2026-10-21 改）
 const mockSaving = ref(0)
@@ -376,6 +377,9 @@ function applyTotal() {
 const filteredQ = computed(() => questions.value.filter(q => !qSearch.value || (q.content || '').includes(qSearch.value)))
 const openAssemble = (row) => {
   selPaper.value = row
+  // 用当前试卷的值初始化（审查 r12）：原来沿用上一份卷/默认值，直接保存会把及格分改错
+  aTotal.value = row && row.totalScore > 0 ? row.totalScore : 100
+  aPass.value = Number(row?.passScore ?? 60)
   for (const k in pick) delete pick[k]
   for (const k in scores) delete scores[k]
   aDlg.value = true
@@ -389,13 +393,16 @@ const doAssemble = () => {
   saving.value = true
   adminAssemble(selPaper.value.id, items)
     .then(() => {
-      // 组卷后写回及格分（试卷表单里也能改，这里让组卷一步到位）
+      // 组卷后写回及格分（试卷表单里也能改，这里让组卷一步到位）。
+      // 回写失败不能再报「组卷失败」——组卷其实已经生效（审查 r12）
       if (selPaper.value && selPaper.value.passScore !== aPass.value) {
         const s = selPaper.value
         return adminUpdatePaper(s.id, {
           title: s.title, description: s.description, passScore: aPass.value,
           durationMin: s.durationMin, status: s.status,
           practiceEnabled: s.practiceEnabled !== false, mockEnabled: !!s.mockEnabled,
+        }).catch((e) => {
+          ElMessage.warning('组卷已生效，但及格分回写失败：' + errMsg(e, '请到试卷编辑里手动改'))
         })
       }
       return null
@@ -474,7 +481,7 @@ const loadQ = () => {
     .catch(e => ElMessage.error(errMsg(e, '加载题库失败')))
     .finally(() => loadingQ.value = false)
 }
-const loadP = () => { loadingP.value = true; adminPapers().then(r => { papers.value = r.data || r || [] }).catch(() => {}).finally(() => loadingP.value = false) }
+const loadP = () => { loadingP.value = true; adminPapers().then(r => { papers.value = r.data || r || [] }).catch((e) => ElMessage.error(errMsg(e, '加载试卷失败'))).finally(() => loadingP.value = false) }
 
 onMounted(() => { loadQ(); loadP() })
 </script>
