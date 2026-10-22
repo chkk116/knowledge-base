@@ -98,7 +98,7 @@
           <div class="switch-row">
             <div class="sw-txt">
               <b>拖拽调整菜单顺序</b>
-              <span>在侧边栏（或双列左栏）按住菜单项上下拖动，松手即保存；只影响你自己的界面，新上线的菜单会自动排在最后</span>
+              <span>在侧边栏（或双列左栏）按住菜单项上下拖动，松手即保存；分组展开后里面的子项也能拖。只影响你自己的界面，新上线的菜单会自动排在最后</span>
             </div>
             <el-button size="small" plain :disabled="!hasCustomOrder" @click="resetMenuOrder">恢复默认顺序</el-button>
           </div>

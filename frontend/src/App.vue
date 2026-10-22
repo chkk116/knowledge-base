@@ -388,7 +388,8 @@ const activePrimaryMenu = computed(
 const secondaryItems = computed(() => {
   const m = activePrimaryMenu.value
   if (!m) return []
-  return m.children && m.children.length ? m.children : [m]
+  // 有子项时同样走自定义排序，和侧边栏共用一份顺序
+  return m.children && m.children.length ? orderedChildren(m) : [m]
 })
 function pickPrimary(m) {
   // 没有子项的一级菜单点了就直接跳
@@ -422,6 +423,55 @@ function onMenuDrop(i) {
   arr.splice(i, 0, moved)
   prefs.set({ menuOrder: arr })
   ElMessage.success('菜单顺序已保存')
+}
+
+// 分组内子菜单排序：按 subMenuOrder[分组 index] 排，没排过的保持默认，新子项排末尾
+function orderedChildren(m) {
+  const list = m.children || []
+  const order = (prefs.state.subMenuOrder || {})[m.index] || []
+  if (!order.length) return list
+  const map = new Map(list.map((c) => [c.index, c]))
+  const out = []
+  for (const idx of order) {
+    const c = map.get(idx)
+    if (c) { out.push(c); map.delete(idx) }
+  }
+  for (const c of map.values()) out.push(c)
+  return out
+}
+
+// 子项拖拽：只在同一分组内排序（跨组移动没意义，菜单层级由后端权限结构决定）
+const subDrag = ref({ group: '', from: -1 })
+const subOver = ref({ group: '', index: -1 })
+function onSubDragStart(group, i, e) {
+  e.stopPropagation()   // 关键：不阻断会冒泡到父级 el-sub-menu，变成整组移动
+  subDrag.value = { group, from: i }
+  try {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(i))
+  } catch { /* ignore */ }
+}
+function onSubDragOver(group, i, e) {
+  e.preventDefault()
+  e.stopPropagation()
+  subOver.value = { group, index: i }
+}
+function onSubDragEnd() {
+  subDrag.value = { group: '', from: -1 }
+  subOver.value = { group: '', index: -1 }
+}
+function onSubDrop(group, i, e) {
+  e.stopPropagation()
+  const from = subDrag.value.group === group ? subDrag.value.from : -1
+  onSubDragEnd()
+  if (from < 0 || from === i) return
+  const m = orderedMenus.value.find((x) => x.index === group)
+  if (!m) return
+  const arr = orderedChildren(m).map((c) => c.index)
+  const [moved] = arr.splice(from, 1)
+  arr.splice(i, 0, moved)
+  prefs.set({ subMenuOrder: { ...(prefs.state.subMenuOrder || {}), [group]: arr } })
+  ElMessage.success('子菜单顺序已保存')
 }
 
 function onLogout() {
@@ -563,9 +613,15 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
         </div>
         <div class="dual-secondary">
           <div class="ds-title">{{ activePrimaryMenu ? activePrimaryMenu.title : '' }}</div>
-          <button v-for="it in secondaryItems" :key="it.index" type="button"
-                  class="ds-item" :class="{ on: route.path === it.index }"
-                  @click="router.push(it.index)">
+          <button v-for="(it, ii) in secondaryItems" :key="it.index" type="button"
+                  class="ds-item" :class="{ on: route.path === it.index,
+                                           'drag-over': subOver.group === activePrimaryIndex && subOver.index === ii }"
+                  :draggable="!!(activePrimaryMenu && activePrimaryMenu.children && activePrimaryMenu.children.length > 1)"
+                  @click="router.push(it.index)"
+                  @dragstart="onSubDragStart(activePrimaryIndex, ii, $event)"
+                  @dragover="onSubDragOver(activePrimaryIndex, ii, $event)"
+                  @drop="onSubDrop(activePrimaryIndex, ii, $event)"
+                  @dragend="onSubDragEnd">
             <MenuIcon :name="it.icon" :size="16" />
             <span class="ds-txt">{{ it.title }}</span>
           </button>
@@ -583,7 +639,14 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
               <MenuIcon :name="m.icon" :size="20" />
               <span>{{ m.title }}</span>
             </template>
-            <el-menu-item v-for="c in m.children" :key="c.index" :index="c.index" class="sub-item">
+            <el-menu-item v-for="(c, ci) in orderedChildren(m)" :key="c.index" :index="c.index"
+                          class="sub-item drag-item"
+                          :class="{ 'drag-over': subOver.group === m.index && subOver.index === ci }"
+                          draggable="true"
+                          @dragstart="onSubDragStart(m.index, ci, $event)"
+                          @dragover="onSubDragOver(m.index, ci, $event)"
+                          @drop="onSubDrop(m.index, ci, $event)"
+                          @dragend="onSubDragEnd">
               <MenuIcon :name="c.icon" :size="18" />
               <span>{{ c.title }}</span>
             </el-menu-item>
@@ -844,6 +907,7 @@ html.dark .ds-title { color: #7c7f92; }
 .drag-item { cursor: grab; }
 .drag-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
 .dp-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
+.ds-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
 .brand {
   flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
   padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;

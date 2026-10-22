@@ -33,6 +33,7 @@ export const DEFAULTS = {
   theme: 'auto',          // auto=跟随系统 / light / dark
   startPage: 'last',      // last=上次访问 / home=首页（登录后落地）
   menuOrder: [],          // 侧边/双列一级菜单的自定义顺序（存 menu.index 数组）
+  subMenuOrder: {},       // 分组内子菜单顺序：{ 'g-content': ['/admin/users', ...] }
 }
 
 function hexToRgb(hex) {
