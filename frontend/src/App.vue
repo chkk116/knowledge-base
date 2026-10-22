@@ -379,8 +379,6 @@ const orderedMenus = computed(() => {
 // 双列菜单：只在宽屏生效（窄屏没有横向空间，回退侧边抽屉）
 // 混合双列：顶部放一级导航，左侧保留双列（窄图标栏 + 二级列），只在宽屏生效
 const isMixedNav = computed(() => prefs.state.navMode === 'dual' && !isNarrow.value)
-// 顶部条：纯顶部导航 或 混合双列 都要渲染
-const showTopBar = computed(() => isTopNav.value || isMixedNav.value)
 
 // 双列左栏选中的一级菜单：默认跟随当前路由，点其它一级时临时切换
 const primaryOverride = ref('')
@@ -596,6 +594,22 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
     :rotate="wm.config.rotate"
     :gap="wmGap"
     :z-index="wm.config.zIndex">
+  <div class="app-shell" :class="{ 'is-mixed': isMixedNav }">
+  <!-- 混合双列：顶部通栏一级导航（logo + 一级菜单），左侧双列在它下方 -->
+  <nav v-if="isMixedNav" class="top-nav top-nav--mixed top-nav--global">
+    <div class="brand-top" @click="goHome">
+      <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
+      <span class="brand-txt">知识库</span>
+    </div>
+    <div class="mixed-bar">
+      <button v-for="m in orderedMenus" :key="m.index" type="button" class="mb-item"
+              :class="{ on: m.index === activePrimaryIndex }" :title="m.title"
+              @click="onMixedPrimaryClick(m)">
+        <MenuIcon :name="m.icon" :size="16" />
+        <span>{{ m.title }}</span>
+      </button>
+    </div>
+  </nav>
   <el-container class="layout" :class="{ 'is-narrow': isNarrow, 'nav-top': isTopNav, 'nav-mixed': isMixedNav }">
     <!-- 窄屏抽屉遮罩：点击关闭 -->
     <div v-if="isNarrow && drawerOpen" class="aside-mask" @click="drawerOpen = false"></div>
@@ -605,7 +619,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
               :class="{ collapsed: menuCollapsed, 'is-drawer': isNarrow, 'drawer-open': drawerOpen,
                         'dark-menu': prefs.state.sidebarDark, dual: isMixedNav }"
               @mouseenter="hoveringAside = true" @mouseleave="hoveringAside = false">
-      <div class="brand" :title="menuCollapsed ? '知识库' : ''" @click="goHome">
+      <div v-if="!isMixedNav" class="brand" :title="menuCollapsed ? '知识库' : ''" @click="goHome">
         <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
         <span v-show="!menuCollapsed" class="brand-txt">知识库</span>
       </div>
@@ -750,17 +764,9 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
         </div>
       </el-header>
 
-      <!-- 顶部导航条：纯顶部模式（含二级下拉）或混合双列模式（只放一级，点它切左侧） -->
-      <nav v-if="showTopBar" class="top-nav" :class="{ 'top-nav--mixed': isMixedNav }">
-        <div v-if="isMixedNav" class="mixed-bar">
-          <button v-for="m in orderedMenus" :key="m.index" type="button" class="mb-item"
-                  :class="{ on: m.index === activePrimaryIndex }" :title="m.title"
-                  @click="onMixedPrimaryClick(m)">
-            <MenuIcon :name="m.icon" :size="16" />
-            <span>{{ m.title }}</span>
-          </button>
-        </div>
-        <el-menu v-else mode="horizontal" :default-active="route.path" router :ellipsis="true" class="top-menu">
+      <!-- 纯顶部导航条（混合双列的顶部条已提到最外层通栏） -->
+      <nav v-if="isTopNav" class="top-nav">
+        <el-menu mode="horizontal" :default-active="route.path" router :ellipsis="true" class="top-menu">
           <template v-for="m in menus" :key="m.index">
             <el-sub-menu v-if="m.children" :index="m.index">
               <template #title>
@@ -856,6 +862,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
       </template>
     </el-dialog>
   </el-container>
+  </div>
   </el-watermark>
   <!-- 全局命令面板（Ctrl/⌘ + K）：只在带菜单的主界面挂载，登录页/独立阅读窗不掺和 -->
   <CommandPalette v-if="!barePage" />
@@ -872,7 +879,16 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
   white-space: normal; line-height: 1.5; height: auto;
   padding-top: 6px; padding-bottom: 6px;
 }
+.app-shell { height: 100vh; display: flex; flex-direction: column; }
+.app-shell > .layout { flex: 1 1 auto; min-height: 0; height: auto; }
 .layout { height: 100vh; }
+/* 混合双列顶部通栏：logo + 一级菜单 */
+.top-nav--global { display: flex; align-items: center; gap: 12px; padding: 0 12px; flex: none; }
+.brand-top { display: flex; align-items: center; gap: 8px; padding-right: 10px; cursor: pointer; flex: none; }
+.brand-top .brand-ico { width: 26px; height: 26px; object-fit: contain; }
+.brand-top .brand-txt { font-size: 15px; font-weight: 700; color: #4f46e5; white-space: nowrap; }
+.top-nav--global .mixed-bar { flex: 1 1 auto; height: 52px; }
+html.dark .brand-top .brand-txt { color: #a5b4fc; }
 .aside { background: #fff; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; }
 /* 深色菜单（偏好设置 · 布局 → 深色菜单）：只换侧栏底色与菜单文字，不影响内容区 */
 .aside.dark-menu { background: #1e1b4b; border-right-color: #2b2a4a; }
