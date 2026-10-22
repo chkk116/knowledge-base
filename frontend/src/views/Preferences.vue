@@ -50,7 +50,7 @@
               <span class="layout-name">{{ m.name }}</span>
             </button>
           </div>
-          <p class="sec-tip">侧边导航：菜单全在左侧；混合双列：顶部放一级、左侧放二级（图标条 + 二级列）；顶部导航：全部横排。</p>
+          <p class="sec-tip">侧边导航：菜单全在左侧；混合双列：顶部放一级、左侧只放当前一级的二级项（图标 + 竖排文字）；顶部导航：全部横排。</p>
         </section>
 
         <section class="pf-sec">
@@ -224,9 +224,8 @@ void DEFAULTS
 .mini-side .m-top { display: none; }
 /* 混合双列：顶部一级条 + 左侧图标条 + 二级列 */
 .mini-dual .m-top { height: 9px; }
-.mini-dual .m-side { width: 12px; top: 9px; }
-.mini-dual .m-body { left: 30px; right: 6px; top: 15px; height: 32px; }
-.mini-dual .m-body::before { content: ''; position: absolute; left: -10px; top: -6px; bottom: -6px; width: 1px; background: var(--el-border-color); }
+.mini-dual .m-side { width: 17px; top: 9px; }
+.mini-dual .m-body { left: 24px; right: 6px; top: 15px; height: 32px; }
 .mini-side .m-body { left: 26px; top: 12px; }
 .mini-top .m-side { display: none; }
 .mini-top .m-body { left: 8px; right: 8px; top: 20px; }

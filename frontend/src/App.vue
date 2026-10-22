@@ -125,13 +125,13 @@ const isTopNav = computed(() => prefs.state.navMode === 'top' && !isNarrow.value
 // 侧栏是否渲染：窄屏始终保留（抽屉），宽屏看偏好里的「显示侧边栏」
 const showAside = computed(() => {
   if (isNarrow.value) return true                       // 窄屏一律走抽屉
-  if (isMixedNav.value) return true                     // 混合双列：左侧二级栏常驻
+  if (isMixedNav.value) return secondaryItems.value.length > 0   // 混合双列：有二级项才显示
   if (isTopNav.value) return false
   return prefs.state.sidebarVisible || drawerOpen.value
 })
 const asideWidth = computed(() => {
   if (isNarrow.value) return '210px'
-  if (isMixedNav.value) return secondaryItems.value.length ? '240px' : '52px'
+  if (isMixedNav.value) return secondaryItems.value.length ? '92px' : '0px'
   return menuCollapsed.value ? '64px' : '210px'
 })
 
@@ -626,34 +626,21 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
         <span v-show="!menuCollapsed" class="brand-txt">知识库</span>
       </div>
 
-      <!-- 双列菜单：左窄栏一级（可拖拽排序）+ 右列当前一级的二级项 -->
-      <div v-if="isMixedNav" class="dual-wrap">
-        <div class="dual-primary">
-          <button v-for="(m, i) in orderedMenus" :key="m.index" type="button"
-                  class="dp-item" :class="{ on: m.index === activePrimaryIndex, 'drag-over': dragOver === i }"
-                  draggable="true" :title="m.title"
-                  @click="pickPrimary(m)"
-                  @dragstart="onMenuDragStart(i, $event)" @dragover="onMenuDragOver(i, $event)"
-                  @drop="onMenuDrop(i)" @dragend="onMenuDragEnd">
-            <MenuIcon :name="m.icon" :size="20" />
-            <span class="dp-txt">{{ m.title }}</span>
-          </button>
-        </div>
-        <div v-if="secondaryItems.length" class="dual-secondary">
-          <div class="ds-title">{{ activePrimaryMenu ? activePrimaryMenu.title : '' }}</div>
-          <button v-for="(it, ii) in secondaryItems" :key="it.index" type="button"
-                  class="ds-item" :class="{ on: route.path === it.index,
-                                           'drag-over': subOver.group === activePrimaryIndex && subOver.index === ii }"
-                  :draggable="!!(activePrimaryMenu && activePrimaryMenu.children && activePrimaryMenu.children.length > 1)"
-                  @click="router.push(it.index)"
-                  @dragstart="onSubDragStart(activePrimaryIndex, ii, $event)"
-                  @dragover="onSubDragOver(activePrimaryIndex, ii, $event)"
-                  @drop="onSubDrop(activePrimaryIndex, ii, $event)"
-                  @dragend="onSubDragEnd">
-            <MenuIcon :name="it.icon" :size="16" />
-            <span class="ds-txt">{{ it.title }}</span>
-          </button>
-        </div>
+      <!-- 混合双列：左侧只有当前一级的二级项（图标 + 竖排文字，可拖拽排序），一级在顶部通栏 -->
+      <div v-if="isMixedNav" class="mixed-side">
+        <button v-for="(it, ii) in secondaryItems" :key="it.index" type="button"
+                class="ms-item"
+                :class="{ on: route.path === it.index,
+                          'drag-over': subOver.group === activePrimaryIndex && subOver.index === ii }"
+                :draggable="secondaryItems.length > 1" :title="it.title"
+                @click="router.push(it.index)"
+                @dragstart="onSubDragStart(activePrimaryIndex, ii, $event)"
+                @dragover="onSubDragOver(activePrimaryIndex, ii, $event)"
+                @drop="onSubDrop(activePrimaryIndex, ii, $event)"
+                @dragend="onSubDragEnd">
+          <MenuIcon :name="it.icon" :size="22" />
+          <span class="ms-txt">{{ it.title }}</span>
+        </button>
       </div>
 
       <el-menu v-else :default-active="route.path" router class="menu"
@@ -904,48 +891,31 @@ html.dark .brand-top .brand-txt { color: #a5b4fc; }
 .aside.dark-menu .el-menu--inline { background: transparent; }
 .aside.dark-menu .menu .el-sub-menu .el-menu-item::after { background: rgba(255, 255, 255, .12); }
 
-/* ---- 双列菜单（偏好设置 · 布局 → 双列菜单）---- */
+/* ---- 混合双列：左侧二级图标列（偏好设置 · 布局 → 混合双列）---- */
 .aside.dual { overflow: hidden; }
-.dual-wrap { flex: 1 1 auto; display: flex; min-height: 0; border-top: 1px solid #eef1f6; }
-.dual-primary { flex: none; width: 66px; display: flex; flex-direction: column; gap: 2px;
-  padding: 8px 4px; overflow-y: auto; overflow-x: hidden; background: #fafbfc; border-right: 1px solid #eef1f6; }
-.dp-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px;
-  border: none; border-radius: 10px; background: transparent; cursor: pointer; font-family: inherit; color: #64748b; }
-.dp-item:hover { background: #eef2ff; color: var(--el-color-primary); }
-.dp-item.on { background: #eef2ff; color: var(--el-color-primary); font-weight: 600; }
-.dp-txt { font-size: 10px; line-height: 1.2; text-align: center; max-width: 58px; word-break: break-all;
+.mixed-side { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 6px 14px; overflow-y: auto; overflow-x: hidden; border-top: 1px solid #eef1f6; }
+.ms-item { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 2px;
+  border: none; border-radius: 10px; background: transparent; cursor: pointer; font-family: inherit;
+  color: #64748b; flex: none; }
+.ms-item:hover { background: #eef2ff; color: var(--el-color-primary); }
+/* 当前项用主色实底（对齐参考站：蓝底白字） */
+.ms-item.on { background: var(--el-color-primary); color: #fff; font-weight: 600; }
+.ms-txt { font-size: 11px; line-height: 1.2; text-align: center; max-width: 80px; word-break: break-all;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.dual-secondary { flex: 1 1 auto; min-width: 0; padding: 8px 6px 12px; overflow-y: auto; overflow-x: hidden; }
-.ds-title { font-size: 12px; font-weight: 600; color: #94a3b8; padding: 4px 8px 8px; }
-.ds-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; margin-bottom: 2px;
-  border: none; border-radius: 9px; background: transparent; cursor: pointer; font-family: inherit;
-  font-size: 13px; color: #475569; text-align: left; }
-.ds-item:hover { background: #f1f5f9; color: var(--el-color-primary); }
-.ds-item.on { background: #eff0fe; color: var(--el-color-primary); font-weight: 600; }
-.ds-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-html.dark .dual-wrap { border-top-color: #2a2a35; }
-html.dark .dual-primary { background: #131320; border-right-color: #2a2a35; }
-html.dark .dp-item { color: #c7c8d4; }
-html.dark .dp-item:hover, html.dark .dp-item.on { background: #232347; color: #a5b4fc; }
-html.dark .ds-item { color: #c7c8d4; }
-html.dark .ds-item:hover { background: #23232e; color: #a5b4fc; }
-html.dark .ds-item.on { background: #232347; color: #a5b4fc; }
-html.dark .ds-title { color: #7c7f92; }
-/* 深色菜单（偏好里的独立开关）叠加时优先深色菜单配色 */
-.aside.dark-menu .dual-wrap { border-top-color: rgba(255, 255, 255, .08); }
-.aside.dark-menu .dual-primary { background: rgba(0, 0, 0, .16); border-right-color: rgba(255, 255, 255, .08); }
-.aside.dark-menu .dp-item { color: #c7d2fe; }
-.aside.dark-menu .dp-item:hover, .aside.dark-menu .dp-item.on { background: rgba(129, 140, 248, .22); color: #fff; }
-.aside.dark-menu .ds-item { color: #c7d2fe; }
-.aside.dark-menu .ds-item:hover { background: rgba(255, 255, 255, .08); color: #fff; }
-.aside.dark-menu .ds-item.on { background: rgba(129, 140, 248, .28); color: #fff; }
-.aside.dark-menu .ds-title { color: #8b93c9; }
+html.dark .mixed-side { border-top-color: #2a2a35; }
+html.dark .ms-item { color: #c7c8d4; }
+html.dark .ms-item:hover { background: #23232e; color: #a5b4fc; }
+html.dark .ms-item.on { background: var(--el-color-primary); color: #fff; }
+.aside.dark-menu .mixed-side { border-top-color: rgba(255, 255, 255, .08); }
+.aside.dark-menu .ms-item { color: #c7d2fe; }
+.aside.dark-menu .ms-item:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.aside.dark-menu .ms-item.on { background: var(--el-color-primary); color: #fff; }
 
 /* 拖拽排序（偏好设置 · 布局 → 菜单排序）：落点处画一条主色线 */
 .drag-item { cursor: grab; }
 .drag-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
-.dp-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
-.ds-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
+.ms-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
 .brand {
   flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
   padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;
@@ -1025,10 +995,6 @@ html.dark .top-nav { background: #17171f; border-bottom-color: #26262f; }
 html.dark .mb-item { color: #c7c8d4; }
 html.dark .mb-item:hover { background: #23232e; color: #a5b4fc; }
 html.dark .mb-item.on { background: #232347; color: #a5b4fc; }
-/* 混合双列：左窄栏只留图标（一级文字在顶部），右列是二级 */
-.aside.dual .dp-txt { display: none; }
-.aside.dual .dual-primary { width: 52px; padding: 8px 2px; }
-.aside.dual .dp-item { padding: 9px 0; }
 html.dark .top-menu.el-menu--horizontal > .el-menu-item,
 html.dark .top-menu.el-menu--horizontal > .el-sub-menu .el-sub-menu__title { color: #c7c8d4; }
 /* 顶栏右侧所有元素统一垂直居中（含不同尺寸的圆形按钮、弹层、头像、徽章组），
