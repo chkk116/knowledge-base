@@ -32,6 +32,10 @@ export function applyTheme(next) {
     } catch (e) {
       /* 隐私模式下 localStorage 可能不可写，忽略 */
     }
+    // 广播主题变化：偏好页/系统跟随/顶栏按钮多个入口都要同步图标与水印配色
+    try {
+      window.dispatchEvent(new CustomEvent('kb:theme', { detail: { dark: next } }))
+    } catch (e) { /* ignore */ }
   }
 
   if (prefersReducedMotion()) {
@@ -51,6 +55,9 @@ export function applyTheme(next) {
       return
     }
     const cleanup = () => html.classList.remove('theme-vt')
+    // 连续切换主题时浏览器会中止上一个过渡，ready/finished 都会 reject —— 静默处理，
+    // 否则控制台出现「Transition was skipped. New ViewTransition started」的 AbortError
+    if (transition.ready && typeof transition.ready.catch === 'function') transition.ready.catch(() => {})
     transition.finished.then(cleanup, cleanup)
     return
   }

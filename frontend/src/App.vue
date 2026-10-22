@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore, permLabel } from './store/auth'
 import { useWatermarkStore, buildContent } from './store/watermark'
 import { useSiteInfoStore } from './store/siteInfo'
+import { usePrefsStore, applyPrefs } from './store/prefs'
 import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import SiteFooter from './components/SiteFooter.vue'
 import MenuIcon from './components/MenuIcon.vue'
@@ -13,7 +14,6 @@ import { reader, closeReader, startDrag, startResize, clampToViewport } from './
 import { enhanceVideos, bindImgLightbox, absolutizeMedia } from './utils/mediaEnhance'
 import { featureMap } from './api/features'
 import { appearanceLogo as siteLogo, loadAppearance, resetAppearance } from './utils/appearance'
-import { applyTheme } from './utils/theme'
 import CommandPalette from './components/CommandPalette.vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -23,6 +23,11 @@ const auth = useAuthStore()
 const notification = useNotificationStore()
 const wm = useWatermarkStore()
 const siteInfo = useSiteInfoStore()
+
+// 界面偏好（布局 / 外观 / 密度）：本地持久化，改完即时生效（2026-10-22）
+const prefs = usePrefsStore()
+prefs.load()
+applyPrefs(prefs.state)
 
 // 核心维护：功能开关状态（featureKey → { enabled, closeMode, maintenanceMsg, expectedRestoreAt }）
 const featureFlags = ref({})
@@ -110,6 +115,18 @@ function toggleSidebar() {
   localStorage.setItem('kb_sidebar_collapsed', collapsed.value ? '1' : '0')
 }
 
+// ---- 偏好设置驱动的骨架形态（2026-10-22）----
+// 侧栏折叠后，鼠标悬停可临时展开（prefs.hoverExpand），移开自动收回
+const hoveringAside = ref(false)
+const menuCollapsed = computed(() => !isNarrow.value && collapsed.value
+  && !(prefs.state.hoverExpand && hoveringAside.value))
+// 顶部导航只在宽屏生效：窄屏放不下横排菜单，一律回退到侧边抽屉
+const isTopNav = computed(() => prefs.state.navMode === 'top' && !isNarrow.value)
+// 侧栏是否渲染：窄屏始终保留（抽屉），宽屏看偏好里的「显示侧边栏」
+const showAside = computed(() => !isTopNav.value
+  && (isNarrow.value || prefs.state.sidebarVisible || drawerOpen.value))
+const asideWidth = computed(() => (isNarrow.value ? '210px' : (menuCollapsed.value ? '64px' : '210px')))
+
 // ---------- 响应式骨架 ----------
 // ≤1024px 视为窄屏：侧边栏改为抽屉（覆盖式滑出 + 遮罩），不再占文档流宽度；
 // >1024px 保持原来的"折叠/展开"两态。
@@ -128,10 +145,12 @@ onMounted(() => {
 })
 onUnmounted(() => { if (mq) mq.removeEventListener('change', onMqChange) })
 
-// 顶栏菜单按钮：窄屏开合抽屉，宽屏折叠侧栏
+// 顶栏菜单按钮：窄屏开合抽屉；顶部导航模式无侧栏；侧栏被隐藏时先唤回
 function toggleMenu() {
-  if (isNarrow.value) drawerOpen.value = !drawerOpen.value
-  else toggleSidebar()
+  if (isNarrow.value) { drawerOpen.value = !drawerOpen.value; return }
+  if (prefs.state.navMode === 'top') return
+  if (!prefs.state.sidebarVisible) { prefs.set({ sidebarVisible: true }); return }
+  toggleSidebar()
 }
 // 窄屏下点菜单跳转后自动收起抽屉（否则菜单挡住内容）
 watch(() => route.fullPath, () => { drawerOpen.value = false })
@@ -231,12 +250,22 @@ const isDark = ref(document.documentElement.classList.contains('dark'))
 const spinning = ref(false)
 function toggleTheme() {
   const next = !isDark.value
-  applyTheme(next)          // 整页柔和淡入（不支持则回退全局颜色过渡）
+  // 顶栏按钮视为「显式选择」，覆盖偏好里的「跟随系统」；主题 class 由 prefs 的 watch 统一 apply
+  prefs.set({ theme: next ? 'dark' : 'light' })
   isDark.value = next
   wm.dark = next            // 同步水印暗色状态，使水印颜色按主题自适应（暗色下用浅色，保证可见）
   spinning.value = true     // 图标旋转一次
   setTimeout(() => (spinning.value = false), 520)
 }
+
+// 主题来源可能有三处：偏好页、跟随系统、顶栏按钮 —— 统一由 kb:theme 事件同步图标与水印配色
+function onThemeChanged(e) {
+  const dark = !!e?.detail?.dark
+  isDark.value = dark
+  wm.dark = dark
+}
+window.addEventListener('kb:theme', onThemeChanged)
+onUnmounted(() => window.removeEventListener('kb:theme', onThemeChanged))
 
 // 菜单项：按角色个性化
 //  - 所有登录用户：写文章、我的帖子
@@ -431,18 +460,21 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
     :rotate="wm.config.rotate"
     :gap="wmGap"
     :z-index="wm.config.zIndex">
-  <el-container class="layout" :class="{ 'is-narrow': isNarrow }">
+  <el-container class="layout" :class="{ 'is-narrow': isNarrow, 'nav-top': isTopNav }">
     <!-- 窄屏抽屉遮罩：点击关闭 -->
     <div v-if="isNarrow && drawerOpen" class="aside-mask" @click="drawerOpen = false"></div>
-    <el-aside :width="isNarrow ? '210px' : (collapsed ? '64px' : '210px')"
+    <el-aside v-if="showAside"
+              :width="asideWidth"
               class="aside"
-              :class="{ collapsed: collapsed && !isNarrow, 'is-drawer': isNarrow, 'drawer-open': drawerOpen }">
-      <div class="brand" :title="collapsed ? '知识库' : ''" @click="goHome">
+              :class="{ collapsed: menuCollapsed, 'is-drawer': isNarrow, 'drawer-open': drawerOpen,
+                        'dark-menu': prefs.state.sidebarDark }"
+              @mouseenter="hoveringAside = true" @mouseleave="hoveringAside = false">
+      <div class="brand" :title="menuCollapsed ? '知识库' : ''" @click="goHome">
         <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
-        <span v-show="!collapsed" class="brand-txt">知识库</span>
+        <span v-show="!menuCollapsed" class="brand-txt">知识库</span>
       </div>
       <el-menu :default-active="route.path" router class="menu"
-               :collapse="collapsed" :collapse-transition="false">
+               :collapse="menuCollapsed" :collapse-transition="false">
         <template v-for="m in menus" :key="m.index">
           <el-sub-menu v-if="m.children" :index="m.index">
             <template #title>
@@ -465,10 +497,11 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
     <el-container>
       <el-header class="header">
         <div class="head-left">
-          <el-button class="fold-btn" text
-                     :title="isNarrow ? '打开菜单' : (collapsed ? '展开菜单' : '收起菜单')"
+          <el-button v-if="!isTopNav" class="fold-btn" text
+                     :title="isNarrow ? '打开菜单'
+                       : (!prefs.state.sidebarVisible ? '显示侧边栏' : (menuCollapsed ? '展开菜单' : '收起菜单'))"
                      @click="toggleMenu">
-            <el-icon size="18"><component :is="(isNarrow ? !drawerOpen : collapsed) ? 'Expand' : 'Fold'" /></el-icon>
+            <el-icon size="18"><component :is="(isNarrow ? !drawerOpen : menuCollapsed) ? 'Expand' : 'Fold'" /></el-icon>
           </el-button>
           <div class="crumb">{{ route.meta.title || '知识库' }}</div>
         </div>
@@ -521,7 +554,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                       权限：{{ permText }}
                     </el-dropdown-item>
                     <el-dropdown-item disabled>积分：{{ auth.user?.points || 0 }}</el-dropdown-item>
-                    <el-dropdown-item divided @click="goProfile">个人资料</el-dropdown-item>
+                    <el-dropdown-item divided @click="router.push('/preferences')">偏好设置</el-dropdown-item>
+                    <el-dropdown-item @click="goProfile">个人资料</el-dropdown-item>
                     <el-dropdown-item @click="onLogout">退出登录</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -531,6 +565,28 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
           <el-button v-else type="primary" @click="router.push('/login')">登录</el-button>
         </div>
       </el-header>
+
+      <!-- 顶部导航模式：菜单横向铺在顶栏下方（偏好设置 · 布局 → 导航位置） -->
+      <nav v-if="isTopNav" class="top-nav">
+        <el-menu mode="horizontal" :default-active="route.path" router :ellipsis="true" class="top-menu">
+          <template v-for="m in menus" :key="m.index">
+            <el-sub-menu v-if="m.children" :index="m.index">
+              <template #title>
+                <MenuIcon :name="m.icon" :size="18" />
+                <span>{{ m.title }}</span>
+              </template>
+              <el-menu-item v-for="c in m.children" :key="c.index" :index="c.index">
+                <MenuIcon :name="c.icon" :size="16" />
+                <span>{{ c.title }}</span>
+              </el-menu-item>
+            </el-sub-menu>
+            <el-menu-item v-else :index="m.index">
+              <MenuIcon :name="m.icon" :size="18" />
+              <span>{{ m.title }}</span>
+            </el-menu-item>
+          </template>
+        </el-menu>
+      </nav>
 
       <!-- 顶部多标签页：首页固定，其余可关闭（参考中后台常见交互） -->
       <nav v-if="tabs.length" class="tabbar">
@@ -561,7 +617,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
         <button type="button" class="danger" @click="closeAllTabs(); closeTabMenu()">全部关闭</button>
       </div>
 
-      <el-main class="main">
+      <el-main class="main" :class="{ 'is-fixed': prefs.state.contentWidth === 'fixed' }">
         <!-- 演示账号横幅：全局提示当前处于「只读演示」状态，写操作会被拒绝 -->
         <div v-if="auth.isDemo" class="demo-banner">
           <el-icon><InfoFilled /></el-icon>
@@ -626,6 +682,17 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
 }
 .layout { height: 100vh; }
 .aside { background: #fff; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; }
+/* 深色菜单（偏好设置 · 布局 → 深色菜单）：只换侧栏底色与菜单文字，不影响内容区 */
+.aside.dark-menu { background: #1e1b4b; border-right-color: #2b2a4a; }
+.aside.dark-menu .brand-txt { color: #eef2ff; }
+.aside.dark-menu .menu .el-menu-item,
+.aside.dark-menu .menu .el-sub-menu__title { color: #c7d2fe; }
+.aside.dark-menu .menu .el-menu-item:hover,
+.aside.dark-menu .menu .el-sub-menu__title:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.aside.dark-menu .menu .el-menu-item.is-active { background: rgba(129, 140, 248, .28); color: #fff; }
+.aside.dark-menu .menu .el-sub-menu .el-menu-item { color: #a5b4fc; }
+.aside.dark-menu .el-menu--inline { background: transparent; }
+.aside.dark-menu .menu .el-sub-menu .el-menu-item::after { background: rgba(255, 255, 255, .12); }
 .brand {
   flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
   padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;
@@ -681,6 +748,20 @@ html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
 /* 整栏折叠(64px) */
 .aside.collapsed .menu { padding: 8px 6px; }
 .header { display: flex; align-items: center; background: #fff; border-bottom: 1px solid #eef1f6; overflow: visible; }
+/* 顶部导航模式（偏好设置 · 布局 → 导航位置）：菜单横向铺在顶栏下方 */
+.top-nav { flex: none; background: #fff; border-bottom: 1px solid #eef1f6; padding: 0 10px; }
+.top-menu { border-bottom: none !important; height: 46px; background: transparent; }
+.top-menu.el-menu--horizontal > .el-menu-item,
+.top-menu.el-menu--horizontal > .el-sub-menu .el-sub-menu__title {
+  height: 46px; line-height: 46px; font-weight: 600; color: #334155;
+}
+.top-menu.el-menu--horizontal > .el-menu-item.is-active,
+.top-menu.el-menu--horizontal > .el-sub-menu.is-active .el-sub-menu__title {
+  color: var(--el-color-primary); border-bottom-color: var(--el-color-primary);
+}
+html.dark .top-nav { background: #17171f; border-bottom-color: #26262f; }
+html.dark .top-menu.el-menu--horizontal > .el-menu-item,
+html.dark .top-menu.el-menu--horizontal > .el-sub-menu .el-sub-menu__title { color: #c7c8d4; }
 /* 顶栏右侧所有元素统一垂直居中（含不同尺寸的圆形按钮、弹层、头像、徽章组），
    避免「铃铛 32px + 头像 38px + 徽章 20px」混排时各按自己的 inline-baseline 漂移 */
 .right { display: inline-flex; align-items: center; gap: 4px; flex: none; }
@@ -792,6 +873,11 @@ html.dark .tab-menu button.danger { color: #f87171; }
 html.dark .tab-menu button.danger:hover { background: #2a1a1a; }
 
 .main { padding: 20px 20px 4px; display: flex; flex-direction: column; }
+/* 内容宽度 = 定宽（偏好设置 · 布局）：居中留白，长文阅读更舒服 */
+.main.is-fixed { max-width: 1320px; margin-left: auto; margin-right: auto; width: 100%; box-sizing: border-box; }
+/* 内容密度 = 紧凑（偏好设置 · 布局）：缩小页面内边距 */
+html.pref-compact .main { padding: 12px 14px 4px; }
+html.pref-compact .tabbar { min-height: 32px; }
 /* width:100% 必须加：flex 纵向容器的子项若只靠 stretch，遇到根元素自带
    max-width + margin:0 auto 的页面（收藏/排行/勋章/考试等）会被**收缩成内容宽**
    （实测 /favorites 根被压到 311px），表现为「页面被压扁/从手机宽度往外延伸」。

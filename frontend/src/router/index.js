@@ -34,6 +34,8 @@ const routes = [
   { path: '/subscriptions', component: () => import('../views/Subscriptions.vue'), meta: { title: '我的订阅', maintenance: 'docs' } },
   { path: '/history', component: () => import('../views/History.vue'), meta: { title: '浏览历史', maintenance: 'profile' } },
   { path: '/profile', component: () => import('../views/Profile.vue'), meta: { title: '个人资料', maintenance: 'profile' } },
+  // 偏好设置：布局 / 外观 / 快捷键 / 通用（2026-10-22，存本机 localStorage）
+  { path: '/preferences', component: () => import('../views/Preferences.vue'), meta: { title: '偏好设置' } },
   // 我的文件：文件中心（与移动端 MobileFiles 共用一套接口）
   { path: '/files', component: () => import('../views/FileCenter.vue'), meta: { title: '我的文件', maintenance: 'profile' } },
   { path: '/ranking', component: () => import('../views/Ranking.vue'), meta: { title: '积分排行榜' } },

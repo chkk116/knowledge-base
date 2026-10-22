@@ -80,7 +80,20 @@ if (bad > 0) { console.error('[FAIL] md5 校验失败'); process.exit(1); }
 // ⚠️ 血泪铁律：APK 内置前端的接口根地址必须是线上绝对域名，不能是 localhost。
 //   事故（2026-10-12）：构建缺 VITE_NATIVE_ORIGIN → runtimeBase=localhost:8080 → App 全站连不上服务器。
 //   这里在同步后拦截，避免打出「装上也连不上」的 APK。
-const NATIVE_HOST = process.env.KB_NATIVE_HOST || 'chkk116.cloud';
+// 域名来源：KB_NATIVE_HOST > frontend/.env.production.local 的 VITE_NATIVE_ORIGIN > 兜底。
+// 2026-10-22：原来硬编码 chkk116.cloud，换到 .cn 后这里没跟着改，会把正确的产物判成「域名异常」并拒绝出包。
+function resolveNativeHost() {
+  if (process.env.KB_NATIVE_HOST) return process.env.KB_NATIVE_HOST.trim();
+  const envFile = path.join(ROOT, 'frontend', '.env.production.local');
+  if (fs.existsSync(envFile)) {
+    const m = fs.readFileSync(envFile, 'utf8').match(/^\s*VITE_NATIVE_ORIGIN\s*=\s*(\S+)/m);
+    if (m) {
+      try { return new URL(m[1]).hostname; } catch { /* 解析失败走兜底 */ }
+    }
+  }
+  return '你的域名';
+}
+const NATIVE_HOST = resolveNativeHost();
 {
   const assetsDir = path.join(DST, 'assets');
   const rbFiles = fs.existsSync(assetsDir)
