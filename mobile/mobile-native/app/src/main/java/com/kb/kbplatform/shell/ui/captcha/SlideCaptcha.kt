@@ -154,9 +154,11 @@ fun SlideCaptcha(
                     verified = true
                     onVerified(captchaToken)
                 } catch (e: Exception) {
-                    failMsg = e.message ?: "滑动验证未通过，请重新拖动拼图"
+                    val msg = e.message ?: "滑动验证未通过，请重新拖动拼图"
                     doShake()
                     refreshCaptcha()   // 失败后旧票据已作废，必须换新图
+                    // refreshCaptcha 开头会清空 failMsg，所以提示要写在它之后（审查 r13）
+                    failMsg = msg
                 } finally {
                     checking = false
                 }
@@ -249,7 +251,9 @@ fun SlideCaptcha(
                                 onDrag = { change, amount ->
                                     if (dragging) {
                                         change.consume()
-                                        handleX = (dragStartHandle + amount.x).coerceIn(0f, maxHandle)
+                                        // amount 是「相对上一次事件」的增量，必须累加到当前值；
+                                        // 用固定起点 + 增量只会保留最后一次位移（审查 r13 Critical）
+                                        handleX = (handleX + amount.x).coerceIn(0f, maxHandle)
                                         trajectory.add(
                                             JSONObject()
                                                 .put("x", pieceLeftFor(handleX))

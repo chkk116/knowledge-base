@@ -54,7 +54,8 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var canGoBack by remember { mutableStateOf(false) }
 
-    val webView = remember(path) { MutableWebViewHolder() }
+    // 不按 path 重建：holder 变了但 WebView 实例不变，返回键/前进状态会指向旧 holder（审查 r13）
+    val webView = remember { MutableWebViewHolder() }
 
     BackHandler(enabled = canGoBack) {
         webView.view?.goBack()
@@ -100,8 +101,17 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                                 progress = newProgress
                             }
                         }
+                        tag = base + path
                         loadUrl(base + path)
                     }.also { webView.view = it }
+                },
+                // AndroidView 没有 update 时 factory 只跑一次，path 变了也不会重新加载（审查 r13 High）
+                update = { wv ->
+                    val want = base + path
+                    if (wv.tag != want) {
+                        wv.tag = want
+                        wv.loadUrl(want)
+                    }
                 },
                 onRelease = { it.destroy() }
             )
@@ -110,6 +120,9 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
 }
 
 /** remember(path) 需要一个稳定持有者，避免重组期间 WebView 被意外重建 */
+/** 文档 <head> 标签（每次请求重新编译太浪费，提到顶层） */
+private val HEAD_TAG_RE = Regex("<head([^>]*)>", RegexOption.IGNORE_CASE)
+
 private class MutableWebViewHolder {
     var view: WebView? = null
 }
@@ -135,14 +148,30 @@ private fun interceptHtml(base: String, request: WebResourceRequest): WebResourc
             if (!r.isSuccessful) return null   // 交回 WebView 默认处理
             var html = r.body?.string() ?: return null
             val token = TokenStore.token.value
-            val js = if (token != null) {
-                "<script>window.__KB_NATIVE_TOKEN=\"$token\";</script>"
+            val safeToken = token?.replace("\\", "\\\\")?.replace("\"", "\\\"")
+            val js = if (safeToken != null) {
+                "<script>window.__KB_NATIVE_TOKEN=\"$safeToken\";</script>"
             } else {
                 "<script>window.__KB_NATIVE_TOKEN=null;</script>"
             }
-            html = Regex("<head([^>]*)>", RegexOption.IGNORE_CASE)
-                .replaceFirst(html, "<head$1>$js")
-            WebResourceResponse("text/html", "utf-8", ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
+            // 手工拼接而不是 replaceFirst 替换串：替换串里的 $ 和 \ 会被当引用解析（审查 r13 High）
+            HEAD_TAG_RE.find(html)?.let { m ->
+                val at = m.range.last + 1
+                html = html.substring(0, at) + js + html.substring(at)
+            }
+            // 保留原响应头（CSP / X-Content-Type-Options / Set-Cookie…），只剔除与 body 冲突的
+            val headers = LinkedHashMap<String, String>()
+            for (name in r.headers.names()) {
+                when (name.lowercase()) {
+                    "content-length", "content-encoding", "transfer-encoding", "content-type" -> {}
+                    else -> r.header(name)?.let { headers[name] = it }
+                }
+            }
+            val mime = (r.header("Content-Type") ?: "text/html").substringBefore(';').ifBlank { "text/html" }
+            WebResourceResponse(
+                mime, "utf-8", r.code, r.message.ifBlank { "OK" }, headers,
+                ByteArrayInputStream(html.toByteArray(Charsets.UTF_8))
+            )
         }
     } catch (e: Exception) {
         null

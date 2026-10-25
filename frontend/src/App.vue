@@ -1016,6 +1016,8 @@ html.dark .ms-item.on { background: var(--el-color-primary); color: #fff; }
 .drag-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
 body.kb-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
 /* 拖起项淡一点，让位的项用 transform 平移（合成层，无重排） */
+/* 拖拽项必须禁用浏览器默认手势：否则触屏按住拖动会被当成滚动，pointermove 直接中断（审查 r13） */
+.drag-item, .ms-item { touch-action: none; }
 .drag-item.is-dragging, .ms-item.is-dragging { opacity: .45; }
 @media (prefers-reduced-motion: reduce) {
   .drag-item, .ms-item { transition: none !important; }

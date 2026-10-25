@@ -149,6 +149,7 @@ fun ProfileScreen(openWeb: (path: String, title: String) -> Unit) {
 
     if (showServerDialog) {
         var url by remember { mutableStateOf(AppConfig.effectiveBaseUrl) }
+        var urlErr by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showServerDialog = false },
             title = { Text("服务器地址") },
@@ -166,12 +167,22 @@ fun ProfileScreen(openWeb: (path: String, title: String) -> Unit) {
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (urlErr.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(urlErr, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    AppConfig.setBaseUrl(url)
-                    showServerDialog = false
+                    // setBaseUrl 会校验格式并抛 IllegalArgumentException（审查 r13）
+                    try {
+                        AppConfig.setBaseUrl(url)
+                        urlErr = ""
+                        showServerDialog = false
+                    } catch (e: Exception) {
+                        urlErr = e.message ?: "地址格式不正确"
+                    }
                 }) { Text("保存") }
             },
             dismissButton = {
