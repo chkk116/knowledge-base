@@ -22,7 +22,17 @@ import java.net.URI
  */
 object AppConfig {
     private const val KEY_BASE_URL = "kb_base_url"
-    private const val DEFAULT_BASE_URL = "http://10.0.2.2:8080"
+
+    /**
+     * 出厂默认地址。
+     * - 正式包：构建时 `-PKB_BASE_URL=https://www.你的域名` 注入到 BuildConfig，
+     *   装完即可直接登录，不需要用户先手填地址。
+     * - 未注入（本地 debug / 仓库默认）：回落 `http://10.0.2.2:8080`，即 Android 模拟器
+     *   访问宿主机 8080 的保留地址，真机联调改成电脑局域网 IP 即可。
+     * 仓库里始终不存公网地址，与 Web 端 VITE_NATIVE_ORIGIN 同一策略。
+     */
+    private val DEFAULT_BASE_URL: String =
+        BuildConfig.KB_DEFAULT_BASE_URL.ifBlank { "http://10.0.2.2:8080" }
 
     private var prefs: SharedPreferences? = null
 

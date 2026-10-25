@@ -5,7 +5,9 @@
 package com.kb.kbplatform.shell.ui.web
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -86,6 +88,32 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                                 request: WebResourceRequest
                             ): WebResourceResponse? = interceptHtml(base, request)
 
+                            /**
+                             * 站内跳转留在 WebView，站外一律交给系统浏览器（审查 r14）。
+                             *
+                             * 不加这段时 WebView 可以被导航到任意站点：文档正文里的外链会把用户
+                             * 带进一个没有地址栏的「假页面」，既没法返回也没法分辨域名（钓鱼面）。
+                             * 站内页面需要继续注入令牌，必须留在 WebView 内。
+                             */
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView,
+                                request: WebResourceRequest
+                            ): Boolean {
+                                val uri = request.url
+                                val scheme = uri.scheme?.lowercase() ?: return true
+                                // 非 http(s)：mailto / tel / 微信 scheme 等，交给系统处理
+                                if (scheme != "http" && scheme != "https") {
+                                    openExternal(view, uri)
+                                    return true
+                                }
+                                return if (isSameOrigin(base, uri)) {
+                                    false                       // 站内：WebView 自己加载（含令牌注入）
+                                } else {
+                                    openExternal(view, uri)
+                                    true                        // 站外：系统浏览器，WebView 不导航
+                                }
+                            }
+
                             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                                 canGoBack = view.canGoBack()
                                 loading = true
@@ -122,6 +150,29 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
 /** remember(path) 需要一个稳定持有者，避免重组期间 WebView 被意外重建 */
 /** 文档 <head> 标签（每次请求重新编译太浪费，提到顶层） */
 private val HEAD_TAG_RE = Regex("<head([^>]*)>", RegexOption.IGNORE_CASE)
+
+/** 同源判定：协议 + 主机 + 端口三者一致才算站内（端口缺省按协议补 80/443） */
+private fun isSameOrigin(base: String, target: Uri): Boolean {
+    val b = try { Uri.parse(base) } catch (e: Exception) { return false }
+    val bs = b.scheme?.lowercase() ?: return false
+    val ts = target.scheme?.lowercase() ?: return false
+    if (bs != ts) return false
+    if (!b.host.equals(target.host, ignoreCase = true)) return false
+    val bp = if (b.port > 0) b.port else if (bs == "https") 443 else 80
+    val tp = if (target.port > 0) target.port else if (ts == "https") 443 else 80
+    return bp == tp
+}
+
+/** 用系统浏览器打开站外链接；无可用应用时静默忽略（不能因为点了外链就崩） */
+private fun openExternal(view: WebView, uri: Uri) {
+    try {
+        view.context.startActivity(
+            Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (e: Exception) {
+        /* 无浏览器 / 无对应 scheme 处理者：忽略 */
+    }
+}
 
 private class MutableWebViewHolder {
     var view: WebView? = null

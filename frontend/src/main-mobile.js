@@ -61,6 +61,40 @@ import './mobile.css'
 // 重定向改到移动端首页（桌面路由在移动端包里不存在）
 window.__KB_MOBILE__ = true
 
+/**
+ * Kotlin 原生壳（mobile/mobile-native）的令牌桥接 —— 接收端。
+ *
+ * 原生侧 WebScreen.kt 拦截 /m/ 的 HTML 文档请求，在 <head> 后注入
+ * `window.__KB_NATIVE_TOKEN`（已登录是令牌字符串，已登出是 null）。
+ * 这里必须**在 Pinia store 创建之前**把它落到 localStorage，因为
+ * `store/auth.js` 是在 defineStore 时读 `localStorage.getItem('kb_token')` 的：
+ * 晚一步就会带着空令牌渲染，页面跳到登录页，用户被迫在 WebView 里再登一次。
+ *
+ * 不在原生壳里打开时 `window.__KB_NATIVE_TOKEN` 是 undefined —— 直接返回，
+ * 完全不碰 localStorage，所以对普通浏览器 / Capacitor 版零影响。
+ */
+;(function bridgeNativeToken() {
+  let incoming
+  try {
+    incoming = window.__KB_NATIVE_TOKEN
+  } catch (e) {
+    return
+  }
+  if (incoming === undefined) return          // 非原生壳，保持现状
+  try {
+    if (incoming) {
+      localStorage.setItem('kb_token', String(incoming))
+    } else {
+      // 原生侧已登出：清干净，避免 WebView 里残留旧会话（含用户缓存）
+      localStorage.removeItem('kb_token')
+      localStorage.removeItem('kb_user_cache')
+      localStorage.removeItem('kb_user_id')
+    }
+  } catch (e) {
+    /* 隐私模式 localStorage 不可写，忽略 */
+  }
+})()
+
 // 个性化外观（主题色 / 正文字号）：写 <html> 内联 CSS 变量，只影响移动端
 import { applyMobileTheme } from './utils/mobileTheme'
 applyMobileTheme()

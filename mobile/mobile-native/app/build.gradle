@@ -16,10 +16,35 @@ android {
         targetSdk 36
         versionCode 1
         versionName '0.1.0-native'
+
+        // 生产默认后端地址：出正式包时用 -PKB_BASE_URL=https://www.你的域名 注入，
+        // 仓库里不留任何公网地址（与 Web 端 VITE_NATIVE_ORIGIN 同一思路）。
+        // 不传则留空串，由 AppConfig 回落到模拟器地址 http://10.0.2.2:8080。
+        buildConfigField "String", "KB_DEFAULT_BASE_URL", "\"${project.findProperty('KB_BASE_URL') ?: ''}\""
+    }
+
+    // 签名：复用 Capacitor 版同一把密钥（mobile/android/keystore/kb-release.jks），
+    // 这样原生壳转正后能覆盖安装、用户不用卸载重装。
+    // 口令只从环境变量 / 用户级 ~/.gradle/gradle.properties（KB_KS_PASS）读取，仓库不留口令。
+    def ksFile = file(System.getenv('KB_KS_PATH') ?: '../../android/keystore/kb-release.jks')
+    def ksPass = System.getenv('KB_KS_PASS') ?: (project.findProperty('KB_KS_PASS') ?: '')
+    def canSignRelease = ksFile.exists() && ksPass
+    if (!canSignRelease) {
+        logger.lifecycle("[kb-native] 未找到签名密钥或口令（KB_KS_PASS），release 包将不带签名；debug 构建不受影响")
+    }
+    signingConfigs {
+        release {
+            storeFile ksFile
+            storePassword ksPass
+            keyAlias System.getenv('KB_KS_ALIAS') ?: 'kb'
+            keyPassword ksPass
+        }
     }
 
     buildTypes {
         release {
+            // 无密钥时不挂 signingConfig，避免配置阶段直接抛错把 assembleDebug / IDE 同步一起搞挂
+            if (canSignRelease) signingConfig signingConfigs.release
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -35,6 +60,8 @@ android {
     }
     buildFeatures {
         compose true
+        // KB_DEFAULT_BASE_URL 走 BuildConfig 注入（见 defaultConfig）
+        buildConfig true
     }
 }
 
