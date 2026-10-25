@@ -1,0 +1,150 @@
+/*
+ * Copyright (c) 2026 北寻·浅光
+ * 本源代码基于 AGPL-3.0 许可证开源，详见仓库根目录 LICENSE 文件。
+ */
+package com.kb.kbplatform.shell.ui.web
+
+import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.kb.kbplatform.shell.AppConfig
+import com.kb.kbplatform.shell.TokenStore
+import com.kb.kbplatform.shell.data.ApiClient
+import com.kb.kbplatform.shell.ui.common.TopBar
+import java.io.ByteArrayInputStream
+
+/**
+ * WebView 承载页：原生壳里运行移动 Web 页面（/m/ 路径族）。
+ *
+ * 令牌桥接（关键机制，与 frontend/src/main-mobile.js 的 bootstrap 配对）：
+ *  1. 拦截 /m/ 路径族的 HTML 文档请求，由 OkHttp 取回响应体
+ *  2. 在 <head> 后注入 `window.__KB_NATIVE_TOKEN = "<token>"`
+ *  3. main-mobile.js 入口最先执行：发现该变量即写入 localStorage.kb_token
+ *     —— 在 Vue 应用任何路由守卫读到令牌之前完成，无竞态
+ *  4. 未登录（原生端已登出）时注入 null，Web 侧同步清掉旧令牌
+ *
+ * 静态资源（js/css/img）与接口 XHR 不拦截，走 WebView 原生网络栈。
+ */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun WebScreen(path: String, title: String, onBack: () -> Unit) {
+    val base = AppConfig.effectiveBaseUrl
+    var progress by remember { mutableIntStateOf(0) }
+    var loading by remember { mutableStateOf(false) }
+    var canGoBack by remember { mutableStateOf(false) }
+
+    val webView = remember(path) { MutableWebViewHolder() }
+
+    BackHandler(enabled = canGoBack) {
+        webView.view?.goBack()
+    }
+
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+        TopBar(title = title, onBack = {
+            if (webView.view?.canGoBack() == true) webView.view?.goBack() else onBack()
+        })
+        if (loading && progress < 100) {
+            LinearProgressIndicator(
+                progress = { progress / 100f },
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Box(Modifier.fillMaxSize()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(
+                                view: WebView,
+                                request: WebResourceRequest
+                            ): WebResourceResponse? = interceptHtml(base, request)
+
+                            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                                canGoBack = view.canGoBack()
+                                loading = true
+                            }
+
+                            override fun onPageFinished(view: WebView, url: String) {
+                                canGoBack = view.canGoBack()
+                                loading = false
+                            }
+                        }
+                        webChromeClient = object : android.webkit.WebChromeClient() {
+                            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                                progress = newProgress
+                            }
+                        }
+                        loadUrl(base + path)
+                    }.also { webView.view = it }
+                },
+                onRelease = { it.destroy() }
+            )
+        }
+    }
+}
+
+/** remember(path) 需要一个稳定持有者，避免重组期间 WebView 被意外重建 */
+private class MutableWebViewHolder {
+    var view: WebView? = null
+}
+
+private fun interceptHtml(base: String, request: WebResourceRequest): WebResourceResponse? {
+    val url = request.url
+    val target = url.toString()
+    if (!request.method.equals("GET", true)) return null
+    if (!target.startsWith("$base/m") && target != "$base/m/") return null
+    // 只拦文档请求（Accept 含 text/html），静态资源与 XHR 放行
+    val accept = request.requestHeaders?.get("Accept") ?: return null
+    if (!accept.contains("text/html")) return null
+
+    return try {
+        val resp = ApiClient.http.newCall(
+            okhttp3.Request.Builder()
+                .url(target)
+                .header("User-Agent", ApiClient.USER_AGENT)
+                .header("Accept", accept)
+                .build()
+        ).execute()
+        resp.use { r ->
+            if (!r.isSuccessful) return null   // 交回 WebView 默认处理
+            var html = r.body?.string() ?: return null
+            val token = TokenStore.token.value
+            val js = if (token != null) {
+                "<script>window.__KB_NATIVE_TOKEN=\"$token\";</script>"
+            } else {
+                "<script>window.__KB_NATIVE_TOKEN=null;</script>"
+            }
+            html = Regex("<head([^>]*)>", RegexOption.IGNORE_CASE)
+                .replaceFirst(html, "<head$1>$js")
+            WebResourceResponse("text/html", "utf-8", ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
+        }
+    } catch (e: Exception) {
+        null
+    }
+}

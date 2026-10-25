@@ -51,7 +51,7 @@ Meilisearch 毫秒级检索 + 数据库逐词兜底降级，检索结果与文�
 题库与在线考试、课程学习与证书、资产借还、积分徽章排行榜、实时通知中心，培训考核一站式闭环。
 
 **核心优势 6：三端覆盖！**
-Web 全功能 + Electron 桌面客户端 + Capacitor Android，内网 / 公网 HTTPS 部署模板齐备。
+Web 全功能 + Electron 桌面客户端 + Capacitor Android + **Kotlin 原生壳**（Jetpack Compose，`mobile/mobile-native`），内网 / 公网 HTTPS 部署模板齐备。
 
 ---
 
@@ -172,7 +172,9 @@ knowledge-base/
 │       └── store/ api/
 ├── collab-relay/             # Hocuspocus 协同中继（Node）：verifyToken 校验 + Yjs 快照持久化到 PostgreSQL
 ├── desktop/                  # Electron 桌面客户端（build-web.js 复用前端构建）
-├── mobile/                   # Capacitor 8 Android 工程（sync-web.js 同步前端产物）
+├── mobile/
+│   ├── android/              # Capacitor 8 Android 工程（sync-web.js 同步前端产物）
+│   └── mobile-native/        # Kotlin 原生壳（Compose + WebView 混合，独立 Gradle 工程，不含 node_modules）
 ├── deploy/                   # 生产/测试部署：env.prod、env.test、nginx-example.conf
 ├── db/                       # init.sql + v113~v123 增量 SQL（并发约束/回收站/版本/禁词库等）
 ├── docker-compose.yml        # 可选基础设施（Meilisearch 等，默认不启动）

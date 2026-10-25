@@ -1,0 +1,8 @@
+<resources>
+    <!-- Compose 全权接管 UI；XML 主题只负责启动瞬间窗口底色与无 ActionBar -->
+    <style name="Theme.KbShell" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/kb_window_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
