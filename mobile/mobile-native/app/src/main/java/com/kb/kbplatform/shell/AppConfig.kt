@@ -35,6 +35,8 @@ object AppConfig {
         BuildConfig.KB_DEFAULT_BASE_URL.ifBlank { "http://10.0.2.2:8080" }
 
     private var prefs: SharedPreferences? = null
+    /** init 之前设置的值，等 init 时合并落盘 */
+    private var pending: String? = null
 
     private val _baseUrl = MutableStateFlow(DEFAULT_BASE_URL)
     val baseUrl: StateFlow<String> = _baseUrl
@@ -44,7 +46,12 @@ object AppConfig {
             if (prefs != null) return
             val p = ctx.applicationContext.getSharedPreferences("kb_shell_config", Context.MODE_PRIVATE)
             prefs = p
-            _baseUrl.value = normalize(p.getString(KEY_BASE_URL, null) ?: DEFAULT_BASE_URL)
+            val stored = pending ?: p.getString(KEY_BASE_URL, null)
+            pending = null
+            // 存储里是历史值，可能已被收紧的规则判为非法：绝不能抛异常崩在启动路径上（审查 r14 Critical）
+            val value = try { normalize(stored ?: DEFAULT_BASE_URL) } catch (e: Exception) { DEFAULT_BASE_URL }
+            _baseUrl.value = value
+            if (value != stored) p.edit().putString(KEY_BASE_URL, value).apply()
         }
     }
 
@@ -59,7 +66,13 @@ object AppConfig {
     fun setBaseUrl(url: String) {
         val v = normalize(url)
         synchronized(this) {
-            prefs?.edit()?.putString(KEY_BASE_URL, v)?.apply()
+            val p = prefs
+            if (p == null) {
+                // init 之前调用：先记下来，等 init 落盘，不能只改内存（审查 r14 High）
+                pending = v
+            } else {
+                p.edit().putString(KEY_BASE_URL, v).apply()
+            }
             _baseUrl.value = v
         }
     }
@@ -72,8 +85,10 @@ object AppConfig {
         if (v.isEmpty() || v == "/") return DEFAULT_BASE_URL
         if (!v.startsWith("http://") && !v.startsWith("https://")) v = "http://$v"
         v = v.trimEnd('/')
-        val host = try { URI(v).host } catch (e: Exception) { null }
-        require(!host.isNullOrBlank()) { "地址格式不正确，示例：http://192.168.1.10:8080" }
+        // 拒绝 userinfo（http://trusted.com@evil.com 会被浏览器发往 evil.com，用户却以为填的是 trusted.com）
+        require(!v.contains("@")) { "地址里不能包含 @，请只填域名或 IP" }
+        val uri = try { URI(v) } catch (e: Exception) { null }
+        require(uri != null && !uri.host.isNullOrBlank()) { "地址格式不正确，示例：http://192.168.1.10:8080" }
         return v
     }
 }

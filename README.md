@@ -279,6 +279,25 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 - 设计特性：自绘深蓝紫标题栏、原生登录框 + 安全验证弹窗、单实例锁、系统托盘常驻
 - 后端地址默认 `http://localhost:8080`，环境变量 `KB_BACKEND_URL` / `KB_BACKEND_WS` 可覆盖
 
+## 移动端（Kotlin 原生壳 `mobile/mobile-native`）
+
+独立 Gradle 工程（Jetpack Compose + WebView 混合）：登录 / 滑块验证码 / 首页 / 文档 / 消息 / 我的为原生页，
+Tiptap 协同编辑等重页面用 WebView 承载，原生侧通过 `window.__KB_NATIVE_TOKEN` 把令牌桥接给 Web 端。
+
+```bash
+cd mobile/mobile-native
+# debug（默认连模拟器回环 http://10.0.2.2:8080）
+./gradlew assembleDebug
+# release：必须注入后端地址，否则装上连不上后端
+./gradlew assembleRelease -PKB_BASE_URL=https://你的域名
+```
+
+- 仓库位于中文路径（`C:/chkk/知识库/...`）时，AGP 会拒绝构建；已在 `gradle.properties` 加 `android.overridePathCheck=true`
+- release 签名读环境变量 `KB_KS_PATH` / `KB_KS_PASS`（或用户级 `~/.gradle/gradle.properties`），**仓库不留口令**；
+  未提供时只出未签名包
+- WebView 令牌桥接依赖「内联 script 注入」，若后端将来给 `/m/` 文档加 CSP，需在 `script-src` 放行 `'unsafe-inline'`
+  或改为 `evaluateJavascript` 下发（否则桥接会静默失效）
+
 ## 移动端（Capacitor / Android）
 
 > **状态：初具规模，已真机试用**。与早期"远端模式套壳"不同，App 现在加载**内置前端资源**（断网不白屏），并有独立的离线架构。

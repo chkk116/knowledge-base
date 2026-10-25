@@ -93,6 +93,8 @@ window.__KB_MOBILE__ = true
   } catch (e) {
     /* 隐私模式 localStorage 不可写，忽略 */
   }
+  // 令牌落盘后立刻抹掉全局变量：否则后续任意脚本/被注入的第三方代码都能读到（审查 r14）
+  try { delete window.__KB_NATIVE_TOKEN } catch (e) { window.__KB_NATIVE_TOKEN = undefined }
 })()
 
 // 个性化外观（主题色 / 正文字号）：写 <html> 内联 CSS 变量，只影响移动端
@@ -148,7 +150,11 @@ function reportError(msg) {
   if (errShown++ < 3) ElMessage.error('页面出现问题，请下拉刷新重试')
 }
 window.__kbError = reportError
-app.config.errorHandler = (err, _vm, info) => reportError((err && err.stack) || String(err) + '\n' + info)
+app.config.errorHandler = (err, _vm, info) => {
+  // 原来是 (err && err.stack) || String(err) + '\n' + info：+ 优先级更高，有 stack 时 info 直接被丢掉（审查 r14）
+  const stack = (err && err.stack) || String(err)
+  reportError(info ? stack + '\n' + info : stack)
+}
 window.addEventListener('error', (e) => {
   const m = e.message || (e.error && e.error.message) || ''
   if (m.includes('ResizeObserver loop')) { e.preventDefault(); return }

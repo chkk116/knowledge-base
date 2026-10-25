@@ -182,7 +182,9 @@ private fun interceptHtml(base: String, request: WebResourceRequest): WebResourc
     val url = request.url
     val target = url.toString()
     if (!request.method.equals("GET", true)) return null
-    if (!target.startsWith("$base/m") && target != "$base/m/") return null
+    // 必须限定在 /m/ 路径族：startsWith("$base/m") 会把 /metrics、/mobile 也算进来（审查 r14）
+    val mobilePrefix = "$base/m/"
+    if (!target.startsWith(mobilePrefix) && target != "$base/m" && target != mobilePrefix) return null
     // 只拦文档请求（Accept 含 text/html），静态资源与 XHR 放行
     val accept = request.requestHeaders?.get("Accept") ?: return null
     if (!accept.contains("text/html")) return null
@@ -199,7 +201,11 @@ private fun interceptHtml(base: String, request: WebResourceRequest): WebResourc
             if (!r.isSuccessful) return null   // 交回 WebView 默认处理
             var html = r.body?.string() ?: return null
             val token = TokenStore.token.value
-            val safeToken = token?.replace("\\", "\\\\")?.replace("\"", "\\\"")
+            // 除引号/反斜杠外还要挡 </script>：否则令牌里出现该串会提前闭合注入的 script 块
+            val safeToken = token
+                ?.replace("\\", "\\\\")
+                ?.replace("\"", "\\\"")
+                ?.replace("</", "<\\/")
             val js = if (safeToken != null) {
                 "<script>window.__KB_NATIVE_TOKEN=\"$safeToken\";</script>"
             } else {

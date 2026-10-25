@@ -89,7 +89,6 @@ fun SlideCaptcha(
     var loadError by remember { mutableStateOf("") }
 
     var handleX by remember { mutableFloatStateOf(0f) }          // 滑块左偏移 px
-    var dragStartHandle by remember { mutableFloatStateOf(0f) }
     // 舞台真实尺寸（px）：由 onSizeChanged 量出来，绝不推算。
     // Web 端 measure() 也是读 getBoundingClientRect()，同一个理由 —— 容器有内边距时推算值会偏，
     // 偏一点就表现为「拼块比缺口大一圈、怎么拖都对不齐」（2026-10-25 修）。
@@ -202,17 +201,19 @@ fun SlideCaptcha(
             ) {
                 val b = bg
                 if (b != null) {
-                    Image(b.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                    val bgImage = remember(b) { b.asImageBitmap() }
+                    Image(bgImage, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
                 }
                 val p = piece
-                if (b != null && p != null && !verified && !loading) {
+                val pieceImage = remember(p) { p?.asImageBitmap() }
+                if (b != null && pieceImage != null && !verified && !loading) {
                     val left = pieceLeftFor(handleX)
                     // 纵坐标按舞台真实高度缩放（Web 端 pieceTop = pieceY * H / 160，同式）
                     val top = pieceY * stageH / 160f
                     val pw = with(density) { pieceW.toDp() }
                     val ph = with(density) { pieceH.toDp() }
                     Image(
-                        p.asImageBitmap(),
+                        pieceImage,
                         null,
                         Modifier
                             .align(Alignment.TopStart)
@@ -257,7 +258,6 @@ fun SlideCaptcha(
                                 onDragStart = {
                                     if (!verified && !checking) {
                                         dragging = true
-                                        dragStartHandle = handleX
                                         failMsg = ""
                                         trajectory.clear()
                                     }
