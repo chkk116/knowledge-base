@@ -14,8 +14,8 @@ android {
         applicationId 'com.kb.kbplatform.shell'
         minSdk 24
         targetSdk 36
-        versionCode 1
-        versionName '0.1.0-native'
+        versionCode 2
+        versionName '0.1.1-native'
 
         // 生产默认后端地址：出正式包时用 -PKB_BASE_URL=https://www.你的域名 注入，
         // 仓库里不留任何公网地址（与 Web 端 VITE_NATIVE_ORIGIN 同一思路）。

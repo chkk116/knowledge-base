@@ -9,7 +9,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,6 +47,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -90,6 +90,11 @@ fun SlideCaptcha(
 
     var handleX by remember { mutableFloatStateOf(0f) }          // 滑块左偏移 px
     var dragStartHandle by remember { mutableFloatStateOf(0f) }
+    // 舞台真实尺寸（px）：由 onSizeChanged 量出来，绝不推算。
+    // Web 端 measure() 也是读 getBoundingClientRect()，同一个理由 —— 容器有内边距时推算值会偏，
+    // 偏一点就表现为「拼块比缺口大一圈、怎么拖都对不齐」（2026-10-25 修）。
+    var stageW by remember { mutableFloatStateOf(0f) }
+    var stageH by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var verified by remember { mutableStateOf(false) }
@@ -130,9 +135,11 @@ fun SlideCaptcha(
         }
     }
 
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        val stageW = constraints.maxWidth.toFloat()
+    Box(modifier.fillMaxWidth()) {
+        // 拼块显示尺寸：宽按舞台宽、高按舞台高分别缩放（与 Web 端 pieceDisplayW/H 同式）。
+        // stageW/stageH 为 0（首帧未测量）时全部退化为 0，拼块本来也要等图片加载完才画，无闪烁。
         val pieceW = 45f * stageW / 320f
+        val pieceH = 45f * stageH / 160f
         val maxHandle = (stageW - handleWidthPx).coerceAtLeast(1f)
 
         // 拼块显示左偏移 = 手柄比例 × (舞台宽 - 拼块宽)（与 Web 端 pieceLeft 同式）
@@ -184,6 +191,11 @@ fun SlideCaptcha(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f)
+                    // 量真实像素尺寸：拼块定位、缩放、上报换算全部基于它
+                    .onSizeChanged {
+                        stageW = it.width.toFloat()
+                        stageH = it.height.toFloat()
+                    }
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .graphicsLayer { translationX = shakeOffset }
@@ -195,15 +207,17 @@ fun SlideCaptcha(
                 val p = piece
                 if (b != null && p != null && !verified && !loading) {
                     val left = pieceLeftFor(handleX)
-                    val top = pieceY * stageW / 320f
-                    val pieceDp = with(density) { pieceW.toDp() }
+                    // 纵坐标按舞台真实高度缩放（Web 端 pieceTop = pieceY * H / 160，同式）
+                    val top = pieceY * stageH / 160f
+                    val pw = with(density) { pieceW.toDp() }
+                    val ph = with(density) { pieceH.toDp() }
                     Image(
                         p.asImageBitmap(),
                         null,
                         Modifier
                             .align(Alignment.TopStart)
                             .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
-                            .size(pieceDp)
+                            .size(pw, ph)
                             .shadow(2.dp),
                         contentScale = ContentScale.FillBounds
                     )
