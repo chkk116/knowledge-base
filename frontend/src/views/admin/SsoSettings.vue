@@ -246,9 +246,12 @@ const socials = ref([
     key: 'github', title: 'GitHub 登录',
     idField: 'clientId', secretField: 'clientSecret', secretFlag: 'ClientSecret',
     idLabel: 'Client ID', secretLabel: 'Client Secret',
-    idPlaceholder: 'GitHub → Settings → Developer settings → OAuth Apps',
+    idPlaceholder: 'Iv23li… 或 Ov23li…（不是数字 App ID）',
     defaultLabel: 'GitHub 登录',
-    tip: '门槛最低：github.com/settings/developers 建一个 OAuth App 即可，不需要备案和认证费。适合开发者向的知识库。',
+    tip: '门槛最低，不需要备案和认证费。OAuth App 与 GitHub App 都能用：'
+      + '①「App ID / 应用 ID」是一串纯数字，那是给安装令牌用的，这里用不到；'
+      + '② 这里要填的是「Client ID / 客户 ID」，形如 Iv23li… / Ov23li…；'
+      + '③ Client secret 是 40 位十六进制，GitHub App 需先点「Generate a new client secret」生成（只显示一次）。',
     cfg: {}, form: {}, saving: false
   }
 ])
