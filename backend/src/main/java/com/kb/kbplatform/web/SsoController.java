@@ -89,7 +89,7 @@ public class SsoController {
     /** 发起 OIDC 登录：302 到身份源授权页。origin 由前端传入，用于回调后跳回本站 */
     @GetMapping("/api/auth/sso/oidc/start")
     public org.springframework.http.ResponseEntity<Void> oidcStart(@RequestParam(required = false) String origin) {
-        String url = oidc.authorizeUrl(origin);
+        String url = oidc.authorizeUrl(publicBase());
         return org.springframework.http.ResponseEntity.status(HttpStatus.FOUND)
                 .header("Location", url).build();
     }
@@ -99,7 +99,7 @@ public class SsoController {
     public org.springframework.http.ResponseEntity<Void> oidcCallback(@RequestParam(required = false) String code,
                                                                      @RequestParam(required = false) String state,
                                                                      @RequestParam(required = false) String origin) {
-        String base = origin == null ? "" : origin.replaceAll("/+$", "");
+        String base = publicBase();   // 不信任客户端传入的 origin（否则可把 token 送到攻击者域名）
         try {
             Map<String, String> who = oidc.callback(code, state, base);
             Map<String, Object> session = auth.loginExternal(who.get("username"), who.get("displayName"), who.get("email"));
@@ -113,6 +113,27 @@ public class SsoController {
                     .header("Location", base + "/sso?error=" + java.net.URLEncoder.encode(msg, java.nio.charset.StandardCharsets.UTF_8))
                     .build();
         }
+    }
+
+    /**
+     * 本站基址：一律由请求本身推导（代理场景优先 X-Forwarded-*）。
+     * 绝不使用回调参数里的 origin —— 那是攻击者可控的开放重定向/令牌外带入口。
+     */
+    private String publicBase() {
+        var attrs = (org.springframework.web.context.request.ServletRequestAttributes)
+                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (attrs == null) return "";
+        var r = attrs.getRequest();
+        String proto = firstNonBlank(r.getHeader("X-Forwarded-Proto"), r.getScheme(), "http");
+        String host = firstNonBlank(r.getHeader("X-Forwarded-Host"), r.getHeader("Host"), r.getServerName());
+        // Host 头同样可被伪造：只接受主机名/端口形态，出现路径、空格、@ 一律回落 serverName
+        if (host == null || !host.matches("[A-Za-z0-9.\\-:\\[\\]]+")) host = r.getServerName();
+        return proto + "://" + host;
+    }
+
+    private String firstNonBlank(String... vals) {
+        for (String v : vals) if (v != null && !v.isBlank()) return v;
+        return "";
     }
 
     private void requireAdmin(TokenClaims c) {
@@ -316,8 +337,12 @@ public class SsoController {
                 identities.save(id);
             }
         } else if (autoReg) {
-            String uname = (provider + "_" + extId).replaceAll("[^A-Za-z0-9_]", "");
-            if (uname.length() > 40) uname = uname.substring(0, 40);
+            // 只去非法字符会撞名（如 a.b 与 ab、超长截断后相同）→ 统一追加原值哈希，保证稳定且唯一
+            String raw = provider + "_" + extId;
+            String safe = raw.replaceAll("[^A-Za-z0-9_]", "");
+            String suffix = Integer.toHexString(raw.hashCode());
+            if (safe.length() > 30) safe = safe.substring(0, 30);
+            String uname = safe + "_" + suffix;
             session = auth.loginExternal(uname, nickname, "", avatar);
             var id = new com.kb.kbplatform.domain.UserIdentity();
             id.setUserId(((Number) session.get("id")).longValue());
