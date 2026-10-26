@@ -63,6 +63,7 @@ const routes = [
   // 全部文档：跨空间汇总 + 标签/空间/类型/时间筛选（必须排在 /doc-shares/:id 之前，否则 all 会被当成空间 id）
   { path: '/doc-shares/all', component: () => import('../views/AllDocs.vue'), meta: { title: '全部文档', maintenance: 'doc_shares' } },
   { path: '/doc-shares/import', component: () => import('../views/DocShareImport.vue'), meta: { title: '导入文档', maintenance: 'doc_shares' } },
+  { path: '/doc-shares/graph', component: () => import('../views/DocGraph.vue'), meta: { title: '知识图谱', maintenance: 'doc_shares' } },
   { path: '/doc-shares/:id', component: () => import('../views/DocShareWorkspace.vue'), meta: { title: '协作空间', maintenance: 'doc_shares' } },
   // 文档级深链：/doc-shares/12/docs/34 统一收敛到 ?doc= 形式（工作区唯一canonical地址，便于复制分享单篇文档）
   { path: '/doc-shares/:id/docs/:docId', redirect: to => `/doc-shares/${to.params.id}?doc=${to.params.docId}` },

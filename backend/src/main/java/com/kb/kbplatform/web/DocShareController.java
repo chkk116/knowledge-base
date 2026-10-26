@@ -337,6 +337,12 @@ public class DocShareController {
         return svc.docLinks(id, docId, resolveUserId(c), isSysAdmin(c));
     }
 
+    /** 知识图谱：全部可读文档的节点 + [[标题]] 解析出的边 */
+    @GetMapping("/graph")
+    public Map<String, Object> graph(@RequestAttribute("kbUser") TokenClaims c) {
+        return svc.linkGraph(resolveUserId(c), isSysAdmin(c));
+    }
+
     /**
      * 正文 @提及：点选空间成员即发通知。
      * 不解析正文——共享文档的正文要靠「保存快照」才落库，解析正文会漏掉没保存的编辑。

@@ -891,6 +891,57 @@ public class DocShareService {
         return ret;
     }
 
+    /**
+     * 知识图谱：当前用户可读的全部文档为节点，正文里 [[标题]] 能解析到文档的为有向边。
+     * 与 docLinks 共用同一套解析规则（extractLinkTitles + 标题索引），保证面板与图谱一致。
+     */
+    public Map<String, Object> linkGraph(Long userId, boolean sysAdmin) {
+        List<SharedDocument> all = listAllDocs(userId, sysAdmin, true);
+        Map<String, SharedDocument> byTitle = new HashMap<>();
+        for (SharedDocument d : all) {
+            if (d.getTitle() == null) continue;
+            byTitle.putIfAbsent(d.getTitle().trim().toLowerCase(Locale.ROOT), d);
+        }
+        Map<String, Integer> inDeg = new HashMap<>();
+        Map<String, Integer> outDeg = new HashMap<>();
+        List<Map<String, Object>> edges = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (SharedDocument d : all) {
+            String from = d.getShareId() + ":" + d.getId();
+            for (String t : extractLinkTitles(d.getContent())) {
+                SharedDocument hit = byTitle.get(t.trim().toLowerCase(Locale.ROOT));
+                if (hit == null || Objects.equals(hit.getId(), d.getId())) continue;
+                String to = hit.getShareId() + ":" + hit.getId();
+                String key = from + ">" + to;
+                if (!seen.add(key)) continue;
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("id", key);
+                e.put("source", from);
+                e.put("target", to);
+                edges.add(e);
+                outDeg.merge(from, 1, Integer::sum);
+                inDeg.merge(to, 1, Integer::sum);
+            }
+        }
+        List<Map<String, Object>> nodes = new ArrayList<>();
+        for (SharedDocument d : all) {
+            String id = d.getShareId() + ":" + d.getId();
+            int deg = inDeg.getOrDefault(id, 0) + outDeg.getOrDefault(id, 0);
+            Map<String, Object> n = new LinkedHashMap<>();
+            n.put("id", id);
+            n.put("docId", d.getId());
+            n.put("shareId", d.getShareId());
+            n.put("title", d.getTitle());
+            n.put("spaceName", d.getSpaceName());
+            n.put("degree", deg);
+            nodes.add(n);
+        }
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("nodes", nodes);
+        ret.put("edges", edges);
+        return ret;
+    }
+
     static String normalizeDocTags(List<String> tags) {
         if (tags == null || tags.isEmpty()) return "";
         LinkedHashMap<String, String> unique = new LinkedHashMap<>();

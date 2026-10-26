@@ -222,6 +222,9 @@ onMounted(load)
       <el-button @click="router.push('/doc-shares/import')">
         <el-icon style="margin-right:4px"><Upload /></el-icon> 导入文档
       </el-button>
+      <el-button @click="router.push('/doc-shares/graph')" title="按 [[双向链接]] 生成全站文档关系图">
+        知识图谱
+      </el-button>
       <el-button type="primary" :disabled="!auth.hasPerm('SHARE_CREATE')" @click="openCreate"
                  :title="auth.hasPerm('SHARE_CREATE') ? (myQuota.canCreate ? '' : '已达创建上限，点击提交创建申请') : '需要「创建团队空间」权限，请联系系统管理员开通'">
         {{ !auth.hasPerm('SHARE_CREATE') ? '暂无创建权限' : (myQuota.canCreate ? '新建共享空间' : '申请创建空间') }}
