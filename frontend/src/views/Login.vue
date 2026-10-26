@@ -4,7 +4,7 @@ import QRCode from 'qrcode'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ssoOptions, ssoLdapLogin } from '../api/auth'
-import { User, Lock, ChatDotRound, ChatLineRound, Promotion } from '@element-plus/icons-vue'
+import { User, Lock, Promotion } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
 import SlideCaptcha from '../components/SlideCaptcha.vue'
 import SiteFooter from '../components/SiteFooter.vue'
@@ -490,16 +490,13 @@ function startParticles() {
           </div>
         </el-form>
 
-        <div class="other-login">
-          <div class="divider"><span>其他登录方式</span></div>
-          <div class="other-icons">
-            <a class="oa oa-wechat" title="微信登录"><el-icon><ChatDotRound /></el-icon></a>
-            <a class="oa oa-qq" title="QQ 登录"><el-icon><ChatLineRound /></el-icon></a>
-            <a class="oa oa-wecom" title="企业微信登录">
-              <svg viewBox="0 0 24 24" width="20" height="20"><path fill="#fff" d="M5 7h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-5l-3 3-3-3H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zm2 2v2h4V9H7zm6 0v2h4V9h-4zM7 13v2h4v-2H7zm6 0v2h4v-2h-4z"/></svg>
-            </a>
-          </div>
-        </div>
+        <!--
+          原来这里放的是「微信 / QQ / 企业微信」三个彩色圆形图标，但它们是**纯装饰**：
+          `<a>` 既没有 href 也没有 click 处理，点下去什么都不发生 —— 登录页放点了没反应的入口
+          比不放更糟（用户会以为坏了）。真实的企业登录入口在表单里按配置动态渲染
+          （`ldapEnabled` / `oidcEnabled`），没配置就一个都不显示。
+          等微信扫码登录真正接上（需要开放平台 AppID + 备案域名），再在这里加一个真实按钮。
+        -->
 
         <div class="footer-tip">
           <span @click="onForgot">忘记密码？</span>
