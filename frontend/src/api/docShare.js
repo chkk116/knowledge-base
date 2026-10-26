@@ -203,3 +203,8 @@ export const listPendingCreateRequests = () => api.get('/admin/doc-shares/create
 export const approveCreateRequest = (rid) => api.post('/admin/doc-shares/create-requests/' + pid(rid, 'rid') + '/approve')
 export const rejectCreateRequest = (rid, comment) =>
   api.post('/admin/doc-shares/create-requests/' + pid(rid, 'rid') + '/reject', { comment })
+
+// ---- 文档模板（会议纪要/周报/需求等）----
+export const listDocTemplates = () => api.get('/doc-templates')
+export const createDocTemplate = (t) => api.post('/doc-templates', t)
+export const deleteDocTemplate = (id) => api.delete('/doc-templates/' + pid(id))

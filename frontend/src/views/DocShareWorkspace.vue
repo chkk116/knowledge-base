@@ -241,7 +241,63 @@ const DOC_SEEDS = {
   flowchart: { title: '未命名流程图', content: '<div data-type="flowchart-block" title="流程图"></div>' },
 }
 
+// ---- 文档模板 ----
+const tplDlg = ref(false)
+const tplLoading = ref(false)
+const templates = ref([])
+const tplKeyword = ref('')
+
+async function openTemplate() {
+  if (!canWrite.value) return
+  tplDlg.value = true
+  tplLoading.value = true
+  try {
+    const { data } = await listDocTemplates()
+    templates.value = data || []
+  } catch (e) {
+    ElMessage.error(errMsg(e, '读取模板失败'))
+  } finally {
+    tplLoading.value = false
+  }
+}
+
+const shownTemplates = computed(() => {
+  const k = tplKeyword.value.trim().toLowerCase()
+  if (!k) return templates.value
+  return templates.value.filter((x) => String(x.name || '').toLowerCase().includes(k)
+    || String(x.category || '').toLowerCase().includes(k))
+})
+
+async function useTemplate(tpl) {
+  try {
+    const { data } = await createShareDoc(shareId.value, { title: tpl.name || '未命名文档', content: tpl.content || '' })
+    tplDlg.value = false
+    await loadDocs()
+    await selectDoc(data)
+    ElMessage.success('已按模板创建')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '创建失败'))
+  }
+}
+
+// 管理员：把当前文档存为模板
+async function saveAsTemplate(d) {
+  let name
+  try {
+    const r = await ElMessageBox.prompt('模板名称', '存为文档模板', { inputValue: d.title || '', confirmButtonText: '保存', cancelButtonText: '取消' })
+    name = (r.value || '').trim()
+  } catch { return }
+  if (!name) return
+  try {
+    await createDocTemplate({ name, category: '常用', description: '由「' + (d.title || '') + '」保存', content: d.content || '' })
+    ElMessage.success('已存为模板')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '保存模板失败'))
+  }
+}
+
 const createDoc = async (kind = 'doc') => {
+  if (kind === 'template') { openTemplate(); return }
   if (!canWrite.value) return
   const seed = DOC_SEEDS[kind] || DOC_SEEDS.doc
   try {
@@ -671,6 +727,7 @@ async function copyPubUrl() {
                   <el-dropdown-item command="sheet"><el-icon><Grid /></el-icon> 电子表格</el-dropdown-item>
                   <el-dropdown-item command="mindmap"><el-icon><Share /></el-icon> 思维导图</el-dropdown-item>
                   <el-dropdown-item command="flowchart"><el-icon><Connection /></el-icon> 流程图</el-dropdown-item>
+                 <el-dropdown-item command="template" divided>从模板新建…</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -690,6 +747,7 @@ async function copyPubUrl() {
               else if (c === 'move') openMove(d)
               else if (c === 'perm') openDocPerm(d)
               else if (c === 'public') openPublicLink(d)
+              else if (c === 'saveTpl') saveAsTemplate(d)
               else if (c === 'delete') removeDoc(d)
             }" @click.stop>
               <span class="doc-menu" @click.stop><el-icon><MoreFilled /></el-icon></span>
@@ -699,6 +757,7 @@ async function copyPubUrl() {
                   <el-dropdown-item command="move">移动到…</el-dropdown-item>
                   <el-dropdown-item command="perm">文档权限</el-dropdown-item>
                   <el-dropdown-item command="public">公开链接</el-dropdown-item>
+                  <el-dropdown-item v-if="auth.isAdmin" command="saveTpl">存为模板</el-dropdown-item>
                   <el-dropdown-item command="delete" divided>{{ canAdmin ? '删除' : '删除（我的文档）' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -984,6 +1043,21 @@ async function copyPubUrl() {
         <el-button @click="pubDlg = false">取消</el-button>
         <el-button type="primary" :loading="pubSaving" @click="savePub">{{ pubInfo.enabled ? '保存设置' : '生成链接' }}</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 从模板新建 -->
+    <el-dialog v-model="tplDlg" title="从模板新建文档" width="640px">
+      <el-input v-model="tplKeyword" placeholder="搜索模板名称 / 分类" clearable size="small" style="margin-bottom: 10px" />
+      <div v-loading="tplLoading" class="tpl-list">
+        <el-empty v-if="!tplLoading && !shownTemplates.length" description="还没有模板（管理员可在文档菜单里「存为模板」）" :image-size="80" />
+        <div v-for="tpl in shownTemplates" :key="tpl.id" class="tpl-item" @click="useTemplate(tpl)">
+          <div class="tpl-main">
+            <div class="tpl-name">{{ tpl.name }}</div>
+            <div class="tpl-desc">{{ tpl.description || '（无描述）' }}</div>
+          </div>
+          <el-tag v-if="tpl.category" size="small">{{ tpl.category }}</el-tag>
+        </div>
+      </div>
     </el-dialog>
 </template>
 
