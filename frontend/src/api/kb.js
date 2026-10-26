@@ -142,6 +142,12 @@ export const myFavorites = () =>
 export const myFavoriteIds = () =>
   api.get('/favorites/mine/ids')
 
+// 收藏分组：设置/取消（group 传空串 = 移出分组）
+export const setFavoriteGroup = (docId, group) => api.put('/favorites/' + docId + '/group', { group })
+// 分组列表（含数量）与 docId→分组映射
+export const favoriteGroups = () => api.get('/favorites/groups')
+export const favoriteGroupMap = () => api.get('/favorites/groups/map')
+
 // ---- 点赞（需登录）----
 // 切换点赞：返回 { liked: true/false, likes: 当前点赞数 }
 export const toggleLike = (docId) =>

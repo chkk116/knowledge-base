@@ -47,6 +47,42 @@ public class FavoriteService {
         return true;
     }
 
+    /** 设置收藏分组（空串 = 取消分组）；返回归一化后的分组名 */
+    public String setGroup(Long userId, Long docId, String group) {
+        Favorite f = favoriteRepo.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .filter((x) -> x.getDocId().equals(docId))
+                .findFirst()
+                .orElseThrow(() -> new BizException("尚未收藏该文档"));
+        String g = group == null ? "" : group.trim();
+        if (g.length() > 30) g = g.substring(0, 30);
+        f.setGroupName(g.isEmpty() ? null : g);
+        favoriteRepo.save(f);
+        return g;
+    }
+
+    /** 我的全部分组 + 各自数量（未分组不计入，前端单独展示「未分组」） */
+    public java.util.List<java.util.Map<String, Object>> groupStats(Long userId) {
+        java.util.Map<String, Integer> cnt = new java.util.LinkedHashMap<>();
+        for (Favorite f : favoriteRepo.findByUserIdOrderByCreatedAtDesc(userId)) {
+            String g = f.getGroupName();
+            if (g == null || g.isBlank()) continue;
+            cnt.merge(g, 1, Integer::sum);
+        }
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        cnt.forEach((name, n) -> out.add(java.util.Map.of("name", name, "count", n)));
+        out.sort((x, y) -> Integer.compare((Integer) y.get("count"), (Integer) x.get("count")));
+        return out;
+    }
+
+    /** docId → 分组名（前端把分组标到卡片上） */
+    public java.util.Map<Long, String> groupOf(Long userId) {
+        java.util.Map<Long, String> m = new java.util.HashMap<>();
+        for (Favorite f : favoriteRepo.findByUserIdOrderByCreatedAtDesc(userId)) {
+            if (f.getGroupName() != null && !f.getGroupName().isBlank()) m.put(f.getDocId(), f.getGroupName());
+        }
+        return m;
+    }
+
     /** 我收藏的文档 id 集合（用于前端标记卡片星标状态） */
     public Set<Long> myFavoriteIds(Long userId) {
         return favoriteRepo.findByUserIdOrderByCreatedAtDesc(userId).stream()

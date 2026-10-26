@@ -25,6 +25,10 @@ public class Favorite {
     private Long userId;   // 收藏者 id
     private Long docId;    // 被收藏文档 id
 
+    /** 收藏分组名（null/空 = 未分组）；用户自建，最多 30 字 */
+    @Column(length = 40)
+    private String groupName;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     public Favorite() {}
@@ -45,4 +49,7 @@ public class Favorite {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public String getGroupName() { return groupName; }
+    public void setGroupName(String groupName) { this.groupName = groupName; }
 }

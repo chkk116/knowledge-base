@@ -47,6 +47,26 @@ public class FavoriteController {
         return svc.myFavorites(resolveUserId(c));
     }
 
+    /** 设置/取消分组：body { group: "培训资料" }，传空串=移出分组 */
+    @PutMapping("/{docId}/group")
+    public Map<String, Object> setGroup(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long docId,
+                                        @RequestBody Map<String, Object> body) {
+        String g = svc.setGroup(resolveUserId(c), docId, body.get("group") == null ? null : String.valueOf(body.get("group")));
+        return Map.of("ok", true, "group", g);
+    }
+
+    /** 我的分组列表（含数量） */
+    @GetMapping("/groups")
+    public List<Map<String, Object>> groups(@RequestAttribute("kbUser") TokenClaims c) {
+        return svc.groupStats(resolveUserId(c));
+    }
+
+    /** docId → 分组名，前端据此把卡片归到对应分组 */
+    @GetMapping("/groups/map")
+    public Map<Long, String> groupMap(@RequestAttribute("kbUser") TokenClaims c) {
+        return svc.groupOf(resolveUserId(c));
+    }
+
     /** 我收藏的文档 id 列表（用于前端标记卡片星标） */
     @GetMapping("/mine/ids")
     public List<Long> mineIds(@RequestAttribute("kbUser") TokenClaims c) {
