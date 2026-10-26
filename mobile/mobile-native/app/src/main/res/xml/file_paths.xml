@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- WebView capture 拍照的临时输出目录 -->
+    <cache-path name="web_capture" path="web_capture/" />
+    <!-- 应用内更新 APK（filesDir/update.apk） -->
+    <files-path name="updates" path="update.apk" />
+    <!-- 扫描导出的 PDF -->
+    <external-files-path name="scan_docs" path="Documents/" />
+</paths>

@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,21 +17,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,39 +38,63 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.KbApi
+import com.kb.kbplatform.shell.data.ShareInbox
 import com.kb.kbplatform.shell.data.objects
-import com.kb.kbplatform.shell.ui.common.CenterHint
-import com.kb.kbplatform.shell.ui.common.TopBar
+import com.kb.kbplatform.shell.ui.common.KbCard
+import com.kb.kbplatform.shell.ui.common.KbEmpty
+import com.kb.kbplatform.shell.ui.common.KbLoading
+import com.kb.kbplatform.shell.ui.common.formatDateTime
+import com.kb.kbplatform.shell.ui.theme.KbTextDim
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 
+private data class Quick(val label: String, val emoji: String, val tint: Color, val route: String?)
+
 /**
- * 首页：数据概览（/docs/overview）+ 公告（/announcements）+ 快捷入口。
- * 快捷入口走 WebView 承载页打开对应 /m/ 下的页面——竖切阶段这些页面继续由 Web 提供。
+ * 首页 · 严格对标 MobileHome.vue：
+ * 蓝色 hero（问候+姓名+头像 / 搜索条+AI 按钮）→ 分享/待复习提示卡 → 快捷宫格 →
+ * 四联统计 → 公告条 → 最近文档横滑 → 空间列表。
  */
 @Composable
-fun HomeScreen(openWeb: (path: String, title: String) -> Unit) {
+fun HomeScreen(
+    openWeb: (path: String, title: String) -> Unit,
+    openRoute: (String) -> Unit
+) {
     var overview by remember { mutableStateOf<JSONObject?>(null) }
-    var announcements by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var announcement by remember { mutableStateOf<JSONObject?>(null) }
+    var dueCards by remember { mutableIntStateOf(0) }
+    var recent by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var spaces by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
-    var refreshKey by remember { mutableIntStateOf(0) }
+    val sharePending by ShareInbox.pending.collectAsState()
+    val draftCtx = androidx.compose.ui.platform.LocalContext.current
+    var draftCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { draftCount = com.kb.kbplatform.shell.data.DraftStore.list(draftCtx).size }
 
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(Unit) {
         loading = true
         error = ""
         try {
             coroutineScope {
-                val ov = async { KbApi.overview() }
-                val an = async { KbApi.announcements() }
+                val ov = async { runCatching { KbApi.overview() }.getOrNull() }
+                val an = async { runCatching { KbApi.announcements().objects() }.getOrDefault(emptyList()) }
+                val due = async { runCatching { KbApi.dueCards().objects().size }.getOrDefault(0) }
+                val all = async { runCatching { KbApi.allShareDocs().objects() }.getOrDefault(emptyList()) }
+                val sp = async { runCatching { KbApi.myShares().objects() }.getOrDefault(emptyList()) }
                 overview = ov.await()
-                announcements = an.await().objects()
+                announcement = an.await().firstOrNull()
+                dueCards = due.await()
+                recent = all.await().sortedByDescending { it.optString("updatedAt") }.take(10)
+                spaces = sp.await()
             }
         } catch (e: Exception) {
             error = e.message ?: "加载失败"
@@ -79,51 +103,190 @@ fun HomeScreen(openWeb: (path: String, title: String) -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        TopBar(title = "知识库") {
-            IconButton(onClick = { refreshKey++ }) {
-                Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-            }
-        }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        Hero(onAvatar = { openRoute("profile") }, onSearch = { openRoute("search") }, onAi = { openRoute("ai") })
 
-        if (loading && overview == null) {
-            CenterHint("加载中…", loading = true)
-        } else if (error.isNotEmpty() && overview == null) {
-            CenterHint(error)
-        } else {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 16.dp, end = 16.dp, bottom = 16.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                item { OverviewCard(overview) }
-                item {
-                    Text("快捷入口", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 4.dp))
-                }
-                item { ShortcutGrid(openWeb) }
-                if (announcements.isNotEmpty()) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (loading) {
+                item { KbLoading() }
+            } else if (error.isNotEmpty()) {
+                item { KbEmpty("⚠️", error) }
+            } else {
+                if (sharePending.isNotEmpty()) {
                     item {
-                        Text("公告", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(top = 4.dp))
+                        NoticeCard(
+                            "📥", Color(0xFF1677FF),
+                            "收到 ${sharePending.size} 个分享文件", "点击导入到知识库"
+                        ) { openRoute("share-import") }
                     }
-                    items(announcements, key = { it.optLong("id", it.hashCode().toLong()) }) { a ->
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                }
+                if (draftCount > 0) {
+                    item {
+                        NoticeCard(
+                            "📤", Color(0xFFEA580C),
+                            "$draftCount 篇草稿待同步", "联网后会自动上传到「我的文档」",
+                            onClick = { openRoute("drafts") }
+                        )
+                    }
+                }
+                if (dueCards > 0) {
+                    item {
+                        NoticeCard(
+                            "🎴", Color(0xFFF59E0B),
+                            "$dueCards 张卡片待复习", "花两分钟过一遍，别让记过的忘掉"
+                        ) { openRoute("cards") }
+                    }
+                }
+                item {
+                    val quicks = listOf(
+                        Quick("拍照建文档", "📷", Color(0xFF1677FF), "capture"),
+                        Quick("速记", "✏️", Color(0xFF06B6D4), "quick"),
+                        Quick("网页剪藏", "🔗", Color(0xFF409EFF), "clip"),
+                        Quick("复习卡片", "🎴", Color(0xFFF59E0B), "cards"),
+                        Quick("模拟练习", "📝", Color(0xFF22C55E), "practice"),
+                        Quick("考试中心", "🏆", Color(0xFF10B981), "exams"),
+                        Quick("AI 问答", "🪄", Color(0xFF8B5CF6), "ai"),
+                        Quick("搜索", "🔍", Color(0xFF64748B), "search")
+                    )
+                    KbCard {
+                        Column(Modifier.padding(10.dp)) {
+                            quicks.chunked(4).forEach { row ->
+                                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                    row.forEach { q ->
+                                        Column(
+                                            Modifier
+                                                .weight(1f)
+                                                .clickable { openRoute(q.route!!) },
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Box(
+                                                Modifier
+                                                    .size(44.dp)
+                                                    .background(q.tint.copy(alpha = 0.13f), RoundedCornerShape(13.dp)),
+                                                contentAlignment = Alignment.Center
+                                            ) { Text(q.emoji, fontSize = 20.sp) }
+                                            Spacer(Modifier.height(5.dp))
+                                            Text(q.label, fontSize = 11.sp, maxLines = 1)
+                                        }
+                                    }
+                                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    KbCard {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            Column(Modifier.padding(14.dp)) {
-                                Text(a.optString("title"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                if (a.optString("content").isNotEmpty()) {
-                                    Spacer(Modifier.height(4.dp))
+                            Stat(overview?.optLong("totalDocs", -1) ?: -1, "文档")
+                            Stat(overview?.optLong("weekNew", -1) ?: -1, "本周新增")
+                            Stat(-1, "连续天数")
+                            Stat(-1, "本周阅读")
+                        }
+                    }
+                }
+                announcement?.let { a ->
+                    item {
+                        KbCard(Modifier.clickable { openWeb("/m/", "公告") }) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("📣", fontSize = 17.sp)
+                                Spacer(Modifier.size(10.dp))
+                                Column(Modifier.weight(1f)) {
                                     Text(
-                                        a.optString("content"),
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 3
+                                        a.optString("title").ifBlank { "公告" },
+                                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
                                     )
+                                    Text(a.optString("content"), fontSize = 12.sp, color = KbTextDim, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+                if (recent.isNotEmpty()) {
+                    item {
+                        Text("最近文档", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(recent, key = { it.optLong("id", it.hashCode().toLong()) }) { d ->
+                                val docId = if (d.has("docId")) d.optLong("docId") else d.optLong("id", 0)
+                                KbCard(
+                                    Modifier
+                                        .size(width = 150.dp, height = 96.dp)
+                                        .clickable {
+                                            openRoute(
+                                                "reader/${d.optLong("shareId", 0)}/$docId?title=" +
+                                                    android.net.Uri.encode(d.optString("title"))
+                                            )
+                                        }
+                                ) {
+                                    Column(Modifier.padding(12.dp)) {
+                                        Text(
+                                            d.optString("spaceName").ifBlank { "空间" },
+                                            fontSize = 10.sp, color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            d.optString("title").ifBlank { "未命名文档" },
+                                            fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 2
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            formatDateTime(d.optString("updatedAt")),
+                                            fontSize = 10.sp, color = KbTextDim
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (spaces.isNotEmpty()) {
+                    item {
+                        Text("我的空间", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        KbCard {
+                            spaces.take(5).forEach { s ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable { openRoute("docs") }
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .size(34.dp)
+                                            .background(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            s.optString("name").ifBlank { "空" }.take(1),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold, fontSize = 14.sp
+                                        )
+                                    }
+                                    Spacer(Modifier.size(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(s.optString("name").ifBlank { "未命名空间" }, fontSize = 14.sp)
+                                        Text(
+                                            s.optString("type") + " · " + s.optLong("memberCount", 0) + " 名成员",
+                                            fontSize = 11.sp, color = KbTextDim
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -134,22 +297,94 @@ fun HomeScreen(openWeb: (path: String, title: String) -> Unit) {
     }
 }
 
+private fun greet(): String {
+    val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    return when (h) {
+        in 5..8 -> "早上好"
+        in 9..11 -> "上午好"
+        in 12..13 -> "中午好"
+        in 14..17 -> "下午好"
+        else -> "晚上好"
+    }
+}
+
 @Composable
-private fun OverviewCard(ov: JSONObject?) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
+private fun Hero(onAvatar: () -> Unit, onSearch: () -> Unit, onAi: () -> Unit) {
+    val me = TokenStore.info.value
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(listOf(Color(0xFF3B8AFF), Color(0xFF1677FF))),
+                RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+            )
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(vertical = 18.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            Stat(ov?.optLong("totalDocs", -1) ?: -1, "文档")
-            Stat(ov?.optLong("weekNew", -1) ?: -1, "本周新增")
-            Stat(ov?.optLong("members", -1) ?: -1, "成员")
-            Stat(ov?.optLong("pendingReview", -1) ?: -1, "待审核")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(greet(), fontSize = 13.sp, color = Color.White.copy(alpha = 0.82f))
+                Text(
+                    me?.optString("displayName").orEmpty().ifBlank { "…"},
+                    fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                    color = Color.White, letterSpacing = (-0.3).sp
+                )
+            }
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                    .clickable(onClick = onAvatar),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    (me?.optString("displayName") ?: "").ifBlank { "?" }.take(1),
+                    color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .height(42.dp)
+                    .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                    .clickable(onClick = onSearch)
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.Search, null,
+                    tint = Color.White.copy(alpha = 0.88f), modifier = Modifier.size(17.dp)
+                )
+                Spacer(Modifier.size(8.dp))
+                Text("搜索文档", fontSize = 14.sp, color = Color.White.copy(alpha = 0.88f))
+            }
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                    .clickable(onClick = onAi),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("🪄", fontSize = 17.sp)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
+@Composable
+private fun NoticeCard(emoji: String, tint: Color, title: String, desc: String, onClick: () -> Unit) {
+    KbCard(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(emoji, fontSize = 20.sp)
+            Spacer(Modifier.size(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tint)
+                Text(desc, fontSize = 12.sp, color = KbTextDim)
+            }
         }
     }
 }
@@ -159,65 +394,10 @@ private fun Stat(num: Long, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             if (num >= 0) num.toString() else "—",
-            fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White
+            fontSize = 19.sp, fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
         )
         Spacer(Modifier.height(2.dp))
-        Text(label, fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
-    }
-}
-
-private data class Shortcut(val label: String, val path: String, val tint: Color)
-
-@Composable
-private fun ShortcutGrid(openWeb: (String, String) -> Unit) {
-    val shortcuts = listOf(
-        Shortcut("AI 问答", "/m/ai", Color(0xFF409EFF)),
-        Shortcut("搜索", "/m/search", Color(0xFF22C55E)),
-        Shortcut("复习卡片", "/m/cards", Color(0xFFF59E0B)),
-        Shortcut("学习计划", "/m/plans", Color(0xFF8B5CF6)),
-        Shortcut("待整理箱", "/m/inbox", Color(0xFF06B6D4)),
-        Shortcut("全部功能", "/m/", Color(0xFF64748B))
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        shortcuts.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { s ->
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { openWeb(s.path, s.label) }
-                    ) {
-                        Row(
-                            Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(30.dp)
-                                    .background(s.tint.copy(alpha = 0.15f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    Modifier
-                                        .size(10.dp)
-                                        .background(s.tint, CircleShape)
-                                )
-                            }
-                            Spacer(Modifier.size(10.dp))
-                            Text(s.label, fontSize = 14.sp)
-                            Spacer(Modifier.weight(1f))
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
-            }
-        }
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

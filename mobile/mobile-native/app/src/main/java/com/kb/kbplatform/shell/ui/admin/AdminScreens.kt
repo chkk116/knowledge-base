@@ -1,0 +1,681 @@
+/*
+ * Copyright (c) 2026 北寻·浅光
+ * 本源代码基于 AGPL-3.0 许可证开源，详见仓库根目录 LICENSE 文件。
+ */
+package com.kb.kbplatform.shell.ui.admin
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.kb.kbplatform.shell.data.KbApi
+import com.kb.kbplatform.shell.data.objects
+import com.kb.kbplatform.shell.ui.common.KbCard
+import com.kb.kbplatform.shell.ui.common.CenterHint
+import com.kb.kbplatform.shell.ui.common.TopBar
+import com.kb.kbplatform.shell.ui.common.formatDateTime
+import com.kb.kbplatform.shell.ui.theme.KbBlue
+import com.kb.kbplatform.shell.ui.theme.KbGreen
+import com.kb.kbplatform.shell.ui.theme.KbTextDim
+import com.kb.kbplatform.shell.ui.theme.KbWarn
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+
+/**
+ * 后台管理（原生）：入口按权限码显隐，与 Web 移动壳 /manage/ 路径族对齐。
+ * 用户管理(USER_MANAGE) / AI 模型管理(AI_MANAGE) / 文章审核(DOC_REVIEW) /
+ * 公告管理(ANNOUNCEMENT_MANAGE)。模型的新建编辑等重表单仍在 Web 端（入口置底）。
+ */
+
+// ============ 管理首页 ============
+
+@Composable
+fun AdminHomeScreen(
+    onOpen: (String) -> Unit,
+    onOpenWeb: (String, String) -> Unit,
+    onBack: () -> Unit
+) {
+    Column(Modifier.fillMaxSize()) {
+        TopBar(title = "后台管理", onBack = onBack)
+        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                Text(
+                    "按权限显示可用模块，完整后台（表单类）在「全部功能」的 Web 页面中",
+                    fontSize = 12.sp, color = KbTextDim
+                )
+            }
+            item {
+                AdminEntry("用户管理", "账号 / 角色 / 启停", KbBlue, onClick = { onOpen("admin/users") })
+            }
+            item {
+                AdminEntry("AI 模型管理", "启停 / 默认模型 / 连通测试", Color(0xFF8B5CF6), onClick = { onOpen("admin/ai") })
+            }
+            item {
+                AdminEntry("文章审核", "待审文章通过与驳回", KbGreen, onClick = { onOpen("admin/review") })
+            }
+            item {
+                AdminEntry("公告管理", "发布 / 置顶 / 启停", KbWarn, onClick = { onOpen("admin/announce") })
+            }
+            item {
+                AdminEntry("角色管理", "角色与权限分配", Color(0xFF0EA5E9), onClick = { onOpen("admin-roles") })
+            }
+            item {
+                AdminEntry("内容管理", "全站文档查看与删除", Color(0xFF8B5CF6), onClick = { onOpen("admin-docs") })
+            }
+            item {
+                AdminEntry("完整后台（Web）", "内容管理 / 检索测试 / 数据看板", Color(0xFF64748B),
+                    onClick = { onOpenWeb("/m/manage/users", "后台管理") })
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminEntry(title: String, sub: String, tint: Color, onClick: () -> Unit) {
+    KbCard(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .background(tint.copy(alpha = 0.15f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(Modifier.size(12.dp).background(tint, CircleShape))
+            }
+            Spacer(Modifier.size(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(sub, fontSize = 12.sp, color = KbTextDim)
+            }
+        }
+    }
+}
+
+// ============ 用户管理 ============
+
+@Composable
+fun AdminUsersScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var users by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var total by remember { mutableIntStateOf(0) }
+    var page by remember { mutableIntStateOf(0) }
+    var keyword by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf("") }
+    var roleTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var disableTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var actionMsg by remember { mutableStateOf("") }
+
+    fun load(p: Int) {
+        loading = true
+        error = ""
+        scope.launch {
+            try {
+                val r = KbApi.adminUsers(p, 20, keyword)
+                users = r.optJSONArray("content")?.objects() ?: emptyList()
+                total = r.optInt("totalElements", users.size)
+                page = p
+            } catch (e: Exception) {
+                error = e.message ?: "加载失败"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { load(0) }
+
+    Column(Modifier.fillMaxSize()) {
+        TopBar(title = "用户管理", onBack = onBack)
+        OutlinedTextField(
+            value = keyword,
+            onValueChange = { keyword = it },
+            placeholder = { Text("搜索用户名 / 昵称") },
+            singleLine = true,
+            trailingIcon = {
+                TextButton(onClick = { load(0) }) { Text("搜索") }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+        )
+        if (actionMsg.isNotEmpty()) {
+            Text(
+                actionMsg,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+            )
+        }
+        if (loading) {
+            CenterHint("加载中…", loading = true)
+        } else if (error.isNotEmpty()) {
+            CenterHint(error)
+        } else {
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(users, key = { it.optLong("id", 0) }) { u ->
+                    val id = u.optLong("id", 0)
+                    val enabled = u.optBoolean("enabled", true)
+                    KbCard(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        (u.optString("displayName").ifBlank { u.optString("username") })
+                                            + "（${u.optString("username")}）",
+                                        fontSize = 14.sp, fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        listOf(
+                                            roleCn(u.optString("role")),
+                                            if (enabled) "正常" else "已禁用",
+                                            "积分 ${u.optInt("points", 0)}",
+                                            formatDateTime(u.optString("createdAt"))
+                                        ).joinToString(" · "),
+                                        fontSize = 11.sp, color = KbTextDim
+                                    )
+                                }
+                                Switch(checked = enabled, onCheckedChange = { on ->
+                                    if (!on) {
+                                        // 禁用是破坏性操作，先确认（误触一次就锁住别人账号）
+                                        disableTarget = u
+                                    } else {
+                                        scope.launch {
+                                            // 只有接口成功才改本地状态：原来 runCatching 吞掉失败后仍
+                                            // 更新 UI，会出现「界面显示已启用、服务端其实没变」
+                                            val ok = runCatching { KbApi.adminToggleUser(id, true) }.isSuccess
+                                            if (ok) {
+                                                actionMsg = ""
+                                                users = users.map {
+                                                    if (it.optLong("id", 0) == id) JSONObject(it.toString()).put("enabled", true) else it
+                                                }
+                                            } else {
+                                                actionMsg = "启用失败，请重试"
+                                            }
+                                        }
+                                    }
+                                })
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { roleTarget = u }, enabled = enabled) {
+                                    Text("改角色", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (page > 0) {
+                            TextButton(onClick = { load(page - 1) }) { Text("上一页") }
+                        }
+                        Text("共 $total 人 · 第 ${page + 1} 页", fontSize = 12.sp,
+                            color = KbTextDim, modifier = Modifier.padding(vertical = 12.dp))
+                        if ((page + 1) * 20 < total) {
+                            TextButton(onClick = { load(page + 1) }) { Text("下一页") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 禁用账号二次确认：开关一旦拨过去就直接调接口太危险
+    disableTarget?.let { u ->
+        val uid = u.optLong("id", 0)
+        val name = u.optString("displayName").ifBlank { u.optString("username") }
+        AlertDialog(
+            onDismissRequest = { disableTarget = null },
+            title = { Text("禁用账号") },
+            text = { Text("确定禁用「$name」吗？禁用后该用户将无法登录。") },
+            confirmButton = {
+                Button(onClick = {
+                    disableTarget = null
+                    scope.launch {
+                        val ok = runCatching { KbApi.adminToggleUser(uid, false) }.isSuccess
+                        if (ok) {
+                            actionMsg = ""
+                            users = users.map {
+                                if (it.optLong("id", 0) == uid) JSONObject(it.toString()).put("enabled", false) else it
+                            }
+                        } else {
+                            actionMsg = "禁用失败，请重试"
+                        }
+                    }
+                }) { Text("确认禁用") }
+            },
+            dismissButton = {
+                TextButton(onClick = { disableTarget = null }) { Text("取消") }
+            }
+        )
+    }
+
+    roleTarget?.let { u ->
+        var role by remember { mutableStateOf(u.optString("role")) }
+        AlertDialog(
+            onDismissRequest = { roleTarget = null },
+            title = { Text("修改角色") },
+            text = {
+                Column {
+                    listOf("USER" to "普通用户", "ADMIN" to "管理员").forEach { (v, label) ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { role = v }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.RadioButton(selected = role == v, onClick = { role = v })
+                            Text(label, fontSize = 14.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    scope.launch {
+                        runCatching { KbApi.adminSetRole(u.optLong("id", 0), role) }
+                        users = users.map {
+                            if (it.optLong("id", 0) == u.optLong("id", 0))
+                                JSONObject(it.toString()).put("role", role) else it
+                        }
+                        roleTarget = null
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = { TextButton(onClick = { roleTarget = null }) { Text("取消") } }
+        )
+    }
+}
+
+private fun roleCn(r: String) = when (r) {
+    "ADMIN" -> "管理员"
+    "USER" -> "用户"
+    else -> r
+}
+
+// ============ AI 模型管理 ============
+
+@Composable
+fun AdminAiScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var models by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf("") }
+    var testingId by remember { mutableStateOf<Long?>(null) }
+    var testMsg by remember { mutableStateOf("") }
+
+    fun load() {
+        loading = true
+        scope.launch {
+            try {
+                models = KbApi.adminAiModels().objects()
+            } catch (e: Exception) {
+                error = e.message ?: "加载失败"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { load() }
+
+    Column(Modifier.fillMaxSize()) {
+        TopBar(title = "AI 模型管理", onBack = onBack)
+        if (loading) {
+            CenterHint("加载中…", loading = true)
+        } else if (error.isNotEmpty()) {
+            CenterHint(error)
+        } else if (models.isEmpty()) {
+            CenterHint("还没有模型，请在 Web 端「AI 模型管理」添加")
+        } else {
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(models, key = { it.optLong("id", 0) }) { m ->
+                    val id = m.optLong("id", 0)
+                    val enabled = m.optBoolean("enabled", true)
+                    KbCard(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(m.optString("name"), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                        if (m.optBoolean("isDefault", false)) {
+                                            Spacer(Modifier.size(6.dp))
+                                            Text("默认", fontSize = 10.sp, color = KbBlue,
+                                                modifier = Modifier
+                                                    .background(KbBlue.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                    }
+                                    Text(
+                                        "${m.optString("provider")} · ${m.optString("model")}",
+                                        fontSize = 11.sp, color = KbTextDim
+                                    )
+                                }
+                                Switch(checked = enabled, onCheckedChange = { on ->
+                                    scope.launch {
+                                        runCatching { KbApi.adminToggleAiModel(id, on) }
+                                        models = models.map {
+                                            if (it.optLong("id", 0) == id) JSONObject(it.toString()).put("enabled", on) else it
+                                        }
+                                    }
+                                })
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                                OutlinedButton(onClick = {
+                                    testingId = id
+                                    scope.launch {
+                                        val r = runCatching { KbApi.adminTestAiModel(id) }
+                                        testingId = null
+                                        testMsg = r.fold(
+                                            onSuccess = { resp ->
+                                                if (resp.optBoolean("ok", false) || resp.has("latencyMs"))
+                                                    "✓ 模型 ${id} 连通正常"
+                                                else "✗ ${resp.optString("error", "测试失败")}"
+                                            },
+                                            onFailure = { "✗ ${it.message ?: "测试失败"}" }
+                                        )
+                                    }
+                                }, enabled = testingId != id) {
+                                    Text(if (testingId == id) "测试中…" else "测试连接", fontSize = 12.sp)
+                                }
+                                if (!m.optBoolean("isDefault", false) && enabled) {
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            runCatching { KbApi.adminDefaultAiModel(id) }
+                                            load()
+                                        }
+                                    }) { Text("设为默认", fontSize = 12.sp) }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (testMsg.isNotEmpty()) {
+                    item {
+                        Text(testMsg, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============ 文章审核 ============
+
+@Composable
+fun AdminReviewScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var docs by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf("") }
+    var rejectTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var msg by remember { mutableStateOf("") }
+
+    fun load() {
+        loading = true
+        scope.launch {
+            try {
+                docs = KbApi.adminPendingDocs().objects()
+            } catch (e: Exception) {
+                error = e.message ?: "加载失败"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { load() }
+
+    Column(Modifier.fillMaxSize()) {
+        TopBar(title = "文章审核", onBack = onBack)
+        if (msg.isNotEmpty()) {
+            Text(msg, fontSize = 12.sp, color = KbGreen, modifier = Modifier.padding(horizontal = 16.dp))
+        }
+        if (loading) {
+            CenterHint("加载中…", loading = true)
+        } else if (error.isNotEmpty()) {
+            CenterHint(error)
+        } else if (docs.isEmpty()) {
+            CenterHint("没有待审核的文章 🎉")
+        } else {
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(docs, key = { it.optLong("id", 0) }) { d ->
+                    val id = d.optLong("id", 0)
+                    KbCard(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(d.optString("title").ifBlank { "未命名" }, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                listOfNotNull(
+                                    d.optString("ownerName").takeIf { it.isNotEmpty() },
+                                    formatDateTime(d.optString("createdAt"))
+                                ).joinToString(" · "),
+                                fontSize = 11.sp, color = KbTextDim
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                                Button(onClick = {
+                                    scope.launch {
+                                        runCatching { KbApi.adminApproveDoc(id) }
+                                        docs = docs.filter { it.optLong("id", 0) != id }
+                                        msg = "已通过一篇"
+                                    }
+                                }) { Text("通过", fontSize = 12.sp) }
+                                OutlinedButton(onClick = { rejectTarget = d }) { Text("驳回", fontSize = 12.sp) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    rejectTarget?.let { d ->
+        var reason by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { rejectTarget = null },
+            title = { Text("驳回文章") },
+            text = {
+                Column {
+                    Text(d.optString("title"), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        placeholder = { Text("驳回原因（将通知作者）") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    scope.launch {
+                        runCatching { KbApi.adminRejectDoc(d.optLong("id", 0), reason) }
+                        docs = docs.filter { it.optLong("id", 0) != d.optLong("id", 0) }
+                        rejectTarget = null
+                        msg = "已驳回一篇"
+                    }
+                }) { Text("确认驳回") }
+            },
+            dismissButton = { TextButton(onClick = { rejectTarget = null }) { Text("取消") } }
+        )
+    }
+}
+
+// ============ 公告管理 ============
+
+@Composable
+fun AdminAnnounceScreen(onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var list by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf("") }
+    var showCreate by remember { mutableStateOf(false) }
+
+    fun load() {
+        loading = true
+        scope.launch {
+            try {
+                list = KbApi.adminAnnouncements().objects()
+            } catch (e: Exception) {
+                error = e.message ?: "加载失败"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { load() }
+
+    Column(Modifier.fillMaxSize()) {
+        TopBar(title = "公告管理", onBack = onBack, actions = {
+            TextButton(onClick = { showCreate = true }) { Text("发布", fontSize = 14.sp) }
+        })
+        if (loading) {
+            CenterHint("加载中…", loading = true)
+        } else if (error.isNotEmpty()) {
+            CenterHint(error)
+        } else if (list.isEmpty()) {
+            CenterHint("暂无公告")
+        } else {
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(list, key = { it.optLong("id", 0) }) { a ->
+                    val id = a.optLong("id", 0)
+                    val enabled = a.optBoolean("enabled", true)
+                    KbCard(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (a.optBoolean("pinned", false)) {
+                                    Text("置顶", fontSize = 10.sp, color = KbWarn,
+                                        modifier = Modifier
+                                            .background(KbWarn.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp))
+                                    Spacer(Modifier.size(6.dp))
+                                }
+                                Text(
+                                    a.optString("title").ifBlank { "未命名公告" },
+                                    fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Switch(checked = enabled, onCheckedChange = { on ->
+                                    scope.launch {
+                                        runCatching { KbApi.adminToggleAnnouncement(id, on) }
+                                        list = list.map {
+                                            if (it.optLong("id", 0) == id)
+                                                JSONObject(it.toString()).put("enabled", on) else it
+                                        }
+                                    }
+                                })
+                            }
+                            Text(
+                                a.optString("content"),
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2
+                            )
+                            Row(Modifier.padding(top = 6.dp)) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        runCatching { KbApi.adminPinAnnouncement(id) }
+                                        load()
+                                    }
+                                }) { Text("置顶/取消", fontSize = 12.sp) }
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        runCatching { KbApi.adminDeleteAnnouncement(id) }
+                                        list = list.filter { it.optLong("id", 0) != id }
+                                    }
+                                }) { Text("删除", fontSize = 12.sp, color = MaterialTheme.colorScheme.error) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCreate) {
+        var title by remember { mutableStateOf("") }
+        var content by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreate = false },
+            title = { Text("发布公告") },
+            text = {
+                Column {
+                    OutlinedTextField(value = title, onValueChange = { title = it },
+                        placeholder = { Text("标题") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = content, onValueChange = { content = it },
+                        placeholder = { Text("内容") }, minLines = 3,
+                        modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (title.isNotBlank()) {
+                        scope.launch {
+                            runCatching { KbApi.adminCreateAnnouncement(title.trim(), content.trim()) }
+                            showCreate = false
+                            load()
+                        }
+                    }
+                }) { Text("发布") }
+            },
+            dismissButton = { TextButton(onClick = { showCreate = false }) { Text("取消") } }
+        )
+    }
+}

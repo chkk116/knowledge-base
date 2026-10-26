@@ -4,6 +4,7 @@
  */
 package com.kb.kbplatform.shell.ui.common
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,30 +31,39 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** 顶栏：自绘（避免 Material3 TopAppBar 的 experimental API），含状态栏避让 */
+/** 顶栏：实底 + 底部细分割线（对标套壳 .m-header.solid），含状态栏避让 */
 @Composable
 fun TopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .height(52.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(52.dp)
+                .background(MaterialTheme.colorScheme.surface),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
+            } else {
+                Spacer(Modifier.size(8.dp))
             }
-        } else {
-            Spacer(Modifier.size(8.dp))
+            Text(
+                title,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            actions()
         }
-        Text(
-            title,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(0.6.dp)
+                .background(MaterialTheme.colorScheme.outline)
         )
-        actions()
     }
 }
 

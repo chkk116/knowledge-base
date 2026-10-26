@@ -1,29 +1,68 @@
 # 知识库 Native（Kotlin + Jetpack Compose 原生壳）
 
-> 方向二落地工程：**原生壳 + 原生页面 + WebView 承载编辑器**，渐进替换 Capacitor 套壳。
-> 原有 `mobile/`（Capacitor 工程）保持不动，两版可并存安装、真机对照。
+> **架构定案（2026-10-25）：UI 直接采用套壳 Web 页面（/m/ 路径族），像素级一致、与 Web 端永远同步。**
+> 原生壳负责能力层：应用锁、系统分享、应用内更新、令牌桥接、冷启动速度。
+> 早期手绘的 Compose 原生页（AI/搜索/卡片/考试/管理等）保留在代码库中且路由可达（`ui/` 各目录），
+> 但主体验不再使用——手绘复刻无法跟随 Web 端演进，这是两轮真机对比后的结论。
+> 原有 `mobile/`（Capacitor 工程）保留不动。
 
-## 现状（竖切 v0.1）
+## 架构
+
+```
+MainActivity（应用锁判定 / 分享 intent 接收）
+└── AppRoot（令牌驱动：未登录→原生登录页；已登录→ShellScreen）
+    ├── ShellScreen：全屏 WebView 承载 /m/home
+    │   ├── 令牌桥接：拦截 HTML 注入 window.__KB_NATIVE_TOKEN → main-mobile.js 写入登录态
+    │   ├── 文件选择/拍照桥、JS 弹窗、进度条（WebSupport 共用层）
+    │   ├── 返回键：WebView 可退则退，否则退后台（回切走应用锁）
+    │   └── 分享到达：跳原生 ShareImportScreen（原生落盘，不依赖 Capacitor 插件）
+    ├── ShareImportScreen（原生）：选空间导入 / 收待整理箱
+    └── 其余原生页（AI/搜索/卡片/考试/阅读/管理）：已实现、路由保留、未挂主体验
+```
+
+Web 页面在 WebView 中以标准 PWA 形态运行（无 Capacitor 对象，main-mobile.js 有 isNative 守卫），
+接口走同源相对路径 `/api`，与浏览器访问完全同构；`viewport-fit=cover` + 边到边布局下
+`env(safe-area-inset-*)` 正常生效，头部件不顶状态栏。
+
+## 现状（v0.2 · P1/P2 已落）
 
 已原生实现：
 
 | 模块 | 说明 | 对接接口 |
 |---|---|---|
 | 登录页 | 滑动拼图验证码（Compose 手绘，协议与 Web 端 SlideCaptcha.vue 同源：320 基准坐标换算、轨迹 ≥3 点 ≥120ms） | `/api/auth/captcha` `/api/auth/captcha/slide` `/api/auth/login` |
-| 主框架 | 底部四 Tab：首页 / 文档库 / 消息 / 我的（与 Capacitor 版信息架构一致） | — |
-| 首页 | 数据概览 + 公告 + 快捷入口（快捷入口进 WebView） | `/api/docs/overview` `/api/announcements` |
-| 文档库 | 空间列表 → 文档列表，点开进 WebView 阅读/编辑 | `/api/doc-shares/my` `/api/doc-shares/{id}/docs` |
-| 消息 | 通知列表、点按已读（乐观更新） | `/api/notifications` |
+| 主框架 | 底部四 Tab：首页 / 文档库 / 消息 / 我的；消息 Tab 未读角标（SSE 实时）；**主题令牌与套壳 mobile.css --m-* 家族对齐（#1677FF）** | `/api/notifications/stream` (SSE) |
+| 首页 | 数据概览 + 公告 + 快捷入口（AI/搜索/卡片/模拟练习/考试中心直达原生页）+ 分享横幅 | `/api/docs/overview` `/api/announcements` |
+| 文档库 | 空间列表 → 文档列表 → **原生阅读器**（离线可读）；编辑进 WebView | `/api/doc-shares/*` |
+| AI 问答（原生） | **对标套壳 MobileAiChat**：历史会话抽屉（续接/删除）、知识库/通用模式、模型选择、Markdown 渲染、引用来源与模型元信息 | `/api/ai/*` |
+| 后台管理（原生） | 用户管理（搜索/启停/改角色）、AI 模型管理（启停/默认/测试）、文章审核（通过/驳回）、公告管理（发布/置顶/启停），按权限码显隐 | `/api/admin/*` |
+| 消息 | 通知列表、点按已读、SSE 到达自动刷新 + 角标 | `/api/notifications` `/api/notifications/unread` |
+| 搜索（原生） | 我的空间全文档标题/正文检索 + 搜索历史 | `/api/doc-shares/*` |
+| 复习卡片（原生） | SM-2 到期队列：翻面 + 四档评分 + 本轮小结 | `/api/flashcards/due` `/api/flashcards/{id}/review` |
+| 模拟练习（原生） | 随机抽题、逐题判分看解析、答题卡跳题、错题回顾 | `/api/exams/practice/*` |
+| 考试中心（原生） | 试卷列表 + 我的成绩；倒计时作答（到时自动交卷）、成绩面板 | `/api/exams/*` |
+| 分享导入（原生） | 微信/文件管理器分享 → 选空间导入或收待整理箱 | `/api/files` `/api/doc-shares/*` |
+| 离线缓存 | 列表 + 打开过的正文（100 篇上限），按账号隔离落盘 | — |
+| 应用锁 | 4-6 位 PIN（salt+SHA-256），冷启动必锁、后台超 60s 回切加锁 | — |
+| 应用内更新 | 版本检查 → 下载（断点续传 + **域名白名单**）→ 系统安装器 | `/api/public/app-version` |
+
+**版本线**：Capacitor 版停更于 versionCode 29；原生壳从 30+ 起步（现 32）——同一 app-version 通道下旧套壳用户会被提示升级到原生 APK。
 | 我的 | 资料、积分、服务器地址设置、退出登录 | `/api/auth/me` |
-| WebView 承载页 | 打开任意 `/m/*` 页面；令牌桥接自动登录；顶部进度条、返回键栈管理 | — |
+| WebView 承载页 | 任意 /m/ 页面；令牌桥接自动登录；**文件选择/拍照桥**（input file + capture 相机）、JS alert/confirm、进度条、返回栈 | — |
 
 令牌桥接机制（配对代码：`frontend/src/main-mobile.js` 顶部的 bootstrap 段）：
 
-1. 原生端拦截 `/m/*` 的 **HTML 文档请求**（静态资源与 XHR 放行），OkHttp 取回后在 `<head>` 后注入
+1. 原生端拦截 `/m/` 路径族的 **HTML 文档请求**（静态资源与 XHR 放行），OkHttp 取回后在 `<head>` 后注入
    `window.__KB_NATIVE_TOKEN="<token>"`
 2. `main-mobile.js` 入口最先执行：发现该变量即写入 `localStorage.kb_token`——发生在 Vue 路由守卫
    读令牌之前，无竞态；未登录时注入 `null`，Web 侧同步清除
 3. Capacitor 套壳与纯 Web 不注入该变量（`'in'` 判定跳过），行为零变化
+
+P1 桥接细节：
+
+- **文件选择**：`onShowFileChooser` → 系统选择器；`capture`（拍照页）→ `ACTION_IMAGE_CAPTURE` +
+  FileProvider 落盘 cache（manifest 已注册 provider，未声明 CAMERA 权限，intent 拍照无需运行时授权）
+- **SSE**：okhttp-sse 长连接，断线 10s 自动重连；未读数以服务端为准（进消息页校准）
 
 ## 构建
 
@@ -38,8 +77,9 @@ gradlew.bat assembleDebug
 
 - Gradle 8.14.3（腾讯镜像）/ AGP 8.13.0 / Kotlin 2.0.21 / Compose BOM 2024.09.03，
   依赖走阿里云 Maven 镜像，与 `mobile/android` 同一套镜像策略
-- `applicationId` 为 `com.kb.kbplatform.shell`，可与 Capacitor 版（`com.kb.kbplatform`）**并存安装**；
-  转正替换旧 App 时改回即可
+- **applicationId 已转正为 `com.kb.kbplatform`（v0.4 起）**：直接覆盖安装升级旧 Capacitor 版；
+  ⚠️ 覆盖安装要求签名一致——正式分发请用旧版同一 `kb-release.jks` 出 release 包，
+  debug 签名与旧 release 版互斥（会安装失败，需先卸载）
 - 首次构建会拉取大量依赖，耐心等；IDE 打开请用 Android Studio 选 `mobile-native` 目录
 
 ## 后端地址
@@ -48,17 +88,27 @@ gradlew.bat assembleDebug
 - 真机联调：App 内「我的 → 服务器地址」改成电脑局域网 IP，**无需重新打包**
 - 生产：改成 `https://你的域名`；与 Web 端一样，仓库内不存任何公网地址
 
-## 已知边界（竖切暂不做）
+## 已知边界（v0.4 暂不做）
 
-- WebView 内页面暂无文件选择/相机桥接：`/m/capture` 等拍照类页快捷入口未放首页
-  （需要 WebChromeClient.onShowFileChooser + 运行时权限，属下一步）
-- SSE 实时通知未接（消息页手动刷新）；应用锁、离线队列、分享导入、应用内更新未迁移
-- 原生登录走 OkHttp，UA 已带 Mozilla 前缀，不会触发后端的管理员脚本登录告警
+- 离线草稿队列（拍照/编辑断网暂存再同步）未迁移；离线正文中的外链图片不可见（文字完整）
+- WebView 内下载类动作（a[download]）未接系统下载
+- 课程中心 / 错题本 / 学习计划等长尾页面仍走 WebView；正式考试防泄题细节（如切后台策略）以 Web 版为准
+- 生物识别解锁未做（仅 PIN）
 
-## 迁移路线图（建议顺序）
+## 迁移路线图
 
-1. **P0 体验验证**：真机安装，与 Capacitor 版对照登录/文档库/阅读手感 → 决定是否铺开
-2. **P1 桥接补全**：文件选择 + 相机权限桥（让 WebView 内 OCR/拍照可用）；SSE 通知
-3. **P2 高频页原生化**（每页独立可发布，先后台刷新不影响线上）：搜索、AI 问答（SSE 流式）、复习卡片、考试练习
-4. **P3 原生能力**：系统分享导入（替代 ShareReceiverPlugin）、离线缓存（Room）、应用内更新（替代 ApkInstallerPlugin）、推送
-5. **P4 转正**：applicationId 改回 `com.kb.kbplatform`，签名对齐，Capacitor 工程归档
+1. ~~**P0 体验验证**：竖切（登录/文档库/阅读）~~ ✅
+2. ~~**P1 桥接补全**：文件选择 + 相机桥接；SSE 通知~~ ✅
+3. ~~**P2 高频页原生化**：搜索、AI 问答、复习卡片、考试练习~~ ✅
+4. ~~**P3 原生能力**：系统分享导入、离线缓存、应用内更新~~ ✅
+5. ~~**P4 转正**：applicationId 替换、断点续传、正文级离线、应用锁、考试中心~~ ✅
+
+**后续候选**（无排期）：离线草稿队列、生物识别、课程中心原生化、推送、AI Agent 模式原生化
+
+## 黑盒探测工具（tools/）
+
+- `probe_api.py`：全链路 API 合同探测——**含滑动验证码自动求解**（拼块 alpha 模板 ×
+  背景 ×0.765 压暗的乘性匹配，形状无关，对本地与云端各 23/24 PASS）。
+  用法：`python tools/probe_api.py [base_url] [user] [pass]`
+- `FixAiModel.java`：修复 `kb_ai_model` 旧数据 NULL primitive 列导致 AI 全线 400 的问题
+  （`contextWindow`/`vision` 为 NULL 的历史行；本地库已修，云库如遇到同样报错执行同款 SQL）

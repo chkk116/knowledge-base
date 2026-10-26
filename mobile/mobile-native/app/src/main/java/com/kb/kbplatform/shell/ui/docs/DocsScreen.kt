@@ -44,7 +44,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kb.kbplatform.shell.data.KbApi
+import com.kb.kbplatform.shell.data.OfflineCache
 import com.kb.kbplatform.shell.data.objects
+import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.CenterHint
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
@@ -60,13 +62,20 @@ private val SpaceTints = listOf(
  * 文档点开进入 WebView 承载的 Tiptap 阅读页（协同编辑能力原样保留）。
  */
 @Composable
-fun DocsScreen(openWeb: (path: String, title: String) -> Unit) {
+fun DocsScreen(
+    openWeb: (path: String, title: String) -> Unit,
+    openRoute: (String) -> Unit = {}
+) {
     var spaces by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var selectedSpace by remember { mutableStateOf<JSONObject?>(null) }
     var docs by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
+    var offline by remember { mutableStateOf(false) }
+    var offlineAt by remember { mutableStateOf(0L) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val docsLoaded = remember { mutableStateOf(mutableMapOf<Long, List<JSONObject>>()) }
 
     LaunchedEffect(refreshKey, selectedSpace) {
         loading = true
@@ -77,9 +86,24 @@ fun DocsScreen(openWeb: (path: String, title: String) -> Unit) {
                 spaces = KbApi.myShares().objects()
             } else {
                 docs = KbApi.shareDocs(sp.optLong("id", 0)).objects()
+                docsLoaded.value[sp.optLong("id", 0)] = docs
             }
+            offline = false
+            // 在线成功：刷新离线缓存（空间 + 已加载过的文档列表）
+            OfflineCache.save(ctx, spaces, docsLoaded.value.toMap())
         } catch (e: Exception) {
-            error = e.message ?: "加载失败"
+            // 断网兜底：读离线缓存展示列表（标题/时间可看）
+            val snap = OfflineCache.load(ctx)
+            val sp = selectedSpace
+            if (snap != null) {
+                offline = true
+                offlineAt = snap.savedAt
+                if (sp == null) spaces = snap.spaces
+                else docs = snap.docsByShare[sp.optLong("id", 0)] ?: emptyList()
+                error = ""
+            } else {
+                error = e.message ?: "加载失败"
+            }
         } finally {
             loading = false
         }
@@ -88,8 +112,8 @@ fun DocsScreen(openWeb: (path: String, title: String) -> Unit) {
     val space = selectedSpace
     Column(Modifier.fillMaxSize()) {
         if (space == null) {
-            TopBar(title = "文档库") {
-                IconButton(onClick = { openWeb("/m/search", "搜索") }) {
+            com.kb.kbplatform.shell.ui.common.KbPageHeader(title = "文档库") {
+                IconButton(onClick = { openRoute("search") }) {
                     Icon(Icons.Filled.Search, contentDescription = "搜索")
                 }
             }
@@ -97,13 +121,22 @@ fun DocsScreen(openWeb: (path: String, title: String) -> Unit) {
             TopBar(title = space.optString("name").ifBlank { "文档库" }, onBack = { selectedSpace = null })
         }
 
+        if (!loading && offline) {
+            Text(
+                "📴 离线数据 · 保存于 " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(offlineAt)) + "（连网后自动刷新）",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
         if (loading) {
-            CenterHint("加载中…", loading = true)
+            com.kb.kbplatform.shell.ui.common.KbLoading()
         } else if (error.isNotEmpty()) {
-            CenterHint(error)
+            com.kb.kbplatform.shell.ui.common.KbEmpty("⚠️", error)
         } else if (space == null) {
             if (spaces.isEmpty()) {
-                CenterHint("还没有空间，去 Web 端创建一个吧")
+                com.kb.kbplatform.shell.ui.common.KbEmpty("📂", "还没有空间，去 Web 端创建一个吧")
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(16.dp),
@@ -111,7 +144,7 @@ fun DocsScreen(openWeb: (path: String, title: String) -> Unit) {
                 ) {
                     items(spaces, key = { it.optLong("id", 0) }) { s ->
                         val id = s.optLong("id", 0)
-                        Card(
+                        KbCard(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
@@ -156,7 +189,7 @@ fun DocsScreen(openWeb: (path: String, title: String) -> Unit) {
             }
         } else {
             if (docs.isEmpty()) {
-                CenterHint("这个空间还没有文档")
+                com.kb.kbplatform.shell.ui.common.KbEmpty("📄", "这个空间还没有文档")
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(16.dp),
@@ -165,13 +198,14 @@ fun DocsScreen(openWeb: (path: String, title: String) -> Unit) {
                     items(docs, key = { it.optLong("docId", it.optLong("id", it.hashCode().toLong())) }) { d ->
                         val docId = if (d.has("docId")) d.optLong("docId") else d.optLong("id", 0)
                         val title = d.optString("title").ifBlank { "未命名文档" }
-                        Card(
+                        KbCard(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    openWeb("/m/doc/${space.optLong("id", 0)}/$docId", title)
+                                    // 原生阅读器：正文缓存离线可读；编辑在阅读器内进 WebView
+                                    openRoute("reader/${space.optLong("id", 0)}/$docId?title=${android.net.Uri.encode(title)}")
                                 }
                         ) {
                             Column(Modifier.padding(14.dp)) {

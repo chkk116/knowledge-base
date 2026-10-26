@@ -8,11 +8,18 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
+import android.webkit.JsResult
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,44 +33,74 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import com.kb.kbplatform.shell.AppConfig
 import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.ApiClient
 import com.kb.kbplatform.shell.ui.common.TopBar
 import java.io.ByteArrayInputStream
+import java.io.File
 
 /**
  * WebView 承载页：原生壳里运行移动 Web 页面（/m/ 路径族）。
  *
- * 令牌桥接（关键机制，与 frontend/src/main-mobile.js 的 bootstrap 配对）：
- *  1. 拦截 /m/ 路径族的 HTML 文档请求，由 OkHttp 取回响应体
+ * 令牌桥接（与 frontend/src/main-mobile.js 的 bootstrap 配对）：
+ *  1. 拦截 /m/ 的 HTML 文档请求，由 OkHttp 取回响应体
  *  2. 在 <head> 后注入 `window.__KB_NATIVE_TOKEN = "<token>"`
- *  3. main-mobile.js 入口最先执行：发现该变量即写入 localStorage.kb_token
- *     —— 在 Vue 应用任何路由守卫读到令牌之前完成，无竞态
- *  4. 未登录（原生端已登出）时注入 null，Web 侧同步清掉旧令牌
+ *  3. main-mobile.js 入口最先执行：发现该变量即写入 localStorage.kb_token —— 无竞态
  *
- * 静态资源（js/css/img）与接口 XHR 不拦截，走 WebView 原生网络栈。
+ * P1 桥接补全：
+ *  - 文件选择：onShowFileChooser → 系统选择器 / 相册；
+ *    capture（拍照页 <input capture>）→ ACTION_IMAGE_CAPTURE + FileProvider 落盘 cache
+ *  - JS alert/confirm：自绘系统弹窗（默认实现会静默丢弃）
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun WebScreen(path: String, title: String, onBack: () -> Unit) {
+    val ctx = LocalContext.current
     val base = AppConfig.effectiveBaseUrl
     var progress by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     var canGoBack by remember { mutableStateOf(false) }
 
-    // 不按 path 重建：holder 变了但 WebView 实例不变，返回键/前进状态会指向旧 holder（审查 r13）
-    val webView = remember { MutableWebViewHolder() }
+    val webView = remember(path) { MutableWebViewHolder() }
+    var fileCallback by remember {
+        mutableStateOf<android.webkit.ValueCallback<Array<Uri>>?>(null)
+    }
+    var captureUri by remember { mutableStateOf<Uri?>(null) }
+
+    val chooserLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val cb = fileCallback
+        fileCallback = null
+        if (cb == null) return@rememberLauncherForActivityResult
+        val uris = when {
+            result.resultCode != android.app.Activity.RESULT_OK -> null
+            // capture 拍照：结果落在我们传入的 FileProvider URI
+            captureUri != null -> arrayOf(captureUri!!)
+            else -> {
+                val data = result.data
+                val list = mutableListOf<Uri>()
+                data?.data?.let { list.add(it) }
+                val clip = data?.clipData
+                if (clip != null) for (i in 0 until clip.itemCount) list.add(clip.getItemAt(i).uri)
+                if (list.isEmpty()) null else list.toTypedArray()
+            }
+        }
+        captureUri = null
+        cb.onReceiveValue(uris)
+    }
 
     BackHandler(enabled = canGoBack) {
         webView.view?.goBack()
     }
 
-    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
         TopBar(title = title, onBack = {
             if (webView.view?.canGoBack() == true) webView.view?.goBack() else onBack()
         })
@@ -77,8 +114,8 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
         Box(Modifier.fillMaxSize()) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    WebView(ctx).apply {
+                factory = { c ->
+                    WebView(c).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.mediaPlaybackRequiresUserGesture = false
@@ -89,7 +126,7 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                             ): WebResourceResponse? = interceptHtml(base, request)
 
                             /**
-                             * 站内跳转留在 WebView，站外一律交给系统浏览器（审查 r14）。
+                             * 站内跳转留在 WebView，站外一律交给系统浏览器。
                              *
                              * 不加这段时 WebView 可以被导航到任意站点：文档正文里的外链会把用户
                              * 带进一个没有地址栏的「假页面」，既没法返回也没法分辨域名（钓鱼面）。
@@ -101,16 +138,15 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                             ): Boolean {
                                 val uri = request.url
                                 val scheme = uri.scheme?.lowercase() ?: return true
-                                // 非 http(s)：mailto / tel / 微信 scheme 等，交给系统处理
                                 if (scheme != "http" && scheme != "https") {
-                                    openExternal(view, uri)
+                                    openExternal(view, uri)      // mailto / tel / 微信 scheme 等
                                     return true
                                 }
                                 return if (isSameOrigin(base, uri)) {
-                                    false                       // 站内：WebView 自己加载（含令牌注入）
+                                    false                        // 站内：WebView 自己加载（含令牌注入）
                                 } else {
                                     openExternal(view, uri)
-                                    true                        // 站外：系统浏览器，WebView 不导航
+                                    true
                                 }
                             }
 
@@ -124,22 +160,70 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                                 loading = false
                             }
                         }
-                        webChromeClient = object : android.webkit.WebChromeClient() {
+                        webChromeClient = object : WebChromeClient() {
                             override fun onProgressChanged(view: WebView, newProgress: Int) {
                                 progress = newProgress
                             }
+
+                            /** 文件选择桥：<input type=file> 与 capture 拍照 */
+                            override fun onShowFileChooser(
+                                view: WebView,
+                                callback: android.webkit.ValueCallback<Array<Uri>>,
+                                params: WebChromeClient.FileChooserParams
+                            ): Boolean {
+                                fileCallback?.onReceiveValue(null)   // 上一轮未消费的回调先作废
+                                fileCallback = callback
+                                try {
+                                    val intent: Intent = if (params.isCaptureEnabled) {
+                                        // 拍照：写进 cache 临时文件，经 FileProvider 授权给相机应用
+                                        val dir = File(c.cacheDir, "web_capture").apply { mkdirs() }
+                                        val file = File(dir, "cap_${System.currentTimeMillis()}.jpg")
+                                        val uri = FileProvider.getUriForFile(
+                                            c, "${c.packageName}.fileprovider", file
+                                        )
+                                        captureUri = uri
+                                        Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                                            putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                                            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                                Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                    } else {
+                                        params.createIntent()
+                                    }
+                                    chooserLauncher.launch(intent)
+                                } catch (e: android.content.ActivityNotFoundException) {
+                                    Toast.makeText(c, "设备上没有可用的相机或文件管理器", Toast.LENGTH_SHORT).show()
+                                    fileCallback = null
+                                    callback.onReceiveValue(null)
+                                }
+                                return true
+                            }
+
+                            override fun onJsAlert(
+                                view: WebView, url: String, message: String, result: JsResult
+                            ): Boolean {
+                                android.app.AlertDialog.Builder(c)
+                                    .setMessage(message)
+                                    .setPositiveButton("确定") { _, _ -> result.confirm() }
+                                    .setOnCancelListener { result.cancel() }
+                                    .show()
+                                return true
+                            }
+
+                            override fun onJsConfirm(
+                                view: WebView, url: String, message: String, result: JsResult
+                            ): Boolean {
+                                android.app.AlertDialog.Builder(c)
+                                    .setMessage(message)
+                                    .setPositiveButton("确定") { _, _ -> result.confirm() }
+                                    .setNegativeButton("取消") { _, _ -> result.cancel() }
+                                    .setOnCancelListener { result.cancel() }
+                                    .show()
+                                return true
+                            }
                         }
-                        tag = base + path
                         loadUrl(base + path)
                     }.also { webView.view = it }
-                },
-                // AndroidView 没有 update 时 factory 只跑一次，path 变了也不会重新加载（审查 r13 High）
-                update = { wv ->
-                    val want = base + path
-                    if (wv.tag != want) {
-                        wv.tag = want
-                        wv.loadUrl(want)
-                    }
                 },
                 onRelease = { it.destroy() }
             )
@@ -148,8 +232,9 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
 }
 
 /** remember(path) 需要一个稳定持有者，避免重组期间 WebView 被意外重建 */
-/** 文档 <head> 标签（每次请求重新编译太浪费，提到顶层） */
-private val HEAD_TAG_RE = Regex("<head([^>]*)>", RegexOption.IGNORE_CASE)
+private class MutableWebViewHolder {
+    var view: WebView? = null
+}
 
 /** 同源判定：协议 + 主机 + 端口三者一致才算站内（端口缺省按协议补 80/443） */
 private fun isSameOrigin(base: String, target: Uri): Boolean {
@@ -174,17 +259,13 @@ private fun openExternal(view: WebView, uri: Uri) {
     }
 }
 
-private class MutableWebViewHolder {
-    var view: WebView? = null
-}
-
 private fun interceptHtml(base: String, request: WebResourceRequest): WebResourceResponse? {
     val url = request.url
     val target = url.toString()
     if (!request.method.equals("GET", true)) return null
-    // 必须限定在 /m/ 路径族：startsWith("$base/m") 会把 /metrics、/mobile 也算进来（审查 r14）
+    // 必须限定在 /m 与 /m/ 路径族：startsWith("$base/m") 会把 /metrics、/mobile 也算进来（审查 r14）
     val mobilePrefix = "$base/m/"
-    if (!target.startsWith(mobilePrefix) && target != "$base/m" && target != mobilePrefix) return null
+    if (!target.startsWith(mobilePrefix) && target != "$base/m") return null
     // 只拦文档请求（Accept 含 text/html），静态资源与 XHR 放行
     val accept = request.requestHeaders?.get("Accept") ?: return null
     if (!accept.contains("text/html")) return null
@@ -201,34 +282,21 @@ private fun interceptHtml(base: String, request: WebResourceRequest): WebResourc
             if (!r.isSuccessful) return null   // 交回 WebView 默认处理
             var html = r.body?.string() ?: return null
             val token = TokenStore.token.value
-            // 除引号/反斜杠外还要挡 </script>：否则令牌里出现该串会提前闭合注入的 script 块
-            val safeToken = token
-                ?.replace("\\", "\\\\")
-                ?.replace("\"", "\\\"")
-                ?.replace("</", "<\\/")
-            val js = if (safeToken != null) {
-                "<script>window.__KB_NATIVE_TOKEN=\"$safeToken\";</script>"
+            val js = if (token != null) {
+                // 除引号/反斜杠外还要挡 </script>：否则令牌里出现该串会提前闭合注入的 script 块（审查 r14）
+                val safe = token.replace("\\", "\\\\").replace("\"", "\\\"").replace("</", "<\\/")
+                "<script>window.__KB_NATIVE_TOKEN=\"$safe\";</script>"
             } else {
                 "<script>window.__KB_NATIVE_TOKEN=null;</script>"
             }
-            // 手工拼接而不是 replaceFirst 替换串：替换串里的 $ 和 \ 会被当引用解析（审查 r13 High）
-            HEAD_TAG_RE.find(html)?.let { m ->
-                val at = m.range.last + 1
+            // 手工拼接而不是 replaceFirst 的替换串：替换串里的 $ 和 \ 会被当成组引用解析，
+            // 令牌一旦含这类字符就会被悄悄改坏（注入失败但页面不报错）
+            val headMatch = Regex("<head([^>]*)>", RegexOption.IGNORE_CASE).find(html)
+            if (headMatch != null) {
+                val at = headMatch.range.last + 1
                 html = html.substring(0, at) + js + html.substring(at)
             }
-            // 保留原响应头（CSP / X-Content-Type-Options / Set-Cookie…），只剔除与 body 冲突的
-            val headers = LinkedHashMap<String, String>()
-            for (name in r.headers.names()) {
-                when (name.lowercase()) {
-                    "content-length", "content-encoding", "transfer-encoding", "content-type" -> {}
-                    else -> r.header(name)?.let { headers[name] = it }
-                }
-            }
-            val mime = (r.header("Content-Type") ?: "text/html").substringBefore(';').ifBlank { "text/html" }
-            WebResourceResponse(
-                mime, "utf-8", r.code, r.message.ifBlank { "OK" }, headers,
-                ByteArrayInputStream(html.toByteArray(Charsets.UTF_8))
-            )
+            WebResourceResponse("text/html", "utf-8", ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
         }
     } catch (e: Exception) {
         null

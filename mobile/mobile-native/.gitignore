@@ -12,3 +12,8 @@ captures/
 *.aab
 *.jks
 *.keystore
+
+# 前端构建产物：由 sync-web.js 从 ../frontend/dist 生成（约 19MB，含 tesseract 模型）。
+# 不入库：需要套壳兜底时先 `cd ../frontend && npm run build`，再 `node sync-web.js`。
+# 当前 ShellScreen 未被路由引用，正常出包不需要它。
+app/src/main/assets/web/

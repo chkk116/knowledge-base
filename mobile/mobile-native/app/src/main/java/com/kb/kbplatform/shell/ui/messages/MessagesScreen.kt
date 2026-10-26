@@ -43,7 +43,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kb.kbplatform.shell.data.KbApi
+import com.kb.kbplatform.shell.data.SseClient
 import com.kb.kbplatform.shell.data.objects
+import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.CenterHint
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
@@ -53,7 +55,8 @@ import org.json.JSONObject
 
 /**
  * 消息 Tab：通知列表（GET /notifications，倒序）。
- * 竖切不做 SSE 实时流，手动刷新取最新；点一条标记已读（POST /{id}/read）。
+ * SSE 到达自动刷新（SseClient.events）；进页用 /notifications/unread 校准角标；
+ * 点一条标记已读（POST /{id}/read，乐观更新 + 角标减一）。
  */
 @Composable
 fun MessagesScreen() {
@@ -63,11 +66,12 @@ fun MessagesScreen() {
     var error by remember { mutableStateOf("") }
     var refreshKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(refreshKey) {
+    suspend fun load() {
         loading = true
         error = ""
         try {
             items = KbApi.notifications().objects()
+            SseClient.setUnread(KbApi.unreadCount())
         } catch (e: Exception) {
             error = e.message ?: "加载失败"
         } finally {
@@ -75,18 +79,28 @@ fun MessagesScreen() {
         }
     }
 
+    LaunchedEffect(Unit) { load() }
+
+    // SSE 新通知：刷列表（refreshKey 触发重载）
+    LaunchedEffect(Unit) {
+        SseClient.events.collect { refreshKey++ }
+    }
+    LaunchedEffect(refreshKey) {
+        if (refreshKey > 0) load()
+    }
+
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "消息") {
+        com.kb.kbplatform.shell.ui.common.KbPageHeader(title = "消息") {
             IconButton(onClick = { refreshKey++ }) {
                 Icon(Icons.Filled.Refresh, contentDescription = "刷新")
             }
         }
         if (loading && items.isEmpty()) {
-            CenterHint("加载中…", loading = true)
+            com.kb.kbplatform.shell.ui.common.KbLoading()
         } else if (error.isNotEmpty() && items.isEmpty()) {
-            CenterHint(error)
+            com.kb.kbplatform.shell.ui.common.KbEmpty("⚠️", error)
         } else if (items.isEmpty()) {
-            CenterHint("暂无消息")
+            com.kb.kbplatform.shell.ui.common.KbEmpty("🔔", "暂无消息，有人 @ 你时会出现在这里")
         } else {
             LazyColumn(
                 contentPadding = PaddingValues(16.dp),
@@ -95,7 +109,7 @@ fun MessagesScreen() {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { n ->
                     val id = n.optLong("id", 0)
                     val read = n.optBoolean("read", true)
-                    Card(
+                    KbCard(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         modifier = Modifier
@@ -105,6 +119,7 @@ fun MessagesScreen() {
                                 items = items.map {
                                     if (it.optLong("id", 0) == id) JSONObject(it.toString()).put("read", true) else it
                                 }
+                                SseClient.decrementUnread()
                                 scope.launch { runCatching { KbApi.markNotificationRead(id) } }
                             }
                     ) {

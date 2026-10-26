@@ -5,90 +5,44 @@
 package com.kb.kbplatform.shell
 
 import android.content.Context
-import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.net.URI
 
 /**
- * 全局配置：后端根地址（用户可在「我的 → 设置」里改，改完立即生效）。
+ * 全局配置：后端根地址。
  *
- * 默认 http://10.0.2.2:8080 是 Android 模拟器访问宿主机 8080 的保留地址；
- * 真机联调改成电脑局域网 IP，生产改成 https://kb.example.com。
- * 与 Web 端 VITE_NATIVE_ORIGIN 的语义一致：仓库里不存任何公网地址。
+ * **地址由构建期决定，App 内不提供修改入口**（2026-10-25 定）：
+ * 让普通用户改服务器地址，既容易被诱导指到钓鱼站点，也会出现「填了旧域名 → 打开别的站」这类事故。
+ * 换服务器时重新出包即可。
  *
- * 校验（审查 r13）：用户输入可能是 "   "、"/"、"192.168.1.5:8080"，直接存会把所有请求
- * 拼成非法 URL。这里统一收敛：空 → 回落默认；缺协议 → 自动补 http://；非法 → 抛错由 UI 提示。
+ * - 正式包：`-PKB_BASE_URL=https://你的域名` 注入 BuildConfig，仓库里不存公网地址；
+ * - 本地 debug：未注入则回落 `http://10.0.2.2:8080`（模拟器访问宿主机的保留地址）。
  */
 object AppConfig {
-    private const val KEY_BASE_URL = "kb_base_url"
+    /** 老版本存过用户自定义地址的 key，启动时清掉，避免旧值继续生效 */
+    private const val LEGACY_KEY_BASE_URL = "kb_base_url"
 
-    /**
-     * 出厂默认地址。
-     * - 正式包：构建时 `-PKB_BASE_URL=https://www.你的域名` 注入到 BuildConfig，
-     *   装完即可直接登录，不需要用户先手填地址。
-     * - 未注入（本地 debug / 仓库默认）：回落 `http://10.0.2.2:8080`，即 Android 模拟器
-     *   访问宿主机 8080 的保留地址，真机联调改成电脑局域网 IP 即可。
-     * 仓库里始终不存公网地址，与 Web 端 VITE_NATIVE_ORIGIN 同一策略。
-     */
-    private val DEFAULT_BASE_URL: String =
-        BuildConfig.KB_DEFAULT_BASE_URL.ifBlank { "http://10.0.2.2:8080" }
+    private val FIXED_BASE_URL: String =
+        BuildConfig.KB_BASE_URL.ifBlank { "http://10.0.2.2:8080" }
 
-    private var prefs: SharedPreferences? = null
-    /** init 之前设置的值，等 init 时合并落盘 */
-    private var pending: String? = null
-
-    private val _baseUrl = MutableStateFlow(DEFAULT_BASE_URL)
+    private val _baseUrl = MutableStateFlow(FIXED_BASE_URL)
     val baseUrl: StateFlow<String> = _baseUrl
 
-    fun init(ctx: Context) {
-        synchronized(this) {
-            if (prefs != null) return
-            val p = ctx.applicationContext.getSharedPreferences("kb_shell_config", Context.MODE_PRIVATE)
-            prefs = p
-            val stored = pending ?: p.getString(KEY_BASE_URL, null)
-            pending = null
-            // 存储里是历史值，可能已被收紧的规则判为非法：绝不能抛异常崩在启动路径上（审查 r14 Critical）
-            val value = try { normalize(stored ?: DEFAULT_BASE_URL) } catch (e: Exception) { DEFAULT_BASE_URL }
-            _baseUrl.value = value
-            if (value != stored) p.edit().putString(KEY_BASE_URL, value).apply()
-        }
-    }
-
-    /** 去掉末尾斜杠的当前基址，供拼 URL 使用 */
+    /** 去掉末尾斜杠的基址，供拼 URL 使用 */
     val effectiveBaseUrl: String
-        get() = _baseUrl.value.trim().trimEnd('/')
+        get() = FIXED_BASE_URL.trimEnd('/')
 
-    /**
-     * 保存基址；空串/纯斜杠 = 恢复默认。
-     * @throws IllegalArgumentException 协议或主机非法（由调用方提示用户）
-     */
-    fun setBaseUrl(url: String) {
-        val v = normalize(url)
-        synchronized(this) {
-            val p = prefs
-            if (p == null) {
-                // init 之前调用：先记下来，等 init 落盘，不能只改内存（审查 r14 High）
-                pending = v
-            } else {
-                p.edit().putString(KEY_BASE_URL, v).apply()
-            }
-            _baseUrl.value = v
+    /** 构建时是否注入了正式地址（未注入说明是本地调试包） */
+    fun isInjected(): Boolean = BuildConfig.KB_BASE_URL.isNotBlank()
+
+    fun init(ctx: Context) {
+        _baseUrl.value = FIXED_BASE_URL
+        // 清掉历史遗留的自定义地址（含指向旧域名 www.你的域名 的值）
+        try {
+            ctx.getSharedPreferences("kb_shell_config", Context.MODE_PRIVATE)
+                .edit().remove(LEGACY_KEY_BASE_URL).apply()
+        } catch (e: Exception) {
+            /* 清理失败不影响使用 */
         }
-    }
-
-    fun isDefaultBaseUrl(): Boolean = _baseUrl.value == DEFAULT_BASE_URL
-
-    /** 收敛成一个可用的根地址：补协议、去尾斜杠、校验 host */
-    private fun normalize(input: String): String {
-        var v = input.trim()
-        if (v.isEmpty() || v == "/") return DEFAULT_BASE_URL
-        if (!v.startsWith("http://") && !v.startsWith("https://")) v = "http://$v"
-        v = v.trimEnd('/')
-        // 拒绝 userinfo（http://trusted.com@evil.com 会被浏览器发往 evil.com，用户却以为填的是 trusted.com）
-        require(!v.contains("@")) { "地址里不能包含 @，请只填域名或 IP" }
-        val uri = try { URI(v) } catch (e: Exception) { null }
-        require(uri != null && !uri.host.isNullOrBlank()) { "地址格式不正确，示例：http://192.168.1.10:8080" }
-        return v
     }
 }

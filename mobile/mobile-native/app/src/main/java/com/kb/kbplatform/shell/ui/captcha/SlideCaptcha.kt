@@ -200,8 +200,9 @@ fun SlideCaptcha(
                     .graphicsLayer { translationX = shakeOffset }
             ) {
                 val b = bg
-                if (b != null) {
-                    val bgImage = remember(b) { b.asImageBitmap() }
+                // 位图包装要缓存：每次重组都 asImageBitmap() 会新建对象，拖动时每帧都分配（审查 r14）
+                val bgImage = remember(b) { b?.asImageBitmap() }
+                if (bgImage != null) {
                     Image(bgImage, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
                 }
                 val p = piece
