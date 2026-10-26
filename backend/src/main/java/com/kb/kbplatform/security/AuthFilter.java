@@ -158,6 +158,8 @@ public class AuthFilter implements Filter {
         if ("/api/auth/login".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/register".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/captcha".equals(path) && "GET".equals(method)) return true;
+        // 登录页靠它决定显示哪些企业登录入口（必须在未登录时就能读）
+        if ("/api/auth/sso/options".equals(path) && "GET".equals(method)) return true;
         if ("/api/auth/captcha/slide".equals(path) && "POST".equals(method)) return true;  // 滑动成功回执，免登录
         // 企业身份源（LDAP/AD）登录：控制器内按账号限流
         if (path.startsWith("/api/auth/sso/") && "POST".equals(method)) return true;
