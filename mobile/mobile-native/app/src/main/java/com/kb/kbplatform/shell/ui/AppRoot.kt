@@ -9,11 +9,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import androidx.navigation.navArgument
 import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.SseClient
@@ -59,6 +64,7 @@ import com.kb.kbplatform.shell.ui.web.WebScreen
 fun AppRoot() {
     val token by TokenStore.token.collectAsState()
     val nav = rememberNavController()
+    val appCtx = androidx.compose.ui.platform.LocalContext.current
 
     /**
      * 安全导航：路由拼错/页面被删时，Navigation 会抛
@@ -80,6 +86,8 @@ fun AppRoot() {
             // 冷启动时先把身份拉一次：TokenStore.info 原本只在「我的」页加载后才填，
             // 导致首页头像/权限判断在第一次进「我的」之前都是空的。
             runCatching { TokenStore.setInfo(com.kb.kbplatform.shell.data.KbApi.me()) }
+            // 冷启动就检查更新：原来只有进「我的」页才会 check，用户不点进去永远收不到升级提示
+            runCatching { com.kb.kbplatform.shell.data.AppUpdater.check(appCtx) }
         } else {
             SseClient.stop()
             TokenStore.setInfo(null)
@@ -324,4 +332,99 @@ fun AppRoot() {
                 )
             }
         }
+    
+
+    // 全局更新弹窗：不再要求用户先进「我的」才看得到新版本
+    GlobalUpdatePrompt()
+}
+
+/**
+ * 全站更新提示（2026-10-26）。
+ *
+ * 之前更新只体现在「我的 → 检查更新」那一行文字里，用户不主动进去就永远不知道有新版本。
+ * 现在冷启动检查到新版本就直接弹窗：说明 → 下载（带进度）→ 安装。
+ * 强制更新（force=true）时不给「稍后」。
+ */
+@Composable
+private fun GlobalUpdatePrompt() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val st by com.kb.kbplatform.shell.data.AppUpdater.state.collectAsState()
+
+    when (val s = st) {
+        is com.kb.kbplatform.shell.data.AppUpdater.State.Available -> androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!s.force) com.kb.kbplatform.shell.data.AppUpdater.reset() },
+            title = { androidx.compose.material3.Text("发现新版本 v" + s.versionName) },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    if (s.notes.isNotBlank()) {
+                        androidx.compose.material3.Text(s.notes, fontSize = 13.sp)
+                        androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+                    }
+                    androidx.compose.material3.Text(
+                        "下载完成后会拉起系统安装器（首次需要允许「安装未知应用」）。",
+                        fontSize = 12.sp,
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(onClick = {
+                    scope.launch { com.kb.kbplatform.shell.data.AppUpdater.download(ctx) }
+                }) { androidx.compose.material3.Text("立即更新") }
+            },
+            dismissButton = if (s.force) null else {
+                {
+                    androidx.compose.material3.TextButton(onClick = {
+                        com.kb.kbplatform.shell.data.AppUpdater.reset()
+                    }) { androidx.compose.material3.Text("稍后") }
+                }
+            }
+        )
+
+        is com.kb.kbplatform.shell.data.AppUpdater.State.Downloading -> androidx.compose.material3.AlertDialog(
+            onDismissRequest = { },
+            title = { androidx.compose.material3.Text("正在下载更新") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    androidx.compose.material3.Text(s.progress.toString() + "%", fontSize = 13.sp)
+                    androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { s.progress / 100f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = { }
+        )
+
+        is com.kb.kbplatform.shell.data.AppUpdater.State.Ready -> androidx.compose.material3.AlertDialog(
+            onDismissRequest = { com.kb.kbplatform.shell.data.AppUpdater.reset() },
+            title = { androidx.compose.material3.Text("更新包已就绪") },
+            text = { androidx.compose.material3.Text("点击「安装」拉起系统安装器。") },
+            confirmButton = {
+                androidx.compose.material3.Button(onClick = {
+                    when (com.kb.kbplatform.shell.data.AppUpdater.install(ctx)) {
+                        com.kb.kbplatform.shell.data.AppUpdater.InstallResult.STARTED ->
+                            com.kb.kbplatform.shell.data.AppUpdater.reset()
+                        com.kb.kbplatform.shell.data.AppUpdater.InstallResult.NEED_PERMISSION ->
+                            android.widget.Toast.makeText(
+                                ctx, "请允许「安装未知应用」后再点安装", android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        com.kb.kbplatform.shell.data.AppUpdater.InstallResult.FAILED ->
+                            android.widget.Toast.makeText(
+                                ctx, "安装失败，请到「我的 → 检查更新」重试", android.widget.Toast.LENGTH_LONG
+                            ).show()
+                    }
+                }) { androidx.compose.material3.Text("安装") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    com.kb.kbplatform.shell.data.AppUpdater.reset()
+                }) { androidx.compose.material3.Text("稍后") }
+            }
+        )
+
+        else -> Unit
     }
+}

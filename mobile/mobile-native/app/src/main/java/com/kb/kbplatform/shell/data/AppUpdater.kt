@@ -33,7 +33,9 @@ object AppUpdater {
             val versionName: String,
             val notes: String,
             val url: String,
-            val force: Boolean
+            val force: Boolean,
+            /** 服务端给的 SHA-256，下载完校验用；空串表示没给，跳过校验 */
+            val checksum: String = ""
         ) : State()
 
         data class Downloading(val progress: Int) : State()
@@ -65,7 +67,8 @@ object AppUpdater {
                 versionName = v.optString("versionName").ifBlank { remoteCode.toString() },
                 notes = v.optString("notes"),
                 url = v.optString("url"),
-                force = v.optBoolean("force", false)
+                force = v.optBoolean("force", false),
+                checksum = v.optString("checksum")
             ) else State.Idle
         } catch (e: Exception) {
             // 版本接口失败不打扰用户（可能离线）
@@ -130,6 +133,17 @@ object AppUpdater {
                     if (f.exists()) f.delete()
                     if (!tmp.renameTo(f)) throw IllegalStateException("保存更新包失败")
                 }
+
+                // 校验安装包完整性：版本接口被中间人改写 / 下载被截断时，宁可报错也不要装上去。
+                // 服务端没给 checksum（老数据）就跳过，保持向后兼容。
+                val expect = (_state.value as? State.Available)?.checksum.orEmpty()
+                if (expect.isNotBlank()) {
+                    val actual = sha256Of(apkFile(ctx))
+                    if (!actual.equals(expect, ignoreCase = true)) {
+                        apkFile(ctx).delete()
+                        throw IllegalStateException("安装包校验失败，请重试")
+                    }
+                }
             }
             _state.value = State.Ready(apkFile(ctx))
         } catch (e: Exception) {
@@ -156,22 +170,60 @@ object AppUpdater {
 
     private fun bareHost(h: String): String = h.removePrefix("www.")
 
-    /** 拉起系统安装器；未授权「安装未知应用」时系统会引导用户去开 */
-    fun install(ctx: Context): Boolean {
+    enum class InstallResult { STARTED, NEED_PERMISSION, FAILED }
+
+    /**
+     * 拉起系统安装器。
+     *
+     * 两处容易踩的坑：
+     * 1. MIME 必须写 `application/vnd.android.package-archive`（**package** 不是 pack），
+     *    写错时多数 ROM 会提示「无法打开文件」，看起来像安装包坏了；
+     * 2. Android 8+ 需要「安装未知应用」授权，未授权时 ACTION_VIEW 会静默失败。
+     *    这里显式判断并跳设置页，用户至少知道该点哪个开关。
+     */
+    fun install(ctx: Context): InstallResult {
         val f = apkFile(ctx)
-        if (!f.exists()) return false
+        if (!f.exists()) return InstallResult.FAILED
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !ctx.packageManager.canRequestPackageInstalls()
+        ) {
+            runCatching {
+                ctx.startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:${ctx.packageName}")
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+            return InstallResult.NEED_PERMISSION
+        }
         return try {
             val uri: Uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", f)
             ctx.startActivity(
                 Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "application/vnd.android-package-archive")
+                    setDataAndType(uri, "application/vnd.android.package-archive")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )
-            true
+            InstallResult.STARTED
         } catch (e: Exception) {
-            false
+            InstallResult.FAILED
         }
+    }
+
+    /** 用户点「稍后」时清掉状态，避免对话框反复弹 */
+    fun reset() {
+        _state.value = State.Idle
+    }
+
+    private fun sha256Of(file: File): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            var n: Int
+            while (input.read(buf).also { n = it } > 0) md.update(buf, 0, n)
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
     }
 }
