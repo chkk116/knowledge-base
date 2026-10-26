@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -50,10 +51,14 @@ fun TopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable Row
             } else {
                 Spacer(Modifier.size(8.dp))
             }
+            // 套壳二级页标题：19sp / 700 / 字距 -0.25（原来是 17sp 半粗，比网页端轻一档）
             Text(
                 title,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.25).sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
             actions()

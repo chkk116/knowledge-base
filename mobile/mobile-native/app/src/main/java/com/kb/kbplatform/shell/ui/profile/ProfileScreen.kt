@@ -46,6 +46,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.kb.kbplatform.shell.ui.common.kbPress
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -156,97 +171,50 @@ fun ProfileScreen(
 
         Spacer(Modifier.height(14.dp))
 
-        if (showAdmin) {
-            MenuCard(
-                icon = Icons.Filled.List,
-                title = "后台管理",
-                subtitle = "用户 / AI 模型 / 审核 / 公告",
-                onClick = { openRoute("admin") }
-            )
+        // 菜单（对齐套壳 .m-row）：**同一张卡片里成组排列**，行间用内缩发丝线分隔。
+        // 原来是「每条一张小卡 + 4dp 间隙」，看着像一堆独立卡片，和网页端的分组列表差得远。
+        val menus = listOfNotNull(
+            if (showAdmin) MenuItem(Icons.Filled.AdminPanelSettings, "后台管理", "用户 / AI 模型 / 审核 / 公告") { openRoute("admin") } else null,
+            if (TokenStore.hasPerm("STATS_VIEW")) MenuItem(Icons.Filled.Insights, "数据看板", "管理端 · 只读统计") { openRoute("embed/adminstats") } else null,
+            if (TokenStore.hasPerm("CORE_MAINTAIN")) MenuItem(Icons.Filled.Build, "站点维护", "功能开关 / 水印 / 页脚 / 登录码 / 外观") { openRoute("embed/adminmaintain") } else null,
+            MenuItem(Icons.Filled.FolderOpen, "我的文件", "文件中心 · 上传的图片与附件") { openRoute("files") },
+            MenuItem(Icons.Filled.Explore, "发现文章", "浏览站内文章") { openRoute("discover") },
+            MenuItem(Icons.Filled.WorkspacePremium, "徽章成就", "") { openRoute("badges") },
+            MenuItem(Icons.Filled.Palette, "外观", "跟随系统 / 浅色 / 深色") { openRoute("appearance") },
+            MenuItem(Icons.Filled.Info, "关于", "版本 · 更新日志 · 开源协议") { openRoute("about") },
+            MenuItem(Icons.Filled.Policy, "隐私政策与免责声明", "") { openRoute("privacy") },
+            MenuItem(Icons.Filled.Public, "打开网页版全部功能", "尚未原生化页面在 WebView 中继续可用") { openWeb("/m/", "网页版") },
+            MenuItem(
+                Icons.Filled.Dns, "服务器地址",
+                AppConfig.effectiveBaseUrl + if (AppConfig.isInjected()) "（构建期注入）" else "（本地调试默认）"
+            ) { },
+            MenuItem(
+                Icons.Filled.Security, "应用锁",
+                if (com.kb.kbplatform.shell.data.AppLock.enabled()) "已开启（PIN 保护）" else "未开启"
+            ) { showLockDialog = true },
+            MenuItem(Icons.Filled.SystemUpdate, "检查更新", updateSubtitle) { showUpdateDialog = true },
+            MenuItem(
+                Icons.AutoMirrored.Filled.Logout, "退出登录", "",
+                tint = MaterialTheme.colorScheme.error
+            ) { TokenStore.set(null) }
+        )
+        KbCard(Modifier.padding(horizontal = 16.dp)) {
+            Column {
+                menus.forEachIndexed { i, m ->
+                    if (i > 0) {
+                        // 内缩分隔线：从文字处起（图标 22 + 间距 12 + 内边距 14 ≈ 48dp）
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp)
+                                .height(0.5.dp)
+                                .background(MaterialTheme.colorScheme.outline)
+                        )
+                    }
+                    MenuRow(m)
+                }
+            }
         }
-        if (TokenStore.hasPerm("STATS_VIEW")) {
-            MenuCard(
-                icon = Icons.Filled.List,
-                title = "数据看板",
-                subtitle = "管理端 · 只读统计",
-                onClick = { openRoute("embed/adminstats") }
-            )
-        }
-        if (TokenStore.hasPerm("CORE_MAINTAIN")) {
-            MenuCard(
-                icon = Icons.Filled.List,
-                title = "站点维护",
-                subtitle = "功能开关 / 水印 / 页脚 / 登录码 / 外观",
-                onClick = { openRoute("embed/adminmaintain") }
-            )
-        }
-        MenuCard(
-            icon = Icons.Filled.List,
-            title = "我的文件",
-            subtitle = "文件中心 · 上传的图片与附件",
-            onClick = { openRoute("files") }
-        )
-        MenuCard(
-            icon = Icons.Filled.List,
-            title = "发现文章",
-            subtitle = "浏览站内文章",
-            onClick = { openRoute("discover") }
-        )
-        MenuCard(
-            icon = Icons.Filled.Info,
-            title = "徽章成就",
-            subtitle = "",
-            onClick = { openRoute("badges") }
-        )
-        MenuCard(
-            icon = Icons.Filled.Settings,
-            title = "外观",
-            subtitle = "跟随系统 / 浅色 / 深色",
-            onClick = { openRoute("appearance") }
-        )
-        MenuCard(
-            icon = Icons.Filled.Info,
-            title = "关于",
-            subtitle = "版本 · 更新日志 · 开源协议",
-            onClick = { openRoute("about") }
-        )
-        MenuCard(
-            icon = Icons.Filled.Info,
-            title = "隐私政策与免责声明",
-            subtitle = "",
-            onClick = { openRoute("privacy") }
-        )
-        MenuCard(
-            icon = Icons.Filled.List,
-            title = "打开网页版全部功能",
-            subtitle = "尚未原生化页面在 WebView 中继续可用",
-            onClick = { openWeb("/m/", "网页版") }
-        )
-        MenuCard(
-            icon = Icons.Filled.Info,
-            title = "服务器地址",
-            subtitle = AppConfig.effectiveBaseUrl + if (AppConfig.isInjected()) "（构建期注入）" else "（本地调试默认）",
-            onClick = {}
-        )
-        MenuCard(
-            icon = Icons.Filled.Info,
-            title = "应用锁",
-            subtitle = if (com.kb.kbplatform.shell.data.AppLock.enabled()) "已开启（PIN 保护）" else "未开启",
-            onClick = { showLockDialog = true }
-        )
-        MenuCard(
-            icon = Icons.Filled.Info,
-            title = "检查更新",
-            subtitle = updateSubtitle,
-            onClick = { showUpdateDialog = true }
-        )
-        MenuCard(
-            icon = Icons.Filled.ExitToApp,
-            title = "退出登录",
-            subtitle = "",
-            tint = MaterialTheme.colorScheme.error,
-            onClick = { TokenStore.set(null) }
-        )
     }
 
     if (showUpdateDialog) {
@@ -400,42 +368,45 @@ private fun roleLabel(role: String?): String = when (role) {
     else -> role
 }
 
+private data class MenuItem(
+    val icon: ImageVector,
+    val title: String,
+    val subtitle: String,
+    val tint: Color = Color.Unspecified,
+    val onClick: () -> Unit
+)
+
 @Composable
-private fun MenuCard(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    tint: Color = MaterialTheme.colorScheme.onSurface,
-    onClick: () -> Unit
-) {
-    KbCard(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier
+private fun MenuRow(m: MenuItem) {
+    val fg = if (m.tint == Color.Unspecified) MaterialTheme.colorScheme.onSurface else m.tint
+    Row(
+        Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onClick)
+            // 套壳 .m-row：内边距 13/14、最小高度 52、按下底色变浅
+            .kbPress(scaleDown = 1f, onClick = m.onClick)
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = tint)
-            Spacer(Modifier.size(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 15.sp)
-                if (subtitle.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        subtitle,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
-                }
+        Icon(m.icon, contentDescription = null, tint = fg, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(m.title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = fg)
+            if (m.subtitle.isNotEmpty()) {
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    m.subtitle,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
             }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }

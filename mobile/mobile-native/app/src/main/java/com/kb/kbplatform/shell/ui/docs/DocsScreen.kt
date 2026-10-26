@@ -146,7 +146,7 @@ fun DocsScreen(
                     items(spaces, key = { it.optLong("id", 0) }) { s ->
                         val id = s.optLong("id", 0)
                         KbCard(
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -202,7 +202,7 @@ fun DocsScreen(
                         val docId = if (d.has("docId")) d.optLong("docId") else d.optLong("id", 0)
                         val title = d.optString("title").ifBlank { "未命名文档" }
                         KbCard(
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .fillMaxWidth()

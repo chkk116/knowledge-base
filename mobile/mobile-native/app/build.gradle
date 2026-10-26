@@ -17,8 +17,8 @@ android {
         // ⚠️ 必须大于线上 Capacitor 版的 versionCode（当前 29），否则：
         //   1) 覆盖安装直接失败（INSTALL_FAILED_VERSION_DOWNGRADE）；
         //   2) AppUpdater 会认为线上 29 更新，把 Capacitor 包又装回来（版本回环）。
-        versionCode 39
-        versionName '0.9.0-native'
+        versionCode 40
+        versionName '0.9.1-native'
 
         // 只打真机 ABI：ML Kit 的 OCR 原生库单个 6~11MB，四套全打会有 39MB，
         // 其中 x86/x86_64 只有模拟器用得到（纯浪费 22MB）。arm64 覆盖现在的手机，
@@ -96,6 +96,9 @@ dependencies {
     implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.compose.material3:material3'
     implementation 'androidx.compose.material:material-icons-core'
+    // 完整 Material 图标集：套壳用的是 Element Plus 线性图标，原生侧用 emoji 观感差太远。
+    // release 开着 minify，R8 只会保留实际用到的图标，包体影响可忽略。
+    implementation 'androidx.compose.material:material-icons-extended'
     debugImplementation 'androidx.compose.ui:ui-tooling'
 
     implementation 'androidx.navigation:navigation-compose:2.8.4'

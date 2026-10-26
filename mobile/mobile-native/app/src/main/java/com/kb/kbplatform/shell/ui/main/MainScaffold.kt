@@ -15,6 +15,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -84,6 +85,8 @@ fun MainScaffold(
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val unread by SseClient.unread.collectAsState()
+    // Tab 切换的横向位移（16dp），必须先按屏幕密度换算成像素
+    val shiftPx = with(androidx.compose.ui.platform.LocalDensity.current) { 16.dp.roundToPx() }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -139,10 +142,10 @@ fun MainScaffold(
                         // 方向感：往右的 Tab 从右侧滑入，往左的从左侧滑入
                         val forward = targetState > initialState
                         val enter = slideInHorizontally(KbMotion.SlideSpec) { w ->
-                            if (forward) w / 10 else -w / 10
+                            if (forward) shiftPx else -shiftPx
                         } + fadeIn(tween(KbMotion.Base, easing = KbMotion.Decelerate))
                         val exit = slideOutHorizontally(KbMotion.SlideSpec) { w ->
-                            if (forward) -w / 14 else w / 14
+                            if (forward) -shiftPx else shiftPx
                         } + fadeOut(tween(KbMotion.Fast + 60, easing = KbMotion.Accelerate))
                         enter togetherWith exit
                     },
@@ -169,7 +172,7 @@ fun MainScaffold(
 @Composable
 private fun CenterFab(onClick: () -> Unit) {
     val elevation by animateDpAsState(
-        targetValue = 8.dp,
+        targetValue = 10.dp,
         animationSpec = tween(KbMotion.Base),
         label = "fabElevation"
     )
@@ -177,7 +180,14 @@ private fun CenterFab(onClick: () -> Unit) {
         Modifier
             .offset(y = (-14).dp)
             .size(46.dp)
-            .shadow(elevation, CircleShape, clip = false)
+            // 投影带主色（套壳 .fab 是 rgba(22,119,255,.38) 的蓝色光晕），不是灰影
+            .shadow(
+                elevation = elevation,
+                shape = CircleShape,
+                clip = false,
+                ambientColor = MaterialTheme.colorScheme.primary,
+                spotColor = MaterialTheme.colorScheme.primary
+            )
             .background(MaterialTheme.colorScheme.primary, CircleShape)
             .kbPress(scaleDown = 0.9f, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -238,15 +248,18 @@ private fun androidx.compose.foundation.layout.RowScope.TabItem(
                     color = Color.White,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .offset(x = 8.dp, y = (-6).dp)
+                        .offset(x = 8.dp, y = (-8).dp)
+                        // 红点外加一圈底色描边（套壳 .dot 的 box-shadow 0 0 0 2px tabbar-bg），
+                        // 压在图标上时轮廓才干净
                         .background(Color(0xFFEF4444), CircleShape)
+                        .border(2.dp, MaterialTheme.colorScheme.surface.copy(alpha = 0.94f), CircleShape)
                         .padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }
         }
         Text(
             label,
-            fontSize = 10.sp,
+            fontSize = 10.5.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
             color = tint,
             modifier = Modifier.padding(top = 2.dp)

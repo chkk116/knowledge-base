@@ -105,13 +105,13 @@ fun MessagesScreen() {
         } else {
             LazyColumn(
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { n ->
                     val id = n.optLong("id", 0)
                     val read = n.optBoolean("read", true)
                     KbCard(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         modifier = Modifier
                             .fillMaxWidth()

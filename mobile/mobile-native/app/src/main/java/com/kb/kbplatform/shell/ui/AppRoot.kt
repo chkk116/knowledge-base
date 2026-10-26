@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -69,14 +70,17 @@ fun AppRoot() {
     }
 
     // 页面转场（2026-10-26）：原来没配，Navigation 默认只有淡入淡出，层级感很弱。
-    // 现在前进右滑入、返回反向滑出，300ms + emphasized 曲线，与 CoolMallKotlin 的导航节奏一致。
+    // 位移量对齐套壳 `.fade-page`（进 16px / 出 12px 那一套），这里取 20/14dp。
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val slideInPx = with(density) { com.kb.kbplatform.shell.ui.theme.SLIDE_IN_DP.dp.roundToPx() }
+    val slideOutPx = with(density) { com.kb.kbplatform.shell.ui.theme.SLIDE_OUT_DP.dp.roundToPx() }
     NavHost(
         navController = nav,
         startDestination = "main",
-        enterTransition = { kbEnterForward() },
-        exitTransition = { kbExitForward() },
-        popEnterTransition = { kbEnterBackward() },
-        popExitTransition = { kbExitBackward() }
+        enterTransition = { kbEnterForward(slideInPx) },
+        exitTransition = { kbExitForward(slideOutPx) },
+        popEnterTransition = { kbEnterBackward(slideOutPx) },
+        popExitTransition = { kbExitBackward(slideInPx) }
     ) {
         // 主体验：原生五槽 TabBar（中央＋）+ 原生页面，全部对标套壳 MobileXxx.vue
         composable("main") {

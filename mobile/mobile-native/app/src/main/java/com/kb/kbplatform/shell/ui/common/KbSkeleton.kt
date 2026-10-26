@@ -49,17 +49,13 @@ import androidx.compose.ui.unit.dp
 
 /** 骨架底色：浅色用黑 6%，深色用白 8%（深色下黑底会看不见） */
 @Composable
-fun kbSkeletonColor(): Color {
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    return if (dark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
-}
+fun kbSkeletonColor(): Color =
+    // 套壳 .m-skel 的底色是 var(--m-border)（#e5e6eb / 深色 #2c2d33），不是半透明白黑
+    MaterialTheme.colorScheme.outline
 
-/** 高光色：比底色亮一档 */
+/** 高光色：套壳用 var(--m-card-2)，即 surfaceVariant */
 @Composable
-private fun kbSkeletonHighlight(): Color {
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    return if (dark) Color.White.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.75f)
-}
+private fun kbSkeletonHighlight(): Color = MaterialTheme.colorScheme.surfaceVariant
 
 /**
  * 骨架块：圆角矩形 + 流动高光。
@@ -194,26 +190,21 @@ fun KbSkeletonHome(modifier: Modifier = Modifier, shimmer: Boolean = true) {
             KbSkeletonCircle(40.dp, shimmer)
         }
         Spacer(Modifier.height(2.dp))
-        // 九宫格
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(14.dp)
+        // 金刚区（与 HomeScreen 一致：不套卡片、52dp 瓦片、间距 10）
+        Column(
+            Modifier.padding(top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                repeat(2) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        repeat(4) {
-                            Column(
-                                Modifier.weight(1f),
-                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                KbSkeleton(Modifier.size(44.dp), RoundedCornerShape(13.dp), shimmer)
-                                KbSkeletonLine(widthFraction = 0.8f, height = 9.dp, shimmer = shimmer)
-                            }
+            repeat(3) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    repeat(4) {
+                        Column(
+                            Modifier.weight(1f),
+                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            KbSkeleton(Modifier.size(52.dp), RoundedCornerShape(16.dp), shimmer)
+                            KbSkeleton(Modifier.size(width = 44.dp, height = 10.dp), RoundedCornerShape(5.dp), shimmer)
                         }
                     }
                 }

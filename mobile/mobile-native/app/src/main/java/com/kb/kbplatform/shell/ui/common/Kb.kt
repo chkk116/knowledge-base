@@ -67,7 +67,7 @@ fun KbCard(
             shape = shape,
             color = colors.containerColor,
             border = border,
-            shadowElevation = 1.dp,
+            shadowElevation = 2.dp,
             tonalElevation = 0.dp,
             modifier = m
         ) {
@@ -77,7 +77,7 @@ fun KbCard(
         Surface(
             shape = shape,
             color = colors.containerColor,
-            shadowElevation = 1.dp,
+            shadowElevation = 2.dp,
             tonalElevation = 0.dp,
             modifier = m
         ) {
@@ -197,7 +197,8 @@ fun KbPageHeader(
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
             if (subtitle != null) {
-                Text(subtitle, fontSize = 12.sp, color = KbTextDim)
+                // 套壳 .m-sub 是 12.5px
+                Text(subtitle, fontSize = 12.5.sp, color = KbTextDim)
             }
         }
         actions()

@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 
 /**
  * 动效令牌（2026-10-26 全面动效升级，对标 CoolMallKotlin 的 NAV_ANIMATION_DURATION=300
@@ -59,22 +60,31 @@ object KbMotion {
 }
 
 /**
- * 前进（进入下一级）：新页从右侧约 1/5 屏滑入并淡入，旧页轻微左移淡出。
- * 位移只给 1/5 而不是整屏，避免长列表页面「横扫」带来的眩晕。
+ * 页面转场位移量（dp）。
+ *
+ * 套壳用的是 `.fade-page` 那一套：进入 translateX(16px) + 淡入，离开 translateX(-12px)。
+ * 位移很小、靠淡入撑起「换页」感——比整屏横扫更像原生 App，也不会在长列表上眩晕。
+ * 这里取 20/14dp，比网页端略大一点点，因为 Compose 没有 CSS 的合成层补间那么顺滑。
+ *
+ * ⚠️ 像素值必须由调用方用 `LocalDensity` 换算后传进来：`slideInHorizontally` 的
+ * offset lambda 不是 Density 作用域，直接写 `20.dp.roundToPx()` 编译不过。
  */
-fun kbEnterForward(): EnterTransition =
-    slideInHorizontally(KbMotion.SlideSpec) { it / 5 } +
+const val SLIDE_IN_DP = 20
+const val SLIDE_OUT_DP = 14
+
+fun kbEnterForward(shiftPx: Int): EnterTransition =
+    slideInHorizontally(KbMotion.SlideSpec) { shiftPx } +
         fadeIn(tween(KbMotion.Base, easing = KbMotion.Decelerate))
 
-fun kbExitForward(): ExitTransition =
-    slideOutHorizontally(KbMotion.SlideSpec) { -it / 10 } +
+fun kbExitForward(shiftPx: Int): ExitTransition =
+    slideOutHorizontally(KbMotion.SlideSpec) { -shiftPx } +
         fadeOut(tween(KbMotion.Base, easing = KbMotion.Accelerate))
 
 /** 返回：方向镜像，旧页右滑离开，上一级从左微移归位 */
-fun kbEnterBackward(): EnterTransition =
-    slideInHorizontally(KbMotion.SlideSpec) { -it / 10 } +
+fun kbEnterBackward(shiftPx: Int): EnterTransition =
+    slideInHorizontally(KbMotion.SlideSpec) { -shiftPx } +
         fadeIn(tween(KbMotion.Base, easing = KbMotion.Decelerate))
 
-fun kbExitBackward(): ExitTransition =
-    slideOutHorizontally(KbMotion.SlideSpec) { it / 5 } +
+fun kbExitBackward(shiftPx: Int): ExitTransition =
+    slideOutHorizontally(KbMotion.SlideSpec) { shiftPx } +
         fadeOut(tween(KbMotion.Base, easing = KbMotion.Accelerate))
