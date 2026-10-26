@@ -17,7 +17,7 @@
       <el-form label-width="130px" style="max-width: 720px">
         <el-form-item label="启用域账号登录"><el-switch v-model="form.enabled" /></el-form-item>
         <el-form-item label="LDAP 地址">
-          <el-input v-model="form.url" placeholder="ldap://172.16.0.10:389 或 ldaps://dc.corp.local:636" />
+          <el-input v-model="form.url" placeholder="ldap://dc.example.com:389 或 ldaps://dc.example.com:636" />
         </el-form-item>
         <el-form-item label="Base DN">
           <el-input v-model="form.baseDn" placeholder="DC=corp,DC=local" />
