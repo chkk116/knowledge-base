@@ -18,6 +18,9 @@ public interface SharedDocumentRepository extends JpaRepository<SharedDocument, 
 
     Optional<SharedDocument> findByIdAndShareId(Long id, Long shareId);
 
+    /** 外部分享：按公开令牌查文档（免登录只读） */
+    Optional<SharedDocument> findByShareToken(String shareToken);
+
     /** 跨空间索引投影：只取筛选/展示所需字段，避免加载大型 Yjs 二进制快照。 */
     @Query("SELECT d.id AS id, d.shareId AS shareId, d.title AS title, d.content AS content, d.tags AS tags, " +
             "d.ownerId AS ownerId, d.createdAt AS createdAt, d.updatedAt AS updatedAt " +

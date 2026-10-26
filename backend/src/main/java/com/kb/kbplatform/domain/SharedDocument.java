@@ -73,6 +73,26 @@ public class SharedDocument {
     @Column(columnDefinition = "text")
     private String tags;
 
+    // ---- 外部分享（公开只读链接）----
+    /** 公开访问令牌（NULL = 未开启）；开启后 /s/{token} 免登录只读 */
+    @Column(length = 64, unique = true)
+    private String shareToken;
+
+    /** 访问密码的哈希（PasswordUtil，pbkdf2$...）；NULL = 免密 */
+    @Column(length = 200)
+    private String sharePassHash;
+
+    /** 过期时间（NULL = 永久有效） */
+    private LocalDateTime shareExpireAt;
+
+    /** 禁止复制/右键（前端 CSS + 提示，不构成安全边界） */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean shareNoCopy = false;
+
+    /** 累计访问次数（只增不改，用于分享统计） */
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    private long shareViews = 0;
+
     @Transient
     private String spaceName;
 
@@ -132,6 +152,22 @@ public class SharedDocument {
 
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
+
+
+    public String getShareToken() { return shareToken; }
+    public void setShareToken(String shareToken) { this.shareToken = shareToken; }
+
+    public String getSharePassHash() { return sharePassHash; }
+    public void setSharePassHash(String sharePassHash) { this.sharePassHash = sharePassHash; }
+
+    public LocalDateTime getShareExpireAt() { return shareExpireAt; }
+    public void setShareExpireAt(LocalDateTime shareExpireAt) { this.shareExpireAt = shareExpireAt; }
+
+    public boolean isShareNoCopy() { return shareNoCopy; }
+    public void setShareNoCopy(boolean shareNoCopy) { this.shareNoCopy = shareNoCopy; }
+
+    public long getShareViews() { return shareViews; }
+    public void setShareViews(long shareViews) { this.shareViews = shareViews; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

@@ -153,6 +153,8 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/uploads")) return true;   // 已上传的图片可公开访问
         if (path.startsWith("/api/thumb")) return true;  // 文章正文缩略图：被动图片资源，公开可读（路径穿越防护在 ThumbController 内）
         if (path.startsWith("/api/public/") && "GET".equals(method)) return true;  // 公开站点配置（登录页二维码等未认证页面读取）
+        // 文档外部分享的正文读取（POST 带可选密码）：控制器内已按令牌限流
+        if (path.startsWith("/api/public/shared/") && "POST".equals(method)) return true;
         if ("/api/auth/login".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/register".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/captcha".equals(path) && "GET".equals(method)) return true;

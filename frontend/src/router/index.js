@@ -17,6 +17,8 @@ const routes = [
     { path: '/dev/vueflow-test', component: () => import('../views/DevVueFlowTest.vue'), meta: { public: true, title: 'Vue Flow 原型' } },
   ] : []),
   { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true, title: '登录' } },
+  // 文档外部分享：免登录只读页（令牌换内容，服务端消毒 + 可选密码/有效期）
+  { path: '/s/:token', component: () => import('../views/PublicDoc.vue'), meta: { public: true, title: '共享文档' } },
   { path: '/post/:id', component: () => import('../views/PostDetail.vue'), meta: { title: '文档详情', maintenance: 'docs' } },
   // 独立阅读窗口：window.open 弹出真实浏览器窗口。同源窗口共享 localStorage，守卫可正常校验登录态；
   // 此前 public: true 让匿名者可凭文章 id 直接读全文（2026-10-13 审查 H7，已收回）

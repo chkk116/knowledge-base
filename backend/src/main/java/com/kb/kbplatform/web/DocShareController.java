@@ -337,6 +337,38 @@ public class DocShareController {
         return svc.docLinks(id, docId, resolveUserId(c), isSysAdmin(c));
     }
 
+    /** 开启/更新外部分享链接：body { password?, expireDays?, noCopy? } */
+    @PostMapping("/{id}/docs/{docId}/public-link")
+    public Map<String, Object> savePublicLink(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                              @PathVariable Long docId, @RequestBody(required = false) Map<String, Object> body) {
+        String pwd = body == null || body.get("password") == null ? null : String.valueOf(body.get("password"));
+        Integer days = null;
+        if (body != null && body.get("expireDays") != null) {
+            try { days = Integer.valueOf(String.valueOf(body.get("expireDays")).trim()); } catch (NumberFormatException ignore) { }
+        }
+        boolean noCopy = body != null && Boolean.parseBoolean(String.valueOf(body.get("noCopy")));
+        Map<String, Object> res = svc.savePublicLink(id, docId, resolveUserId(c), isSysAdmin(c), pwd, days, noCopy);
+        audit.log(c.userId(), c.username(), "SHARE_DOC_PUBLIC", "SHARE_DOC", docId, null,
+                "开启/更新外部分享链接" + (pwd != null && !pwd.isBlank() ? "（含密码）" : ""));
+        return res;
+    }
+
+    /** 关闭外部分享链接 */
+    @DeleteMapping("/{id}/docs/{docId}/public-link")
+    public Map<String, Object> revokePublicLink(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                                @PathVariable Long docId) {
+        svc.revokePublicLink(id, docId, resolveUserId(c), isSysAdmin(c));
+        audit.log(c.userId(), c.username(), "SHARE_DOC_PUBLIC", "SHARE_DOC", docId, null, "关闭外部分享链接");
+        return Map.of("ok", true);
+    }
+
+    /** 外部分享状态（管理端回显） */
+    @GetMapping("/{id}/docs/{docId}/public-link")
+    public Map<String, Object> publicLinkInfo(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                              @PathVariable Long docId) {
+        return svc.publicLinkInfo(id, docId, resolveUserId(c), isSysAdmin(c));
+    }
+
     /** 知识图谱：全部可读文档的节点 + [[标题]] 解析出的边 */
     @GetMapping("/graph")
     public Map<String, Object> graph(@RequestAttribute("kbUser") TokenClaims c) {

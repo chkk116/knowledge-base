@@ -60,6 +60,38 @@ export const mentionDocUser = (shareId, docId, userId) =>
  */
 export const getDocLinks = (shareId, docId) => api.get(`/doc-shares/${shareId}/docs/${docId}/links`)
 
+// ---- 文档外部分享（公开只读链接）----
+// 管理端：开启/更新、关闭、查询状态
+export const savePublicLink = (shareId, docId, body) =>
+  api.post(`/doc-shares/${pid(shareId)}/docs/${pid(docId, 'docId')}/public-link`, body)
+export const revokePublicLink = (shareId, docId) =>
+  api.delete(`/doc-shares/${pid(shareId)}/docs/${pid(docId, 'docId')}/public-link`)
+export const getPublicLinkInfo = (shareId, docId) =>
+  api.get(`/doc-shares/${pid(shareId)}/docs/${pid(docId, 'docId')}/public-link`)
+
+/**
+ * 免登录访问（/s/{token} 页面用）。
+ * 刻意不用共享的 axios 实例：它带 401 全局登出，未登录访客会被跳去登录页。
+ */
+const publicBase = () => (api.defaults.baseURL || '')
+
+export async function fetchPublicMeta(token) {
+  const r = await fetch(publicBase() + '/public/shared/' + encodeURIComponent(token))
+  if (!r.ok) throw Object.assign(new Error('链接不存在或已失效'), { status: r.status })
+  return r.json()
+}
+
+export async function fetchPublicDoc(token, password) {
+  const r = await fetch(publicBase() + '/public/shared/' + encodeURIComponent(token) + '/view', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: password || null })
+  })
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok) throw Object.assign(new Error(data.error || '打不开该文档'), { status: r.status })
+  return data
+}
+
 // 更新单篇文档标签（空数组清除标签）
 export const setShareDocTags = (id, docId, tags) =>
   api.put('/doc-shares/' + pid(id) + '/docs/' + pid(docId, 'docId') + '/tags', { tags })

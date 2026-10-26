@@ -942,6 +942,107 @@ public class DocShareService {
         return ret;
     }
 
+    // ===================== 外部分享（公开只读链接） =====================
+
+    /** 创建/更新公开链接：password 为空表示免密；expireDays<=0 表示永久 */
+    public Map<String, Object> savePublicLink(Long shareId, Long docId, Long userId, boolean sysAdmin,
+                                              String password, Integer expireDays, boolean noCopy) {
+        get(shareId, userId, sysAdmin);   // 空间校验
+        if (!canAdminDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权设置该文档的公开链接");
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        if (d.getShareToken() == null || d.getShareToken().isBlank()) {
+            d.setShareToken(java.util.UUID.randomUUID().toString().replace("-", "")
+                    + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8));
+        }
+        d.setSharePassHash(password == null || password.isBlank()
+                ? null : com.kb.kbplatform.security.PasswordUtil.encode(password.trim()));
+        d.setShareExpireAt(expireDays != null && expireDays > 0
+                ? LocalDateTime.now().plusDays(expireDays) : null);
+        d.setShareNoCopy(noCopy);
+        docRepo.save(d);
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("token", d.getShareToken());
+        ret.put("hasPassword", d.getSharePassHash() != null);
+        ret.put("expireAt", d.getShareExpireAt());
+        ret.put("noCopy", d.isShareNoCopy());
+        ret.put("views", d.getShareViews());
+        return ret;
+    }
+
+    /** 关闭公开链接（令牌作废，历史链接立即 404） */
+    public void revokePublicLink(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        get(shareId, userId, sysAdmin);
+        if (!canAdminDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权操作该文档的公开链接");
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        d.setShareToken(null);
+        d.setSharePassHash(null);
+        d.setShareExpireAt(null);
+        docRepo.save(d);
+    }
+
+    /** 当前文档的公开链接状态（管理端回显，不返回令牌全文） */
+    public Map<String, Object> publicLinkInfo(Long shareId, Long docId, Long userId, boolean sysAdmin) {
+        get(shareId, userId, sysAdmin);
+        if (!canAdminDoc(shareId, docId, userId, sysAdmin))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权查看该文档的公开链接");
+        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("enabled", d.getShareToken() != null);
+        ret.put("token", d.getShareToken());
+        ret.put("hasPassword", d.getSharePassHash() != null);
+        ret.put("expireAt", d.getShareExpireAt());
+        ret.put("noCopy", d.isShareNoCopy());
+        ret.put("views", d.getShareViews());
+        return ret;
+    }
+
+    /** 公开链接存在性检查：过期/未开启一律 404（不区分，避免探测令牌） */
+    private SharedDocument requirePublicDoc(String token) {
+        if (token == null || token.isBlank())
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "链接不存在或已失效");
+        SharedDocument d = docRepo.findByShareToken(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "链接不存在或已失效"));
+        if (d.getShareExpireAt() != null && d.getShareExpireAt().isBefore(LocalDateTime.now())) {
+            throw new ResponseStatusException(HttpStatus.GONE, "链接已过期");
+        }
+        return d;
+    }
+
+    /** 免登录读取元信息：标题 / 是否需要密码 / 是否禁止复制（不返回正文） */
+    public Map<String, Object> publicMeta(String token) {
+        SharedDocument d = requirePublicDoc(token);
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("title", d.getTitle());
+        ret.put("needPassword", d.getSharePassHash() != null);
+        ret.put("noCopy", d.isShareNoCopy());
+        ret.put("updatedAt", d.getUpdatedAt());
+        ret.put("spaceName", d.getSpaceName());
+        return ret;
+    }
+
+    /** 免登录读取正文：有密码时校验，通过后计数 +1；正文统一消毒 */
+    public Map<String, Object> publicView(String token, String password) {
+        SharedDocument d = requirePublicDoc(token);
+        if (d.getSharePassHash() != null) {
+            if (password == null || !com.kb.kbplatform.security.PasswordUtil.matches(password.trim(), d.getSharePassHash()))
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "密码不正确");
+        }
+        d.setShareViews(d.getShareViews() + 1);
+        docRepo.save(d);
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("title", d.getTitle());
+        ret.put("content", com.kb.kbplatform.security.HtmlSanitizer.sanitize(d.getContent()));
+        ret.put("noCopy", d.isShareNoCopy());
+        ret.put("updatedAt", d.getUpdatedAt());
+        ret.put("spaceName", d.getSpaceName());
+        return ret;
+    }
+
     static String normalizeDocTags(List<String> tags) {
         if (tags == null || tags.isEmpty()) return "";
         LinkedHashMap<String, String> unique = new LinkedHashMap<>();

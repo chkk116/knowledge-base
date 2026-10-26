@@ -13,6 +13,7 @@ import {
   searchShareUsers,
   getDocLinks,
   mentionDocUser,
+  getPublicLinkInfo, savePublicLink, revokePublicLink,
 } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import DocShareEditor from './DocShareEditor.vue'
@@ -559,6 +560,77 @@ watch(() => route.query.doc, async (want) => {
   const target = docs.value.find(d => d.id === id)
   if (target) await selectDoc(target)
 })
+
+// ---- 文档外部分享 ----
+const pubDlg = ref(false)
+const pubLoading = ref(false)
+const pubSaving = ref(false)
+const pubDoc = ref(null)
+const pubInfo = ref({ enabled: false, token: null, hasPassword: false, views: 0 })
+const pubForm = ref({ password: '', expireDays: 0, noCopy: false })
+const pubUrl = computed(() => {
+  const t = pubInfo.value.token
+  if (!t) return ''
+  return window.location.origin + '/s/' + t
+})
+
+async function openPublicLink(d) {
+  pubDoc.value = d
+  pubDlg.value = true
+  pubLoading.value = true
+  try {
+    const { data } = await getPublicLinkInfo(shareId.value, d.id)
+    pubInfo.value = data || {}
+    pubForm.value = { password: '', expireDays: 0, noCopy: !!data.noCopy }
+  } catch (e) {
+    ElMessage.error(errMsg(e, '读取公开链接状态失败'))
+  } finally {
+    pubLoading.value = false
+  }
+}
+
+async function savePub() {
+  if (!pubDoc.value) return
+  pubSaving.value = true
+  try {
+    const { data } = await savePublicLink(shareId.value, pubDoc.value.id, {
+      password: pubForm.value.password || null,
+      expireDays: pubForm.value.expireDays,
+      noCopy: pubForm.value.noCopy
+    })
+    pubInfo.value = { ...pubInfo.value, ...data, enabled: true }
+    pubForm.value.password = ''
+    ElMessage.success(pubInfo.value.hasPassword ? '已生成（带密码）' : '已生成公开链接')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '生成失败'))
+  } finally {
+    pubSaving.value = false
+  }
+}
+
+async function revokePub() {
+  if (!pubDoc.value) return
+  pubSaving.value = true
+  try {
+    await revokePublicLink(shareId.value, pubDoc.value.id)
+    pubInfo.value = { enabled: false, token: null, hasPassword: false, views: 0 }
+    ElMessage.success('链接已关闭')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '关闭失败'))
+  } finally {
+    pubSaving.value = false
+  }
+}
+
+async function copyPubUrl() {
+  try {
+    await navigator.clipboard.writeText(pubUrl.value)
+    ElMessage.success('链接已复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选中链接复制')
+  }
+}
+
 </script>
 
 <template>
@@ -617,6 +689,7 @@ watch(() => route.query.doc, async (want) => {
               if (c === 'rename') openRename(d)
               else if (c === 'move') openMove(d)
               else if (c === 'perm') openDocPerm(d)
+              else if (c === 'public') openPublicLink(d)
               else if (c === 'delete') removeDoc(d)
             }" @click.stop>
               <span class="doc-menu" @click.stop><el-icon><MoreFilled /></el-icon></span>
@@ -625,6 +698,7 @@ watch(() => route.query.doc, async (want) => {
                   <el-dropdown-item command="rename">重命名</el-dropdown-item>
                   <el-dropdown-item command="move">移动到…</el-dropdown-item>
                   <el-dropdown-item command="perm">文档权限</el-dropdown-item>
+                  <el-dropdown-item command="public">公开链接</el-dropdown-item>
                   <el-dropdown-item command="delete" divided>{{ canAdmin ? '删除' : '删除（我的文档）' }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -866,6 +940,51 @@ watch(() => route.query.doc, async (want) => {
       </template>
     </el-dialog>
   </div>
+
+    <!-- 外部分享：免登录只读链接（可设密码 / 有效期 / 禁止复制） -->
+    <el-dialog v-model="pubDlg" title="文档公开链接" width="520px">
+      <div v-loading="pubLoading">
+        <p class="pub-tip">
+          生成后，任何拿到链接的人都能<strong>免登录只读</strong>这篇文章（不需要账号）。可随时关闭，关闭后链接立即失效。
+        </p>
+        <el-form label-width="86px" size="default">
+          <el-form-item label="公开链接">
+            <template v-if="pubInfo.enabled">
+              <el-input :model-value="pubUrl" readonly>
+                <template #append>
+                  <el-button @click="copyPubUrl">复制</el-button>
+                </template>
+              </el-input>
+            </template>
+            <span v-else class="pub-off">未开启</span>
+          </el-form-item>
+          <el-form-item label="访问密码">
+            <el-input v-model="pubForm.password" type="password" show-password
+                      :placeholder="pubInfo.hasPassword ? '留空 = 保持原密码；输入新值则覆盖' : '留空 = 免密访问'" />
+          </el-form-item>
+          <el-form-item label="有效期">
+            <el-select v-model="pubForm.expireDays" style="width: 180px">
+              <el-option :value="0" label="永久有效" />
+              <el-option :value="1" label="1 天" />
+              <el-option :value="7" label="7 天" />
+              <el-option :value="30" label="30 天" />
+              <el-option :value="90" label="90 天" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="访问限制">
+            <el-checkbox v-model="pubForm.noCopy">禁止复制（选中/右键/复制，含访问者水印）</el-checkbox>
+          </el-form-item>
+          <el-form-item v-if="pubInfo.enabled" label="访问统计">
+            <span class="pub-off">已访问 {{ pubInfo.views || 0 }} 次</span>
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button v-if="pubInfo.enabled" type="danger" plain :loading="pubSaving" @click="revokePub">关闭链接</el-button>
+        <el-button @click="pubDlg = false">取消</el-button>
+        <el-button type="primary" :loading="pubSaving" @click="savePub">{{ pubInfo.enabled ? '保存设置' : '生成链接' }}</el-button>
+      </template>
+    </el-dialog>
 </template>
 
 <style scoped>
