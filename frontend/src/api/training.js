@@ -114,6 +114,20 @@ export const adminSetPaperMock = (paperId, enabled) =>
 export const adminQuestions = (category) =>
   api.get('/admin/exams/questions', { params: category ? { category } : {} })
 
+// 题库批量导入：Excel（.xlsx/.xls），返回 { imported, skipped, failedCount, failed:[{row,reason}] }
+export const importQuestions = (file) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return api.post('/admin/exams/questions/import', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  })
+}
+
+// 下载导入模板（blob）
+export const downloadQuestionsTemplate = () =>
+  api.get('/admin/exams/questions/import-template', { responseType: 'blob' })
+
 export const adminCreateQuestion = (question, options) =>
   api.post('/admin/exams/questions', { question, options })
 

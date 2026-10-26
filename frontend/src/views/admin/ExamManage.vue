@@ -12,6 +12,9 @@
           <span class="count-hint">共 {{ questions.length }} 道{{ qCat ? '（' + qCat + '）' : '' }}</span>
           <el-button v-if="qCat" type="primary" plain @click="assembleByCategory">用该分类组卷</el-button>
           <el-button v-if="qSel.length" type="danger" plain @click="delQuestionsBatch">批量删除（{{ qSel.length }}）</el-button>
+          <el-button @click="downloadTpl">下载模板</el-button>
+          <el-button :loading="importing" @click="pickImport">导入 Excel</el-button>
+          <input ref="importInput" type="file" accept=".xlsx,.xls" style="display:none" @change="doImport" />
         </div>
         <el-table v-stack-table :data="questions" border stripe v-loading="loadingQ"
                    @selection-change="(rows) => qSel = rows.map(r => r.id)">
@@ -180,6 +183,21 @@
       </template>
     </el-dialog>
   </div>
+
+    <el-dialog v-model="importDlg" title="题库导入结果" width="520px">
+      <p class="imp-sum">
+        成功导入 <b>{{ importResult.imported }}</b> 道，跳过空行 <b>{{ importResult.skipped || 0 }}</b> 行，
+        失败 <b class="imp-bad">{{ importResult.failedCount || 0 }}</b> 行。
+      </p>
+      <el-table v-if="(importResult.failed || []).length" :data="importResult.failed" border size="small" max-height="320">
+        <el-table-column prop="row" label="行号" width="80" />
+        <el-table-column prop="reason" label="失败原因" />
+      </el-table>
+      <p v-else class="imp-ok">没有失败行。</p>
+      <template #footer>
+        <el-button type="primary" @click="importDlg = false">知道了</el-button>
+      </template>
+    </el-dialog>
 </template>
 
 <script setup>
@@ -189,7 +207,8 @@ import { errMsg } from '../../utils/errMsg'
 import {
   adminQuestions, adminCreateQuestion, adminUpdateQuestion, adminDeleteQuestion, adminGetQuestion,
   adminPapers, adminCreatePaper, adminUpdatePaper, adminDeletePaper, adminAssemble,
-  adminBatchDeleteQuestions, adminBatchDeletePapers, adminSetPaperMock
+  adminBatchDeleteQuestions, adminBatchDeletePapers, adminSetPaperMock,
+  importQuestions, downloadQuestionsTemplate
 } from '../../api/training'
 
 const tab = ref('bank')
@@ -484,6 +503,46 @@ const loadQ = () => {
 const loadP = () => { loadingP.value = true; adminPapers().then(r => { papers.value = r.data || r || [] }).catch((e) => ElMessage.error(errMsg(e, '加载试卷失败'))).finally(() => loadingP.value = false) }
 
 onMounted(() => { loadQ(); loadP() })
+
+// ---- 题库 Excel 导入 ----
+const importing = ref(false)
+const importInput = ref(null)
+const importDlg = ref(false)
+const importResult = ref({ imported: 0, skipped: 0, failedCount: 0, failed: [] })
+
+function pickImport() { importInput.value && importInput.value.click() }
+
+async function doImport(e) {
+  const file = e.target.files && e.target.files[0]
+  e.target.value = ''       // 允许连续选同一个文件
+  if (!file) return
+  importing.value = true
+  try {
+    const { data } = await importQuestions(file)
+    importResult.value = data || { imported: 0, failed: [] }
+    importDlg.value = true
+    if (importResult.value.imported) loadQ()
+  } catch (err) {
+    ElMessage.error(errMsg(err, '导入失败'))
+  } finally {
+    importing.value = false
+  }
+}
+
+async function downloadTpl() {
+  try {
+    const { data } = await downloadQuestionsTemplate()
+    const url = URL.createObjectURL(new Blob([data]))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '题库导入模板.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error(errMsg(e, '下载模板失败'))
+  }
+}
+
 </script>
 
 <style scoped>

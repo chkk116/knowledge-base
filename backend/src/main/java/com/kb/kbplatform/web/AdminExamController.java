@@ -29,10 +29,13 @@ public class AdminExamController {
 
     private final ExamService svc;
     private final AiQuestionService aiQuestions;
+    private final com.kb.kbplatform.service.QuestionImportService questionImport;
 
-    public AdminExamController(ExamService svc, AiQuestionService aiQuestions) {
+    public AdminExamController(ExamService svc, AiQuestionService aiQuestions,
+                               com.kb.kbplatform.service.QuestionImportService questionImport) {
         this.svc = svc;
         this.aiQuestions = aiQuestions;
+        this.questionImport = questionImport;
     }
 
     private void requirePerm(TokenClaims c, String code) {
@@ -120,6 +123,34 @@ public class AdminExamController {
             try { svc.adminDeleteQuestion(id); n++; } catch (IllegalArgumentException ignore) { }
         }
         return Map.of("ok", true, "deleted", n);
+    }
+
+    /** 题库批量导入（Excel）。逐行导入、逐行报错，返回 { imported, failed:[{row,reason}] } */
+    @PostMapping("/questions/import")
+    public Map<String, Object> importQuestions(@RequestAttribute("kbUser") TokenClaims c,
+                                               @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        requirePerm(c, "EXAM_MANAGE");
+        if (file == null || file.isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "请选择要导入的 Excel 文件");
+        if (file.getSize() > 5L * 1024 * 1024) throw new ResponseStatusException(BAD_REQUEST, "文件太大（≤5MB）");
+        try (var in = file.getInputStream()) {
+            return questionImport.importXlsx(in);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(BAD_REQUEST, e.getMessage());
+        } catch (Exception e) {
+            throw new ResponseStatusException(BAD_REQUEST, "读取文件失败：" + e.getMessage());
+        }
+    }
+
+    /** 下载导入模板（表头 + 四行示例） */
+    @GetMapping("/questions/import-template")
+    public org.springframework.http.ResponseEntity<byte[]> importTemplate(@RequestAttribute("kbUser") TokenClaims c) {
+        requirePerm(c, "EXAM_MANAGE");
+        byte[] bytes = questionImport.template();
+        return org.springframework.http.ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=\"question-import-template.xlsx\"")
+                .contentType(org.springframework.http.MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bytes);
     }
 
     // ---------- AI 出题 ----------
