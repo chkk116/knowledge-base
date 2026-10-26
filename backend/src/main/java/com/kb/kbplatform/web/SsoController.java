@@ -280,6 +280,8 @@ public class SsoController {
         Map<String, Object> session;
         if (bound.isPresent()) {
             session = auth.sessionForUser(bound.get().getUserId());
+            // 老用户第一次扫码：把第三方头像补上（用户自己设过的不会被覆盖）
+            auth.fillAvatarIfEmpty(bound.get().getUserId(), avatar);
             // 昵称/头像跟着身份源更新（用户改了微信昵称这里能同步上）
             var id = bound.get();
             if (notBlank(nickname) && !nickname.equals(id.getNickname())) {
@@ -291,7 +293,7 @@ public class SsoController {
         } else if (autoReg) {
             String uname = (provider + "_" + extId).replaceAll("[^A-Za-z0-9_]", "");
             if (uname.length() > 40) uname = uname.substring(0, 40);
-            session = auth.loginExternal(uname, nickname, "");
+            session = auth.loginExternal(uname, nickname, "", avatar);
             var id = new com.kb.kbplatform.domain.UserIdentity();
             id.setUserId(((Number) session.get("id")).longValue());
             id.setProvider(provider);

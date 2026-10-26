@@ -132,6 +132,17 @@ public class AuthService {
      * 已存在则只同步显示名/邮箱，不改角色与密码。
      */
     public Map<String, Object> loginExternal(String username, String displayName, String email) {
+        return loginExternal(username, displayName, email, null);
+    }
+
+    /**
+     * 外部身份源登录（可带头像）。
+     *
+     * 头像只在该用户**还没有头像**时写入：用户自己上传/改过的不覆盖。
+     * 第三方头像（GitHub/微信）放在 kb_user_identity.avatar，这里同步一份到 kb_user，
+     * 否则前端 `user.avatar` 是空的，只能显示名字首字母。
+     */
+    public Map<String, Object> loginExternal(String username, String displayName, String email, String avatar) {
         if (username == null || username.isBlank()) throw new BizException("身份源未返回用户名");
         User u = userRepo.findByUsername(username).orElse(null);
         if (u == null) {
@@ -142,6 +153,7 @@ public class AuthService {
             u.setEnabled(true);
             if (displayName != null && !displayName.isBlank()) u.setDisplayName(displayName);
             if (email != null && !email.isBlank()) u.setEmail(email);
+            if (avatar != null && !avatar.isBlank()) u.setAvatar(avatar);
             userRepo.save(u);
         } else {
             if (!u.isEnabled()) throw new BizException("账号已被禁用，请联系管理员");
@@ -150,9 +162,25 @@ public class AuthService {
                     && displayName != null && !displayName.isBlank()) { u.setDisplayName(displayName); dirty = true; }
             if ((u.getEmail() == null || u.getEmail().isBlank())
                     && email != null && !email.isBlank()) { u.setEmail(email); dirty = true; }
+            if ((u.getAvatar() == null || u.getAvatar().isBlank())
+                    && avatar != null && !avatar.isBlank()) { u.setAvatar(avatar); dirty = true; }
             if (dirty) userRepo.save(u);
         }
         return sessionMap(u, u.getPoints());
+    }
+
+    /**
+     * 补头像（绑定过第三方的老用户首次登录时用）：只在用户当前没有头像时写入。
+     * 用户自己换过头像就不动，避免每次扫码都把自定义头像冲掉。
+     */
+    public void fillAvatarIfEmpty(Long userId, String avatar) {
+        if (userId == null || avatar == null || avatar.isBlank()) return;
+        userRepo.findById(userId).ifPresent(u -> {
+            if (u.getAvatar() == null || u.getAvatar().isBlank()) {
+                u.setAvatar(avatar);
+                userRepo.save(u);
+            }
+        });
     }
 
     /**
