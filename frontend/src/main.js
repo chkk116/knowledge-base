@@ -88,7 +88,10 @@ import {
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
   Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush, Cpu, Search,
-  Upload   // 侧边栏「我的文件」图标（此前漏注册 → 菜单里图标空白）
+  Upload,   // 侧边栏「我的文件」图标（此前漏注册 → 菜单里图标空白）
+  // 2026-10-26 菜单去重：这些原本多条目共用同一个图标，看着像「同一个功能」
+  Monitor, Promotion, Connection, Postcard, FolderOpened, Tickets, List, TrendCharts, Operation,
+  Memo, PriceTag
 } from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'

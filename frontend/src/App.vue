@@ -291,7 +291,7 @@ const menus = computed(() => {
       { index: '/write', title: '写文章', icon: 'EditPen' },
       { index: '/my/posts', title: '我的帖子', icon: 'Files' },
       { index: '/recycle', title: '回收站', icon: 'Delete' },
-      { index: '/subscriptions', title: '我的订阅', icon: 'Notification' },
+      { index: '/subscriptions', title: '我的订阅', icon: 'Bell' },
     )
     if (featureOpen('profile')) base.push(
       { index: '/favorites', title: '我的收藏', icon: 'Star' },
@@ -299,12 +299,12 @@ const menus = computed(() => {
       { index: '/badges', title: '我的勋章', icon: 'Medal' },
       { index: '/files', title: '我的文件', icon: 'Upload' },
     )
-    if (featureOpen('ranking')) base.push({ index: '/ranking', title: '积分排行榜', icon: 'Medal' })
+    if (featureOpen('ranking')) base.push({ index: '/ranking', title: '积分排行榜', icon: 'TrendCharts' })
     if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: 'AI 问答', icon: 'ChatDotRound' })
     if (featureOpen('courses')) base.push({ index: '/study/courses', title: '培训', icon: 'Reading' })
-    if (featureOpen('quiz')) base.push({ index: '/quiz', title: '答题', icon: 'Trophy' })
+    if (featureOpen('quiz')) base.push({ index: '/quiz', title: '答题', icon: 'Edit' })
     if (featureOpen('doc_shares')) base.push({ index: '/doc-shares', title: '共享文档', icon: 'DocumentCopy' })
-    if (featureOpen('doc_shares')) base.push({ index: '/doc-shares/all', title: '全部文档', icon: 'Collection' })
+    if (featureOpen('doc_shares')) base.push({ index: '/doc-shares/all', title: '全部文档', icon: 'Tickets' })
   }
 
   // 二级分组：用户与权限（用户管理 / 黑名单 / 操作审计）——账号、权限、黑名单与「谁操作了什么」归人域
@@ -317,28 +317,28 @@ const menus = computed(() => {
     if (auth.isAdmin) userMgmt.push({ index: '/admin/blacklist', title: '黑名单', icon: 'CircleClose' })
     // 操作审计 / 登录日志：严格按各自独立权限码显示（不回退 ADMIN_VIEW，与后端判定一致）
     if (auth.isAdmin || auth.hasPerm('AUDIT_VIEW')) {
-      userMgmt.push({ index: '/admin/audit', title: '操作审计', icon: 'Clock' })
+      userMgmt.push({ index: '/admin/audit', title: '操作审计', icon: 'List' })
     }
     if (auth.isAdmin || auth.hasPerm('LOGIN_LOG_VIEW')) {
       userMgmt.push({ index: '/admin/login-logs', title: '登录日志', icon: 'Key' })
     }
   }
-  if (userMgmt.length) base.push({ index: 'g-user', title: '用户与权限', icon: 'User', children: userMgmt })
+  if (userMgmt.length) base.push({ index: 'g-user', title: '用户与权限', icon: 'Management', children: userMgmt })
 
   // 二级分组：内容管理（帖子 / 分类标签 / 公告 / 附件 / 数据看板）
   // 原「数据中心」单独成组已并入此处，避免「仅一项」的空壳分组；内容资源 + 内容数据聚同一域
   // 站点级配置（功能开关 / 水印 / 登录二维码 / 外观）已移至下方「站点设置」组
   const contentMgmt = []
   if (auth.hasPerm('DOC_REVIEW')) contentMgmt.push({ index: '/admin/review', title: '文章审核', icon: 'Finished' })
-  if (auth.hasPerm('POST_MANAGE')) contentMgmt.push({ index: '/admin/docs', title: '帖子管理', icon: 'Document' })
-  if (auth.hasPerm('TAXONOMY_MANAGE')) contentMgmt.push({ index: '/admin/taxonomy', title: '分类标签', icon: 'Collection' })
+  if (auth.hasPerm('POST_MANAGE')) contentMgmt.push({ index: '/admin/docs', title: '帖子管理', icon: 'Memo' })
+  if (auth.hasPerm('TAXONOMY_MANAGE')) contentMgmt.push({ index: '/admin/taxonomy', title: '分类标签', icon: 'PriceTag' })
   if (auth.hasPerm('ANNOUNCEMENT_MANAGE')) contentMgmt.push({ index: '/admin/announcements', title: '公告管理', icon: 'Notification' })
   if (auth.hasPerm('BANNED_WORDS_MANAGE')) contentMgmt.push({ index: '/admin/banned-words', title: '违禁词管理', icon: 'Warning' })
   if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW')) contentMgmt.push({ index: '/admin/files', title: '附件管理', icon: 'Folder' })
   if (auth.hasPerm('STATS_VIEW')) contentMgmt.push({ index: '/admin/stats', title: '数据看板', icon: 'DataLine' })
   if (auth.hasPerm('COURSE_MANAGE')) contentMgmt.push({ index: '/admin/courses', title: '培训管理', icon: 'Notebook' })
   if (auth.hasPerm('EXAM_MANAGE')) contentMgmt.push({ index: '/admin/exams', title: '题库与试卷', icon: 'Trophy' })
-  if (auth.hasPerm('SHARE_VIEW')) contentMgmt.push({ index: '/admin/doc-shares', title: '共享文档管理', icon: 'DocumentCopy' })
+  if (auth.hasPerm('SHARE_VIEW')) contentMgmt.push({ index: '/admin/doc-shares', title: '共享文档管理', icon: 'FolderOpened' })
   if (auth.hasPerm('ASSET_MANAGE')) contentMgmt.push({ index: '/admin/assets', title: '资产管理', icon: 'Box' })
   // 检索测试：管理员诊断搜索质量（搜得到 / 搜得准）；演示账号（ADMIN_VIEW）也可只读探测
   if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW')) contentMgmt.push({ index: '/admin/search-test', title: '检索测试', icon: 'Search' })
@@ -350,19 +350,19 @@ const menus = computed(() => {
   // 站点级配置，与「内容资源」分离：调的是整站的开关与呈现，不涉及具体条目
   const siteConfig = []
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/maintain', title: '功能开关', icon: 'Setting' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/watermark', title: '水印设置', icon: 'Tools' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/notify-webhook', title: '通知外发', icon: 'Tools' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/sso-ldap', title: '企业登录', icon: 'Tools' })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/watermark', title: '水印设置', icon: 'Stamp' })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/notify-webhook', title: '通知外发', icon: 'Promotion' })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/sso-ldap', title: '企业登录', icon: 'Connection' })
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Document' })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Postcard' })
   // 系统状态：Redis / 第三方登录连通性（只读诊断，改配置不在这里）
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/system', title: '系统状态', icon: 'DataLine' })
-  if (siteConfig.length) base.push({ index: 'g-site', title: '站点设置', icon: 'Setting', children: siteConfig })
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/system', title: '系统状态', icon: 'Monitor' })
+  if (siteConfig.length) base.push({ index: 'g-site', title: '站点设置', icon: 'Tools', children: siteConfig })
 
   if (auth.loggedIn) {
     // 偏好设置紧邻个人资料（2026-10-22：只放头像下拉时用户找不到，提到侧边栏一级入口）
-    base.push({ index: '/preferences', title: '偏好设置', icon: 'Setting' })
+    base.push({ index: '/preferences', title: '偏好设置', icon: 'Operation' })
     // 个人资料放在最底部，符合常见布局习惯
     base.push({ index: '/profile', title: '个人资料', icon: 'UserFilled' })
   }
