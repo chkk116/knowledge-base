@@ -75,7 +75,15 @@ fun AppRoot() {
     }
 
     LaunchedEffect(token) {
-        if (token != null) SseClient.start() else SseClient.stop()
+        if (token != null) {
+            SseClient.start()
+            // 冷启动时先把身份拉一次：TokenStore.info 原本只在「我的」页加载后才填，
+            // 导致首页头像/权限判断在第一次进「我的」之前都是空的。
+            runCatching { TokenStore.setInfo(com.kb.kbplatform.shell.data.KbApi.me()) }
+        } else {
+            SseClient.stop()
+            TokenStore.setInfo(null)
+        }
     }
 
     if (token == null) {

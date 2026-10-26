@@ -436,18 +436,29 @@ private fun Hero(onAvatar: () -> Unit, onSearch: () -> Unit, onAi: () -> Unit) {
                 )
             }
             // 头像：44dp + 2dp 半透明白描边（套壳 .hero-avatar）
+            val avatarUrl = me?.optString("avatar").orEmpty()
             Box(
                 Modifier
                     .size(44.dp)
                     .background(Color.White.copy(alpha = 0.2f), CircleShape)
                     .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                    .clip(CircleShape)
                     .kbPress(scaleDown = 0.92f, onClick = onAvatar),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    (me?.optString("displayName") ?: "").ifBlank { "?" }.take(1),
-                    color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold
-                )
+                if (avatarUrl.isNotBlank()) {
+                    coil.compose.AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = "头像",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        (me?.optString("displayName") ?: "").ifBlank { "?" }.take(1),
+                        color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
         Spacer(Modifier.height(14.dp))

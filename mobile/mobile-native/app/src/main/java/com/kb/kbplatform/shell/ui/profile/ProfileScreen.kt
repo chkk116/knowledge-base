@@ -167,17 +167,30 @@ fun ProfileScreen(
                 .padding(start = 18.dp, end = 18.dp, top = 20.dp, bottom = 22.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 有头像就加载图片（GitHub/微信登录会带回来），没有才退回名字首字母。
+            // 用 Coil 的 AsyncImage：自带内存+磁盘缓存，圆形裁剪靠 clip(CircleShape)。
+            val avatarUrl = me?.optString("avatar").orEmpty()
             Box(
                 Modifier
                     .size(58.dp)
                     .background(Color.White.copy(alpha = 0.22f), CircleShape)
-                    .border(2.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+                    .border(2.dp, Color.White.copy(alpha = 0.45f), CircleShape)
+                    .clip(CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    name.take(1),
-                    color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold
-                )
+                if (avatarUrl.isNotBlank()) {
+                    coil.compose.AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = "头像",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        name.take(1),
+                        color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold
+                    )
+                }
             }
             Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f)) {
