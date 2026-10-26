@@ -356,6 +356,8 @@ const menus = computed(() => {
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Document' })
+  // 系统状态：Redis / 第三方登录连通性（只读诊断，改配置不在这里）
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/system', title: '系统状态', icon: 'DataLine' })
   if (siteConfig.length) base.push({ index: 'g-site', title: '站点设置', icon: 'Setting', children: siteConfig })
 
   if (auth.loggedIn) {
