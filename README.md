@@ -197,6 +197,11 @@ knowledge-base/
 - **本地账号**：用户名 + 密码（含滑块验证码）
 - **LDAP / AD**：服务账号搜用户 DN → 用户 DN+密码 bind 校验；配置入口「管理 → 企业登录」
 - **OIDC / 单点登录**：标准授权码流程，兼容 Keycloak / Azure AD / 企业微信 / 钉钉 / 飞书（回调地址见配置页）
+- **GitHub / Gitee 登录**：GitHub App 或 Gitee 第三方应用，配置 App ID + Client secret 即启用
+- **微信 / QQ 扫码登录**：走各自开放平台授权码流程，后台未配置时登录页不显示对应图标
+
+> 所有第三方登录都复用同一套会话签发（`AuthService.loginExternal`）：首次登录自动建号（角色 USER），
+> 已存在账号只同步昵称/邮箱/头像，不会覆盖角色与密码。配置入口统一在「管理 → 企业登录」。
 
 ## 快速开始（本地开发）
 
@@ -295,6 +300,11 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 - 产物：`desktop/dist-electron/知识库 Setup 1.0.0.exe`（安装版）/ `win-unpacked/知识库.exe`（免安装）
 - 设计特性：自绘深蓝紫标题栏、原生登录框 + 安全验证弹窗、单实例锁、系统托盘常驻
 - 后端地址默认 `http://localhost:8080`，环境变量 `KB_BACKEND_URL` / `KB_BACKEND_WS` 可覆盖
+
+## 缓存与限流（可选 Redis）
+
+限流计数、第三方登录 state、练习会话默认存进程内存（单实例够用）。多实例部署或需要重启不丢状态时，
+起 Redis 并设置 `KB_REDIS_PASSWORD`（compose 见 `deploy/docker-compose.yml`）；**Redis 挂了会自动降级回内存，不影响登录**。
 
 ## 移动端（Kotlin 原生壳 `mobile/mobile-native`）
 
