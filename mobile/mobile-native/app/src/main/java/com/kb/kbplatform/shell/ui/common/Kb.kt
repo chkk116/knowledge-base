@@ -4,8 +4,12 @@
  */
 package com.kb.kbplatform.shell.ui.common
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,9 +30,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,7 +60,8 @@ fun KbCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val m = if (onClick != null) modifier.clickable(onClick = onClick) else modifier
+    // 可点的卡片给按压缩放：整块卡片只靠 ripple 反馈太弱，尤其宽卡片点击点常常落在文字外
+    val m = if (onClick != null) modifier.kbPress(scaleDown = 0.985f, onClick = onClick) else modifier
     if (border != null) {
         Surface(
             shape = shape,
@@ -99,16 +107,29 @@ fun KbButton(
         ghost -> MaterialTheme.colorScheme.onSurface
         else -> Color.White
     }
+    // 按钮按压缩放（Material3 Button 自带 elevation/ripple，但按下时形状不变，加一点缩放更「有实体」）
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 900f),
+        label = "kbBtnScale"
+    )
+    val scaled = modifier.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
     if (ghost) {
         OutlinedButton(
             onClick = onClick,
             enabled = enabled,
             shape = shape,
+            interactionSource = interaction,
             colors = ButtonDefaults.outlinedButtonColors(
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.onSurface
             ),
-            modifier = modifier.height(if (small) 38.dp else 48.dp)
+            modifier = scaled.height(if (small) 38.dp else 48.dp)
         ) {
             Text(text, fontSize = if (small) 14.sp else 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
@@ -117,8 +138,9 @@ fun KbButton(
             onClick = onClick,
             enabled = enabled,
             shape = shape,
+            interactionSource = interaction,
             colors = ButtonDefaults.buttonColors(containerColor = bgColor, contentColor = fgColor),
-            modifier = modifier.height(if (small) 38.dp else 48.dp)
+            modifier = scaled.height(if (small) 38.dp else 48.dp)
         ) {
             Text(text, fontSize = if (small) 14.sp else 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
@@ -188,7 +210,8 @@ fun KbEmpty(emoji: String, text: String, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 60.dp, bottom = 24.dp),
+            .padding(top = 60.dp, bottom = 24.dp)
+            .kbItemEnter(fromBottom = 10),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(

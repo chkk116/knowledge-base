@@ -131,7 +131,8 @@ fun DocsScreen(
             )
         }
         if (loading) {
-            com.kb.kbplatform.shell.ui.common.KbLoading()
+            // 骨架屏替掉转圈：版式先出来，数据到了直接填，视觉上不「跳」
+            com.kb.kbplatform.shell.ui.common.KbSkeletonList(count = 5)
         } else if (error.isNotEmpty()) {
             com.kb.kbplatform.shell.ui.common.KbEmpty("⚠️", error)
         } else if (space == null) {
@@ -149,6 +150,8 @@ fun DocsScreen(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                // 新条目淡入 + 位置变化平滑（增删时不再「啪」一下重排）
+                                .animateItem()
                                 .clickable { selectedSpace = s }
                         ) {
                             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -203,6 +206,7 @@ fun DocsScreen(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .animateItem()
                                 .clickable {
                                     // 原生阅读器：正文缓存离线可读；编辑在阅读器内进 WebView
                                     openRoute("reader/${space.optLong("id", 0)}/$docId?title=${android.net.Uri.encode(title)}")

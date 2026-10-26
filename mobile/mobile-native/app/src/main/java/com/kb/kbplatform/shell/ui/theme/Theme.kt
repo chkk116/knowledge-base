@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 /**
  * 设计令牌与 Web 套壳 mobile.css 的 --m-* 家族逐一对齐（2026-10-25 UI 对标）：
@@ -57,6 +58,19 @@ private val DarkColors = darkColorScheme(
     error = Color(0xFFF76964)
 )
 
+/**
+ * 形状令牌：与 mobile.css 的圆角体系对齐（chip 7 / 卡片 14 / 大容器 20）。
+ * 之前各页面自己写 `RoundedCornerShape(14.dp)`，值散落各处；
+ * 现在 Material 组件（Card/Dialog/BottomSheet）默认取这里的值。
+ */
+private val KbShapes = androidx.compose.material3.Shapes(
+    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(7.dp),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+)
+
 @Composable
 fun KbTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     // 外观设置（我的 → 外观）：跟随系统 / 浅色 / 深色（AppThemeState）
@@ -68,6 +82,7 @@ fun KbTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () 
     }
     MaterialTheme(
         colorScheme = if (effectiveDark) DarkColors else LightColors,
+        shapes = KbShapes,
         content = content
     )
 }

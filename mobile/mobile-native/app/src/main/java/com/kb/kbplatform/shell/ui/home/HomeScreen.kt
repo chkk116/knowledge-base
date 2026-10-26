@@ -49,7 +49,9 @@ import com.kb.kbplatform.shell.data.ShareInbox
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.KbEmpty
-import com.kb.kbplatform.shell.ui.common.KbLoading
+import com.kb.kbplatform.shell.ui.common.KbSkeletonHome
+import com.kb.kbplatform.shell.ui.common.kbItemEnter
+import com.kb.kbplatform.shell.ui.common.kbPress
 import com.kb.kbplatform.shell.ui.common.formatDateTime
 import com.kb.kbplatform.shell.ui.theme.KbTextDim
 import kotlinx.coroutines.async
@@ -116,7 +118,8 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (loading) {
-                item { KbLoading() }
+                // 骨架屏：先把问候语/九宫格/统计条的版式画出来，数据到了直接填（原来是一个转圈）
+                item { KbSkeletonHome() }
             } else if (error.isNotEmpty()) {
                 item { KbEmpty("⚠️", error) }
             } else {
@@ -164,7 +167,7 @@ fun HomeScreen(
                                         Column(
                                             Modifier
                                                 .weight(1f)
-                                                .clickable { openRoute(q.route!!) },
+                                                .kbPress(scaleDown = 0.9f) { openRoute(q.route!!) },
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
                                             Box(
@@ -320,6 +323,8 @@ private fun Hero(onAvatar: () -> Unit, onSearch: () -> Unit, onAi: () -> Unit) {
             )
             .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 14.dp)
+            // 首屏 Hero 淡入并自上轻落，避免整页「瞬间出现」
+            .kbItemEnter(index = 0, fromBottom = -10)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -334,7 +339,7 @@ private fun Hero(onAvatar: () -> Unit, onSearch: () -> Unit, onAi: () -> Unit) {
                 Modifier
                     .size(44.dp)
                     .background(Color.White.copy(alpha = 0.2f), CircleShape)
-                    .clickable(onClick = onAvatar),
+                    .kbPress(scaleDown = 0.92f, onClick = onAvatar),
                 contentAlignment = Alignment.Center
             ) {
                 Text(

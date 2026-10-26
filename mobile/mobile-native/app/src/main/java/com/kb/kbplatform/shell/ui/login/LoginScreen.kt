@@ -52,6 +52,7 @@ import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.ui.captcha.SlideCaptcha
 import com.kb.kbplatform.shell.ui.theme.KbBlue
 import com.kb.kbplatform.shell.ui.theme.KbTextDim
+import com.kb.kbplatform.shell.ui.common.kbItemEnter
 import kotlinx.coroutines.launch
 
 /**
@@ -108,7 +109,9 @@ fun LoginScreen() {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(top = 64.dp),
+                .padding(top = 64.dp)
+                // 品牌区先落位（自上轻落），表单紧随其后自下而上，形成先后节奏
+                .kbItemEnter(index = 0, fromBottom = -14),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
@@ -140,6 +143,7 @@ fun LoginScreen() {
                 .fillMaxWidth()
                 .padding(horizontal = 26.dp)
                 .padding(top = 34.dp)
+                .kbItemEnter(index = 2, fromBottom = 20)
         ) {
             Text(
                 "欢迎回来",

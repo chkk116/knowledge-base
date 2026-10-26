@@ -70,7 +70,8 @@ fun TopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable Row
 /** 居中提示（空态 / 错误 / 加载中） */
 @Composable
 fun CenterHint(text: String, loading: Boolean = false) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    // 空态/错误/加载统一淡入：状态切换时不再「啪」地替换
+    Box(Modifier.fillMaxSize().kbItemEnter(fromBottom = 10), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (loading) CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
             Spacer(Modifier.height(10.dp))

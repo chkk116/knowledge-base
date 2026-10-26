@@ -96,7 +96,8 @@ fun MessagesScreen() {
             }
         }
         if (loading && items.isEmpty()) {
-            com.kb.kbplatform.shell.ui.common.KbLoading()
+            // 骨架屏：消息列表版式先出来（原来转圈，切 Tab 时一片空白）
+            com.kb.kbplatform.shell.ui.common.KbSkeletonList(count = 6)
         } else if (error.isNotEmpty() && items.isEmpty()) {
             com.kb.kbplatform.shell.ui.common.KbEmpty("⚠️", error)
         } else if (items.isEmpty()) {

@@ -44,6 +44,10 @@ import com.kb.kbplatform.shell.ui.quick.QuickNoteScreen
 import com.kb.kbplatform.shell.ui.reader.DocReaderScreen
 import com.kb.kbplatform.shell.ui.search.SearchScreen
 import com.kb.kbplatform.shell.ui.share.ShareImportScreen
+import com.kb.kbplatform.shell.ui.theme.kbEnterBackward
+import com.kb.kbplatform.shell.ui.theme.kbEnterForward
+import com.kb.kbplatform.shell.ui.theme.kbExitBackward
+import com.kb.kbplatform.shell.ui.theme.kbExitForward
 import com.kb.kbplatform.shell.ui.web.WebScreen
 
 /**
@@ -64,7 +68,16 @@ fun AppRoot() {
         return
     }
 
-    NavHost(navController = nav, startDestination = "main") {
+    // 页面转场（2026-10-26）：原来没配，Navigation 默认只有淡入淡出，层级感很弱。
+    // 现在前进右滑入、返回反向滑出，300ms + emphasized 曲线，与 CoolMallKotlin 的导航节奏一致。
+    NavHost(
+        navController = nav,
+        startDestination = "main",
+        enterTransition = { kbEnterForward() },
+        exitTransition = { kbExitForward() },
+        popEnterTransition = { kbEnterBackward() },
+        popExitTransition = { kbExitBackward() }
+    ) {
         // 主体验：原生五槽 TabBar（中央＋）+ 原生页面，全部对标套壳 MobileXxx.vue
         composable("main") {
             MainScaffold(
@@ -253,7 +266,8 @@ fun AppRoot() {
                 )
             }
             composable("about") { com.kb.kbplatform.shell.ui.misc.AboutScreen(
-                versionName = "1.4.0-native",
+                // 读构建产物里的版本号：原来写死 1.4.0-native，与 build.gradle 的 0.4.0 长期不一致
+                versionName = com.kb.kbplatform.shell.BuildConfig.VERSION_NAME,
                 onOpenChangelog = { nav.navigate("changelog") },
                 onBack = { nav.popBackStack() }
             ) }

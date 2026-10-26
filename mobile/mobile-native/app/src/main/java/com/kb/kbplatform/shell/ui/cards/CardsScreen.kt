@@ -96,7 +96,13 @@ fun CardsScreen() {
         TopBar(title = "复习卡片")
 
         when {
-            loading -> CenterHint("加载中…", loading = true)
+            loading -> com.kb.kbplatform.shell.ui.common.KbSkeleton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .height(220.dp),
+                shape = RoundedCornerShape(16.dp)
+            )
             error.isNotEmpty() -> CenterHint(error)
             done -> CenterHint("本轮复习完成，共 $reviewed 张\n稍后再来看看新的到期卡片")
             queue.isEmpty() -> CenterHint("当前没有到期卡片 🎉")
