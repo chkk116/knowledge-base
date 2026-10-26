@@ -136,6 +136,15 @@ export const useAuthStore = defineStore('auth', () => {
     return data
   }
 
+  /** 外部身份源（LDAP/OIDC）登录成功后，用同一套逻辑落地会话 */
+  function applySession(data) {
+    if (!data || !data.token) throw new Error('登录响应缺少令牌')
+    applyToken(data.token)
+    user.value = toUser(data)
+    sessionStorage.setItem('kb_just_logged_in', '1')
+    return data
+  }
+
   async function fetchMe() {
     if (!token.value) {
       // 离线冷启动兜底：token 可能来自本地缓存，user 从缓存恢复
@@ -197,5 +206,5 @@ export const useAuthStore = defineStore('auth', () => {
     //   待同步草稿（queue 表）本来就保留待下次联网同步。
   }
 
-  return { token, user, loggedIn, isAdmin, isDemo, permissions, hasPerm, demoBlock, login, fetchMe, setProfile, logout }
+  return { token, user, loggedIn, isAdmin, isDemo, permissions, hasPerm, demoBlock, login, applySession, fetchMe, setProfile, logout }
 })

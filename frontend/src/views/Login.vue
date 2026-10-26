@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import QRCode from 'qrcode'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ssoOptions, ssoLdapLogin } from '../api/auth'
 import { User, Lock, ChatDotRound, ChatLineRound, Promotion } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
 import SlideCaptcha from '../components/SlideCaptcha.vue'
@@ -65,7 +66,41 @@ async function doLogin() {
   }
 }
 
+const ldapEnabled = ref(false)
+const ldapMode = ref(false)
+
+async function loadSsoOptions() {
+  try {
+    const { data } = await ssoOptions()
+    ldapEnabled.value = !!(data && data.ldap)
+  } catch { /* 身份源未配置/接口异常：保持普通登录 */ }
+}
+
+async function doLdapLogin() {
+  if (!username.value || !password.value) {
+    ElMessage.warning('请输入域账号和密码')
+    return
+  }
+  loading.value = true
+  try {
+    const { data } = await ssoLdapLogin(username.value.trim(), password.value)
+    auth.applySession(data)
+    ElMessage.success('登录成功')
+    let redirect = route.query.redirect || (auth.isAdmin ? '/admin/docs' : '/')
+    if (window.__KB_MOBILE__) {
+      const r = String(redirect)
+      redirect = r.startsWith('/m') ? r : '/home'
+    }
+    router.push(redirect)
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || (e.biz && e.message) || e.message || '域账号登录失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 async function submit() {
+  if (ldapMode.value) return doLdapLogin()
   if (!username.value || !password.value) {
     ElMessage.warning('请输入账号和密码')
     return
@@ -112,6 +147,7 @@ const supportImage = ref('')
 // 个性化二维码列表（2026-10-06）：后台「登录页二维码」可配任意数量，
 // 每项 {label 下方文字, content 扫码内容(链接/任意文本), image 可选现成图片}
 const qrItems = ref([])
+onMounted(loadSsoOptions)
 onMounted(async () => {
   startParticles()
   let wxUrl = 'https://www.example.com/wx-miniapp'
@@ -434,8 +470,12 @@ function startParticles() {
           <div v-if="slidePassed" class="captcha-state passed">✓ 已通过安全验证</div>
 
           <el-button type="primary" size="large" class="login-submit" :loading="loading" @click="submit">
-            立即登录
+            {{ ldapMode ? '域账号登录' : '立即登录' }}
           </el-button>
+          <div v-if="ldapEnabled" class="ldap-switch">
+            <span @click="ldapMode = !ldapMode">{{ ldapMode ? '← 返回普通登录' : '使用域账号（AD/LDAP）登录' }}</span>
+          </div>
+          <div v-if="ldapMode" class="ldap-hint">使用公司域账号登录，密码由域控校验，本站不保存。</div>
         </el-form>
 
         <div class="other-login">
@@ -735,4 +775,7 @@ html.dark .footer-tip span { color: #8ea0c5; }
   .captcha-pop :deep(.sc-bg) { width: 100%; height: 100%; }
   .captcha-pop :deep(.sc-bar) { width: 100%; max-width: 320px; }
 }
+
+.ldap-switch { margin-top: 10px; text-align: center; font-size: 12.5px; color: var(--el-color-primary); cursor: pointer; }
+.ldap-hint { margin-top: 6px; text-align: center; font-size: 12px; color: #9aa0ac; }
 </style>

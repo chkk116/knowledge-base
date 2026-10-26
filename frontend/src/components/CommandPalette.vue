@@ -79,6 +79,7 @@ const PAGES = [
   { label: '外观设置', path: '/admin/appearance', perm: 'CORE_MAINTAIN', kw: 'waiguan appearance theme' },
   { label: '水印设置', path: '/admin/watermark', perm: 'CORE_MAINTAIN', kw: 'shuiyin watermark' },
   { label: '通知外发', path: '/admin/notify-webhook', perm: 'CORE_MAINTAIN', kw: 'webhook tongzhi notify 企微 钉钉' },
+  { label: '企业登录', path: '/admin/sso-ldap', perm: 'CORE_MAINTAIN', kw: 'ldap ad sso 域账号 单点登录' },
   { label: '页脚设置', path: '/admin/site-footer', perm: 'CORE_MAINTAIN', kw: 'yejiao footer' },
   { label: '登录页二维码', path: '/admin/login-qr', perm: 'CORE_MAINTAIN', kw: 'erweima qrcode' }
 ]

@@ -123,6 +123,40 @@ public class AuthService {
             u.setLastLoginDate(today);
         }
         userRepo.save(u);
+        return sessionMap(u, pointsNow);
+    }
+
+    /**
+     * 外部身份源（LDAP/AD、OIDC）认证通过后签发本站会话。
+     * 用户不存在则自动建号（角色 USER、随机密码、禁用本地密码登录靠 PasswordUtil 的随机值兜底）；
+     * 已存在则只同步显示名/邮箱，不改角色与密码。
+     */
+    public Map<String, Object> loginExternal(String username, String displayName, String email) {
+        if (username == null || username.isBlank()) throw new BizException("身份源未返回用户名");
+        User u = userRepo.findByUsername(username).orElse(null);
+        if (u == null) {
+            u = new User();
+            u.setUsername(username);
+            u.setPassword(com.kb.kbplatform.security.PasswordUtil.encode(java.util.UUID.randomUUID().toString()));
+            u.setRole("USER");
+            u.setEnabled(true);
+            if (displayName != null && !displayName.isBlank()) u.setDisplayName(displayName);
+            if (email != null && !email.isBlank()) u.setEmail(email);
+            userRepo.save(u);
+        } else {
+            if (!u.isEnabled()) throw new BizException("账号已被禁用，请联系管理员");
+            boolean dirty = false;
+            if ((u.getDisplayName() == null || u.getDisplayName().isBlank())
+                    && displayName != null && !displayName.isBlank()) { u.setDisplayName(displayName); dirty = true; }
+            if ((u.getEmail() == null || u.getEmail().isBlank())
+                    && email != null && !email.isBlank()) { u.setEmail(email); dirty = true; }
+            if (dirty) userRepo.save(u);
+        }
+        return sessionMap(u, u.getPoints());
+    }
+
+    /** 签发令牌并组装前端需要的用户信息（登录 / 外部身份源共用，避免两套返回结构漂移） */
+    private Map<String, Object> sessionMap(User u, int pointsNow) {
         // 最终有效权限 = 直接权限 ∪ 所有角色权限；ADMIN 角色在 TokenClaims 中隐式全权，无需展开。
         // 展开进 token 的 permissions 快照，使 AuthFilter 无需回查数据库即可按角色鉴权。
         String effectivePerms = orgService.effectivePermissionsString(u);

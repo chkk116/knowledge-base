@@ -159,6 +159,8 @@ public class AuthFilter implements Filter {
         if ("/api/auth/register".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/captcha".equals(path) && "GET".equals(method)) return true;
         if ("/api/auth/captcha/slide".equals(path) && "POST".equals(method)) return true;  // 滑动成功回执，免登录
+        // 企业身份源（LDAP/AD）登录：控制器内按账号限流
+        if (path.startsWith("/api/auth/sso/") && "POST".equals(method)) return true;
         if (path.startsWith("/api/users/") && "GET".equals(method)) return true;  // 作者卡片公开可读
         if (path.startsWith("/api/search") && "GET".equals(method)) return true;
         // 文档只读接口公开；/api/docs/mine 含个人数据，需登录

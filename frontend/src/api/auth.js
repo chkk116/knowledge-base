@@ -27,3 +27,7 @@ export const pointsLog = () =>
 // 积分明细（分页 + 类型筛选）：明细页「查看完整明细」使用
 export const pointsLogPaged = (page = 0, size = 20, type = '') =>
   api.get('/points/log/paged', { params: { page, size, ...(type ? { type } : {}) } })
+
+// ---- 企业身份源（LDAP/AD）----
+export const ssoOptions = () => api.get('/auth/sso/options')
+export const ssoLdapLogin = (username, password) => api.post('/auth/sso/ldap/login', { username, password })
