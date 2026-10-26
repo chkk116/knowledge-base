@@ -95,6 +95,7 @@ const routes = [
   { path: '/admin/assets', component: () => import('../views/admin/AssetManage.vue'), meta: { admin: true, perm: 'ASSET_MANAGE', title: '资产管理' } },
   { path: '/admin/maintain', component: () => import('../views/admin/CoreMaintain.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '功能开关' } },
   { path: '/admin/watermark', component: () => import('../views/admin/WatermarkSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '水印设置' } },
+  { path: '/admin/notify-webhook', component: () => import('../views/admin/NotifyWebhookSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '通知外发' } },
   { path: '/admin/login-qr', component: () => import('../views/admin/LoginQrSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '登录页二维码' } },
   { path: '/admin/appearance', component: () => import('../views/admin/AppearanceSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '外观设置' } },
   { path: '/admin/site-footer', component: () => import('../views/admin/SiteFooterSettings.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '页脚设置' } },

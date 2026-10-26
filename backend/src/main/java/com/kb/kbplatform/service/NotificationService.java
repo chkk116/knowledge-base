@@ -40,19 +40,26 @@ public class NotificationService {
     private final UserRepository userRepo;
     private final SseSessionRegistry sse;
     private final DocSubscriptionRepository subRepo;
+    private final WebhookNotifier webhook;
 
     public NotificationService(NotificationRepository repo, UserRepository userRepo, SseSessionRegistry sse,
-                               DocSubscriptionRepository subRepo) {
+                               DocSubscriptionRepository subRepo, WebhookNotifier webhook) {
         this.repo = repo;
         this.userRepo = userRepo;
         this.sse = sse;
         this.subRepo = subRepo;
+        this.webhook = webhook;
     }
 
-    /** 保存通知后立即通过 SSE 向接收者推送最新未读数（实时刷新顶栏红点） */
+    /** 保存通知后立即通过 SSE 向接收者推送最新未读数（实时刷新顶栏红点）；
+     *  同时异步外发到企业微信/钉钉（未配置或失败都不影响站内通知）。 */
     private void saveAndPush(Notification n) {
         this.repo.save(n);
         sse.pushUnread(n.getUserId(), unreadCount(n.getUserId()));
+        try {
+            webhook.pushAsync(n.getType(), "知识库通知 · " + (n.getType() == null ? "" : n.getType()),
+                    (n.getActor() == null ? "" : n.getActor() + "：") + (n.getSummary() == null ? "" : n.getSummary()));
+        } catch (Exception ignore) { /* 外发通道异常绝不影响站内通知 */ }
     }
 
     /**
