@@ -128,16 +128,9 @@ public class GithubAuthService {
                     + "&client_secret=" + enc(get(K_CLIENT_SECRET))
                     + "&code=" + enc(code)
                     + "&redirect_uri=" + enc(st[1]);
-            HttpRequest treq = HttpRequest.newBuilder(URI.create(TOKEN_URL))
-                    .timeout(Duration.ofSeconds(15))
-                    .header("Accept", "application/json")
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .header("User-Agent", UA)
-                    .POST(HttpRequest.BodyPublishers.ofString(form, StandardCharsets.UTF_8))
-                    .build();
-            HttpResponse<String> tr = http.send(treq, HttpResponse.BodyHandlers.ofString());
-            if (tr.statusCode() >= 300) throw new IllegalStateException("换 access_token 失败：HTTP " + tr.statusCode());
-            @SuppressWarnings("unchecked")
+            // 走 HttpFetch：每次新建连接 + HTTP/1.1 + 自动重试（长连接池残留会导致莫名超时）
+            HttpFetch.Resp tr = HttpFetch.postForm(TOKEN_URL, form, null);
+            if (tr.status() >= 300) throw new IllegalStateException("换 access_token 失败：HTTP " + tr.status());
             Map<String, Object> tok = parse(tr.body());
             String access = str(tok.get("access_token"));
             if (access == null || access.isBlank()) {
@@ -146,15 +139,10 @@ public class GithubAuthService {
             }
 
             // 2) 取用户（必须带 User-Agent）
-            HttpRequest ureq = HttpRequest.newBuilder(URI.create(USER_URL))
-                    .timeout(Duration.ofSeconds(15))
-                    .header("Authorization", "Bearer " + access)
-                    .header("Accept", "application/vnd.github+json")
-                    .header("User-Agent", UA)
-                    .GET().build();
-            HttpResponse<String> ur = http.send(ureq, HttpResponse.BodyHandlers.ofString());
-            if (ur.statusCode() >= 300) throw new IllegalStateException("取用户信息失败：HTTP " + ur.statusCode());
-            @SuppressWarnings("unchecked")
+            HttpFetch.Resp ur = HttpFetch.get(USER_URL, Map.of(
+                    "Authorization", "Bearer " + access,
+                    "Accept", "application/vnd.github+json"));
+            if (ur.status() >= 300) throw new IllegalStateException("取用户信息失败：HTTP " + ur.status());
             Map<String, Object> u = parse(ur.body());
 
             String id = str(u.get("id"));

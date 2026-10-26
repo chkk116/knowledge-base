@@ -180,13 +180,9 @@ public class WeChatAuthService {
 
     /** 微信接口会把错误放在 errcode/errmsg 里且 HTTP 仍是 200，必须显式判 */
     private Map<String, Object> getJson(String url, String what) throws Exception {
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(15))
-                .header("Accept", "application/json")
-                .GET().build();
-        HttpResponse<String> r = http.send(req, HttpResponse.BodyHandlers.ofString());
-        if (r.statusCode() >= 300) throw new IllegalStateException(what + "失败：HTTP " + r.statusCode());
-        @SuppressWarnings("unchecked")
+        // 走 HttpFetch：每次新建连接 + HTTP/1.1 + 自动重试
+        HttpFetch.Resp r = HttpFetch.get(url, null);
+        if (r.status() >= 300) throw new IllegalStateException(what + "失败：HTTP " + r.status());
         Map<String, Object> m = parse(r.body());
         Object errcode = m.get("errcode");
         if (errcode != null && !"0".equals(String.valueOf(errcode))) {

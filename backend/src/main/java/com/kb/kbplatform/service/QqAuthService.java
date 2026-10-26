@@ -168,12 +168,9 @@ public class QqAuthService {
     }
 
     private Map<String, Object> getJson(String url, String what) throws Exception {
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(15))
-                .header("Accept", "application/json")
-                .GET().build();
-        HttpResponse<String> r = http.send(req, HttpResponse.BodyHandlers.ofString());
-        if (r.statusCode() >= 300) throw new IllegalStateException(what + "失败：HTTP " + r.statusCode());
+        // 走 HttpFetch：每次新建连接 + HTTP/1.1 + 自动重试
+        HttpFetch.Resp r = HttpFetch.get(url, null);
+        if (r.status() >= 300) throw new IllegalStateException(what + "失败：HTTP " + r.status());
         String body = r.body() == null ? "" : r.body().trim();
         // 保险：万一 fmt=json 没生效，把 callback({...}); 包裹剥掉
         if (body.startsWith("callback(")) {

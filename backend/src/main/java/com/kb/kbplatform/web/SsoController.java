@@ -346,6 +346,33 @@ public class SsoController {
         return github.save(body);
     }
 
+    /**
+     * 第三方连通性诊断（管理员）。
+     *
+     * 生产上出现过「curl 能通、应用里每次 request timed out」，光看错误信息没法定位，
+     * 这里用**应用自己的 HTTP 栈**去探测各家接口，直接返回耗时/状态码/异常。
+     * 排查「登录报超时」时先打这个接口。
+     */
+    @GetMapping("/api/admin/sso/diag")
+    public Map<String, Object> diag(@RequestAttribute("kbUser") TokenClaims c,
+                                    @RequestParam(required = false) String target) {
+        requireAdmin(c);
+        String t = target == null ? "all" : target;
+        Map<String, Object> out = new LinkedHashMap<>();
+        if ("all".equals(t) || "github".equals(t)) {
+            out.put("github_api", com.kb.kbplatform.service.HttpFetch.probe("https://api.github.com/user"));
+            out.put("github_oauth", com.kb.kbplatform.service.HttpFetch.probe("https://github.com/login/oauth/access_token"));
+        }
+        if ("all".equals(t) || "wechat".equals(t)) {
+            out.put("wechat_api", com.kb.kbplatform.service.HttpFetch.probe("https://api.weixin.qq.com/sns/oauth2/access_token"));
+            out.put("wechat_open", com.kb.kbplatform.service.HttpFetch.probe("https://open.weixin.qq.com/connect/qrconnect"));
+        }
+        if ("all".equals(t) || "qq".equals(t)) {
+            out.put("qq_graph", com.kb.kbplatform.service.HttpFetch.probe("https://graph.qq.com/oauth2.0/me"));
+        }
+        return out;
+    }
+
     private static String base(String origin) {
         return origin == null ? "" : origin.replaceAll("/+$", "");
     }
