@@ -29,8 +29,14 @@ const auth = useAuthStore()
 const error = ref('')
 
 onMounted(async () => {
-  const { token, error: err } = route.query
+  const { token, error: err, bound } = route.query
   if (err) { error.value = String(err); return }
+  // 绑定流程：后端回调后跳 /#/sso?bound=微信（此时会话已存在，不需要再落 token）
+  if (bound) {
+    ElMessage.success(`已绑定${String(bound)}，下次可以直接扫码登录`)
+    router.replace('/profile')
+    return
+  }
   if (!token) { error.value = '缺少登录令牌，请重新登录'; return }
   try {
     auth.applySession({ token: String(token) })

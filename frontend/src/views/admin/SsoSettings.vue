@@ -80,6 +80,50 @@
         </el-form-item>
       </el-form>
     </el-card>
+    <!-- 第三方扫码登录（微信 / QQ / GitHub） -->
+    <el-card v-for="sp in socials" :key="sp.key" shadow="never" style="margin-top: 16px">
+      <template #header>
+        <div class="hd">
+          <span>{{ sp.title }}</span>
+          <el-tag v-if="sp.cfg.enabled" type="success" size="small">已启用</el-tag>
+          <el-tag v-else size="small">未启用</el-tag>
+        </div>
+      </template>
+      <p class="tip">{{ sp.tip }}</p>
+      <el-form label-width="130px" style="max-width: 720px">
+        <el-form-item label="启用">
+          <el-switch v-model="sp.form.enabled" />
+        </el-form-item>
+        <el-form-item :label="sp.idLabel">
+          <el-input v-model="sp.form.id" :placeholder="sp.idPlaceholder" />
+        </el-form-item>
+        <el-form-item :label="sp.secretLabel">
+          <el-input v-model="sp.form.secret" type="password" show-password
+                    :placeholder="sp.cfg['has' + sp.secretFlag] ? '已保存，留空表示不修改' : '粘贴密钥'" />
+        </el-form-item>
+        <el-form-item label="回调地址">
+          <el-input :model-value="origin + '/api/auth/sso/' + sp.key + '/callback'" readonly>
+            <template #append>
+              <el-button @click="copy(sp.key)">复制</el-button>
+            </template>
+          </el-input>
+          <div class="hint">必须与{{ sp.title }}后台登记的「授权回调域/回调地址」完全一致（含 http/https 与路径）</div>
+        </el-form-item>
+        <el-form-item label="登录按钮文案">
+          <el-input v-model="sp.form.buttonLabel" :placeholder="sp.defaultLabel" />
+        </el-form-item>
+        <el-form-item label="首次扫码自动注册">
+          <el-switch v-model="sp.form.autoRegister" />
+          <div class="hint">
+            关闭时：只有「已绑定」的账号能扫码登录（更安全，适合内部知识库）；
+            开启时：任何人扫码都会自动开一个 USER 账号（适合公开站点）
+          </div>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="sp.saving" @click="saveSocial(sp)">保存</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
@@ -176,8 +220,94 @@ async function test() {
   }
 }
 
+// ===== 第三方扫码登录（微信 / QQ / GitHub） =====
+// 三家的字段名不同（微信 AppID/AppSecret、QQ APP ID/APP Key、GitHub Client ID/Client Secret），
+// 但接口形状一致，所以用一张表驱动渲染，省三份几乎一样的表单。
+const socials = ref([
+  {
+    key: 'wechat', title: '微信扫码登录',
+    idField: 'appId', secretField: 'appSecret', secretFlag: 'AppSecret',
+    idLabel: 'AppID', secretLabel: 'AppSecret',
+    idPlaceholder: '开放平台 → 网站应用 → AppID',
+    defaultLabel: '微信扫码登录',
+    tip: '需要微信开放平台「网站应用」（企业资质 + 300 元/年认证 + 已备案域名）。扫码走 snsapi_login，用户用手机微信扫一下就登录。',
+    cfg: {}, form: {}, saving: false
+  },
+  {
+    key: 'qq', title: 'QQ 登录',
+    idField: 'appId', secretField: 'appKey', secretFlag: 'AppKey',
+    idLabel: 'APP ID', secretLabel: 'APP Key',
+    idPlaceholder: 'QQ互联 → 应用管理 → APP ID',
+    defaultLabel: 'QQ 登录',
+    tip: '需要 QQ 互联（connect.qq.com）创建网站应用并审核通过。注意回调地址必须与登记的完全一致。',
+    cfg: {}, form: {}, saving: false
+  },
+  {
+    key: 'github', title: 'GitHub 登录',
+    idField: 'clientId', secretField: 'clientSecret', secretFlag: 'ClientSecret',
+    idLabel: 'Client ID', secretLabel: 'Client Secret',
+    idPlaceholder: 'GitHub → Settings → Developer settings → OAuth Apps',
+    defaultLabel: 'GitHub 登录',
+    tip: '门槛最低：github.com/settings/developers 建一个 OAuth App 即可，不需要备案和认证费。适合开发者向的知识库。',
+    cfg: {}, form: {}, saving: false
+  }
+])
+
+async function loadSocials() {
+  for (const sp of socials.value) {
+    try {
+      const { data } = await api.get(`/admin/sso/${sp.key}`)
+      sp.cfg = data || {}
+      sp.form = {
+        enabled: !!data.enabled,
+        id: data[sp.idField] || '',
+        secret: '',
+        buttonLabel: data.buttonLabel || sp.defaultLabel,
+        autoRegister: !!data.autoRegister
+      }
+    } catch (e) {
+      // 单个身份源读失败不影响其它卡片
+      ElMessage.error(errMsg(e, `读取${sp.title}配置失败`))
+    }
+  }
+}
+
+async function saveSocial(sp) {
+  sp.saving = true
+  try {
+    const body = {
+      enabled: sp.form.enabled,
+      [sp.idField]: sp.form.id,
+      [sp.secretField]: sp.form.secret || null,
+      buttonLabel: sp.form.buttonLabel,
+      autoRegister: sp.form.autoRegister
+    }
+    const { data } = await api.put(`/admin/sso/${sp.key}`, body)
+    sp.cfg = data || {}
+    sp.form.secret = ''
+    ElMessage.success(`${sp.title}已保存`)
+  } catch (e) {
+    ElMessage.error(errMsg(e, '保存失败'))
+  } finally {
+    sp.saving = false
+  }
+}
+
+function copy(key) {
+  const url = `${origin}/api/auth/sso/${key}/callback`
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(
+      () => ElMessage.success('已复制回调地址'),
+      () => ElMessage.warning(url)
+    )
+  } else {
+    ElMessage.info(url)
+  }
+}
+
 onMounted(load)
 onMounted(loadOidc)
+onMounted(loadSocials)
 </script>
 
 <style scoped>

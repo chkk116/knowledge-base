@@ -31,13 +31,25 @@ public class SsoController {
 
     private final LdapAuthService ldap;
     private final com.kb.kbplatform.service.OidcAuthService oidc;
+    private final com.kb.kbplatform.service.WeChatAuthService wechat;
+    private final com.kb.kbplatform.service.QqAuthService qq;
+    private final com.kb.kbplatform.service.GithubAuthService github;
+    private final com.kb.kbplatform.repository.UserIdentityRepository identities;
     private final AuthService auth;
     private final RateLimitService rateLimit;
 
     public SsoController(LdapAuthService ldap, com.kb.kbplatform.service.OidcAuthService oidc,
+                         com.kb.kbplatform.service.WeChatAuthService wechat,
+                         com.kb.kbplatform.service.QqAuthService qq,
+                         com.kb.kbplatform.service.GithubAuthService github,
+                         com.kb.kbplatform.repository.UserIdentityRepository identities,
                          AuthService auth, RateLimitService rateLimit) {
         this.ldap = ldap;
         this.oidc = oidc;
+        this.wechat = wechat;
+        this.qq = qq;
+        this.github = github;
+        this.identities = identities;
         this.auth = auth;
         this.rateLimit = rateLimit;
     }
@@ -48,6 +60,12 @@ public class SsoController {
         ret.put("ldap", ldap.enabled());
         ret.put("oidc", oidc.enabled());
         ret.put("oidcLabel", oidc.buttonLabel());
+        ret.put("wechat", wechat.enabled());
+        ret.put("wechatLabel", wechat.buttonLabel());
+        ret.put("qq", qq.enabled());
+        ret.put("qqLabel", qq.buttonLabel());
+        ret.put("github", github.enabled());
+        ret.put("githubLabel", github.buttonLabel());
         return ret;
     }
 
@@ -124,5 +142,225 @@ public class SsoController {
     public Map<String, Object> test(@RequestAttribute("kbUser") TokenClaims c) {
         requireAdmin(c);
         return ldap.test();
+    }
+
+    // ==================== 第三方扫码登录（微信 / QQ / GitHub） ====================
+    //
+    // 三家流程一致：start 302 到对方授权页 → 对方回调带 code → 换 token 取 openid →
+    // 去 kb_user_identity 找绑定 → 签发本站会话。
+    // **绑定与登录的区别挂在 state 上**（bindUserId），不从回调参数读，否则可伪造成给任意账号绑定。
+
+    @GetMapping("/api/auth/sso/wechat/start")
+    public org.springframework.http.ResponseEntity<Void> wechatStart(@RequestParam(required = false) String origin) {
+        return found(wechat.authorizeUrl(base(origin), null));
+    }
+
+    @GetMapping("/api/auth/sso/wechat/callback")
+    public org.springframework.http.ResponseEntity<Void> wechatCallback(@RequestParam(required = false) String code,
+                                                                       @RequestParam(required = false) String state,
+                                                                       @RequestParam(required = false) String origin) {
+        String b = base(origin);
+        try {
+            var u = wechat.callback(code, state);
+            String ext = notBlank(u.unionId()) ? u.unionId() : u.openId();
+            return finish(b, "wechat", ext, u.openId(), u.unionId(), u.nickname(), u.avatar(),
+                    u.bindUserId(), wechat.autoRegister(), "微信");
+        } catch (Exception e) {
+            return fail(b, e.getMessage());
+        }
+    }
+
+    @GetMapping("/api/auth/sso/qq/start")
+    public org.springframework.http.ResponseEntity<Void> qqStart(@RequestParam(required = false) String origin) {
+        return found(qq.authorizeUrl(base(origin), null));
+    }
+
+    @GetMapping("/api/auth/sso/qq/callback")
+    public org.springframework.http.ResponseEntity<Void> qqCallback(@RequestParam(required = false) String code,
+                                                                   @RequestParam(required = false) String state,
+                                                                   @RequestParam(required = false) String origin) {
+        String b = base(origin);
+        try {
+            var u = qq.callback(code, state);
+            return finish(b, "qq", u.openId(), u.openId(), null, u.nickname(), u.avatar(),
+                    u.bindUserId(), qq.autoRegister(), "QQ");
+        } catch (Exception e) {
+            return fail(b, e.getMessage());
+        }
+    }
+
+    @GetMapping("/api/auth/sso/github/start")
+    public org.springframework.http.ResponseEntity<Void> githubStart(@RequestParam(required = false) String origin) {
+        return found(github.authorizeUrl(base(origin), null));
+    }
+
+    @GetMapping("/api/auth/sso/github/callback")
+    public org.springframework.http.ResponseEntity<Void> githubCallback(@RequestParam(required = false) String code,
+                                                                       @RequestParam(required = false) String state,
+                                                                       @RequestParam(required = false) String origin) {
+        String b = base(origin);
+        try {
+            var u = github.callback(code, state);
+            return finish(b, "github", u.externalId(), u.login(), null, u.nickname(), u.avatar(),
+                    u.bindUserId(), github.autoRegister(), "GitHub");
+        } catch (Exception e) {
+            return fail(b, e.getMessage());
+        }
+    }
+
+    /** 已登录用户在「个人中心」点「绑定微信/QQ/GitHub」：返回一次性授权地址（state 里带 userId） */
+    @GetMapping("/api/auth/sso/bind/start")
+    public Map<String, Object> bindStart(@RequestAttribute("kbUser") TokenClaims c,
+                                        @RequestParam String provider,
+                                        @RequestParam(required = false) String origin) {
+        Long uid = c == null ? null : c.userId();
+        if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录再绑定");
+        String b = base(origin);
+        String url = switch (provider) {
+            case "wechat" -> wechat.authorizeUrl(b, uid);
+            case "qq" -> qq.authorizeUrl(b, uid);
+            case "github" -> github.authorizeUrl(b, uid);
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的身份源");
+        };
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("url", url);
+        return ret;
+    }
+
+    /** 登录页/个人中心据此展示哪些第三方入口 */
+    @GetMapping("/api/auth/sso/bind/list")
+    public Map<String, Object> bindList(@RequestAttribute("kbUser") TokenClaims c) {
+        Map<String, Object> ret = new LinkedHashMap<>();
+        if (c == null) return ret;
+        for (var id : identities.findAll()) {
+            if (!id.getUserId().equals(c.userId())) continue;
+            ret.put(id.getProvider(), notBlank(id.getNickname()) ? id.getNickname() : id.getExternalId());
+        }
+        return ret;
+    }
+
+    @DeleteMapping("/api/auth/sso/bind/{provider}")
+    public Map<String, Object> unbind(@RequestAttribute("kbUser") TokenClaims c, @PathVariable String provider) {
+        Long uid = c == null ? null : c.userId();
+        if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
+        identities.deleteByUserIdAndProvider(uid, provider);
+        return bindList(c);
+    }
+
+    /**
+     * 绑定 / 登录的公共收尾。
+     *
+     * @param bindUserId 非空 = 绑定流程（把 extId 绑到该用户），空 = 登录流程
+     */
+    private org.springframework.http.ResponseEntity<Void> finish(String base, String provider, String extId,
+                                                                String openId, String unionId,
+                                                                String nickname, String avatar,
+                                                                Long bindUserId, boolean autoReg, String label) {
+        // —— 绑定流程 ——
+        if (bindUserId != null) {
+            var exists = identities.findByProviderAndExternalId(provider, extId);
+            if (exists.isPresent() && !exists.get().getUserId().equals(bindUserId)) {
+                throw new IllegalArgumentException("这个" + label + "已绑定其它账号，请先解绑");
+            }
+            var id = exists.orElseGet(com.kb.kbplatform.domain.UserIdentity::new);
+            id.setUserId(bindUserId);
+            id.setProvider(provider);
+            id.setExternalId(extId);
+            id.setOpenId(openId);
+            id.setUnionId(unionId);
+            id.setNickname(nickname);
+            id.setAvatar(avatar);
+            id.setUpdatedAt(java.time.LocalDateTime.now());
+            identities.save(id);
+            return found(base + "/#/sso?bound=" + java.net.URLEncoder.encode(label, java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        // —— 登录流程 ——
+        var bound = identities.findByProviderAndExternalId(provider, extId);
+        Map<String, Object> session;
+        if (bound.isPresent()) {
+            session = auth.sessionForUser(bound.get().getUserId());
+            // 昵称/头像跟着身份源更新（用户改了微信昵称这里能同步上）
+            var id = bound.get();
+            if (notBlank(nickname) && !nickname.equals(id.getNickname())) {
+                id.setNickname(nickname);
+                id.setAvatar(avatar);
+                id.setUpdatedAt(java.time.LocalDateTime.now());
+                identities.save(id);
+            }
+        } else if (autoReg) {
+            String uname = (provider + "_" + extId).replaceAll("[^A-Za-z0-9_]", "");
+            if (uname.length() > 40) uname = uname.substring(0, 40);
+            session = auth.loginExternal(uname, nickname, "");
+            var id = new com.kb.kbplatform.domain.UserIdentity();
+            id.setUserId(((Number) session.get("id")).longValue());
+            id.setProvider(provider);
+            id.setExternalId(extId);
+            id.setOpenId(openId);
+            id.setUnionId(unionId);
+            id.setNickname(nickname);
+            id.setAvatar(avatar);
+            identities.save(id);
+        } else {
+            throw new IllegalArgumentException("该" + label + "账号还没绑定本站账号：请先用账号密码登录，"
+                    + "在「个人中心」里绑定" + label + "后再扫码登录");
+        }
+
+        String token = String.valueOf(session.get("token"));
+        return found(base + "/#/sso?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @GetMapping("/api/admin/sso/wechat")
+    public Map<String, Object> getWechat(@RequestAttribute("kbUser") TokenClaims c) {
+        requireAdmin(c);
+        return wechat.config();
+    }
+
+    @PutMapping("/api/admin/sso/wechat")
+    public Map<String, Object> saveWechat(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
+        requireAdmin(c);
+        return wechat.save(body);
+    }
+
+    @GetMapping("/api/admin/sso/qq")
+    public Map<String, Object> getQq(@RequestAttribute("kbUser") TokenClaims c) {
+        requireAdmin(c);
+        return qq.config();
+    }
+
+    @PutMapping("/api/admin/sso/qq")
+    public Map<String, Object> saveQq(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
+        requireAdmin(c);
+        return qq.save(body);
+    }
+
+    @GetMapping("/api/admin/sso/github")
+    public Map<String, Object> getGithub(@RequestAttribute("kbUser") TokenClaims c) {
+        requireAdmin(c);
+        return github.config();
+    }
+
+    @PutMapping("/api/admin/sso/github")
+    public Map<String, Object> saveGithub(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
+        requireAdmin(c);
+        return github.save(body);
+    }
+
+    private static String base(String origin) {
+        return origin == null ? "" : origin.replaceAll("/+$", "");
+    }
+
+    private static org.springframework.http.ResponseEntity<Void> found(String url) {
+        return org.springframework.http.ResponseEntity.status(HttpStatus.FOUND).header("Location", url).build();
+    }
+
+    private static org.springframework.http.ResponseEntity<Void> fail(String base, String msg) {
+        String m = msg == null ? "登录失败" : msg;
+        return found(base + "/#/sso?error="
+                + java.net.URLEncoder.encode(m, java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static boolean notBlank(String v) {
+        return v != null && !v.trim().isEmpty();
     }
 }

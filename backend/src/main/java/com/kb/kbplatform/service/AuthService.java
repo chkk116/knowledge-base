@@ -155,6 +155,20 @@ public class AuthService {
         return sessionMap(u, u.getPoints());
     }
 
+    /**
+     * 按用户 id 直接签发会话（2026-10-26）。
+     *
+     * 扫码登录用：`kb_user_identity` 里已经记了「微信/QQ 身份 → 本站用户」的绑定，
+     * 拿到 openid 后要的是**给这个既有账号**发 token，而不是再按用户名找一遍
+     * （按用户名找会在昵称变更、重名时错配到别人账号）。
+     */
+    public Map<String, Object> sessionForUser(Long userId) {
+        User u = userRepo.findById(userId)
+                .orElseThrow(() -> new BizException("绑定的账号不存在，请重新绑定"));
+        if (!u.isEnabled()) throw new BizException("账号已被禁用，请联系管理员");
+        return sessionMap(u, u.getPoints());
+    }
+
     /** 签发令牌并组装前端需要的用户信息（登录 / 外部身份源共用，避免两套返回结构漂移） */
     private Map<String, Object> sessionMap(User u, int pointsNow) {
         // 最终有效权限 = 直接权限 ∪ 所有角色权限；ADMIN 角色在 TokenClaims 中隐式全权，无需展开。

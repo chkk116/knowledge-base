@@ -4,7 +4,7 @@ import QRCode from 'qrcode'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ssoOptions, ssoLdapLogin } from '../api/auth'
-import { User, Lock, Promotion } from '@element-plus/icons-vue'
+import { User, Lock, Promotion, ChatDotRound, ChatLineRound } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
 import SlideCaptcha from '../components/SlideCaptcha.vue'
 import SiteFooter from '../components/SiteFooter.vue'
@@ -68,11 +68,19 @@ async function doLogin() {
 
 const ldapEnabled = ref(false)
 const oidcEnabled = ref(false)
+const wechatEnabled = ref(false)
+const qqEnabled = ref(false)
+const githubEnabled = ref(false)
 const oidcLabel = ref('企业单点登录')
 
 function startOidc() {
   // origin 由后端带进回调地址，登录完成后 302 回本站 /#/sso?token=…
   window.location.href = '/api/auth/sso/oidc/start?origin=' + encodeURIComponent(window.location.origin)
+}
+
+// 第三方扫码登录：直接整页跳到后端的 start（后端会 302 到对方的授权页）
+function startSocial(provider) {
+  window.location.href = `/api/auth/sso/${provider}/start?origin=` + encodeURIComponent(window.location.origin)
 }
 const ldapMode = ref(false)
 
@@ -81,6 +89,9 @@ async function loadSsoOptions() {
     const { data } = await ssoOptions()
     ldapEnabled.value = !!(data && data.ldap)
     oidcEnabled.value = !!(data && data.oidc)
+    wechatEnabled.value = !!(data && data.wechat)
+    qqEnabled.value = !!(data && data.qq)
+    githubEnabled.value = !!(data && data.github)
     if (data && data.oidcLabel) oidcLabel.value = data.oidcLabel
   } catch { /* 身份源未配置/接口异常：保持普通登录 */ }
 }
@@ -490,13 +501,23 @@ function startParticles() {
           </div>
         </el-form>
 
-        <!--
-          原来这里放的是「微信 / QQ / 企业微信」三个彩色圆形图标，但它们是**纯装饰**：
-          `<a>` 既没有 href 也没有 click 处理，点下去什么都不发生 —— 登录页放点了没反应的入口
-          比不放更糟（用户会以为坏了）。真实的企业登录入口在表单里按配置动态渲染
-          （`ldapEnabled` / `oidcEnabled`），没配置就一个都不显示。
-          等微信扫码登录真正接上（需要开放平台 AppID + 备案域名），再在这里加一个真实按钮。
-        -->
+        <!-- 第三方登录：**只在后台配好 AppID/Secret 后出现**，没配置就整块不渲染 -->
+        <div v-if="wechatEnabled || qqEnabled || githubEnabled" class="other-login">
+          <div class="divider"><span>其他登录方式</span></div>
+          <div class="other-icons">
+            <a v-if="wechatEnabled" class="oa oa-wechat" title="微信扫码登录" @click="startSocial('wechat')">
+              <el-icon><ChatDotRound /></el-icon>
+            </a>
+            <a v-if="qqEnabled" class="oa oa-qq" title="QQ 登录" @click="startSocial('qq')">
+              <el-icon><ChatLineRound /></el-icon>
+            </a>
+            <a v-if="githubEnabled" class="oa oa-github" title="GitHub 登录" @click="startSocial('github')">
+              <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
+                <path fill="#fff" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+              </svg>
+            </a>
+          </div>
+        </div>
 
         <div class="footer-tip">
           <span @click="onForgot">忘记密码？</span>
@@ -687,6 +708,7 @@ function startParticles() {
 }
 .oa:hover { transform: translateY(-2px); }
 .oa-wechat { background: #07c160; box-shadow: 0 6px 14px -4px rgba(7,193,96,.45); }
+.oa-github { background: #24292f; box-shadow: 0 6px 14px -4px rgba(36,41,47,.45); }
 .oa-qq     { background: #12B7F5; box-shadow: 0 6px 14px -4px rgba(18,183,245,.45); }
 .oa-wecom  { background: #2f87f5; box-shadow: 0 6px 14px -4px rgba(47,135,245,.45); }
 
