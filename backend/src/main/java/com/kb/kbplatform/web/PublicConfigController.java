@@ -173,15 +173,46 @@ public class PublicConfigController {
      *   { "versionCode": 2, "versionName": "1.1", "url": "https://.../知识库-v1.1.apk",
      *     "notes": "更新说明", "force": false }
      * 未配置时 versionCode=0，App 视为「未启用升级检查」，不打扰用户。
+     *
+     * **多通道**（2026-10-25）：`?channel=native` 读 `app_version_native`，供 Kotlin 原生壳使用；
+     * 不带 channel 仍读 `app_version`（Capacitor 套壳），两条通道互不干扰、各自发版。
+     * channel 只认白名单，**绝不能**把参数直接拼成 setting_key（否则等于开放任意设置项读取）。
      */
     @GetMapping("/app-version")
-    public Map<String, Object> appVersion() {
+    public Map<String, Object> appVersion(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String channel) {
+        String key = "app_version";
+        if (channel != null && !channel.isBlank()) {
+            if (!APP_VERSION_CHANNELS.contains(channel)) {
+                // 未知通道不报错、不泄露其它设置项：按「未启用」返回，App 侧静默
+                return emptyVersion();
+            }
+            key = "app_version_" + channel;
+        }
+        return readVersion(key);
+    }
+
+    /** 允许的版本通道（channel 参数值）。新增原生/平板等独立发版通道时在这里登记 */
+    private static final java.util.Set<String> APP_VERSION_CHANNELS = java.util.Set.of("native");
+
+    private Map<String, Object> emptyVersion() {
+        Map<String, Object> r = new java.util.LinkedHashMap<>();
+        r.put("versionCode", 0);
+        r.put("versionName", "");
+        r.put("url", "");
+        r.put("notes", "");
+        r.put("checksum", "");
+        r.put("force", false);
+        return r;
+    }
+
+    private Map<String, Object> readVersion(String settingKey) {
         Map<String, Object> r = new java.util.LinkedHashMap<>();
         int code = 0;
         String name = "", url = "", notes = "";
         JsonNode n = null;
         boolean force = false;
-        SysSetting s = settingRepo.findByKey("app_version").orElse(null);
+        SysSetting s = settingRepo.findByKey(settingKey).orElse(null);
         if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
             n = parse(s.getValue());
             Integer c = intClamped(n, "versionCode");
