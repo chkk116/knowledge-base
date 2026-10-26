@@ -74,7 +74,7 @@ const githubEnabled = ref(false)
 const oidcLabel = ref('企业单点登录')
 
 function startOidc() {
-  // origin 由后端带进回调地址，登录完成后 302 回本站 /#/sso?token=…
+  // origin 由后端带进回调地址，登录完成后 302 回本站 /sso?token=…
   window.location.href = '/api/auth/sso/oidc/start?origin=' + encodeURIComponent(window.location.origin)
 }
 

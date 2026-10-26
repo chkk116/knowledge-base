@@ -100,12 +100,12 @@ public class SsoController {
             Map<String, Object> session = auth.loginExternal(who.get("username"), who.get("displayName"), who.get("email"));
             String token = String.valueOf(session.get("token"));
             return org.springframework.http.ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", base + "/#/sso?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8))
+                    .header("Location", base + "/sso?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8))
                     .build();
         } catch (Exception e) {
             String msg = e.getMessage() == null ? "单点登录失败" : e.getMessage();
             return org.springframework.http.ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", base + "/#/sso?error=" + java.net.URLEncoder.encode(msg, java.nio.charset.StandardCharsets.UTF_8))
+                    .header("Location", base + "/sso?error=" + java.net.URLEncoder.encode(msg, java.nio.charset.StandardCharsets.UTF_8))
                     .build();
         }
     }
@@ -272,7 +272,7 @@ public class SsoController {
             id.setAvatar(avatar);
             id.setUpdatedAt(java.time.LocalDateTime.now());
             identities.save(id);
-            return found(base + "/#/sso?bound=" + java.net.URLEncoder.encode(label, java.nio.charset.StandardCharsets.UTF_8));
+            return found(base + "/sso?bound=" + java.net.URLEncoder.encode(label, java.nio.charset.StandardCharsets.UTF_8));
         }
 
         // —— 登录流程 ——
@@ -307,7 +307,7 @@ public class SsoController {
         }
 
         String token = String.valueOf(session.get("token"));
-        return found(base + "/#/sso?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8));
+        return found(base + "/sso?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @GetMapping("/api/admin/sso/wechat")
@@ -356,7 +356,7 @@ public class SsoController {
 
     private static org.springframework.http.ResponseEntity<Void> fail(String base, String msg) {
         String m = msg == null ? "登录失败" : msg;
-        return found(base + "/#/sso?error="
+        return found(base + "/sso?error="
                 + java.net.URLEncoder.encode(m, java.nio.charset.StandardCharsets.UTF_8));
     }
 
