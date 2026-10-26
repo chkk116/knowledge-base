@@ -44,6 +44,16 @@ public class WebhookNotifier {
     private static final String K_SECRET = "notify.webhook.secret";
 
     private final SysSettingRepository repo;
+    /** 固定 2 线程 + 有界队列：通知风暴时最多积压 200 条，超出直接丢弃（外发不是关键路径） */
+    private static final java.util.concurrent.ThreadPoolExecutor POOL = new java.util.concurrent.ThreadPoolExecutor(
+            2, 4, 60, java.util.concurrent.TimeUnit.SECONDS,
+            new java.util.concurrent.ArrayBlockingQueue<>(200),
+            (r) -> {
+                Thread th = new Thread(r, "kb-webhook");
+                th.setDaemon(true);
+                return th;
+            },
+            new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     public WebhookNotifier(SysSettingRepository repo) {
@@ -105,15 +115,13 @@ public class WebhookNotifier {
         if (url == null || url.isBlank()) return;
         String t = title == null ? "知识库通知" : title;
         String c = content == null ? "" : content;
-        Thread th = new Thread(() -> {
+        POOL.execute(() -> {
             try {
                 send(url, get(K_TYPE), get(K_SECRET), t, c);
             } catch (Exception e) {
                 log.warn("Webhook 外发失败：{}", e.getMessage());
             }
-        }, "kb-webhook");
-        th.setDaemon(true);
-        th.start();
+        });
     }
 
     /** 点赞、订阅刷新这类高频低价值事件不外发 */

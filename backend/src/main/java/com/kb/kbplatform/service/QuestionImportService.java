@@ -130,8 +130,11 @@ public class QuestionImportService {
             options.add(option(labels[i], text, answerPicked(answer, labels[i])));
         }
         if (options.isEmpty()) throw new IllegalArgumentException("客观题至少要有一列选项内容");
-        if (options.stream().noneMatch(QuestionOption::isCorrect)) {
-            throw new IllegalArgumentException("正确答案与选项不匹配（应填 A/B/C…）");
+        long correct = options.stream().filter(QuestionOption::isCorrect).count();
+        if (correct == 0) throw new IllegalArgumentException("正确答案与选项不匹配（应填 A/B/C…）");
+        // 单选题只允许一个正确项：答案写成 A,C 会把两个选项都标正确，判分直接错（审查 r15）
+        if ("SINGLE".equals(type) && correct > 1) {
+            throw new IllegalArgumentException("单选题只能有一个正确答案，请检查答案列（当前命中 " + correct + " 个选项）");
         }
         return options;
     }
@@ -154,9 +157,13 @@ public class QuestionImportService {
     }
 
     private boolean isTrueAnswer(String answer) {
-        String a = answer.trim().toUpperCase(Locale.ROOT);
-        return a.equals("对") || a.equals("正确") || a.equals("√") || a.equals("TRUE") || a.equals("T")
-                || a.equals("YES") || a.equals("A");
+        String a = answer.trim().toUpperCase(Locale.ROOT).replace("。", "").replace(".", "");
+        java.util.Set<String> yes = java.util.Set.of("对", "正确", "√", "TRUE", "T", "YES", "Y", "A", "是");
+        java.util.Set<String> no = java.util.Set.of("错", "错误", "×", "X", "FALSE", "F", "NO", "N", "B", "否");
+        if (yes.contains(a)) return true;
+        if (no.contains(a)) return false;
+        // 不能默默当「错」：写错的答案会被静默导入成错误答案，比报错更难发现（审查 r15）
+        throw new IllegalArgumentException("判断题答案无法识别：" + (answer.isBlank() ? "（空）" : answer) + "，请填 对/错");
     }
 
     private String normalizeType(String raw) {

@@ -54,8 +54,8 @@ public class OidcAuthService {
 
     private final SysSettingRepository repo;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
-    /** state → 过期时间（毫秒） */
-    private final Map<String, Long> states = new ConcurrentHashMap<>();
+    /** state → {过期时间, 发起时用的 redirect_uri}；redirect 必须绑在 state 上，回调时不能重新推算 */
+    private final Map<String, String[]> states = new ConcurrentHashMap<>();
 
     public OidcAuthService(SysSettingRepository repo) {
         this.repo = repo;
@@ -99,13 +99,14 @@ public class OidcAuthService {
     public String authorizeUrl(String loginBase) {
         if (!enabled()) throw new IllegalArgumentException("未启用单点登录");
         String state = UUID.randomUUID().toString().replace("-", "");
-        states.put(state, System.currentTimeMillis() + 10 * 60 * 1000L);
+        String redirect = redirectUri(loginBase);
+        states.put(state, new String[]{String.valueOf(System.currentTimeMillis() + 10 * 60 * 1000L), redirect});
         sweep();
         StringBuilder sb = new StringBuilder(get(K_AUTH_URL).trim());
         sb.append(get(K_AUTH_URL).contains("?") ? "&" : "?");
         sb.append("response_type=code");
         sb.append("&client_id=").append(enc(get(K_CLIENT_ID)));
-        sb.append("&redirect_uri=").append(enc(redirectUri(loginBase)));
+        sb.append("&redirect_uri=").append(enc(redirect));
         sb.append("&scope=").append(enc(scopes()));
         sb.append("&state=").append(enc(state));
         return sb.toString();
@@ -114,16 +115,18 @@ public class OidcAuthService {
     /** 回调：校验 state → 换 token → 取 userinfo */
     public Map<String, String> callback(String code, String state, String loginBase) {
         if (!enabled()) throw new IllegalArgumentException("未启用单点登录");
-        Long expireAt = state == null ? null : states.remove(state);
-        if (expireAt == null || expireAt < System.currentTimeMillis()) {
+        String[] st = state == null ? null : states.remove(state);
+        if (st == null || Long.parseLong(st[0]) < System.currentTimeMillis()) {
             throw new IllegalArgumentException("登录状态已失效，请重新发起登录");
         }
+        // 用发起时存下的 redirect_uri 换 token：拿回调方传入的 origin 现算 = 可被换成攻击者域名
+        String redirect = st[1];
         if (code == null || code.isBlank()) throw new IllegalArgumentException("未取得授权码");
         try {
             String body = "grant_type=authorization_code"
                     + "&code=" + enc(code)
                     + "&client_id=" + enc(get(K_CLIENT_ID))
-                    + "&redirect_uri=" + enc(redirectUri(loginBase));
+                    + "&redirect_uri=" + enc(redirect);
             String secret = get(K_CLIENT_SECRET);
             if (notBlank(secret)) body += "&client_secret=" + enc(secret);
 
@@ -204,7 +207,9 @@ public class OidcAuthService {
 
     private void sweep() {
         long now = System.currentTimeMillis();
-        states.entrySet().removeIf((e) -> e.getValue() < now);
+        states.entrySet().removeIf((e) -> {
+            try { return Long.parseLong(e.getValue()[0]) < now; } catch (Exception ex) { return true; }
+        });
     }
 
     private String enc(String v) {

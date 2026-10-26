@@ -106,7 +106,7 @@ public class RagService {
         // 1. 检索相关知识片段（通用模式跳过检索）；多轮对话时检索词并入最近几轮用户消息，
         //    解决「怎么申请」「那个怎么弄」这类省略/指代单独检索必然跑偏的问题
         boolean general = "general".equalsIgnoreCase(mode);
-        List<Map<String, Object>> sources = general ? List.of() : retrieve(buildSearchQuery(question.trim(), history));
+        List<Map<String, Object>> sources = general ? List.of() : retrieve(buildSearchQuery(question == null ? "" : question.trim(), history));
         boolean hasContext = !sources.isEmpty();
 
         // 2. 组装 system prompt：身份 + （kb 模式）资料行为准则 + 对话条例 + 用户习惯
