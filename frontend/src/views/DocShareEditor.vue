@@ -19,6 +19,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { updateShareDoc, saveShareDocVersion, listShareDocVersions, restoreShareDocVersion, deleteShareDocVersion } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
+import DocDiffDialog from '../components/DocDiffDialog.vue'
 import MindmapNode from '../extensions/MindmapNode'
 import FlowchartNode from '../extensions/FlowchartNode'
 import SpreadsheetNode from '../extensions/SpreadsheetNode'
@@ -613,6 +614,18 @@ function onExport(command) {
 
 // ---------- 共享文档版本历史 ----------
 const versionDrawer = ref(false)
+
+// 版本对比
+const diffDlg = ref(false)
+const diffOld = ref('')
+const diffNew = ref('')
+const diffOldLabel = ref('')
+function compareVersion(v) {
+  diffOld.value = v.content || ''
+  diffNew.value = editor.value ? editor.value.getHTML() : ''
+  diffOldLabel.value = '#' + v.id + ' · ' + fmtDateTime(v.createdAt)
+  diffDlg.value = true
+}
 const versions = ref([])
 const versionLoading = ref(false)
 const savingVersion = ref(false)
@@ -952,12 +965,17 @@ defineExpose({ insertMention })
             <div class="ver-snip" v-if="versionSnippet(v.content)">{{ versionSnippet(v.content) }}</div>
           </div>
           <div class="ver-acts">
+            <el-button size="small" @click="compareVersion(v)">对比</el-button>
             <el-button size="small" type="warning" @click="restoreVersion(v)">回滚</el-button>
             <el-button size="small" type="danger" plain :disabled="!canWrite" @click="removeVersion(v)">删除</el-button>
           </div>
         </div>
       </div>
     </el-drawer>
+
+    <!-- 版本对比：段落级 diff（新版绿色新增、旧版红色删除） -->
+    <DocDiffDialog v-model="diffDlg" :old-html="diffOld" :new-html="diffNew"
+                   :old-label="diffOldLabel" new-label="当前内容" />
   </div>
 </template>
 
