@@ -67,12 +67,21 @@ async function doLogin() {
 }
 
 const ldapEnabled = ref(false)
+const oidcEnabled = ref(false)
+const oidcLabel = ref('企业单点登录')
+
+function startOidc() {
+  // origin 由后端带进回调地址，登录完成后 302 回本站 /#/sso?token=…
+  window.location.href = '/api/auth/sso/oidc/start?origin=' + encodeURIComponent(window.location.origin)
+}
 const ldapMode = ref(false)
 
 async function loadSsoOptions() {
   try {
     const { data } = await ssoOptions()
     ldapEnabled.value = !!(data && data.ldap)
+    oidcEnabled.value = !!(data && data.oidc)
+    if (data && data.oidcLabel) oidcLabel.value = data.oidcLabel
   } catch { /* 身份源未配置/接口异常：保持普通登录 */ }
 }
 
@@ -476,6 +485,9 @@ function startParticles() {
             <span @click="ldapMode = !ldapMode">{{ ldapMode ? '← 返回普通登录' : '使用域账号（AD/LDAP）登录' }}</span>
           </div>
           <div v-if="ldapMode" class="ldap-hint">使用公司域账号登录，密码由域控校验，本站不保存。</div>
+          <div v-if="oidcEnabled && !ldapMode" class="ldap-switch">
+            <span @click="startOidc">{{ oidcLabel }}</span>
+          </div>
         </el-form>
 
         <div class="other-login">

@@ -30,11 +30,14 @@ import org.springframework.web.server.ResponseStatusException;
 public class SsoController {
 
     private final LdapAuthService ldap;
+    private final com.kb.kbplatform.service.OidcAuthService oidc;
     private final AuthService auth;
     private final RateLimitService rateLimit;
 
-    public SsoController(LdapAuthService ldap, AuthService auth, RateLimitService rateLimit) {
+    public SsoController(LdapAuthService ldap, com.kb.kbplatform.service.OidcAuthService oidc,
+                         AuthService auth, RateLimitService rateLimit) {
         this.ldap = ldap;
+        this.oidc = oidc;
         this.auth = auth;
         this.rateLimit = rateLimit;
     }
@@ -43,7 +46,8 @@ public class SsoController {
     public Map<String, Object> options() {
         Map<String, Object> ret = new LinkedHashMap<>();
         ret.put("ldap", ldap.enabled());
-        ret.put("oidc", false);   // 预留：接入 OIDC 后按配置返回
+        ret.put("oidc", oidc.enabled());
+        ret.put("oidcLabel", oidc.buttonLabel());
         return ret;
     }
 
@@ -57,6 +61,35 @@ public class SsoController {
         }
         Map<String, String> who = ldap.authenticate(username, password);
         return auth.loginExternal(who.get("username"), who.get("displayName"), who.get("email"));
+    }
+
+    /** 发起 OIDC 登录：302 到身份源授权页。origin 由前端传入，用于回调后跳回本站 */
+    @GetMapping("/api/auth/sso/oidc/start")
+    public org.springframework.http.ResponseEntity<Void> oidcStart(@RequestParam(required = false) String origin) {
+        String url = oidc.authorizeUrl(origin);
+        return org.springframework.http.ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", url).build();
+    }
+
+    /** OIDC 回调：换 token → 取用户 → 签发本站会话 → 302 回前端带上 token */
+    @GetMapping("/api/auth/sso/oidc/callback")
+    public org.springframework.http.ResponseEntity<Void> oidcCallback(@RequestParam(required = false) String code,
+                                                                     @RequestParam(required = false) String state,
+                                                                     @RequestParam(required = false) String origin) {
+        String base = origin == null ? "" : origin.replaceAll("/+$", "");
+        try {
+            Map<String, String> who = oidc.callback(code, state, base);
+            Map<String, Object> session = auth.loginExternal(who.get("username"), who.get("displayName"), who.get("email"));
+            String token = String.valueOf(session.get("token"));
+            return org.springframework.http.ResponseEntity.status(HttpStatus.FOUND)
+                    .header("Location", base + "/#/sso?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8))
+                    .build();
+        } catch (Exception e) {
+            String msg = e.getMessage() == null ? "单点登录失败" : e.getMessage();
+            return org.springframework.http.ResponseEntity.status(HttpStatus.FOUND)
+                    .header("Location", base + "/#/sso?error=" + java.net.URLEncoder.encode(msg, java.nio.charset.StandardCharsets.UTF_8))
+                    .build();
+        }
     }
 
     private void requireAdmin(TokenClaims c) {
@@ -73,6 +106,18 @@ public class SsoController {
     public Map<String, Object> saveConfig(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
         requireAdmin(c);
         return ldap.save(body);
+    }
+
+    @GetMapping("/api/admin/sso/oidc")
+    public Map<String, Object> getOidc(@RequestAttribute("kbUser") TokenClaims c) {
+        requireAdmin(c);
+        return oidc.config();
+    }
+
+    @PutMapping("/api/admin/sso/oidc")
+    public Map<String, Object> saveOidc(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
+        requireAdmin(c);
+        return oidc.save(body);
     }
 
     @PostMapping("/api/admin/sso/ldap/test")
