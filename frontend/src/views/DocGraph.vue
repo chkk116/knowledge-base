@@ -31,7 +31,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { VueFlow } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
@@ -135,9 +135,15 @@ function layout(ns, es) {
   return pos
 }
 
+/** 布局只算一次：放进 computed 会让每次搜索输入都重跑 O(n²)×260 次迭代（审查 r15 High） */
+const positions = ref(new Map())
+watch([visibleNodes, visibleEdges], ([ns, es]) => {
+  positions.value = layout(ns, es)
+}, { immediate: true })
+
 const flowNodes = computed(() => {
   const ns = visibleNodes.value
-  const pos = layout(ns, visibleEdges.value)
+  const pos = positions.value
   const maxDeg = Math.max(1, ...ns.map((n) => n.degree || 0))
   return ns.map((n) => {
     const p = pos.get(n.id) || { x: 0, y: 0 }
