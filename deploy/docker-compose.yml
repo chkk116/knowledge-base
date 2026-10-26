@@ -1,0 +1,72 @@
+# 知识库依赖服务（Redis / Meilisearch）
+#
+# 用法：
+#   只起 Redis（Meilisearch 不用）：  docker compose up -d
+#   连 Meilisearch 一起起（可选）：    docker compose --profile search up -d
+#   看状态：                          docker compose ps
+#   看日志：                          docker compose logs -f redis
+#
+# ⚠️ 本机（106.55.227.106）现状：**没装 Docker**，但宝塔已经装了 Redis
+#    （127.0.0.1:6379，无密码）。所以这里两条路二选一：
+#      A. 直接用宝塔的 Redis —— 什么都不用起，把后端 `spring.data.redis.port=6379` 指过去即可；
+#      B. 想用容器版（隔离、好升级）—— 先装 Docker，再 `docker compose up -d`，
+#         并**先把宝塔 Redis 停掉**，否则 6379 端口冲突。
+#
+# 端口全部只绑 127.0.0.1：这两个服务不对外，只有本机后端要连。
+
+name: kb-deps
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: kb-redis
+    restart: unless-stopped
+    # 关掉持久化里的 RDB 高频写盘（我们只拿它做限流/临时 state/缓存，丢了不影响业务数据）
+    # 需要持久化时把 appendonly 打开
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - "256mb"
+      - --maxmemory-policy
+      - allkeys-lru
+      # 有密码才需要下面这行；无密码请删掉，否则 redis 会启动失败
+      # - --requirepass
+      # - ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # 可选：全文检索。只在 `--profile search` 时启动。
+  # 说明：后端目前检索走 PostgreSQL，接 Meilisearch 需要额外写索引同步任务，
+  # 这里先把容器与配置准备好，**不启动不影响现有功能**。
+  meilisearch:
+    image: getmeili/meilisearch:v1.10
+    container_name: kb-meili
+    profiles: ["search"]
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?请先在 .env 里设置 MEILI_MASTER_KEY}
+      MEILI_ENV: production
+      # 关掉自动遥测
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "127.0.0.1:${MEILI_PORT:-7700}:7700"
+    volumes:
+      - meili-data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis-data:
+  meili-data:
