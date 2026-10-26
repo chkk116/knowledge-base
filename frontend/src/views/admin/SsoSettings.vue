@@ -60,7 +60,7 @@
       </template>
       <p class="tip">
         标准 OIDC 授权码流程（Keycloak / Azure AD / 企业微信 / 钉钉 / 飞书 的自建应用均可）。
-        回调地址填：<code>{{ origin }}/api/auth/sso/oidc/callback</code>
+        回调地址填：<code>{{ shownCallback('oidc') }}</code>
       </p>
       <el-form label-width="130px" style="max-width: 720px">
         <el-form-item label="启用单点登录"><el-switch v-model="oidc.enabled" /></el-form-item>
@@ -85,6 +85,10 @@
       <template #header>
         <div class="hd">
           <span>{{ sp.title }}</span>
+          <!-- 截图/演示时把域名打码，复制按钮仍复制真实地址 -->
+          <el-switch v-if="sp.key === 'wechat'" v-model="maskDomain" size="small"
+                     inline-prompt active-text="隐藏域名" inactive-text="显示域名"
+                     style="margin-left: 12px" @change="saveMask" />
           <el-tag v-if="sp.cfg.enabled" type="success" size="small">已启用</el-tag>
           <el-tag v-else size="small">未启用</el-tag>
         </div>
@@ -102,12 +106,15 @@
                     :placeholder="sp.cfg['has' + sp.secretFlag] ? '已保存，留空表示不修改' : '粘贴密钥'" />
         </el-form-item>
         <el-form-item label="回调地址">
-          <el-input :model-value="origin + '/api/auth/sso/' + sp.key + '/callback'" readonly>
+          <el-input :model-value="shownCallback(sp.key)" readonly>
             <template #append>
               <el-button @click="copy(sp.key)">复制</el-button>
             </template>
           </el-input>
-          <div class="hint">必须与{{ sp.title }}后台登记的「授权回调域/回调地址」完全一致（含 http/https 与路径）</div>
+          <div class="hint">
+            按「当前访问域名」生成（换域名访问会显示不同值）。必须与{{ sp.title }}后台登记的
+            「授权回调域/回调地址」完全一致，含 http/https 与路径，差一个字符就会 redirect_uri_mismatch。
+          </div>
         </el-form-item>
         <el-form-item label="登录按钮文案">
           <el-input v-model="sp.form.buttonLabel" :placeholder="sp.defaultLabel" />
@@ -138,6 +145,25 @@ const oidcCfg = ref({ hasClientSecret: false })
 const oidc = ref({ enabled: false, authUrl: '', tokenUrl: '', userinfoUrl: '', clientId: '', clientSecret: '', scopes: 'openid profile email', userField: 'preferred_username', buttonLabel: '企业单点登录' })
 const oidcSaving = ref(false)
 const origin = typeof window !== 'undefined' ? window.location.origin : ''
+// 回调地址脱敏：开启后界面只显示 https://••••••/api/…，但「复制」拿到的仍是真实地址。
+// 用途：截图、录屏、对外演示时不暴露生产域名。状态存 localStorage，刷新后保持。
+const maskDomain = ref(typeof localStorage !== 'undefined' && localStorage.getItem('kb_sso_mask') === '1')
+
+function saveMask() {
+  try { localStorage.setItem('kb_sso_mask', maskDomain.value ? '1' : '0') } catch (e) { /* 隐私模式忽略 */ }
+}
+
+/** 展示用的回调地址（可能被打码） */
+function shownCallback(key) {
+  return maskDomain.value
+    ? `https://••••••/api/auth/sso/${key}/callback`
+    : `${origin}/api/auth/sso/${key}/callback`
+}
+
+/** 真实回调地址（复制/写进第三方后台用，永远不打码） */
+function realCallback(key) {
+  return `${origin}/api/auth/sso/${key}/callback`
+}
 
 async function loadOidc() {
   try {
@@ -248,8 +274,8 @@ const socials = ref([
     idLabel: 'Client ID', secretLabel: 'Client Secret',
     idPlaceholder: 'gitee.com/oauth/applications 里的 Client ID',
     defaultLabel: 'Gitee 登录',
-    tip: '国内门槛最低的一家：gitee.com/oauth/applications 新建应用即可，**个人账号就能申请**，不要企业资质和认证费。'
-      + '回调地址填 https://你的域名/api/auth/sso/gitee/callback，审核基本是即时生效。',
+    tip: '国内门槛最低的一家：gitee.com/oauth/applications 新建应用即可，个人账号就能申请，'
+      + '不要企业资质和认证费，审核基本即时生效。回调地址点上方「复制」取当前域名那串，两边必须完全一致。',
     cfg: {}, form: {}, saving: false
   },
   {
@@ -307,7 +333,7 @@ async function saveSocial(sp) {
 }
 
 function copy(key) {
-  const url = `${origin}/api/auth/sso/${key}/callback`
+  const url = realCallback(key)
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(
       () => ElMessage.success('已复制回调地址'),
