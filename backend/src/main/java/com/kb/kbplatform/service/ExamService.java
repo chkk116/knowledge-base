@@ -48,7 +48,8 @@ public class ExamService {
                        CourseService courseService, NotificationService notificationService,
                        SysSettingRepository settingRepo,
                        PracticeLogRepository practiceLogRepo,
-                       org.springframework.transaction.support.TransactionTemplate txTemplate) {
+                       org.springframework.transaction.support.TransactionTemplate txTemplate,
+                       com.kb.kbplatform.service.KvStore kvStore) {
         this.questionRepo = questionRepo;
         this.optionRepo = optionRepo;
         this.paperRepo = paperRepo;
@@ -64,6 +65,7 @@ public class ExamService {
         this.notificationService = notificationService;
         this.practiceLogRepo = practiceLogRepo;
         this.txTemplate = txTemplate;
+        this.kvStore = kvStore;
     }
 
     // ===================== 学员侧 =====================
@@ -508,11 +510,59 @@ public class ExamService {
             this.userId = userId; this.qids = qids; this.expireAt = expireAt;
         }
     }
-    private static final Map<String, PracticeSession> SESSIONS = new ConcurrentHashMap<>();
+    /**
+     * 练习会话改存 KvStore（2026-10-26）。
+     *
+     * 原来放进程内 Map：**后端一重启，正在做的练习就判不了分**（提示「会话已失效」），
+     * 多实例部署也会因为会话落在别的实例而失效。现在 Redis 优先、内存兜底。
+     * 序列化格式：{"u":userId,"q":[题号...],"e":过期毫秒}
+     */
+    private final com.kb.kbplatform.service.KvStore kvStore;
+    private static final String SESSION_KEY = "practice:session:";
     private static final Map<Long, long[]> CHECK_RATE = new ConcurrentHashMap<>();
     /** 限流表清理计数器（每 200 次判分扫一次过期条目，避免每次请求都 O(n)） */
     private final java.util.concurrent.atomic.AtomicInteger rateSweep = new java.util.concurrent.atomic.AtomicInteger();
     private static final long SESSION_TTL_MS = 2 * 60 * 60 * 1000L;
+
+
+    // ---------- 练习会话持久化（KvStore） ----------
+
+    private void saveSession(String sid, PracticeSession s) {
+        long ttlMs = Math.max(60_000L, s.expireAt - System.currentTimeMillis());
+        StringBuilder qs = new StringBuilder();
+        for (Long q : s.qids) {
+            if (qs.length() > 0) qs.append(',');
+            qs.append(q);
+        }
+        String json = "{\"u\":" + s.userId + ",\"q\":[" + qs + "],\"e\":" + s.expireAt + "}";
+        kvStore.put(SESSION_KEY + sid, json, java.time.Duration.ofMillis(ttlMs));
+    }
+
+    private PracticeSession loadSession(String sid) {
+        String json = kvStore.get(SESSION_KEY + sid);
+        if (json == null || json.isBlank()) return null;
+        try {
+            // 后端用 Jackson 3（tools.jackson.*），没有 org.json（那是 Android 侧的库）
+            Map<String, Object> o = tools.jackson.databind.json.JsonMapper.builder()
+                    .build().readValue(json, Map.class);
+            Set<Long> qids = new HashSet<>();
+            Object arr = o.get("q");
+            if (arr instanceof List<?> list) {
+                for (Object v : list) {
+                    if (v instanceof Number n) qids.add(n.longValue());
+                }
+            }
+            return new PracticeSession(
+                    ((Number) o.get("u")).longValue(),
+                    qids,
+                    ((Number) o.get("e")).longValue()
+            );
+        } catch (Exception e) {
+            // 脏数据（例如 Redis 里残留了旧格式）直接当失效处理，不要抛给用户
+            kvStore.delete(SESSION_KEY + sid);
+            return null;
+        }
+    }
 
     /** 用户「进行中考试」涉及的所有题目：这些题在交卷前不允许通过练习接口取答案 */
     private Set<Long> runningExamQuestions(Long userId) {
@@ -584,19 +634,11 @@ public class ExamService {
         }
 
         long now = System.currentTimeMillis();
-        SESSIONS.entrySet().removeIf((e) -> e.getValue().expireAt < now);
-        // 上限保护（审查 r12）：内存会话表不能无界增长，超量时按到期时间淘汰最早的一批
-        if (SESSIONS.size() > 3000) {
-            SESSIONS.entrySet().stream()
-                    .sorted(java.util.Comparator.comparingLong((Map.Entry<String, PracticeSession> e) -> e.getValue().expireAt))
-                    .limit(SESSIONS.size() - 2500L)
-                    .map(Map.Entry::getKey).toList()
-                    .forEach(SESSIONS::remove);
-        }
+        // 过期由 TTL 负责（Redis 到期自动清、内存兜底也按 TTL 判），不再需要手工扫表与上限淘汰
         Set<Long> qids = new HashSet<>();
         for (Map<String, Object> m : qs) qids.add(((Number) m.get("id")).longValue());
         String sid = UUID.randomUUID().toString().replace("-", "");
-        SESSIONS.put(sid, new PracticeSession(userId, qids, now + SESSION_TTL_MS));
+        saveSession(sid, new PracticeSession(userId, qids, now + SESSION_TTL_MS));
 
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("sessionId", sid);
@@ -656,10 +698,10 @@ public class ExamService {
         // 会话校验（审查 r11 High）：没有会话就只能按「非考试题」兜底，
         // 否则任意 questionId 都能换出答案，考试防泄题形同虚设
         if (sessionId != null && !sessionId.isBlank()) {
-            PracticeSession s = SESSIONS.get(sessionId);
+            PracticeSession s = loadSession(sessionId);
             if (s == null) throw new ResponseStatusException(BAD_REQUEST, "练习会话已失效，请重新开始练习");
             if (s.expireAt < System.currentTimeMillis()) {
-                SESSIONS.remove(sessionId);
+                kvStore.delete(SESSION_KEY + sessionId);
                 throw new ResponseStatusException(BAD_REQUEST, "练习会话已过期，请重新开始练习");
             }
             if (!s.userId.equals(userId))

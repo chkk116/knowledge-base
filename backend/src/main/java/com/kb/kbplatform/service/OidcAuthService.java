@@ -53,12 +53,12 @@ public class OidcAuthService {
     private static final String K_LABEL = "sso.oidc.buttonLabel";
 
     private final SysSettingRepository repo;
+    private final KvStore kv;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
-    /** state → {过期时间, 发起时用的 redirect_uri}；redirect 必须绑在 state 上，回调时不能重新推算 */
-    private final Map<String, String[]> states = new ConcurrentHashMap<>();
 
-    public OidcAuthService(SysSettingRepository repo) {
+    public OidcAuthService(SysSettingRepository repo, KvStore kv) {
         this.repo = repo;
+        this.kv = kv;
     }
 
     public boolean enabled() {
@@ -100,8 +100,7 @@ public class OidcAuthService {
         if (!enabled()) throw new IllegalArgumentException("未启用单点登录");
         String state = UUID.randomUUID().toString().replace("-", "");
         String redirect = redirectUri(loginBase);
-        states.put(state, new String[]{String.valueOf(System.currentTimeMillis() + 10 * 60 * 1000L), redirect});
-        sweep();
+        putState(state, String.valueOf(System.currentTimeMillis() + 10 * 60 * 1000L), redirect);
         StringBuilder sb = new StringBuilder(get(K_AUTH_URL).trim());
         sb.append(get(K_AUTH_URL).contains("?") ? "&" : "?");
         sb.append("response_type=code");
@@ -115,7 +114,7 @@ public class OidcAuthService {
     /** 回调：校验 state → 换 token → 取 userinfo */
     public Map<String, String> callback(String code, String state, String loginBase) {
         if (!enabled()) throw new IllegalArgumentException("未启用单点登录");
-        String[] st = state == null ? null : states.remove(state);
+        String[] st = state == null ? null : takeState(state);
         if (st == null || Long.parseLong(st[0]) < System.currentTimeMillis()) {
             throw new IllegalArgumentException("登录状态已失效，请重新发起登录");
         }
@@ -205,12 +204,6 @@ public class OidcAuthService {
         return "";
     }
 
-    private void sweep() {
-        long now = System.currentTimeMillis();
-        states.entrySet().removeIf((e) -> {
-            try { return Long.parseLong(e.getValue()[0]) < now; } catch (Exception ex) { return true; }
-        });
-    }
 
     private String enc(String v) {
         return URLEncoder.encode(v == null ? "" : v, StandardCharsets.UTF_8);
@@ -222,6 +215,27 @@ public class OidcAuthService {
         String sv = bool ? (Boolean.parseBoolean(String.valueOf(v)) ? "true" : "false") : String.valueOf(v).trim();
         if (!bool && sv.isEmpty()) return;
         put(settingKey, sv);
+    }
+
+    /** state 前缀：同一个 Redis 里三家/多家登录互不干扰 */
+    private static final String STATE_PREFIX = "sso:state:oidc:";
+
+    /**
+     * 写 state（10 分钟过期，一次性消费）。
+     * 放 Redis 而不是进程内 Map：多实例部署时 start 和 callback 可能落到不同实例，
+     * 放内存会「登录状态已失效」；后端重启也不会把正在登录的用户打断。
+     */
+    private void putState(String state, String... parts) {
+        kv.put(STATE_PREFIX + state, String.join("\n", parts), java.time.Duration.ofMinutes(10));
+    }
+
+    /** 取 state 并立即删除（一次性）；不存在返回 null */
+    private String[] takeState(String state) {
+        if (state == null) return null;
+        String key = STATE_PREFIX + state;
+        String v = kv.get(key);
+        kv.delete(key);
+        return v == null ? null : v.split("\n", -1);
     }
 
     private String get(String key) {

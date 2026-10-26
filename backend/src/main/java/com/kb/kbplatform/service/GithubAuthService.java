@@ -53,13 +53,13 @@ public class GithubAuthService {
     private static final String UA = "kb-platform";
 
     private final SysSettingRepository repo;
+    private final KvStore kv;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
 
-    /** state → {过期毫秒, 发起时的 redirect_uri, bindUserId 或空串} */
-    private final Map<String, String[]> states = new ConcurrentHashMap<>();
 
-    public GithubAuthService(SysSettingRepository repo) {
+    public GithubAuthService(SysSettingRepository repo, KvStore kv) {
         this.repo = repo;
+        this.kv = kv;
     }
 
     public record GithubUser(String externalId, String login, String nickname, String avatar, Long bindUserId) {}
@@ -102,12 +102,11 @@ public class GithubAuthService {
         if (!enabled()) throw new IllegalArgumentException("未启用 GitHub 登录");
         String state = UUID.randomUUID().toString().replace("-", "");
         String redirect = redirectUri(loginBase);
-        states.put(state, new String[]{
+        putState(state, 
                 String.valueOf(System.currentTimeMillis() + 10 * 60 * 1000L),
                 redirect,
                 bindUserId == null ? "" : String.valueOf(bindUserId)
-        });
-        sweep();
+        );
         return AUTHORIZE
                 + "?client_id=" + enc(get(K_CLIENT_ID))
                 + "&redirect_uri=" + enc(redirect)
@@ -117,7 +116,7 @@ public class GithubAuthService {
 
     public GithubUser callback(String code, String state) {
         if (!enabled()) throw new IllegalArgumentException("未启用 GitHub 登录");
-        String[] st = state == null ? null : states.remove(state);
+        String[] st = state == null ? null : takeState(state);
         if (st == null || Long.parseLong(st[0]) < System.currentTimeMillis()) {
             throw new IllegalArgumentException("登录状态已失效，请重新登录");
         }
@@ -184,9 +183,26 @@ public class GithubAuthService {
         return base + "/api/auth/sso/github/callback";
     }
 
-    private void sweep() {
-        long now = System.currentTimeMillis();
-        states.entrySet().removeIf(e -> Long.parseLong(e.getValue()[0]) < now);
+
+    /** state 前缀：同一个 Redis 里三家/多家登录互不干扰 */
+    private static final String STATE_PREFIX = "sso:state:github:";
+
+    /**
+     * 写 state（10 分钟过期，一次性消费）。
+     * 放 Redis 而不是进程内 Map：多实例部署时 start 和 callback 可能落到不同实例，
+     * 放内存会「登录状态已失效」；后端重启也不会把正在登录的用户打断。
+     */
+    private void putState(String state, String... parts) {
+        kv.put(STATE_PREFIX + state, String.join("\n", parts), java.time.Duration.ofMinutes(10));
+    }
+
+    /** 取 state 并立即删除（一次性）；不存在返回 null */
+    private String[] takeState(String state) {
+        if (state == null) return null;
+        String key = STATE_PREFIX + state;
+        String v = kv.get(key);
+        kv.delete(key);
+        return v == null ? null : v.split("\n", -1);
     }
 
     private String get(String key) {

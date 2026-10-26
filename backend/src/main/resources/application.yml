@@ -30,6 +30,19 @@ spring:
     properties:
       hibernate:
         format_sql: true
+  # Redis 连接（KvStore 用：限流 / 第三方登录 state / 练习判分会话）。
+  # ⚠️ 与下面 kb.redis.enabled 的区别：那个只管 @Cacheable 缓存；
+  # 这里的连接**连不上会自动降级为内存存储**，不影响启动，也不会让登录/练习不可用。
+  data:
+    redis:
+      host: ${KB_REDIS_HOST:127.0.0.1}
+      port: ${KB_REDIS_PORT:6379}
+      password: ${KB_REDIS_PASSWORD:}
+      database: ${KB_REDIS_DB:0}
+      # 超时必须短：Redis 挂了不能把请求一起拖死
+      timeout: 2s
+      connect-timeout: 2s
+
   jackson:
     write-dates-as-timestamps: false   # 日期序列化为 ISO-8601 字符串（Spring Boot 4 默认 Jackson 3，显式锁定）
   servlet:
