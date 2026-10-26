@@ -28,7 +28,7 @@
 
       <!-- PDF：逐页 canvas（不依赖浏览器内置 PDF 阅读器，移动端表现一致） -->
       <div v-else-if="kind === 'pdf'" class="fp-pdf">
-        <canvas v-show="pageIdx === 0" ref="pdfCanvas" class="fp-canvas"></canvas>
+        <canvas ref="pdfCanvas" class="fp-canvas"></canvas>
       </div>
 
       <!-- Word：docx-preview 直接渲染成 HTML -->
@@ -54,7 +54,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps({
@@ -105,12 +105,23 @@ function goto(d) {
   renderPdfPage()
 }
 
-// pdf 文档对象缓存：翻页不重新解析
+// pdf 文档对象缓存：翻页不重新解析；每次渲染带序号，翻页太快时丢弃过期结果
 let pdfDoc = null
+let renderSeq = 0
+
+/** 释放 pdf.js 文档（持有 worker，必须显式 destroy，否则翻几个文件就泄漏一个 worker） */
+function destroyPdf() {
+  const d = pdfDoc
+  pdfDoc = null
+  if (d) { try { d.destroy() } catch (e) { /* 已在销毁中 */ } }
+}
 
 async function renderPdfPage() {
   if (!pdfDoc || !pdfCanvas.value) return
+  const seq = ++renderSeq
   const page = await pdfDoc.getPage(pageIdx.value + 1)
+  if (seq !== renderSeq) return   // 翻页过快：这次渲染已过期，别覆盖新页
+
   const base = page.getViewport({ scale: 1 })
   const width = Math.min(900, base.width)
   const scale = width / base.width
@@ -122,6 +133,7 @@ async function renderPdfPage() {
   canvas.style.height = 'auto'
   const ctx = canvas.getContext('2d')
   await page.render({ canvasContext: ctx, viewport }).promise
+  if (seq !== renderSeq) return
   pageInfo.value = `第 ${pageIdx.value + 1} / ${pages.value.length} 页`
 }
 
@@ -169,7 +181,8 @@ async function open() {
   sheets.value = []
   pages.value = []
   pageInfo.value = ''
-  pdfDoc = null
+  destroyPdf()
+  renderSeq++
   const f = props.file
   if (!f || !f.url) return
   if (f.size && f.size > MAX_PREVIEW) {
@@ -206,8 +219,9 @@ function download() {
   ElMessage.success('已开始下载')
 }
 
-watch(() => props.modelValue, (v) => { if (v) open() })
+watch(() => props.modelValue, (v) => { if (v) open(); else destroyPdf() })
 watch(() => props.file, () => { if (props.modelValue) open() })
+onBeforeUnmount(destroyPdf)
 </script>
 
 <style scoped>
