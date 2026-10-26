@@ -14,6 +14,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listMyFiles, uploadManagedFile, deleteMyFile } from '../api/file'
 import { getStorage } from '../api/docShare'
+import FilePreview from '../components/FilePreview.vue'
 
 const files = ref([])
 const loading = ref(false)
@@ -21,6 +22,14 @@ let uploadSeq = 0
 const uploading = ref([])      // [{ id, name, percent }]（reactive 条目，进度才能触发重渲染）
 const dragging = ref(false)
 const inputRef = ref(null)
+
+// 在线预览（PDF / Word / Excel / 图片 / 文本），不支持的类型引导下载
+const previewOpen = ref(false)
+const previewFile = ref(null)
+function openPreview(f) {
+  previewFile.value = f
+  previewOpen.value = true
+}
 
 // 存储用量（让页面有信息量：知道自己用了多少 / 还剩多少）
 const storage = reactive({ used: 0, quota: 0, has: false })
@@ -211,7 +220,7 @@ onMounted(load)
     <div v-else-if="!shown.length" class="fc-empty">没有匹配的文件</div>
     <div v-else class="fc-grid">
       <div v-for="f in shown" :key="f.id" class="fc-item">
-        <div class="fc-thumb">
+        <div class="fc-thumb" style="cursor: zoom-in" @click="openPreview(f)">
           <img v-if="isImage(f)" :src="f.url" :alt="f.name" />
           <span v-else class="fc-thumb-txt">{{ (f.name || '').split('.').pop()?.toUpperCase() || 'FILE' }}</span>
         </div>
@@ -220,11 +229,14 @@ onMounted(load)
           <div class="fc-dim">{{ fmtSize(f.size) }} · {{ fmtTime(f.createdAt) }}</div>
         </div>
         <div class="fc-acts">
+          <el-button size="small" @click="openPreview(f)">预览</el-button>
           <el-button size="small" @click="copyLink(f)">复制链接</el-button>
           <el-button size="small" type="danger" plain @click="remove(f)">删除</el-button>
         </div>
       </div>
     </div>
+
+    <FilePreview v-model="previewOpen" :file="previewFile" />
   </div>
 </template>
 
