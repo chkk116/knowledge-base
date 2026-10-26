@@ -60,6 +60,20 @@ fun AppRoot() {
     val token by TokenStore.token.collectAsState()
     val nav = rememberNavController()
 
+    /**
+     * 安全导航：路由拼错/页面被删时，Navigation 会抛
+     * `IllegalArgumentException: Navigation destination that matches route X cannot be found`，
+     * 且是在点击事件里抛的 → 直接闪退。这里兜住，只打日志。
+     * （Tab 页不是路由，跳 Tab 要用 switchTab，见 MainScaffold。）
+     */
+    val safeNav: (String) -> Unit = { route ->
+        try {
+            nav.navigate(route)
+        } catch (e: IllegalArgumentException) {
+            android.util.Log.w("KbNav", "未知路由，已忽略: $route", e)
+        }
+    }
+
     LaunchedEffect(token) {
         if (token != null) SseClient.start() else SseClient.stop()
     }
@@ -88,10 +102,10 @@ fun AppRoot() {
                 openWeb = { path, title ->
                     nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
                 },
-                openRoute = { route -> nav.navigate(route) }
+                openRoute = { route -> safeNav(route) }
             )
         }
-        composable("capture") { CaptureScreen(onDone = { nav.popBackStack() }, openRoute = { r -> nav.navigate(r) }) }
+        composable("capture") { CaptureScreen(onDone = { nav.popBackStack() }, openRoute = { r -> safeNav(r) }) }
         composable("quick") { QuickNoteScreen(onDone = { nav.popBackStack() }) }
         composable("scan") { com.kb.kbplatform.shell.ui.scan.ScanEditorScreen(onDone = { nav.popBackStack() }) }
         composable("drafts") { com.kb.kbplatform.shell.ui.draft.DraftsScreen(onBack = { nav.popBackStack() }) }
@@ -107,16 +121,16 @@ fun AppRoot() {
         composable("clip") { ClipScreen(onDone = { nav.popBackStack() }) }
         composable("inbox") { InboxScreen(onBack = { nav.popBackStack() }, openWeb = { p, t ->
             nav.navigate("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
-        }) }
+        }, openRoute = { r -> safeNav(r) }) }
         composable("favorites") { FavoritesScreen(onBack = { nav.popBackStack() }, openWeb = { p, t ->
             nav.navigate("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
-        }) }
+        }, openRoute = { r -> safeNav(r) }) }
         composable("history") { HistoryScreen(onBack = { nav.popBackStack() }, openWeb = { p, t ->
             nav.navigate("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
-        }) }
+        }, openRoute = { r -> safeNav(r) }) }
         composable("all-docs") { AllDocsScreen(onBack = { nav.popBackStack() }, openWeb = { p, t ->
             nav.navigate("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
-        }) }
+        }, openRoute = { r -> safeNav(r) }) }
         composable("exam-mine") { ExamMineScreen(onBack = { nav.popBackStack() }) }
         composable("points") { PointsScreen(onBack = { nav.popBackStack() }) }
         composable("ranking") { RankingScreen(onBack = { nav.popBackStack() }) }
@@ -126,7 +140,7 @@ fun AppRoot() {
             composable("search") {
                 SearchScreen(openWeb = { path, title ->
                     nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
-                })
+                }, openRoute = { r -> safeNav(r) })
             }
             composable("ai") {
                 AiChatScreen(onBack = { nav.popBackStack() })
@@ -136,7 +150,7 @@ fun AppRoot() {
             composable("share-import") { ShareImportScreen(onDone = { nav.popBackStack() }) }
             composable("admin") {
                 AdminHomeScreen(
-                    onOpen = { r -> nav.navigate(r) },
+                    onOpen = { r -> safeNav(r) },
                     onOpenWeb = { path, title ->
                         nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
                     },
@@ -155,7 +169,7 @@ fun AppRoot() {
                     openWeb = { path, title ->
                         nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
                     },
-                    openRoute = { route -> nav.navigate(route) }
+                    openRoute = { route -> safeNav(route) }
                 )
             }
             composable(

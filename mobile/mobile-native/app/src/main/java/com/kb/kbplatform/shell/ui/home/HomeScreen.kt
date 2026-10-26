@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -106,7 +108,15 @@ private data class Quick(
 @Composable
 fun HomeScreen(
     openWeb: (path: String, title: String) -> Unit,
-    openRoute: (String) -> Unit
+    openRoute: (String) -> Unit,
+    /**
+     * 切主框架的 Tab（0 首页 / 1 文档库 / 2 消息 / 3 我的）。
+     *
+     * 「我的」「文档库」是 Tab 页，**不是 NavHost 路由**——原来头像写 openRoute("profile")、
+     * 空间行写 openRoute("docs")，点下去直接抛
+     * `Navigation destination that matches route profile cannot be found` 闪退。
+     */
+    switchTab: (Int) -> Unit = {}
 ) {
     var overview by remember { mutableStateOf<JSONObject?>(null) }
     var announcement by remember { mutableStateOf<JSONObject?>(null) }
@@ -118,6 +128,8 @@ fun HomeScreen(
     val sharePending by ShareInbox.pending.collectAsState()
     val draftCtx = androidx.compose.ui.platform.LocalContext.current
     var draftCount by remember { mutableIntStateOf(0) }
+    // 公告详情：原生弹窗展示，不再跳 /m/（原来点公告会整页打开网页版首页，很突兀）
+    var annDetail by remember { mutableStateOf<JSONObject?>(null) }
     LaunchedEffect(Unit) { draftCount = com.kb.kbplatform.shell.data.DraftStore.list(draftCtx).size }
 
     LaunchedEffect(Unit) {
@@ -148,7 +160,7 @@ fun HomeScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Hero(onAvatar = { openRoute("profile") }, onSearch = { openRoute("search") }, onAi = { openRoute("ai") })
+        Hero(onAvatar = { switchTab(3) }, onSearch = { openRoute("search") }, onAi = { openRoute("ai") })
 
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -246,7 +258,7 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(tone.bg)
-                                .kbPress(scaleDown = 0.99f) { openWeb("/m/", "公告") }
+                                .kbPress(scaleDown = 0.99f) { annDetail = a }
                                 .padding(horizontal = 13.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -328,7 +340,7 @@ fun HomeScreen(
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
-                                        .clickable { openRoute("docs") }
+                                        .clickable { switchTab(1) }
                                         .padding(horizontal = 14.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -362,6 +374,28 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    annDetail?.let { a ->
+        AlertDialog(
+            onDismissRequest = { annDetail = null },
+            title = {
+                Text(
+                    a.optString("title").ifBlank { "公告" },
+                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Text(
+                    a.optString("content").ifBlank { "（无正文）" },
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { annDetail = null }) { Text("知道了") }
+            }
+        )
     }
 }
 

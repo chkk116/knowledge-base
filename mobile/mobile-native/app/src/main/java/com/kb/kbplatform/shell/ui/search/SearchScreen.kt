@@ -68,7 +68,7 @@ private data class DocHit(
  * 摘要取命中处前后片段。点开进 WebView 文档阅读页。
  */
 @Composable
-fun SearchScreen(openWeb: (String, String) -> Unit) {
+fun SearchScreen(openWeb: (String, String) -> Unit, openRoute: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
 
     var keyword by remember { mutableStateOf("") }
@@ -201,7 +201,7 @@ fun SearchScreen(openWeb: (String, String) -> Unit) {
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { openWeb("/m/doc/${r.shareId}/${r.docId}", r.title) }
+                                .clickable { openRoute("reader/${r.shareId}/${r.docId}?title=" + android.net.Uri.encode(r.title)) }
                         ) {
                             Column(Modifier.padding(14.dp)) {
                                 Text(r.title, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)

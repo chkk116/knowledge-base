@@ -111,7 +111,13 @@ fun DocReaderScreen(
             loading -> CenterHint("加载中…", loading = true)
             error.isNotEmpty() -> CenterHint(error)
             html != null -> Box(Modifier.fillMaxSize()) {
-                ReaderWebView(html!!)
+                // 纯文本类正文（段落/标题/列表/粗体/链接）**原生渲染**，滚动/选中/深色/字体缩放都跟系统走；
+                // 只有含图片/表格/视频/iframe 的文档才交给 WebView（原生文本渲染画不出这些）
+                if (needsRichWebView(html!!)) {
+                    ReaderWebView(html!!)
+                } else {
+                    NativeHtmlText(html!!)
+                }
             }
         }
     }

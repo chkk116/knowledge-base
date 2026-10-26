@@ -153,7 +153,7 @@ fun MainScaffold(
                     modifier = Modifier.fillMaxSize()
                 ) { t ->
                     when (t) {
-                        0 -> HomeScreen(openWeb, openRoute)
+                        0 -> HomeScreen(openWeb, openRoute, switchTab = { tab = it })
                         1 -> DocsScreen(openWeb, openRoute)
                         2 -> MessagesScreen()
                         3 -> ProfileScreen(openWeb, openRoute)

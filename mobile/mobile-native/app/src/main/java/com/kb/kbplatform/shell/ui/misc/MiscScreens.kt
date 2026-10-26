@@ -66,7 +66,7 @@ private enum class Load { Loading, Ok, Empty }
 // ============ 待整理箱（对标 MobileInbox）============
 
 @Composable
-fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
+fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(Load.Loading) }
@@ -118,7 +118,7 @@ fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
                                         items = items.filter { (if (it.has("docId")) it.optLong("docId") else it.optLong("id", 0)) != id }
                                     }
                                 }) { Text("删除", fontSize = 12.sp, color = KbRed) }
-                                TextButton(onClick = { openWeb("/m/doc/$shareId/$id", d.optString("title")) }) {
+                                TextButton(onClick = { openRoute("reader/$shareId/$id?title=" + android.net.Uri.encode(d.optString("title"))) }) {
                                     Text("查看", fontSize = 12.sp)
                                 }
                             }
@@ -170,7 +170,7 @@ fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
 // ============ 本地收藏（对标 MobileFavorites：本地书签）============
 
 @Composable
-fun FavoritesScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
+fun FavoritesScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute: (String) -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var items by remember { mutableStateOf(Bookmarks.list(ctx)) }
     var refresh by remember { mutableStateOf(0) }
@@ -184,7 +184,7 @@ fun FavoritesScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { "${it.shareId}:${it.docId}" }) { b ->
                     KbCard(Modifier.fillMaxWidth().clickable {
-                        openWeb("/m/doc/${b.shareId}/${b.docId}", b.title)
+                        openRoute("reader/${b.shareId}/${b.docId}?title=" + android.net.Uri.encode(b.title))
                     }) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("⭐", fontSize = 16.sp)
@@ -518,7 +518,7 @@ fun NotesScreen(onBack: () -> Unit) {
 // ============ 全部文档（对标 MobileAllDocs：跨空间聚合 + 标题过滤）============
 
 @Composable
-fun AllDocsScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
+fun AllDocsScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute: (String) -> Unit = {}) {
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var keyword by remember { mutableStateOf("") }
     var state by remember { mutableStateOf(Load.Loading) }
@@ -554,7 +554,7 @@ fun AllDocsScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
                         Modifier
                             .fillMaxWidth()
                             .clickable {
-                                openWeb("/m/doc/${d.optLong("shareId", 0)}/$docId", d.optString("title"))
+                                openRoute("reader/${d.optLong("shareId", 0)}/$docId?title=" + android.net.Uri.encode(d.optString("title")))
                             }
                     ) {
                         Column(Modifier.padding(12.dp)) {
@@ -577,7 +577,7 @@ fun AllDocsScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
 // ============ 浏览历史（对标 MobileHistory：本地记录）============
 
 @Composable
-fun HistoryScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
+fun HistoryScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute: (String) -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var items by remember { mutableStateOf(HistoryStore.list(ctx)) }
     var refresh by remember { mutableStateOf(0) }
@@ -593,7 +593,7 @@ fun HistoryScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit) {
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { "${it.shareId}:${it.docId}:${it.at}" }) { h ->
                     KbCard(Modifier.fillMaxWidth().clickable {
-                        openWeb("/m/doc/${h.shareId}/${h.docId}", h.title)
+                        openRoute("reader/${h.shareId}/${h.docId}?title=" + android.net.Uri.encode(h.title))
                     }) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
