@@ -486,6 +486,20 @@ object KbApi {
     }
 
     /** GET /admin/announcements → Spring Page {content:[…]} */
+    // ---------- 站点设置（通用键值，CORE_MAINTAIN 权限） ----------
+    //
+    // 后端 `/api/admin/settings/{key}` 返回 { value: "<json 字符串>", key }，
+    // value 为空串表示还没配置过（用默认值）。
+
+    suspend fun adminGetSetting(key: String): String = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/admin/settings/$key").optString("value")
+    }
+
+    suspend fun adminPutSetting(key: String, json: String): Unit = withContext(Dispatchers.IO) {
+        ApiClient.put("/api/admin/settings/$key", JSONObject().put("value", json))
+        Unit
+    }
+
     suspend fun adminAnnouncements(): JSONArray = withContext(Dispatchers.IO) {
         val page = ApiClient.get("/api/admin/announcements")
         page.optJSONArray("content") ?: JSONArray()

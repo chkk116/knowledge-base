@@ -61,6 +61,21 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.foundation.layout.heightIn
+import com.kb.kbplatform.shell.data.objects
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.border
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -73,6 +88,7 @@ import com.kb.kbplatform.shell.AppConfig
 import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.AppUpdater
 import com.kb.kbplatform.shell.data.KbApi
+import com.kb.kbplatform.shell.ui.theme.KbTextDim
 import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.theme.KbBlue
@@ -117,104 +133,165 @@ fun ProfileScreen(
         else -> "当前已是最新版"
     }
 
+    // 统计数据（对齐套壳：积分 / 文档 / 空间）
+    var docCount by remember { mutableStateOf(-1L) }
+    var spaceCount by remember { mutableStateOf(-1L) }
+    LaunchedEffect(Unit) {
+        runCatching { KbApi.overview().optLong("totalDocs", -1) }.onSuccess { docCount = it }
+        runCatching { KbApi.myShares().objects().size.toLong() }.onSuccess { spaceCount = it }
+    }
+
+    val name = me?.optString("displayName").orEmpty().ifBlank {
+        me?.optString("username").orEmpty().ifBlank { "…" }
+    }
+    val username = me?.optString("username").orEmpty()
+    val roleText = roleLabel(me?.optString("role"))
+
     Column(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        TopBar(title = "我的")
-
-        // 资料卡
-        KbCard(
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier
+        // ── 资料区（对齐套壳 .prof）──
+        // 原来这里是 52dp 的白色 TopBar：状态栏那条是页面底色（灰），下面才是白，看着像「没到顶」。
+        // 套壳的做法是主色直接铺到屏幕最顶、圆角只在下边，这里照抄。
+        Row(
+            Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
+                .background(
+                    MaterialTheme.colorScheme.primary,
+                    RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                )
+                .statusBarsPadding()
+                .padding(start = 18.dp, end = 18.dp, top = 20.dp, bottom = 22.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(52.dp)
-                        .background(KbBlue.copy(alpha = 0.15f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
+            Box(
+                Modifier
+                    .size(58.dp)
+                    .background(Color.White.copy(alpha = 0.22f), CircleShape)
+                    .border(2.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    name.take(1),
+                    color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.size(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    name, color = Color.White, fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp
+                )
+                Spacer(Modifier.height(7.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        (me?.optString("displayName") ?: "").ifBlank { "?" }.take(1),
-                        color = KbBlue, fontSize = 22.sp, fontWeight = FontWeight.Bold
+                        roleText, fontSize = 11.sp, color = Color.White,
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(7.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     )
-                }
-                Spacer(Modifier.size(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        me?.optString("displayName").orEmpty().ifBlank { "…"},
-                        fontSize = 17.sp, fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        listOfNotNull(
-                            me?.optString("username")?.takeIf { it.isNotEmpty() },
-                            roleLabel(me?.optString("role"))
-                        ).joinToString(" · "),
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        me?.optLong("points", 0)?.toString() ?: "0",
-                        fontSize = 18.sp, fontWeight = FontWeight.Bold, color = KbBlue
-                    )
-                    Text("积分", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (username.isNotEmpty()) {
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            "@$username", fontSize = 12.5.sp,
+                            color = Color.White.copy(alpha = 0.78f),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        // ── 数据条（对齐套壳 .stats）──
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StatCell(me?.optLong("points", 0) ?: 0, "积分", Modifier.weight(1f))
+            StatCell(docCount, "文档", Modifier.weight(1f))
+            StatCell(spaceCount, "空间", Modifier.weight(1f))
+        }
 
-        // 菜单（对齐套壳 .m-row）：**同一张卡片里成组排列**，行间用内缩发丝线分隔。
-        // 原来是「每条一张小卡 + 4dp 间隙」，看着像一堆独立卡片，和网页端的分组列表差得远。
-        val menus = listOfNotNull(
+        // ── 分组列表（对齐套壳：我的内容 / 成长 / 管理 / 设置）──
+        // 之前 14 条塞在同一张卡里，一路排到「退出登录」，就是「一堆东西全推到一起」。
+        val contentItems = listOfNotNull(
+            MenuItem(Icons.Filled.FolderOpen, "我的文件", "上传的图片与附件") { openRoute("files") },
+            MenuItem(Icons.Filled.Star, "我的收藏", "收藏过的文档") { openRoute("favorites") },
+            MenuItem(Icons.Filled.History, "浏览历史", "最近看过的文档") { openRoute("history") },
+            MenuItem(Icons.Filled.Description, "全部文档", "跨空间聚合") { openRoute("all-docs") }
+        )
+        val growthItems = listOfNotNull(
+            MenuItem(Icons.Filled.WorkspacePremium, "徽章成就", "成长记录") { openRoute("badges") },
+            MenuItem(Icons.Filled.Insights, "我的数据", "阅读与创作统计") { openRoute("stats") },
+            MenuItem(Icons.Filled.Explore, "发现文章", "浏览站内文章") { openRoute("discover") }
+        )
+        val adminItems = listOfNotNull(
             if (showAdmin) MenuItem(Icons.Filled.AdminPanelSettings, "后台管理", "用户 / AI 模型 / 审核 / 公告") { openRoute("admin") } else null,
-            if (TokenStore.hasPerm("STATS_VIEW")) MenuItem(Icons.Filled.Insights, "数据看板", "管理端 · 只读统计") { openRoute("embed/adminstats") } else null,
-            if (TokenStore.hasPerm("CORE_MAINTAIN")) MenuItem(Icons.Filled.Build, "站点维护", "功能开关 / 水印 / 页脚 / 登录码 / 外观") { openRoute("embed/adminmaintain") } else null,
-            MenuItem(Icons.Filled.FolderOpen, "我的文件", "文件中心 · 上传的图片与附件") { openRoute("files") },
-            MenuItem(Icons.Filled.Explore, "发现文章", "浏览站内文章") { openRoute("discover") },
-            MenuItem(Icons.Filled.WorkspacePremium, "徽章成就", "") { openRoute("badges") },
+            if (TokenStore.hasPerm("CORE_MAINTAIN")) MenuItem(Icons.Filled.Tune, "站点设置", "站点信息 / 水印 / 外观 / 二维码") { openRoute("site-settings") } else null
+        )
+        val settingItems = listOfNotNull(
             MenuItem(Icons.Filled.Palette, "外观", "跟随系统 / 浅色 / 深色") { openRoute("appearance") },
-            MenuItem(Icons.Filled.Info, "关于", "版本 · 更新日志 · 开源协议") { openRoute("about") },
-            MenuItem(Icons.Filled.Policy, "隐私政策与免责声明", "") { openRoute("privacy") },
-            MenuItem(Icons.Filled.Public, "打开网页版全部功能", "尚未原生化页面在 WebView 中继续可用") { openWeb("/m/", "网页版") },
-            MenuItem(
-                Icons.Filled.Dns, "服务器地址",
-                AppConfig.effectiveBaseUrl + if (AppConfig.isInjected()) "（构建期注入）" else "（本地调试默认）"
-            ) { },
             MenuItem(
                 Icons.Filled.Security, "应用锁",
                 if (com.kb.kbplatform.shell.data.AppLock.enabled()) "已开启（PIN 保护）" else "未开启"
             ) { showLockDialog = true },
             MenuItem(Icons.Filled.SystemUpdate, "检查更新", updateSubtitle) { showUpdateDialog = true },
+            MenuItem(Icons.Filled.Info, "关于", "版本 · 更新日志 · 开源协议") { openRoute("about") },
+            MenuItem(Icons.Filled.Policy, "隐私政策与免责声明", "") { openRoute("privacy") },
             MenuItem(
-                Icons.AutoMirrored.Filled.Logout, "退出登录", "",
-                tint = MaterialTheme.colorScheme.error
-            ) { TokenStore.set(null) }
+                Icons.Filled.Dns, "服务器地址",
+                AppConfig.effectiveBaseUrl + if (AppConfig.isInjected()) "（构建期注入）" else "（本地调试默认）"
+            ) { },
+            MenuItem(Icons.Filled.Public, "网页版全部功能", "尚未原生化的页面在这里打开") { openWeb("/m/", "网页版") }
         )
-        KbCard(Modifier.padding(horizontal = 16.dp)) {
-            Column {
-                menus.forEachIndexed { i, m ->
-                    if (i > 0) {
-                        // 内缩分隔线：从文字处起（图标 22 + 间距 12 + 内边距 14 ≈ 48dp）
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp)
-                                .height(0.5.dp)
-                                .background(MaterialTheme.colorScheme.outline)
-                        )
-                    }
-                    MenuRow(m)
-                }
+
+        GroupSection("我的内容", contentItems)
+        GroupSection("成长与数据", growthItems)
+        if (adminItems.isNotEmpty()) GroupSection("管理", adminItems, collapsible = true)
+        GroupSection("设置", settingItems)
+
+        // ── 退出登录（独立一张卡，红色，远离其它条目，避免误触）──
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(top = 20.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .kbPress(scaleDown = 0.99f) { TokenStore.set(null) }
+                .padding(vertical = 15.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Logout, null,
+                    tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    "退出登录", fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
+
+        // 版本号（底部一行，方便报障时对版本）
+        Text(
+            "知识库 ${com.kb.kbplatform.shell.BuildConfig.VERSION_NAME}",
+            fontSize = 12.sp, color = KbTextDim,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp, bottom = 20.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
     }
 
     if (showUpdateDialog) {
@@ -408,5 +485,86 @@ private fun MenuRow(m: MenuItem) {
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp)
         )
+    }
+}
+
+/** 数据条单格（套壳 .stat：数字 17 粗、说明 11 灰） */
+@Composable
+private fun StatCell(num: Long, label: String, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            if (num >= 0) num.toString() else "—",
+            fontSize = 17.sp, fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(label, fontSize = 11.sp, color = KbTextDim)
+    }
+}
+
+/**
+ * 分组（对齐套壳「我的」：12.5sp 淡灰小标题 + 一张卡内的行列表）。
+ *
+ * [collapsible] 用于「管理」这类低频分组：默认收起，只占一行标题，
+ * 展开后才是条目——避免管理员看到一长串。
+ */
+@Composable
+private fun GroupSection(
+    title: String,
+    items: List<MenuItem>,
+    collapsible: Boolean = false
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(!collapsible) }
+    val arrow by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(200),
+        label = "groupArrow"
+    )
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .then(
+                    if (collapsible) {
+                        Modifier.kbPress(scaleDown = 1f) { expanded = !expanded }
+                    } else Modifier
+                )
+                .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title, fontSize = 12.5.sp, fontWeight = FontWeight.Medium,
+                color = KbTextDim, letterSpacing = 0.3.sp, modifier = Modifier.weight(1f)
+            )
+            if (collapsible) {
+                Text("${items.size}", fontSize = 12.sp, color = KbTextDim)
+                Spacer(Modifier.size(4.dp))
+                Icon(
+                    Icons.Filled.ExpandMore, null,
+                    tint = KbTextDim,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer { rotationZ = arrow }
+                )
+            }
+        }
+        AnimatedVisibility(visible = expanded) {
+            KbCard(Modifier.padding(horizontal = 16.dp)) {
+                Column {
+                    items.forEachIndexed { i, m ->
+                        if (i > 0) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 48.dp)
+                                    .height(0.5.dp)
+                                    .background(MaterialTheme.colorScheme.outline)
+                            )
+                        }
+                        MenuRow(m)
+                    }
+                }
+            }
+        }
     }
 }

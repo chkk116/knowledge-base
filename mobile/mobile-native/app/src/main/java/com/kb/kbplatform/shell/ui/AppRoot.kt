@@ -161,6 +161,15 @@ fun AppRoot() {
             composable("admin/ai") { AdminAiScreen(onBack = { nav.popBackStack() }) }
             composable("admin/review") { AdminReviewScreen(onBack = { nav.popBackStack() }) }
             composable("admin/announce") { AdminAnnounceScreen(onBack = { nav.popBackStack() }) }
+            // 站点设置（原生）：原来「站点维护」是把桌面后台表单塞进 WebView，手机上要左右拖
+            composable("site-settings") {
+                com.kb.kbplatform.shell.ui.admin.SiteSettingsScreen(
+                    onBack = { nav.popBackStack() },
+                    openWeb = { path, title ->
+                        nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
+                    }
+                )
+            }
             composable("exams") {
                 ExamCenterScreen(
                     openExam = { id, title ->
