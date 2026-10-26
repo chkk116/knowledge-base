@@ -144,6 +144,53 @@ const ICONS = {
   // 外观：画笔（笔杆 + 金属箍，真实部件）
   Brush: `<path d="M16.6 3.6 20.4 7.4 12.2 15.6 8.4 11.8 16.6 3.6Z" fill="url(#gd-P)"/><path d="M8.4 11.8 12.2 15.6l-1.2 1.2a3 3 0 0 1-4.2 0l-.4-.4a3 3 0 0 1 0-4.2l2-2Z" fill="${S_L}"/><path d="M5.8 18.6c1.3 0 2.2.9 2.2 1.9 0 .9-1 1.5-2.4 1.5.4-.5.4-1.1 0-1.5-.5-.8-.5-1.9.2-1.9Z" fill="${X}"/>`,
 
+  // ── 2026-10-26 新增：菜单去重后新用的名字，全部按同一套双色几何语言手绘 ──
+
+  // 系统状态：显示器（屏幕 + 支架两个真实部件）+ 波形
+  Monitor: `<rect x="2.8" y="4.2" width="18.4" height="12.2" rx="2" fill="url(#gd-B)"/><rect x="4.7" y="6.1" width="14.6" height="8.4" rx="1.2" fill="${B_XL}"/><path d="M7.4 12.2l2.5-2.9 2.1 2.1 3-3.5" fill="none" stroke="${B_D}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.2 16.4h5.6l1 3.4H8.2l1-3.4Z" fill="${B_L}"/>`,
+
+  // 通知外发：喇叭（音箱 + 锥体 + 声波）
+  Promotion: `<path d="M3.4 10h3l6.6-4.6v13.2L6.4 14h-3a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z" fill="url(#gd-O)"/><rect x="3.4" y="10" width="3" height="4" fill="${O_L}"/><path d="M15.8 9.2a4.6 4.6 0 0 1 0 5.6" fill="none" stroke="${O_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M18.4 7a8 8 0 0 1 0 10" fill="none" stroke="${O_L}" stroke-width="1.9" stroke-linecap="round"/><circle cx="20.2" cy="5.2" r="1.5" fill="${X}"/>`,
+
+  // 企业登录：盾牌（整体）+ 钥匙孔（点缀）
+  Connection: `<path d="M12 2.9 19.7 5.7v5.7c0 4.5-3.2 8.3-7.7 9.7-4.5-1.4-7.7-5.2-7.7-9.7V5.7L12 2.9Z" fill="url(#gd-I)"/><circle cx="12" cy="10.4" r="2.1" fill="${X}"/><path d="M12 12.4v3.5" stroke="${X}" stroke-width="1.9" stroke-linecap="round"/>`,
+
+  // 页脚设置：明信片（卡 + 邮票 + 地址线）
+  Postcard: `<rect x="2.8" y="6" width="18.4" height="12" rx="1.9" fill="url(#gd-C)"/><rect x="15.2" y="7.9" width="3.9" height="3.9" rx=".9" fill="${X}"/><path d="M5.6 9.4h7.2M5.6 12.2h5M5.6 15h7.2" stroke="#CFFAFE" stroke-width="1.5" stroke-linecap="round"/>`,
+
+  // 共享文档管理：打开的文件夹（后板 + 前板，真实部件）
+  FolderOpened: `<path d="M3.4 8V6.4a1.9 1.9 0 0 1 1.9-1.9h3.3l1.8 2.3h6.3a1.9 1.9 0 0 1 1.9 1.9V8H3.4Z" fill="${A_L}"/><path d="M3.9 8h15.4l2 8.5a1.7 1.7 0 0 1-1.7 2.1H5.3a1.7 1.7 0 0 1-1.7-2.1L3.9 8Z" fill="url(#gd-A)"/><rect x="8.4" y="11.2" width="6.4" height="1.7" rx=".85" fill="${X}"/>`,
+
+  // 全部文档：两张叠放的票券 + 撕线
+  Tickets: `<rect x="4.2" y="3.8" width="12.6" height="9" rx="1.7" fill="${V_L}"/><rect x="6.4" y="8.4" width="13.4" height="11" rx="1.9" fill="url(#gd-V)"/><path d="M6.4 14h13.4" stroke="#fff" stroke-width="1.2" stroke-dasharray="1.7 1.7" opacity=".75"/><circle cx="17.2" cy="11.2" r="1.4" fill="${X}"/>`,
+
+  // 操作审计：清单（两条勾 + 两条文字线）
+  List: `<rect x="4.4" y="3.4" width="15.2" height="17.2" rx="2.3" fill="url(#gd-E)"/><path d="M7.6 8.2l1.4 1.4 2.3-2.3" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.4 8.6h3.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity=".85"/><path d="M7.6 13.4l1.4 1.4 2.3-2.3" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.4 13.8h3.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity=".85"/><circle cx="16.8" cy="17.4" r="1.4" fill="${X}"/>`,
+
+  // 积分排行榜：上升折线 + 箭头（与「数据看板」的三根柱区分开）
+  TrendCharts: `<path d="M3.6 18.4l4.8-5 3.1 3.1 6-7.1" fill="none" stroke="${B_D}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.2 9.4h4.6v4.6" fill="none" stroke="${B_D}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.4" cy="13.4" r="1.7" fill="${X}"/><path d="M3.6 21h16.8" stroke="${B_L}" stroke-width="2" stroke-linecap="round"/>`,
+
+  // 偏好设置：两条滑杆 + 两个滑块
+  Operation: `<rect x="3.2" y="7.1" width="17.6" height="1.9" rx=".95" fill="${S_L}"/><rect x="3.2" y="15" width="17.6" height="1.9" rx=".95" fill="${S_L}"/><circle cx="9.2" cy="8.05" r="2.7" fill="url(#gd-S)"/><circle cx="15.4" cy="15.95" r="2.7" fill="${X}"/>`,
+
+  // 帖子管理：便签（琥珀纸 + 折角 + 文字线），与蓝色「文档」区分
+  Memo: `<path d="M5.2 4.2h11.2l3.4 3.4v12a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V5.9a1.7 1.7 0 0 1 1.7-1.7Z" fill="url(#gd-A)"/><path d="M16.4 4.2v3.4h3.4" fill="#FEF3C7"/><path d="M7.2 10.6h8.6M7.2 13.6h8.6M7.2 16.6h5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity=".9"/>`,
+
+  // 分类标签：价签（整块 + 圆孔 + 文字线），与紫色「标签」区分
+  PriceTag: `<rect x="4.2" y="6.2" width="15.6" height="12.6" rx="2.4" fill="url(#gd-R)"/><circle cx="8.2" cy="9.9" r="1.6" fill="#fff"/><path d="M11.4 10h5.4M11.4 13.2h5.4M11.4 16.4h3.2" stroke="${R_L}" stroke-width="1.5" stroke-linecap="round"/><circle cx="17.4" cy="16.2" r="1.4" fill="${X}"/>`,
+
+  // 水印设置：印章落纸（手柄 + 柱 + 印面 + 纸上的琥珀印痕），与「工具」区分
+  Stamp: `<rect x="8.4" y="2.6" width="7.2" height="2.3" rx="1.15" fill="${S_L}"/><rect x="10.4" y="4.9" width="3.2" height="5.6" fill="url(#gd-S)"/><rect x="6.2" y="10.5" width="11.6" height="3.3" rx="1.3" fill="url(#gd-S)"/><rect x="4.2" y="16.4" width="15.6" height="3.6" rx="1.5" fill="${X}"/>`,
+
+  // 我的订阅：整只铃 + 铃舌
+  Bell: `<path d="M12 3.4a6.1 6.1 0 0 1 6.1 6.1v3.9l1.7 2.7H4.2l1.7-2.7V9.5A6.1 6.1 0 0 1 12 3.4Z" fill="url(#gd-A)"/><path d="M9.7 18.2a2.3 2.3 0 0 0 4.6 0h-4.6Z" fill="${A_L}"/><circle cx="12" cy="2.9" r="1.25" fill="${X}"/>`,
+
+  // 答题：试卷 + 笔尖（真实部件）
+  Edit: `<rect x="3.8" y="3.4" width="14" height="17.2" rx="2.2" fill="url(#gd-V)"/><path d="M7 8.4h6.6M7 12h5" stroke="#EDE9FE" stroke-width="1.6" stroke-linecap="round"/><path d="M13.6 16.9l4.2-4.2 1.7 1.7-4.2 4.2-2.2.5.5-2.2Z" fill="${X}"/>`,
+
+  // 用户与权限：两个真实的人（前 + 后）+ 点缀
+  Management: `<circle cx="9" cy="8.6" r="3.3" fill="url(#gd-I)"/><path d="M3.4 19.8a5.6 5.6 0 0 1 11.2 0H3.4Z" fill="url(#gd-I)"/><circle cx="16.8" cy="9.8" r="2.5" fill="${I_L}"/><path d="M13.6 19.8a4.4 4.4 0 0 1 8.8 0h-8.8Z" fill="${I_L}"/><circle cx="20.2" cy="4.6" r="1.35" fill="${X}"/>`,
+
   // 个人资料：整头 + 整肩 + 肩章
   UserFilled: `<circle cx="12" cy="8.2" r="4.1" fill="url(#gd-I)"/><path d="M4.6 20.4a7.4 7.4 0 0 1 14.8 0H4.6Z" fill="url(#gd-I)"/><rect x="9.3" y="16.8" width="5.4" height="1.5" rx=".7" fill="${X}"/>`,
 }
