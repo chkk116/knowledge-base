@@ -9,7 +9,7 @@ import {
 import ProviderLogo from '../components/ProviderLogo.vue'
 import { useAuthStore } from '../store/auth'
 import {
-  aiAsk, listAiModels, listConversations, createConversation, updateConversation,
+  aiAsk, aiAskStream, listAiModels, listConversations, createConversation, updateConversation,
   deleteConversation, listMessages
 } from '../api/ai'
 import MarkdownIt from 'markdown-it'
@@ -743,15 +743,50 @@ async function send(text) {
   try {
     abortCtrl.value = new AbortController()
     // 思考强度作用于提示词：普通问答也带上，保持和 Agent 模式一致的风格控制
-    const { data } = await aiAsk(thinkPrefix(think.value) + q, convId, mode.value, {
-      modelId: selectedModelId.value || null, signal: abortCtrl.value.signal,
-      images: images.length ? images : null
-    })
-    const curAi = convMessages.value[convId] || []
-    convMessages.value[convId] = [...curAi, {
-      role: 'ai', content: data.answer || '（暂无返回内容）',
-      sources: data.sources || [], mode: mode.value, meta: buildMeta(data)
+    const question = thinkPrefix(think.value) + q
+
+    // 先插一条空的 AI 消息，收到增量就往里追加 —— 首字到达即渲染，不用等整段生成完
+    const startIdx = (convMessages.value[convId] || []).length
+    convMessages.value[convId] = [...(convMessages.value[convId] || []), {
+      role: 'ai', content: '', sources: [], mode: mode.value, streaming: true, reasoning: ''
     }]
+    let lastScroll = 0
+    const patch = (fn) => {
+      const arr = convMessages.value[convId]
+      if (!arr || !arr[startIdx]) return
+      fn(arr[startIdx])
+      convMessages.value[convId] = [...arr]
+      const now = Date.now()
+      if (currentId.value === convId && now - lastScroll > 80) { lastScroll = now; scrollToBottom() }
+    }
+
+    let data
+    try {
+      data = await aiAskStream(question, convId, mode.value, {
+        modelId: selectedModelId.value || null,
+        images: images.length ? images : null,
+        signal: abortCtrl.value.signal,
+        onDelta: (d) => patch((m) => { m.content += d }),
+        onReasoning: (r) => patch((m) => { m.reasoning = (m.reasoning || '') + r })
+      })
+    } catch (err) {
+      // 旧后端没有 /ai/ask/stream：404 时回退到一次性接口，保证兼容
+      if (err && err.status === 404) {
+        const { data: fallback } = await aiAsk(question, convId, mode.value, {
+          modelId: selectedModelId.value || null, signal: abortCtrl.value.signal,
+          images: images.length ? images : null
+        })
+        data = fallback
+      } else {
+        throw err
+      }
+    }
+    patch((m) => {
+      m.content = data.answer || m.content || '（暂无返回内容）'
+      m.sources = data.sources || []
+      m.meta = buildMeta(data)
+      m.streaming = false
+    })
     if (currentId.value === convId) {
       const c2 = conversations.value.find((c) => c.id === convId)
       if (c2 && data.title && data.title !== c2.title) c2.title = data.title
@@ -760,8 +795,17 @@ async function send(text) {
     }
   } catch (e) {
     const curErr = convMessages.value[convId] || []
-    const stopped = e && (e.name === 'CanceledError' || e.code === 'ERR_CANCELED')
-    convMessages.value[convId] = [...curErr, { role: 'ai', content: stopped ? '（已停止生成）' : '请求失败，请稍后重试。', sources: [], mode: mode.value }]
+    const stopped = e && (e.name === 'CanceledError' || e.code === 'ERR_CANCELED' || e.name === 'AbortError')
+    const text = stopped ? '（已停止生成）' : '请求失败，请稍后重试。'
+    const last = curErr[curErr.length - 1]
+    if (last && last.streaming) {
+      // 已经吐了部分内容就保留，只把 streaming 标记摘掉；一个字都没有才替换成提示
+      if (last.content) last.streaming = false
+      else curErr[curErr.length - 1] = { role: 'ai', content: text, sources: [], mode: mode.value }
+      convMessages.value[convId] = [...curErr]
+    } else {
+      convMessages.value[convId] = [...curErr, { role: 'ai', content: text, sources: [], mode: mode.value }]
+    }
   } finally {
     abortCtrl.value = null
     loadingSet.value.delete(convId)

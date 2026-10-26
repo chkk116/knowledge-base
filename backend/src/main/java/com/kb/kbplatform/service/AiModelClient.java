@@ -42,11 +42,21 @@ public class AiModelClient {
     private final AiKeyCipher cipher;
     private final AiUsageLogRepository usageRepo;
     private final Map<Long, RestClient> clients = new ConcurrentHashMap<>();
+    /** 流式解析 SSE 用（RestClient 不支持逐块读取，单独走 java.net.http）；项目是 Jackson 3（tools.jackson） */
+    private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder().build();
+    private final java.net.http.HttpClient streamingHttp = java.net.http.HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     public AiModelClient(AiModelRepository repo, AiKeyCipher cipher, AiUsageLogRepository usageRepo) {
         this.repo = repo;
         this.cipher = cipher;
         this.usageRepo = usageRepo;
+    }
+
+    /** 流式回调：每收到一段增量调用一次；reasoning 为思考过程（无则 null） */
+    public interface StreamSink {
+        void accept(String delta, String reasoning) throws Exception;
     }
 
     /** 用户端可选模型（不含 Key，供对话页下拉使用） */
@@ -93,6 +103,97 @@ public class AiModelClient {
      */
     public AiChatResult chat(Long modelId, List<Map<String, Object>> messages) {
         return chatChain(candidates(modelId), messages, "chat");
+    }
+
+    /** 流式版 chat：同样沿降级链尝试，但把增量实时回调给 sink */
+    public AiChatResult chatStream(Long modelId, List<Map<String, Object>> messages, StreamSink sink) {
+        List<AiModel> chain = candidates(modelId);
+        if (chain.isEmpty()) {
+            return AiChatResult.fail("尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。");
+        }
+        List<String> errors = new ArrayList<>();
+        for (AiModel m : chain) {
+            long t0 = System.currentTimeMillis();
+            StringBuilder acc = new StringBuilder();
+            StringBuilder think = new StringBuilder();
+            Map<String, Object> usage = null;
+            try {
+                String key = cipher.decrypt(m.getApiKey());
+                if (key == null || key.isBlank()) throw new IllegalStateException("API Key 为空或解密失败");
+
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("model", m.getModel());
+                body.put("temperature", 0.3);
+                body.put("max_tokens", 16384);
+                body.put("stream", true);
+                // 部分平台（OpenAI/DeepSeek/智谱）支持在最后一个 chunk 带 usage；不支持的平台忽略即可
+                body.put("stream_options", Map.of("include_usage", true));
+                body.put("messages", messages);
+
+                java.net.http.HttpRequest req = java.net.http.HttpRequest
+                        .newBuilder(java.net.URI.create(baseUrlOf(m) + "/chat/completions"))
+                        .timeout(Duration.ofSeconds(600))
+                        .header("Authorization", "Bearer " + key.trim())
+                        .header("Content-Type", "application/json")
+                        .header("Accept", "text/event-stream")
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+                        .build();
+
+                java.net.http.HttpResponse<java.util.stream.Stream<String>> resp =
+                        streamingHttp.send(req, java.net.http.HttpResponse.BodyHandlers.ofLines());
+                if (resp.statusCode() >= 400) {
+                    String head;
+                    try (var st = resp.body()) { head = st.limit(3).reduce("", (a, b) -> a + b); }
+                    throw new IllegalStateException("HTTP " + resp.statusCode() + " " + head);
+                }
+
+                String sinkError = null;
+                try (var lines2 = resp.body()) {
+                    var it = lines2.iterator();
+                    while (it.hasNext()) {
+                        String line = it.next();
+                        if (line == null || !line.startsWith("data:")) continue;   // 忽略心跳/空行
+                        String payload = line.substring(5).trim();
+                        if (payload.isEmpty() || "[DONE]".equals(payload)) continue;
+                        tools.jackson.databind.JsonNode node;
+                        try { node = JSON.readTree(payload); } catch (Exception ignore) { continue; }
+                        if (node.has("usage") && !node.get("usage").isNull()) {
+                            usage = JSON.convertValue(node.get("usage"), Map.class);
+                        }
+                        var choices = node.path("choices");
+                        if (!choices.isArray() || choices.isEmpty()) continue;
+                        var delta = choices.get(0).path("delta");
+                        String piece = delta.path("content").asText("");
+                        String thinkPiece = delta.path("reasoning_content").asText("");
+                        if (piece.isEmpty() && thinkPiece.isEmpty()) continue;
+                        if (!piece.isEmpty()) acc.append(piece);
+                        if (!thinkPiece.isEmpty()) think.append(thinkPiece);
+                        try {
+                            sink.accept(piece, thinkPiece.isEmpty() ? null : thinkPiece);
+                        } catch (Exception se) {
+                            // 客户端断开：停止读流，但保留已产出的内容
+                            sinkError = "client-abort";
+                            break;
+                        }
+                    }
+                }
+                long ms = System.currentTimeMillis() - t0;
+                if (acc.isEmpty()) throw new IllegalStateException("模型未返回任何内容" + (sinkError == null ? "" : "（客户端中断）"));
+                recordUsage(m, "chat", true, usage, ms, null);
+                return new AiChatResult(acc.toString(), m.getModel(), m.getName(), ms, usage,
+                        think.isEmpty() ? null : think.toString());
+            } catch (Exception e) {
+                long ms = System.currentTimeMillis() - t0;
+                log.warn("AI 流式调用失败(name={}): {}", m.getName(), e.getMessage());
+                errors.add(m.getName() + ": " + e.getMessage());
+                recordUsage(m, "chat", false, null, ms, e.getMessage());
+            }
+        }
+        if (!errors.isEmpty()) log.warn("AI 流式全部候选模型均失败：{}", String.join("；", errors));
+        String hint = errors.isEmpty()
+                ? "AI 服务暂时不可用，请稍后重试。"
+                : "AI 服务暂时不可用：已依次尝试 " + errors.size() + " 个模型，均调用失败，请稍后重试。";
+        return AiChatResult.fail(hint);
     }
 
     /** 沿给定候选链依次尝试（对话降级链与「测试连接」的单模型验证共用）；source 用于用量流水标记 */
@@ -217,11 +318,15 @@ public class AiModelClient {
         return chain;
     }
 
+    private String baseUrlOf(AiModel m) {
+        return m.getBaseUrl() == null || m.getBaseUrl().isBlank()
+                ? defaultBaseUrl(m.getProvider())
+                : m.getBaseUrl().trim();
+    }
+
     private RestClient clientFor(AiModel m) {
         return clients.computeIfAbsent(m.getId(), id -> {
-            String base = m.getBaseUrl() == null || m.getBaseUrl().isBlank()
-                    ? defaultBaseUrl(m.getProvider())
-                    : m.getBaseUrl().trim();
+            String base = baseUrlOf(m);
             RestClient.Builder b = RestClient.builder()
                     .baseUrl(base)
                     .requestFactory(timeoutRequestFactory());

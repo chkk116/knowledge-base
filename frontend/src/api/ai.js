@@ -10,6 +10,60 @@ import api from './request'
 export const aiAsk = (question, conversationId, mode, { modelId = null, images = null, ...config } = {}) =>
   api.post('/ai/ask', { question, conversationId, mode, modelId, images }, { timeout: 120000, ...config })
 
+/**
+ * 流式问答（SSE）：逐段回调 onDelta / onReasoning，结束后返回与 aiAsk 同结构的对象。
+ * 用 fetch + ReadableStream 而不是 axios：axios 浏览器端拿不到逐块 body。
+ * signal 直接交给 fetch —— abort 时连接断开，后端 sink 抛错退出并保留已生成内容。
+ */
+export async function aiAskStream(question, conversationId, mode, opts = {}) {
+  const { modelId = null, images = null, signal, onDelta, onReasoning } = opts
+  const token = localStorage.getItem('kb_token') || ''
+  const url = (api.defaults.baseURL || '') + '/ai/ask/stream'
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: JSON.stringify({ question, conversationId, mode, modelId, images }),
+    signal
+  })
+  if (!resp.ok || !resp.body) {
+    const err = new Error('HTTP ' + resp.status)
+    err.status = resp.status
+    throw err
+  }
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let result = null
+  const handle = (chunk) => {
+    let event = 'message'
+    const data = []
+    for (const line of chunk.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) data.push(line.slice(5).trim())
+    }
+    if (!data.length) return
+    let payload
+    try { payload = JSON.parse(data.join('\n')) } catch { return }
+    if (event === 'done') { result = payload; return }
+    if (event === 'error') { throw new Error(payload.error || 'AI 生成中断') }
+    if (payload.delta) onDelta && onDelta(payload.delta)
+    if (payload.reasoning) onReasoning && onReasoning(payload.reasoning)
+  }
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let idx
+    while ((idx = buf.indexOf('\n\n')) >= 0) {
+      const chunk = buf.slice(0, idx)
+      buf = buf.slice(idx + 2)
+      handle(chunk)
+    }
+  }
+  if (buf.trim()) handle(buf)
+  return result || {}
+}
+
 // 会话列表
 export const listConversations = () =>
   api.get('/ai/conversations')

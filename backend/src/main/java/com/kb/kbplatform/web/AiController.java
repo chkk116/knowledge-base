@@ -71,8 +71,70 @@ public class AiController {
         // 服务端必须兜底校验（前端压缩可绕过）：数量 ≤4、必须 data:image/*;base64、
         // 单张解码后 ≤2MB（base64 长度 ≈ 4/3 原始字节，用 3_000_000 字符近似）。
         // 缺校验会导致内存/带宽放大与 token 费用被刷（外部复审 2026-10-07）。
+        List<String> images = parseImages(body.get("images"));
+        return convService.ask(claims.userId(), conversationId, question, mode, modelId, images);
+    }
+
+    /**
+     * 流式问答（SSE）：逐段下发 {"delta":"..."} / {"reasoning":"..."}，结束发 done 事件（含 sources 等元信息）。
+     * 前端用 fetch + ReadableStream 读取，abort 时后端从 sink 抛错退出并保留已生成内容。
+     */
+    @PostMapping(value = "/ask/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter askStream(
+            @RequestAttribute("kbUser") TokenClaims claims, @RequestBody Map<String, Object> body) {
+        var emitter = new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(0L);
+        if (!rateLimit.allow("ai:ask:" + claims.userId(), 20, 60L * 60 * 1000)) {
+            emitOnce(emitter, "error", Map.of("error", "提问太频繁了，请稍后再试（每小时限 20 次）"));
+            return emitter;
+        }
+        String question = body.get("question") == null ? "" : body.get("question").toString();
+        Long conversationId = parseLong(body.get("conversationId"));
+        String mode = body.get("mode") == null ? "kb" : body.get("mode").toString();
+        Long modelId = parseLong(body.get("modelId"));
+        List<String> images = parseImages(body.get("images"));
+
+        SSE_POOL.execute(() -> {
+            try {
+                Map<String, Object> result = convService.askStream(claims.userId(), conversationId, question, mode,
+                        modelId, images, (delta, reasoning) -> {
+                            Map<String, Object> ev = new java.util.LinkedHashMap<>();
+                            if (delta != null && !delta.isEmpty()) ev.put("delta", delta);
+                            if (reasoning != null && !reasoning.isEmpty()) ev.put("reasoning", reasoning);
+                            if (!ev.isEmpty()) emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter
+                                    .event().data(ev, org.springframework.http.MediaType.APPLICATION_JSON));
+                        });
+                emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event().name("done")
+                        .data(result, org.springframework.http.MediaType.APPLICATION_JSON));
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("AI 流式问答中断: {}", e.getMessage());
+                emitOnce(emitter, "error", Map.of("error", "AI 生成中断，请重试"));
+                emitter.complete();
+            }
+        });
+        return emitter;
+    }
+
+    /** 流式下发放在独立线程池：不能占用 Tomcat 请求线程，也不能无限开线程 */
+    private static final java.util.concurrent.ExecutorService SSE_POOL =
+            java.util.concurrent.Executors.newFixedThreadPool(8, (r) -> {
+                Thread t = new Thread(r, "ai-sse");
+                t.setDaemon(true);
+                return t;
+            });
+
+    private void emitOnce(org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter,
+                          String name, Object data) {
+        try {
+            emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
+                    .name(name).data(data, org.springframework.http.MediaType.APPLICATION_JSON));
+            emitter.complete();
+        } catch (Exception ignore) { /* 客户端已断开 */ }
+    }
+
+    /** 图片校验（流式与非流式共用，避免两条链路规则漂移） */
+    private List<String> parseImages(Object imgsRaw) {
         List<String> images = new ArrayList<>();
-        Object imgsRaw = body.get("images");
         if (imgsRaw instanceof List<?> l) {
             for (Object o : l) {
                 if (o == null) continue;
@@ -92,7 +154,7 @@ public class AiController {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "一次最多附带 4 张图片");
             }
         }
-        return convService.ask(claims.userId(), conversationId, question, mode, modelId, images);
+        return images;
     }
 
     @GetMapping("/conversations")

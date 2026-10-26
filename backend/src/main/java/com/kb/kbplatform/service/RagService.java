@@ -84,19 +84,23 @@ public class RagService {
      * 多模态版本：imageUrls 为图片 dataURL 列表（data:image/png;base64,...）；为空则等同纯文本。
      * @param modelId 本次对话要用的模型配置 id；null = 用默认模型
      */
-    public Map<String, Object> ask(String question, List<Map<String, String>> history,
-                                   String instructions, String persona, String mode, Long modelId,
-                                   List<String> imageUrls) {
+    /** 检索 + Prompt 组装的结果；error 非空表示前置条件不满足（未启用/无模型） */
+    private record Prepared(List<Map<String, Object>> messages, List<Map<String, Object>> sources, String error) {}
+
+    /** 检索 + 组装 messages（ask 与 askStream 共用，避免两条链路提示词漂移） */
+    private Prepared prepare(String question, List<Map<String, String>> history,
+                             String instructions, String persona, String mode, Long modelId,
+                             List<String> imageUrls) {
         // 纯图片提问（question 为空但带了 imageUrls）是合法场景，只有两者都为空才拦
         boolean hasImages = imageUrls != null && imageUrls.stream().anyMatch(u -> u != null && !u.isBlank());
         if (!enabled || ((question == null || question.isBlank()) && !hasImages)) {
             if (!enabled) {
                 log.warn("AI 问答未启用：kb.ai.enabled=false（若已在「AI 模型管理」配好模型，请改回 true）");
             }
-            return Map.of("answer", "AI 问答暂不可用，请稍后再试或联系管理员。", "sources", List.of());
+            return new Prepared(null, List.of(), "AI 问答暂不可用，请稍后再试或联系管理员。");
         }
         if (!aiModelClient.hasAvailable()) {
-            return Map.of("answer", "尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。", "sources", List.of());
+            return new Prepared(null, List.of(), "尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。");
         }
 
         // 1. 检索相关知识片段（通用模式跳过检索）；多轮对话时检索词并入最近几轮用户消息，
@@ -204,7 +208,36 @@ public class RagService {
             messages.add(Map.<String, Object>of("role", "user", "content", parts));
         }
 
-        AiModelClient.AiChatResult call = callModel(modelId, messages);
+        return new Prepared(messages, sources, null);
+    }
+
+    /** 一次性问答（非流式），行为与原实现一致 */
+    public Map<String, Object> ask(String question, List<Map<String, String>> history,
+                                   String instructions, String persona, String mode, Long modelId,
+                                   List<String> imageUrls) {
+        Prepared p = prepare(question, history, instructions, persona, mode, modelId, imageUrls);
+        if (p.error() != null) return Map.of("answer", p.error(), "sources", List.of());
+        AiModelClient.AiChatResult call = callModel(modelId, p.messages());
+        return assemble(call, p.sources());
+    }
+
+    /**
+     * 流式问答：模型每吐出一段文本就回调一次 sink（前端据此逐字渲染）。
+     * 返回结构与 ask() 完全一致，answer 是汇总后的完整文本（用于落库）。
+     */
+    public Map<String, Object> askStream(String question, List<Map<String, String>> history,
+                                         String instructions, String persona, String mode, Long modelId,
+                                         List<String> imageUrls, AiModelClient.StreamSink sink) throws Exception {
+        Prepared p = prepare(question, history, instructions, persona, mode, modelId, imageUrls);
+        if (p.error() != null) {
+            sink.accept(p.error(), null);
+            return Map.of("answer", p.error(), "sources", List.of());
+        }
+        AiModelClient.AiChatResult call = aiModelClient.chatStream(modelId, p.messages(), sink);
+        return assemble(call, p.sources());
+    }
+
+    private Map<String, Object> assemble(AiModelClient.AiChatResult call, List<Map<String, Object>> sources) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("answer", call.text());
         result.put("sources", sources);
