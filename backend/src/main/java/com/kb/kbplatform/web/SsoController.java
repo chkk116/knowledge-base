@@ -34,6 +34,7 @@ public class SsoController {
     private final com.kb.kbplatform.service.WeChatAuthService wechat;
     private final com.kb.kbplatform.service.QqAuthService qq;
     private final com.kb.kbplatform.service.GithubAuthService github;
+    private final com.kb.kbplatform.service.GiteeAuthService gitee;
     private final com.kb.kbplatform.repository.UserIdentityRepository identities;
     private final AuthService auth;
     private final RateLimitService rateLimit;
@@ -42,6 +43,7 @@ public class SsoController {
                          com.kb.kbplatform.service.WeChatAuthService wechat,
                          com.kb.kbplatform.service.QqAuthService qq,
                          com.kb.kbplatform.service.GithubAuthService github,
+                         com.kb.kbplatform.service.GiteeAuthService gitee,
                          com.kb.kbplatform.repository.UserIdentityRepository identities,
                          AuthService auth, RateLimitService rateLimit) {
         this.ldap = ldap;
@@ -49,6 +51,7 @@ public class SsoController {
         this.wechat = wechat;
         this.qq = qq;
         this.github = github;
+        this.gitee = gitee;
         this.identities = identities;
         this.auth = auth;
         this.rateLimit = rateLimit;
@@ -66,6 +69,8 @@ public class SsoController {
         ret.put("qqLabel", qq.buttonLabel());
         ret.put("github", github.enabled());
         ret.put("githubLabel", github.buttonLabel());
+        ret.put("gitee", gitee.enabled());
+        ret.put("giteeLabel", gitee.buttonLabel());
         return ret;
     }
 
@@ -208,7 +213,26 @@ public class SsoController {
         }
     }
 
-    /** 已登录用户在「个人中心」点「绑定微信/QQ/GitHub」：返回一次性授权地址（state 里带 userId） */
+    @GetMapping("/api/auth/sso/gitee/start")
+    public org.springframework.http.ResponseEntity<Void> giteeStart(@RequestParam(required = false) String origin) {
+        return found(gitee.authorizeUrl(base(origin), null));
+    }
+
+    @GetMapping("/api/auth/sso/gitee/callback")
+    public org.springframework.http.ResponseEntity<Void> giteeCallback(@RequestParam(required = false) String code,
+                                                                      @RequestParam(required = false) String state,
+                                                                      @RequestParam(required = false) String origin) {
+        String b = base(origin);
+        try {
+            var u = gitee.callback(code, state);
+            return finish(b, "gitee", u.externalId(), u.login(), null, u.nickname(), u.avatar(),
+                    u.bindUserId(), gitee.autoRegister(), "Gitee");
+        } catch (Exception e) {
+            return fail(b, e.getMessage());
+        }
+    }
+
+    /** 已登录用户在「个人中心」点「绑定微信/QQ/GitHub/Gitee」：返回一次性授权地址（state 里带 userId） */
     @GetMapping("/api/auth/sso/bind/start")
     public Map<String, Object> bindStart(@RequestAttribute("kbUser") TokenClaims c,
                                         @RequestParam String provider,
@@ -220,6 +244,7 @@ public class SsoController {
             case "wechat" -> wechat.authorizeUrl(b, uid);
             case "qq" -> qq.authorizeUrl(b, uid);
             case "github" -> github.authorizeUrl(b, uid);
+            case "gitee" -> gitee.authorizeUrl(b, uid);
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的身份源");
         };
         Map<String, Object> ret = new LinkedHashMap<>();
@@ -336,6 +361,18 @@ public class SsoController {
         return qq.save(body);
     }
 
+    @GetMapping("/api/admin/sso/gitee")
+    public Map<String, Object> getGitee(@RequestAttribute("kbUser") TokenClaims c) {
+        requireAdmin(c);
+        return gitee.config();
+    }
+
+    @PutMapping("/api/admin/sso/gitee")
+    public Map<String, Object> saveGitee(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
+        requireAdmin(c);
+        return gitee.save(body);
+    }
+
     @GetMapping("/api/admin/sso/github")
     public Map<String, Object> getGithub(@RequestAttribute("kbUser") TokenClaims c) {
         requireAdmin(c);
@@ -368,6 +405,10 @@ public class SsoController {
         if ("all".equals(t) || "wechat".equals(t)) {
             out.put("wechat_api", com.kb.kbplatform.service.HttpFetch.probe("https://api.weixin.qq.com/sns/oauth2/access_token"));
             out.put("wechat_open", com.kb.kbplatform.service.HttpFetch.probe("https://open.weixin.qq.com/connect/qrconnect"));
+        }
+        if ("all".equals(t) || "gitee".equals(t)) {
+            out.put("gitee_api", com.kb.kbplatform.service.HttpFetch.probe("https://gitee.com/api/v5/user"));
+            out.put("gitee_oauth", com.kb.kbplatform.service.HttpFetch.probe("https://gitee.com/oauth/token"));
         }
         if ("all".equals(t) || "qq".equals(t)) {
             out.put("qq_graph", com.kb.kbplatform.service.HttpFetch.probe("https://graph.qq.com/oauth2.0/me"));

@@ -71,6 +71,7 @@ const oidcEnabled = ref(false)
 const wechatEnabled = ref(false)
 const qqEnabled = ref(false)
 const githubEnabled = ref(false)
+const giteeEnabled = ref(false)
 const oidcLabel = ref('企业单点登录')
 
 function startOidc() {
@@ -92,6 +93,7 @@ async function loadSsoOptions() {
     wechatEnabled.value = !!(data && data.wechat)
     qqEnabled.value = !!(data && data.qq)
     githubEnabled.value = !!(data && data.github)
+    giteeEnabled.value = !!(data && data.gitee)
     if (data && data.oidcLabel) oidcLabel.value = data.oidcLabel
   } catch { /* 身份源未配置/接口异常：保持普通登录 */ }
 }
@@ -502,7 +504,7 @@ function startParticles() {
         </el-form>
 
         <!-- 第三方登录：**只在后台配好 AppID/Secret 后出现**，没配置就整块不渲染 -->
-        <div v-if="wechatEnabled || qqEnabled || githubEnabled" class="other-login">
+        <div v-if="wechatEnabled || qqEnabled || githubEnabled || giteeEnabled" class="other-login">
           <div class="divider"><span>其他登录方式</span></div>
           <div class="other-icons">
             <a v-if="wechatEnabled" class="oa oa-wechat" title="微信扫码登录" @click="startSocial('wechat')">
@@ -510,6 +512,9 @@ function startParticles() {
             </a>
             <a v-if="qqEnabled" class="oa oa-qq" title="QQ 登录" @click="startSocial('qq')">
               <el-icon><ChatLineRound /></el-icon>
+            </a>
+            <a v-if="giteeEnabled" class="oa oa-gitee" title="Gitee 登录" @click="startSocial('gitee')">
+              <span class="oa-g">G</span>
             </a>
             <a v-if="githubEnabled" class="oa oa-github" title="GitHub 登录" @click="startSocial('github')">
               <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
@@ -709,6 +714,8 @@ function startParticles() {
 .oa:hover { transform: translateY(-2px); }
 .oa-wechat { background: #07c160; box-shadow: 0 6px 14px -4px rgba(7,193,96,.45); }
 .oa-github { background: #24292f; box-shadow: 0 6px 14px -4px rgba(36,41,47,.45); }
+.oa-gitee { background: #c71d23; box-shadow: 0 6px 14px -4px rgba(199,29,35,.45); }
+.oa-gitee .oa-g { font-size: 17px; font-weight: 700; color: #fff; line-height: 1; }
 .oa-qq     { background: #12B7F5; box-shadow: 0 6px 14px -4px rgba(18,183,245,.45); }
 .oa-wecom  { background: #2f87f5; box-shadow: 0 6px 14px -4px rgba(47,135,245,.45); }
 

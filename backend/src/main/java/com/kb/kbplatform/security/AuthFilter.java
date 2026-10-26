@@ -169,6 +169,7 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/auth/sso/wechat/")) return true;
         if (path.startsWith("/api/auth/sso/qq/")) return true;
         if (path.startsWith("/api/auth/sso/github/")) return true;
+        if (path.startsWith("/api/auth/sso/gitee/")) return true;
         if (path.startsWith("/api/users/") && "GET".equals(method)) return true;  // 作者卡片公开可读
         if (path.startsWith("/api/search") && "GET".equals(method)) return true;
         // 文档只读接口公开；/api/docs/mine 含个人数据，需登录

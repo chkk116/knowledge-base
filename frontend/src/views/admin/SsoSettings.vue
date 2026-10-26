@@ -243,6 +243,16 @@ const socials = ref([
     cfg: {}, form: {}, saving: false
   },
   {
+    key: 'gitee', title: 'Gitee 登录',
+    idField: 'clientId', secretField: 'clientSecret', secretFlag: 'ClientSecret',
+    idLabel: 'Client ID', secretLabel: 'Client Secret',
+    idPlaceholder: 'gitee.com/oauth/applications 里的 Client ID',
+    defaultLabel: 'Gitee 登录',
+    tip: '国内门槛最低的一家：gitee.com/oauth/applications 新建应用即可，**个人账号就能申请**，不要企业资质和认证费。'
+      + '回调地址填 https://你的域名/api/auth/sso/gitee/callback，审核基本是即时生效。',
+    cfg: {}, form: {}, saving: false
+  },
+  {
     key: 'github', title: 'GitHub 登录',
     idField: 'clientId', secretField: 'clientSecret', secretFlag: 'ClientSecret',
     idLabel: 'Client ID', secretLabel: 'Client Secret',
