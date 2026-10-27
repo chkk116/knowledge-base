@@ -53,5 +53,10 @@ fun NativeHtmlText(html: String, modifier: Modifier = Modifier) {
  */
 fun needsRichWebView(html: String): Boolean {
     val h = html.lowercase()
-    return h.contains("<img") || h.contains("<table") || h.contains("<video") || h.contains("<iframe")
+    if (h.contains("<img") || h.contains("<table") || h.contains("<video") || h.contains("<iframe")) return true
+    // 图块（流程图 / 思维导图 / 电子表格）是带 data-type 的自定义 div，
+    // AnnotatedString.fromHtml 不认这种节点会直接丢弃 —— 表现为「Web 正常、原生端这块空白」。
+    // 交给 WebView 由前端 Vue Flow / x-spreadsheet 渲染。
+    return h.contains("data-type=") || h.contains("x-spreadsheet") ||
+        h.contains("flowchart-block") || h.contains("mindmap-block")
 }
