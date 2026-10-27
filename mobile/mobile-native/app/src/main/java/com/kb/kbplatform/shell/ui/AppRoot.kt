@@ -71,6 +71,10 @@ fun AppRoot() {
      * `IllegalArgumentException: Navigation destination that matches route X cannot be found`，
      * 且是在点击事件里抛的 → 直接闪退。这里兜住，只打日志。
      * （Tab 页不是路由，跳 Tab 要用 switchTab，见 MainScaffold。）
+     *
+     * 2026-10-27：全工程只剩这一处 `nav.navigate`，其余（含带参数的 web/exam/doc-edit）
+     * 统一走 safeNav —— 之前它们是裸调，任何一个路由名写错都是秒退，而线上只能看到
+     * 混淆后的堆栈，极难定位。
      */
     val safeNav: (String) -> Unit = { route ->
         try {
@@ -116,7 +120,7 @@ fun AppRoot() {
         composable("main") {
             MainScaffold(
                 openWeb = { path, title ->
-                    nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
+                    safeNav("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
                 },
                 openRoute = { route -> safeNav(route) }
             )
@@ -136,16 +140,16 @@ fun AppRoot() {
         }
         composable("clip") { ClipScreen(onDone = { nav.popBackStack() }) }
         composable("inbox") { InboxScreen(onBack = { nav.popBackStack() }, openWeb = { p, t ->
-            nav.navigate("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
+            safeNav("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
         }, openRoute = { r -> safeNav(r) }) }
         composable("favorites") { FavoritesScreen(onBack = { nav.popBackStack() }, openWeb = { p, t ->
-            nav.navigate("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
+            safeNav("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
         }, openRoute = { r -> safeNav(r) }) }
         composable("history") { HistoryScreen(onBack = { nav.popBackStack() }, openWeb = { p, t ->
-            nav.navigate("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
+            safeNav("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
         }, openRoute = { r -> safeNav(r) }) }
         composable("all-docs") { AllDocsScreen(onBack = { nav.popBackStack() }, openWeb = { p, t ->
-            nav.navigate("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
+            safeNav("web?path=${Uri.encode(p)}&title=${Uri.encode(t)}")
         }, openRoute = { r -> safeNav(r) }) }
         composable("exam-mine") { ExamMineScreen(onBack = { nav.popBackStack() }) }
         composable("points") { PointsScreen(onBack = { nav.popBackStack() }) }
@@ -155,7 +159,7 @@ fun AppRoot() {
         composable("notes") { NotesScreen(onBack = { nav.popBackStack() }) }
             composable("search") {
                 SearchScreen(openWeb = { path, title ->
-                    nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
+                    safeNav("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
                 }, openRoute = { r -> safeNav(r) })
             }
             composable("ai") {
@@ -168,7 +172,7 @@ fun AppRoot() {
                 AdminHomeScreen(
                     onOpen = { r -> safeNav(r) },
                     onOpenWeb = { path, title ->
-                        nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
+                        safeNav("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
                     },
                     onBack = { nav.popBackStack() }
                 )
@@ -182,17 +186,17 @@ fun AppRoot() {
                 com.kb.kbplatform.shell.ui.admin.SiteSettingsScreen(
                     onBack = { nav.popBackStack() },
                     openWeb = { path, title ->
-                        nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
+                        safeNav("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
                     }
                 )
             }
             composable("exams") {
                 ExamCenterScreen(
                     openExam = { id, title ->
-                        nav.navigate("exam/${id}?title=${Uri.encode(title)}")
+                        safeNav("exam/${id}?title=${Uri.encode(title)}")
                     },
                     openWeb = { path, title ->
-                        nav.navigate("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
+                        safeNav("web?path=${Uri.encode(path)}&title=${Uri.encode(title)}")
                     },
                     openRoute = { route -> safeNav(route) }
                 )
@@ -225,7 +229,7 @@ fun AppRoot() {
                     titleHint = t,
                     onBack = { nav.popBackStack() },
                     onEdit = {
-                        nav.navigate("doc-edit/$sid/$did?title=${Uri.encode(t)}")
+                        safeNav("doc-edit/$sid/$did?title=${Uri.encode(t)}")
                     }
                 )
             }
@@ -247,7 +251,7 @@ fun AppRoot() {
             }
             composable("courses") { com.kb.kbplatform.shell.ui.misc.CoursesScreen(
                 onBack = { nav.popBackStack() },
-                openCourse = { id, title -> nav.navigate("course/$id?title=${Uri.encode(title)}") }
+                openCourse = { id, title -> safeNav("course/$id?title=${Uri.encode(title)}") }
             ) }
             composable(
                 route = "course/{id}?title={title}",
@@ -282,7 +286,7 @@ fun AppRoot() {
             composable("admin-docs") { com.kb.kbplatform.shell.ui.misc.AdminDocsScreen(onBack = { nav.popBackStack() }) }
             composable("discover") { com.kb.kbplatform.shell.ui.misc.DiscoverScreen(
                 onBack = { nav.popBackStack() },
-                openPost = { id, title -> nav.navigate("post/$id?title=${Uri.encode(title)}") }
+                openPost = { id, title -> safeNav("post/$id?title=${Uri.encode(title)}") }
             ) }
             composable("stats") { com.kb.kbplatform.shell.ui.misc.StatsScreen(onBack = { nav.popBackStack() }) }
             composable(
@@ -292,7 +296,7 @@ fun AppRoot() {
                 com.kb.kbplatform.shell.ui.misc.UserProfileScreen(
                     userId = entry.arguments?.getLong("id") ?: 0L,
                     onBack = { nav.popBackStack() },
-                    openPost = { id, title -> nav.navigate("post/$id?title=${Uri.encode(title)}") }
+                    openPost = { id, title -> safeNav("post/$id?title=${Uri.encode(title)}") }
                 )
             }
             composable(
@@ -311,7 +315,7 @@ fun AppRoot() {
             composable("about") { com.kb.kbplatform.shell.ui.misc.AboutScreen(
                 // 读构建产物里的版本号：原来写死 1.4.0-native，与 build.gradle 的 0.4.0 长期不一致
                 versionName = com.kb.kbplatform.shell.BuildConfig.VERSION_NAME,
-                onOpenChangelog = { nav.navigate("changelog") },
+                onOpenChangelog = { safeNav("changelog") },
                 onBack = { nav.popBackStack() }
             ) }
             composable("changelog") { com.kb.kbplatform.shell.ui.misc.StaticTextScreen("changelog", "更新日志", onBack = { nav.popBackStack() }) }
