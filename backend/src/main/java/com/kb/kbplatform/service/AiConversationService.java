@@ -83,6 +83,22 @@ public class AiConversationService {
         convRepo.delete(c);
     }
 
+    /** 批量删除会话：只删属于本人的，消息一并清理；单条失败不影响其它（这里用一次事务整体提交） */
+    @org.springframework.transaction.annotation.Transactional
+    public int deleteBatch(Long userId, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return 0;
+        int n = 0;
+        for (Long id : ids) {
+            if (id == null) continue;
+            AiConversation c = convRepo.findById(id).orElse(null);
+            if (c == null || !c.getUserId().equals(userId)) continue;   // 越权/已删：跳过，不报错
+            msgRepo.deleteByConversationId(id);
+            convRepo.delete(c);
+            n++;
+        }
+        return n;
+    }
+
     public List<Map<String, Object>> messages(Long userId, Long id) {
         AiConversation c = convRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在"));

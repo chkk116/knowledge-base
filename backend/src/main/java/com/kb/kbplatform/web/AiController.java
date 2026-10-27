@@ -183,6 +183,22 @@ public class AiController {
         return Map.of("ok", true);
     }
 
+    /** 批量删除会话：body { ids: [1,2,3] }，返回实际删除条数 */
+    @PostMapping("/conversations/batch-delete")
+    public Map<String, Object> batchDelete(@RequestAttribute("kbUser") TokenClaims claims,
+                                           @RequestBody Map<String, Object> body) {
+        List<Long> ids = new ArrayList<>();
+        if (body.get("ids") instanceof List<?> l) {
+            for (Object o : l) {
+                Long id = parseLong(o);
+                if (id != null) ids.add(id);
+            }
+        }
+        if (ids.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要删除的会话");
+        if (ids.size() > 200) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "一次最多删除 200 条");
+        return Map.of("deleted", convService.deleteBatch(claims.userId(), ids));
+    }
+
     @GetMapping("/conversations/{id}/messages")
     public List<Map<String, Object>> messages(@RequestAttribute("kbUser") TokenClaims claims,
                                     @PathVariable Long id) {
