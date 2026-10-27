@@ -355,6 +355,16 @@ private fun GlobalUpdatePrompt() {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val st by com.kb.kbplatform.shell.data.AppUpdater.state.collectAsState()
 
+    // 进入下载态时提示一次：告诉用户已经转到后台，可以继续用，不用守着
+    val downloading = st is com.kb.kbplatform.shell.data.AppUpdater.State.Downloading
+    androidx.compose.runtime.LaunchedEffect(downloading) {
+        if (downloading) {
+            android.widget.Toast.makeText(
+                ctx, "已在后台下载，可以继续使用，完成后会提示安装", android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     when (val s = st) {
         is com.kb.kbplatform.shell.data.AppUpdater.State.Available -> androidx.compose.material3.AlertDialog(
             onDismissRequest = { if (!s.force) com.kb.kbplatform.shell.data.AppUpdater.reset() },
@@ -366,7 +376,7 @@ private fun GlobalUpdatePrompt() {
                         androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
                     }
                     androidx.compose.material3.Text(
-                        "下载完成后会拉起系统安装器（首次需要允许「安装未知应用」）。",
+                        "点「后台更新」后可以继续使用 App，下载完成会提示安装（首次需要允许「安装未知应用」）。",
                         fontSize = 12.sp,
                         color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -375,7 +385,7 @@ private fun GlobalUpdatePrompt() {
             confirmButton = {
                 androidx.compose.material3.Button(onClick = {
                     scope.launch { com.kb.kbplatform.shell.data.AppUpdater.download(ctx) }
-                }) { androidx.compose.material3.Text("立即更新") }
+                }) { androidx.compose.material3.Text("后台更新") }
             },
             dismissButton = if (s.force) null else {
                 {
@@ -386,21 +396,10 @@ private fun GlobalUpdatePrompt() {
             }
         )
 
-        is com.kb.kbplatform.shell.data.AppUpdater.State.Downloading -> androidx.compose.material3.AlertDialog(
-            onDismissRequest = { },
-            title = { androidx.compose.material3.Text("正在下载更新") },
-            text = {
-                androidx.compose.foundation.layout.Column {
-                    androidx.compose.material3.Text(s.progress.toString() + "%", fontSize = 13.sp)
-                    androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
-                    androidx.compose.material3.LinearProgressIndicator(
-                        progress = { s.progress / 100f },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = { }
-        )
+        // 下载中**不弹窗**：点「立即更新」后自动转入后台下载，用户可以继续用 App。
+        // 原来这里是模态且 onDismissRequest 为空、没有按钮 —— 22MB 弱网要几分钟，用户只能干等。
+        // 进度改在「我的 → 检查更新」那一行显示，下载完再弹安装提示。
+        is com.kb.kbplatform.shell.data.AppUpdater.State.Downloading -> Unit
 
         is com.kb.kbplatform.shell.data.AppUpdater.State.Ready -> androidx.compose.material3.AlertDialog(
             onDismissRequest = { com.kb.kbplatform.shell.data.AppUpdater.reset() },

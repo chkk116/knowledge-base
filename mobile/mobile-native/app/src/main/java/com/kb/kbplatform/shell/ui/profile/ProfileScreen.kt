@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.kb.kbplatform.shell.ui.common.kbPress
+import com.kb.kbplatform.shell.ui.common.KbAvatarContent
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -177,19 +178,13 @@ fun ProfileScreen(
                     .clip(CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                if (avatarUrl.isNotBlank()) {
-                    coil.compose.AsyncImage(
-                        model = avatarUrl,
-                        contentDescription = "头像",
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Text(
-                        name.take(1),
-                        color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold
-                    )
-                }
+                KbAvatarContent(
+                    url = avatarUrl,
+                    fallbackText = name,
+                    fontSize = 23.sp,
+                    tint = Color.White,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f)) {
@@ -255,7 +250,12 @@ fun ProfileScreen(
                 Icons.Filled.Security, "应用锁",
                 if (com.kb.kbplatform.shell.data.AppLock.enabled()) "已开启（PIN 保护）" else "未开启"
             ) { showLockDialog = true },
-            MenuItem(Icons.Filled.SystemUpdate, "检查更新", updateSubtitle) { showUpdateDialog = true },
+            MenuItem(Icons.Filled.SystemUpdate, "检查更新", updateSubtitle) {
+                showUpdateDialog = true
+                // 点过「稍后」会把状态 reset 成 Idle，再进来只显示「当前已是最新版」——
+                // 实际远端有新版本，所以这里补一次检查。
+                if (updateState is AppUpdater.State.Idle) scope.launch { AppUpdater.check(ctx) }
+            },
             MenuItem(Icons.Filled.Info, "关于", "版本 · 更新日志 · 开源协议") { openRoute("about") },
             MenuItem(Icons.Filled.Policy, "隐私政策与免责声明", "") { openRoute("privacy") },
             MenuItem(Icons.Filled.Public, "网页版全部功能", "尚未原生化的页面在这里打开") { openWeb("/m/", "网页版") }
