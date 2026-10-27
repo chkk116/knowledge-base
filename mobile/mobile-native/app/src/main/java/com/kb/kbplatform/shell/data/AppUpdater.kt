@@ -83,6 +83,9 @@ object AppUpdater {
             _state.value = State.Error("下载地址无效")
             return
         }
+        // 关键：必须在改写状态「之前」取出 Available —— 下面会置为 Downloading，
+        // 之后再读 _state 只能拿到 Downloading，checksum 永远是空（等于校验被静默跳过）。
+        val avail = _state.value as? State.Available
         _state.value = State.Downloading(0)
         try {
             withContext(Dispatchers.IO) {
@@ -136,7 +139,7 @@ object AppUpdater {
 
                 // 校验安装包完整性：版本接口被中间人改写 / 下载被截断时，宁可报错也不要装上去。
                 // 服务端没给 checksum（老数据）就跳过，保持向后兼容。
-                val expect = (_state.value as? State.Available)?.checksum.orEmpty()
+                val expect = avail?.checksum.orEmpty()
                 if (expect.isNotBlank()) {
                     val actual = sha256Of(apkFile(ctx))
                     if (!actual.equals(expect, ignoreCase = true)) {
