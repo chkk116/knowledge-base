@@ -26,6 +26,7 @@ import { listMyFiles } from '../../api/file'
 import api from '../../api/request'
 import { buildFlowchartGraph, flowchartHtml } from '../../utils/flowchartGen'
 import { createShareDoc, updateShareDoc, getShareDoc } from '../../api/docShare'
+import { shareDocPath, normalizeNavPath } from '../../utils/docPath'
 import { resolveDefaultSpaceId } from '../../utils/spaceResolver'
 import { agentCreateQuestions } from '../../utils/questionGen'
 import MarkdownIt from 'markdown-it'
@@ -576,8 +577,11 @@ async function send(text) {
             navigate: async (path) => {
               if (!path || !String(path).startsWith('/')) return '跳转失败：路径不合法（需以 / 开头）'
               try {
-                router.push(String(path))
-                return '已跳转到 ' + path
+                const fixed = await normalizeNavPath(path, { mobile: true })
+                router.push(fixed)
+                return fixed === path
+                  ? '已跳转到 ' + path
+                  : `已跳转到 ${fixed}（原路径 ${path} 不存在，已按文档 id 纠正）`
               } catch (e) {
                 return '跳转失败：' + ((e && e.message) || e)
               }
@@ -607,10 +611,12 @@ async function send(text) {
                 if (docId) {
                   const { data } = await getShareDoc(sid, docId)
                   await updateShareDoc(sid, docId, { content: String(data.content || '') + html })
-                  return `已在共享文档《${data.title || docId}》中生成流程图${tip}`
+                  return `已在共享文档《${data.title || docId}》中生成流程图${tip}。`
+                    + `打开地址：${shareDocPath(sid, docId, true)}`
                 }
                 const { data } = await createShareDoc(sid, { title: t, content: html })
-                return `已新建共享文档《${t}》并生成流程图${tip}（id=${data && data.id}）`
+                return `已新建共享文档《${t}》并生成流程图${tip}（id=${data && data.id}）。`
+                  + `打开地址：${shareDocPath(sid, data && data.id, true)}`
               } catch (e) {
                 return '生成流程图失败：' + ((e && e.message) || e)
               }
