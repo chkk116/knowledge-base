@@ -98,7 +98,16 @@ object AppUpdater {
                 }
                 val f = apkFile(ctx)
                 val tmp = File(f.absolutePath + ".part")
-                val existing = if (tmp.exists()) tmp.length() else 0L
+                // 残片必须与本次下载地址一致才能续传：换版本/换域名后残留的 .part 拼进来会是损坏包
+                val meta = File(f.absolutePath + ".part.meta")
+                val oldStamp = if (meta.exists()) runCatching { meta.readText() }.getOrDefault("") else ""
+                var existing = if (tmp.exists()) tmp.length() else 0L
+                if (existing > 0 && oldStamp != full) {
+                    tmp.delete()
+                    meta.delete()
+                    existing = 0L
+                }
+                runCatching { meta.writeText(full) }
 
                 val reqBuilder = Request.Builder()
                     .url(full)
@@ -107,6 +116,12 @@ object AppUpdater {
 
                 ApiClient.http.newCall(reqBuilder.build()).execute().use { r ->
                     val resume = r.code == 206   // Partial Content：续传成功
+                    if (r.code == 416) {
+                        // 残片比远端还大：续传永远失败，清掉让用户重试一次即可自愈
+                        tmp.delete()
+                        meta.delete()
+                        throw IllegalStateException("断点数据已失效，请重新下载")
+                    }
                     if (!resume && !r.isSuccessful) {
                         throw IllegalStateException("下载失败(${r.code})")
                     }
@@ -149,6 +164,8 @@ object AppUpdater {
                 }
             }
             _state.value = State.Ready(apkFile(ctx))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e      // 取消要原样抛出，否则结构化并发被破坏、状态还停在 Error
         } catch (e: Exception) {
             _state.value = State.Error(e.message ?: "下载失败")
         }
