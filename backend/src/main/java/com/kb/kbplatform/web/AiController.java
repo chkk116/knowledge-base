@@ -82,7 +82,7 @@ public class AiController {
     @PostMapping(value = "/ask/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter askStream(
             @RequestAttribute("kbUser") TokenClaims claims, @RequestBody Map<String, Object> body) {
-        var emitter = new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(0L);
+        var emitter = new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(180_000L);
         if (!rateLimit.allow("ai:ask:" + claims.userId(), 20, 60L * 60 * 1000)) {
             emitOnce(emitter, "error", Map.of("error", "提问太频繁了，请稍后再试（每小时限 20 次）"));
             return emitter;
@@ -93,6 +93,7 @@ public class AiController {
         Long modelId = parseLong(body.get("modelId"));
         List<String> images = parseImages(body.get("images"));
 
+        try {
         SSE_POOL.execute(() -> {
             try {
                 Map<String, Object> result = convService.askStream(claims.userId(), conversationId, question, mode,
@@ -112,16 +113,24 @@ public class AiController {
                 emitter.complete();
             }
         });
+        } catch (java.util.concurrent.RejectedExecutionException busy) {
+            emitOnce(emitter, "error", Map.of("error", "当前提问人数较多，请稍后再试"));
+        }
         return emitter;
     }
 
     /** 流式下发放在独立线程池：不能占用 Tomcat 请求线程，也不能无限开线程 */
-    private static final java.util.concurrent.ExecutorService SSE_POOL =
-            java.util.concurrent.Executors.newFixedThreadPool(8, (r) -> {
-                Thread t = new Thread(r, "ai-sse");
-                t.setDaemon(true);
-                return t;
-            });
+    /** 并发上限 8、队列上限 32：流式任务会长时间占线程，无界队列会让人无限排队等不到首字 */
+    private static final int SSE_QUEUE = 32;
+    private static final java.util.concurrent.ThreadPoolExecutor SSE_POOL =
+            new java.util.concurrent.ThreadPoolExecutor(8, 8, 60, java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(SSE_QUEUE),
+                    (r) -> {
+                        Thread t = new Thread(r, "ai-sse");
+                        t.setDaemon(true);
+                        return t;
+                    },
+                    new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
 
     private void emitOnce(org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter,
                           String name, Object data) {
