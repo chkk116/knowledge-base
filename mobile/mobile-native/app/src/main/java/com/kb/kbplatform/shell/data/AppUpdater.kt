@@ -48,6 +48,29 @@ object AppUpdater {
 
     fun apkFile(ctx: Context): File = File(ctx.filesDir, "update.apk")
 
+    /**
+     * 语义化版本比较：1.3.4 > 0.9.11（按数字段比，不是字符串比）。
+     * 任一侧解析不出数字段就返回 false，避免把畸形版本号当更新推给用户。
+     */
+    private fun semverGreater(remote: String, local: String): Boolean {
+        fun parts(v: String): List<Int>? {
+            val raw = v.trim().removePrefix("v").removePrefix("V")
+                .substringBefore('-').substringBefore('+')
+            if (raw.isBlank()) return null
+            val out = ArrayList<Int>()
+            for (seg in raw.split('.')) out.add(seg.toIntOrNull() ?: return null)
+            return out
+        }
+        val r = parts(remote) ?: return false
+        val l = parts(local) ?: return false
+        for (i in 0 until maxOf(r.size, l.size)) {
+            val a = r.getOrElse(i) { 0 }
+            val b = l.getOrElse(i) { 0 }
+            if (a != b) return a > b
+        }
+        return false
+    }
+
     /** 拉取版本信息并与本地 versionCode 比对；无可更新时回落 Idle */
     suspend fun check(ctx: Context) {
         try {
@@ -57,13 +80,20 @@ object AppUpdater {
                 _state.value = State.Idle
                 return
             }
-            val localCode = try {
+            var localCode = 0L
+            var localName = ""
+            try {
                 val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
-                if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
+                localCode = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
+                localName = pi.versionName ?: ""
             } catch (e: Exception) {
-                0L
+                // 取不到就按 0 / 空处理，下面会走「只比远程 code」的兜底
             }
-            _state.value = if (remoteCode > localCode) State.Available(
+            // 历史版本用的是 0.9.x（code 三位数），现在换到 1.3.x（code 30x）：
+            // 光比 code 会得出「远程更旧」的结论，用户永远收不到更新。所以 name 也要比一次。
+            val remoteName = v.optString("versionName")
+            val newer = remoteCode > localCode || semverGreater(remoteName, localName)
+            _state.value = if (newer) State.Available(
                 versionName = v.optString("versionName").ifBlank { remoteCode.toString() },
                 notes = v.optString("notes"),
                 url = v.optString("url"),
