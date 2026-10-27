@@ -384,6 +384,7 @@ private fun GlobalUpdatePrompt() {
             },
             confirmButton = {
                 androidx.compose.material3.Button(onClick = {
+                    com.kb.kbplatform.shell.data.UpdateNotify.ensurePermission(ctx)
                     scope.launch { com.kb.kbplatform.shell.data.AppUpdater.download(ctx) }
                 }) { androidx.compose.material3.Text("后台更新") }
             },

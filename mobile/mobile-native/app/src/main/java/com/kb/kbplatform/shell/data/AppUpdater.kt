@@ -143,6 +143,7 @@ object AppUpdater {
                                     if (pct != lastPct) {
                                         lastPct = pct
                                         _state.value = State.Downloading(pct)
+                                        UpdateNotify.progress(ctx, pct)
                                     }
                                 }
                             }
@@ -164,10 +165,13 @@ object AppUpdater {
                 }
             }
             _state.value = State.Ready(apkFile(ctx))
+            // 通知栏留一条「点击安装」：用户切走后不用再回 App 找入口
+            UpdateNotify.done(ctx, apkFile(ctx))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e      // 取消要原样抛出，否则结构化并发被破坏、状态还停在 Error
         } catch (e: Exception) {
             _state.value = State.Error(e.message ?: "下载失败")
+            UpdateNotify.fail(ctx, e.message ?: "下载失败")
         }
     }
 
@@ -228,6 +232,8 @@ object AppUpdater {
             )
             InstallResult.STARTED
         } catch (e: Exception) {
+            // 别再静默吞掉：安装器拉不起来时，只有这条日志能看出是 FileProvider 还是 Intent 的问题
+            android.util.Log.e("KbUpdater", "拉起安装器失败: ${e.javaClass.simpleName}: ${e.message}", e)
             InstallResult.FAILED
         }
     }

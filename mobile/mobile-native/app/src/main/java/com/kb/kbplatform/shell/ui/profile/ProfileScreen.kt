@@ -332,8 +332,11 @@ fun ProfileScreen(
             },
             confirmButton = {
                 when (val s = updateState) {
-                    is AppUpdater.State.Available -> Button(onClick = { scope.launch { AppUpdater.download(ctx) } }) {
-                        Text("下载")
+                    is AppUpdater.State.Available -> Button(onClick = {
+                        com.kb.kbplatform.shell.data.UpdateNotify.ensurePermission(ctx)
+                        scope.launch { AppUpdater.download(ctx) }
+                    }) {
+                        Text("后台下载")
                     }
                     is AppUpdater.State.Ready -> Button(onClick = { AppUpdater.install(ctx) }) { Text("安装") }
                     is AppUpdater.State.Error -> Button(onClick = { scope.launch { AppUpdater.check(ctx) } }) {

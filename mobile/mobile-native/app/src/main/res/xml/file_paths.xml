@@ -2,8 +2,10 @@
 <paths>
     <!-- WebView capture 拍照的临时输出目录 -->
     <cache-path name="web_capture" path="web_capture/" />
-    <!-- 应用内更新 APK（filesDir/update.apk） -->
-    <files-path name="updates" path="update.apk" />
+    <!-- 应用内更新 APK（filesDir/update.apk）
+         ⚠️ path 必须是「目录」：原来写 path="update.apk"（一个文件），FileProvider 会把它当目录根，
+         生成的 URI 指向目录本身而不是文件 → 安装器打开失败，表现为「拉不起安装器 / 安装失败」。 -->
+    <files-path name="updates" path="." />
     <!-- 扫描导出的 PDF -->
     <external-files-path name="scan_docs" path="Documents/" />
 </paths>
