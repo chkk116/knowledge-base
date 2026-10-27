@@ -84,7 +84,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kb.kbplatform.shell.AppConfig
 import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.AppUpdater
 import com.kb.kbplatform.shell.data.KbApi
@@ -259,10 +258,6 @@ fun ProfileScreen(
             MenuItem(Icons.Filled.SystemUpdate, "检查更新", updateSubtitle) { showUpdateDialog = true },
             MenuItem(Icons.Filled.Info, "关于", "版本 · 更新日志 · 开源协议") { openRoute("about") },
             MenuItem(Icons.Filled.Policy, "隐私政策与免责声明", "") { openRoute("privacy") },
-            MenuItem(
-                Icons.Filled.Dns, "服务器地址",
-                AppConfig.effectiveBaseUrl + if (AppConfig.isInjected()) "（构建期注入）" else "（本地调试默认）"
-            ) { },
             MenuItem(Icons.Filled.Public, "网页版全部功能", "尚未原生化的页面在这里打开") { openWeb("/m/", "网页版") }
         )
 

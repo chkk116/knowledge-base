@@ -46,7 +46,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kb.kbplatform.shell.AppConfig
 import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.ui.captcha.SlideCaptcha
@@ -216,22 +215,6 @@ fun LoginScreen() {
                 }
             }
 
-            Spacer(Modifier.height(26.dp))
-            Column(
-                Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    "服务器：${AppConfig.effectiveBaseUrl}",
-                    fontSize = 11.sp, color = KbTextDim
-                )
-                if (!AppConfig.isInjected()) {
-                    Text(
-                        "本地调试默认地址 · 正式包由构建注入",
-                        fontSize = 11.sp, color = KbTextDim
-                    )
-                }
-            }
             Spacer(Modifier.height(22.dp))
         }
     }
