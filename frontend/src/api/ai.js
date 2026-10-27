@@ -52,7 +52,8 @@ export async function aiAskStream(question, conversationId, mode, opts = {}) {
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
-    buf += decoder.decode(value, { stream: true })
+    // 有些反向代理会把换行规范成 CRLF；SSE 规范两种都算事件边界，统一成 LF 再切
+    buf = (buf + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n')
     let idx
     while ((idx = buf.indexOf('\n\n')) >= 0) {
       const chunk = buf.slice(0, idx)
@@ -89,14 +90,15 @@ export async function batchDeleteConversations(ids) {
   } catch (e) {
     if (e && e.response && e.response.status === 404) {
       const queue = [...ids]
+      let ok = 0
       const worker = async () => {
         while (queue.length) {
           const id = queue.shift()
-          await deleteConversation(id)
+          try { await deleteConversation(id); ok++ } catch { /* 单条失败不影响其余 */ }
         }
       }
       await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker))
-      return ids.length
+      return ok
     }
     throw e
   }
