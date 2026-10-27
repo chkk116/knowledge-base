@@ -67,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.kb.kbplatform.shell.ui.theme.KbToneKind
 import com.kb.kbplatform.shell.ui.theme.kbIconGradient
 import com.kb.kbplatform.shell.ui.theme.kbTone
+import com.kb.kbplatform.shell.ui.common.KbAvatarContent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -446,19 +447,13 @@ private fun Hero(onAvatar: () -> Unit, onSearch: () -> Unit, onAi: () -> Unit) {
                     .kbPress(scaleDown = 0.92f, onClick = onAvatar),
                 contentAlignment = Alignment.Center
             ) {
-                if (avatarUrl.isNotBlank()) {
-                    coil.compose.AsyncImage(
-                        model = avatarUrl,
-                        contentDescription = "头像",
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Text(
-                        (me?.optString("displayName") ?: "").ifBlank { "?" }.take(1),
-                        color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold
-                    )
-                }
+                KbAvatarContent(
+                    url = avatarUrl,
+                    fallbackText = me?.optString("displayName").orEmpty(),
+                    fontSize = 18.sp,
+                    tint = Color.White,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
         Spacer(Modifier.height(14.dp))
