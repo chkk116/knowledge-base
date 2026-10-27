@@ -183,7 +183,7 @@ buildZip().then(() => {
   console.log('上传：把 zip 传到服务器 /opt/kb/app-bundles/ （nginx 暴露为 /app-bundles/）')
   console.log('然后把下面这段写进后台 SysSetting 的 app_bundle：')
   console.log('')
-  const base = process.env.KB_BASE || 'https://www.你的域名'
+  const base = process.env.KB_BASE || 'https://你的域名'
   console.log(JSON.stringify({
     version,
     url: `${base}/app-bundles/${zipName}`,
