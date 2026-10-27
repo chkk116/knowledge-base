@@ -10,7 +10,7 @@ import ProviderLogo from '../components/ProviderLogo.vue'
 import { useAuthStore } from '../store/auth'
 import {
   aiAsk, aiAskStream, listAiModels, listConversations, createConversation, updateConversation,
-  deleteConversation, listMessages
+  deleteConversation, batchDeleteConversations, listMessages
 } from '../api/ai'
 import MarkdownIt from 'markdown-it'
 import { useRouter } from 'vue-router'
@@ -870,6 +870,58 @@ async function removeConversation(id, e) {
   }
 }
 
+// ---------- 批量删除会话 ----------
+const batchMode = ref(false)
+const selectedIds = ref([])
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  selectedIds.value = []
+}
+
+function isSelected(id) {
+  return selectedIds.value.includes(id)
+}
+
+function toggleSelect(id) {
+  const i = selectedIds.value.indexOf(id)
+  if (i >= 0) selectedIds.value.splice(i, 1)
+  else selectedIds.value.push(id)
+}
+
+function selectAllConvs() {
+  selectedIds.value = selectedIds.value.length === conversations.value.length
+    ? []
+    : conversations.value.map((c) => c.id)
+}
+
+async function removeSelectedConvs() {
+  const ids = [...selectedIds.value]
+  if (!ids.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${ids.length} 个会话？删除后聊天记录无法恢复。`,
+      '批量删除', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  try {
+    await batchDeleteConversations(ids)
+    const gone = new Set(ids.map(String))
+    conversations.value = conversations.value.filter((c) => !gone.has(String(c.id)))
+    ids.forEach((id) => { delete convMessages.value[id] })
+    // 当前正在看的会话被删掉了 → 切到剩下的第一条，别停在空白页
+    if (ids.some((id) => String(id) === String(currentId.value))) {
+      currentId.value = conversations.value[0]?.id ?? null
+      if (currentId.value == null) localStorage.removeItem(STORAGE_KEY)
+    }
+    ElMessage.success(`已删除 ${ids.length} 个会话`)
+    batchMode.value = false
+    selectedIds.value = []
+  } catch (e) {
+    ElMessage.error('批量删除失败：' + ((e && e.message) || e))
+  }
+}
+
 function startRename(c, e) {
   e?.stopPropagation()
   renamingId.value = c.id
@@ -1103,17 +1155,35 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
           <el-icon><Plus /></el-icon><span>新建对话</span>
         </button>
       </div>
-      <div class="ai-conv-head">历史会话</div>
+      <div class="ai-conv-head">
+        <span>历史会话</span>
+        <div class="conv-head-acts">
+          <template v-if="batchMode">
+            <button type="button" class="conv-mini" @click="selectAllConvs">
+              {{ selectedIds.length === conversations.length && conversations.length ? '取消全选' : '全选' }}
+            </button>
+            <button type="button" class="conv-mini danger" :disabled="!selectedIds.length" @click="removeSelectedConvs">
+              删除{{ selectedIds.length ? `(${selectedIds.length})` : '' }}
+            </button>
+            <button type="button" class="conv-mini" @click="toggleBatchMode">取消</button>
+          </template>
+          <button v-else type="button" class="conv-mini" :disabled="!conversations.length"
+            title="批量删除会话" @click="toggleBatchMode">批量</button>
+        </div>
+      </div>
       <div v-loading="loadingConversations" class="ai-conv-list">
         <TransitionGroup name="conv" tag="div" class="ai-conv-inner">
           <div
             v-for="c in conversations"
             :key="c.id"
             class="ai-conv-item"
-            :class="{ active: currentId === c.id }"
-            @click="selectConversation(c.id)"
+            :class="{ active: currentId === c.id && !batchMode, selected: batchMode && isSelected(c.id) }"
+            @click="batchMode ? toggleSelect(c.id) : selectConversation(c.id)"
           >
-            <el-icon class="ai-conv-icon"><ChatLineRound /></el-icon>
+            <el-icon v-if="batchMode" class="ai-conv-check" :class="{ on: isSelected(c.id) }">
+              <Select />
+            </el-icon>
+            <el-icon v-else class="ai-conv-icon"><ChatLineRound /></el-icon>
             <div class="ai-conv-main">
               <div v-if="renamingId === c.id" class="ai-conv-title" @click.stop>
                 <el-input v-model="renameTitle" size="small" class="conv-rename-input"
@@ -1122,7 +1192,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
               <div v-else class="ai-conv-title" :title="c.title">{{ c.title }}</div>
               <div class="ai-conv-meta">{{ c.updatedAt?.replace('T',' ')?.slice(0,16) || '' }}</div>
             </div>
-            <div class="ai-conv-actions" @click.stop>
+            <div v-if="!batchMode" class="ai-conv-actions" @click.stop>
               <el-button text :icon="Document" title="对话条例" @click="openInstructions(c)" />
               <el-button text :icon="EditPen" title="重命名" @click="startRename(c, $event)" />
               <el-button text :icon="Delete" title="删除" @click="removeConversation(c.id, $event)" />
@@ -1517,7 +1587,23 @@ html.dark .ai-sidebar { background: #131329; border-right-color: #26264a; }
 html.dark .ai-newchat { background: #1b1b35; border-color: #2b2c4d; color: #e7e7ee; }
 html.dark .ai-newchat:hover:not(:disabled) { background: #26264f; border-color: #4f46e5; color: #a5b4fc; }
 
-.ai-conv-head { padding: 6px 18px 4px; font-size: 12px; color: #94a3b8; letter-spacing: .04em; }
+.ai-conv-head {
+  padding: 6px 18px 4px; font-size: 12px; color: #94a3b8; letter-spacing: .04em;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.conv-head-acts { display: flex; align-items: center; gap: 4px; }
+.conv-mini {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 12px; color: #6366f1; padding: 2px 6px; border-radius: 6px;
+  letter-spacing: 0; transition: background .15s, color .15s;
+}
+.conv-mini:hover:not(:disabled) { background: #eef2ff; }
+.conv-mini:disabled { color: #cbd5e1; cursor: not-allowed; }
+.conv-mini.danger { color: #ef4444; }
+.conv-mini.danger:hover:not(:disabled) { background: #fef2f2; }
+.ai-conv-check { font-size: 16px; color: #cbd5e1; flex: none; }
+.ai-conv-check.on { color: #6366f1; }
+.ai-conv-item.selected { background: #eef2ff; }
 .ai-conv-list { flex: 1; overflow: auto; padding: 4px 10px 10px; position: relative; }
 .ai-conv-inner { position: relative; }
 .ai-conv-empty { padding: 24px 12px; text-align: center; color: #94a3b8; font-size: 13px; line-height: 1.8; }

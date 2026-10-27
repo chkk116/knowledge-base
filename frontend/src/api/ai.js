@@ -80,6 +80,20 @@ export const updateConversation = (id, { title, instructions }) =>
 export const deleteConversation = (id) =>
   api.delete(`/ai/conversations/${id}`)
 
+// 批量删除会话
+// 后端只有单条 DELETE，这里并发删（限制并发数，避免一次开几十个请求）。
+// 以后后端补了批量接口，把这个函数体换掉即可，调用方不用动。
+export async function batchDeleteConversations(ids) {
+  const queue = [...ids]
+  const worker = async () => {
+    while (queue.length) {
+      const id = queue.shift()
+      await deleteConversation(id)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker))
+}
+
 // 获取某会话的消息列表
 export const listMessages = (id) =>
   api.get(`/ai/conversations/${id}/messages`)

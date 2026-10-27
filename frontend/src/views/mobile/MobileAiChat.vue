@@ -14,7 +14,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import {
   aiAsk, listAiModels, listConversations, createConversation,
-  deleteConversation, listMessages, updateConversation
+  deleteConversation, batchDeleteConversations, listMessages, updateConversation
 } from '../../api/ai'
 import { search } from '../../api/kb'
 import { recognizeLocal } from '../../utils/localOcr'
@@ -200,6 +200,42 @@ async function removeConversation(id) {
     if (currentId.value === id) currentId.value = null
     window.__kbMsg?.success('已删除')
   } catch { window.__kbMsg?.error('删除失败') }
+}
+
+// ---------- 批量删除会话 ----------
+const batchMode = ref(false)
+const selectedIds = ref([])
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  selectedIds.value = []
+}
+function isSelected(id) { return selectedIds.value.includes(id) }
+function toggleSelect(id) {
+  const i = selectedIds.value.indexOf(id)
+  if (i >= 0) selectedIds.value.splice(i, 1)
+  else selectedIds.value.push(id)
+}
+function selectAllConvs() {
+  selectedIds.value = selectedIds.value.length === conversations.value.length
+    ? [] : conversations.value.map((c) => c.id)
+}
+async function removeSelectedConvs() {
+  const ids = [...selectedIds.value]
+  if (!ids.length) return
+  if (!window.confirm(`确定删除选中的 ${ids.length} 个会话？聊天记录无法恢复。`)) return
+  try {
+    await batchDeleteConversations(ids)
+    const gone = new Set(ids.map(String))
+    conversations.value = conversations.value.filter((c) => !gone.has(String(c.id)))
+    ids.forEach((id) => { delete convMessages.value[id] })
+    if (ids.some((id) => String(id) === String(currentId.value))) {
+      currentId.value = conversations.value[0]?.id ?? null
+    }
+    window.__kbMsg?.success(`已删除 ${ids.length} 个会话`)
+    batchMode.value = false
+    selectedIds.value = []
+  } catch { window.__kbMsg?.error('批量删除失败') }
 }
 
 function stopAi() { abortCtrl.value?.abort() }
@@ -942,16 +978,32 @@ onMounted(async () => {
       <div class="aic-sheet" @click.stop>
         <div class="aic-sheet-h">
           <span>历史会话</span>
-          <button class="aic-sheet-new" @click="newConversation"><el-icon><Plus /></el-icon> 新建</button>
+          <div class="aic-sheet-h-acts">
+            <template v-if="batchMode">
+              <button class="aic-sheet-txt" @click="selectAllConvs">
+                {{ selectedIds.length === conversations.length && conversations.length ? '取消全选' : '全选' }}
+              </button>
+              <button class="aic-sheet-txt danger" :disabled="!selectedIds.length" @click="removeSelectedConvs">
+                删除{{ selectedIds.length ? `(${selectedIds.length})` : '' }}
+              </button>
+              <button class="aic-sheet-txt" @click="toggleBatchMode">取消</button>
+            </template>
+            <template v-else>
+              <button class="aic-sheet-txt" :disabled="!conversations.length" @click="toggleBatchMode">批量</button>
+              <button class="aic-sheet-new" @click="newConversation"><el-icon><Plus /></el-icon> 新建</button>
+            </template>
+          </div>
         </div>
         <div class="aic-sheet-list">
           <div v-if="!conversations.length" class="aic-sheet-empty">还没有会话</div>
           <div
             v-for="c in conversations" :key="c.id" class="aic-sheet-row"
-            :class="{ on: c.id === currentId }" @click="selectConversation(c.id)"
+            :class="{ on: c.id === currentId && !batchMode, sel: batchMode && isSelected(c.id) }"
+            @click="batchMode ? toggleSelect(c.id) : selectConversation(c.id)"
           >
+            <el-icon v-if="batchMode" class="aic-sheet-check" :class="{ on: isSelected(c.id) }"><Check /></el-icon>
             <span class="aic-sheet-title">{{ c.title || '新对话' }}</span>
-            <button class="aic-sheet-del" @click.stop="removeConversation(c.id)"><el-icon><Delete /></el-icon></button>
+            <button v-if="!batchMode" class="aic-sheet-del" @click.stop="removeConversation(c.id)"><el-icon><Delete /></el-icon></button>
           </div>
         </div>
       </div>
@@ -1224,6 +1276,16 @@ html.dark .aic-att-mode { background: rgba(76,141,255,.2); color: #9cc6ff; }
   padding: 12px 10px; border-radius: 11px; cursor: pointer;
 }
 .aic-sheet-row.on { background: var(--m-card-2); }
+.aic-sheet-row.sel { background: #eef2ff; }
+.aic-sheet-h-acts { display: inline-flex; align-items: center; gap: 10px; }
+.aic-sheet-txt {
+  border: none; background: transparent; color: var(--m-primary);
+  font-size: 13px; font-weight: 600; cursor: pointer; padding: 2px 2px;
+}
+.aic-sheet-txt:disabled { color: var(--m-text-dim); opacity: .6; cursor: not-allowed; }
+.aic-sheet-txt.danger { color: #ef4444; }
+.aic-sheet-check { font-size: 16px; color: var(--m-text-dim); flex: none; }
+.aic-sheet-check.on { color: var(--m-primary); }
 .aic-sheet-title {
   flex: 1 1 auto; min-width: 0; font-size: 14.5px; color: var(--m-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
