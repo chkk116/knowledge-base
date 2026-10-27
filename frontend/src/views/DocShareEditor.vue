@@ -25,6 +25,7 @@ import FlowchartNode from '../extensions/FlowchartNode'
 import SpreadsheetNode from '../extensions/SpreadsheetNode'
 import { fromNow, fmtDateTime } from '../utils/time'
 import { errMsg } from '../utils/errMsg'
+import { toSvg } from 'html-to-image'
 
 const props = defineProps({
   shareId: { type: Number, required: true },
@@ -194,6 +195,7 @@ const editor = useEditor({
   onUpdate: () => {
     const text = editor.value?.getText() || ''
     wordCount.value = text.replace(/\s/g, '').length
+    scheduleAutoSnapshot()
   },
   // 把 provider 暴露给 NodeView：表格块需要 awareness 来画远端光标与在线状态。
   // 不能只依赖 CollaborationCursor —— 它仅在 canWrite 时挂载，只读端会完全拿不到 awareness。
@@ -208,6 +210,11 @@ const editor = useEditor({
           color: colorFor(meName.value),
           avatar: auth.user?.avatar || '',
         })
+      }
+      // 协同内容同步完成后补一次快照：老文档（导图/流程图/表格）的 content 列是空的，
+      // 只靠「编辑后触发」永远补不上，打开一次就补齐。
+      if (provider && props.canWrite) {
+        provider.on('synced', () => { scheduleAutoSnapshot() })
       }
     } catch (e) { /* ignore */ }
   },
@@ -255,18 +262,76 @@ function cmd(name) {
 // 注意：attrs 不传时保持 undefined（Tiptap isActive 的默认参数只认 undefined，传 null 会崩）
 const on = (name, attrs) => !!editor.value?.isActive(name, attrs)
 
-// 把当前协同内容快照为 HTML 写入 content 列，供非协同预览/搜索兼容
-async function saveSnapshot() {
-  if (!props.canWrite || !editor.value) return
-  saving.value = true
-  try {
-    await updateShareDoc(props.shareId, props.docId, { content: editor.value.getHTML() })
-    ElMessage.success('已保存快照')
-  } catch (e) {
-    ElMessage.error(errMsg(e, '保存失败'))
-  } finally {
-    saving.value = false
+/**
+ * 图块（导图 / 流程图 / 电子表格）在静态 HTML 里只剩一个空 div —— 图形是 Vue 组件实时画的，
+ * 而且 Vue Flow 的节点是 HTML div（只有连线是 <svg>），直接抓 svg 抓不到节点。
+ *
+ * 这里用 html-to-image 把整个图块容器转成 data:image/svg+xml 的 <img>：
+ * 非协同预览、导出、App 阅读页都能直接显示 —— App 的 needsRichWebView 本来就认 <img>，
+ * 所以原生端一行都不用改。
+ */
+const DIAGRAM_SEL = '[data-type="mindmap-block"],[data-type="flowchart-block"],[data-type="sheet-block"]'
+
+async function snapshotDiagramImages() {
+  const root = editor.value?.view?.dom
+  const map = new Map()
+  if (!root) return map
+  const blocks = [...root.querySelectorAll(DIAGRAM_SEL)]
+  for (let i = 0; i < blocks.length; i++) {
+    try {
+      const dataUrl = await toSvg(blocks[i], { backgroundColor: '#ffffff', cacheBust: true })
+      if (dataUrl) map.set(i, dataUrl)
+    } catch {
+      // 单块失败不影响其它块，保留原 div
+    }
   }
+  return map
+}
+
+async function buildSnapshotHtml() {
+  const ed = editor.value
+  if (!ed) return ''
+  const images = await snapshotDiagramImages()
+  const html = ed.getHTML()
+  if (!images.size) return html
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const targets = [...doc.querySelectorAll(DIAGRAM_SEL)]
+  targets.forEach((el, i) => {
+    const src = images.get(i)
+    if (!src) return
+    const img = doc.createElement('img')
+    img.setAttribute('src', src)
+    img.setAttribute('alt', el.getAttribute('title') || '图表')
+    img.setAttribute('class', 'kb-diagram-snapshot')
+    el.replaceWith(img)
+  })
+  return doc.body.innerHTML
+}
+
+let autoSnapshotTimer = null
+
+// silent：自动快照不弹提示，否则每几秒跳一次 toast
+async function saveSnapshot(silent = false) {
+  if (!props.canWrite || !editor.value) return
+  if (!silent) saving.value = true
+  try {
+    await updateShareDoc(props.shareId, props.docId, { content: await buildSnapshotHtml() })
+    if (!silent) ElMessage.success('已保存快照')
+  } catch (e) {
+    if (!silent) ElMessage.error(errMsg(e, '保存失败'))
+  } finally {
+    if (!silent) saving.value = false
+  }
+}
+
+/**
+ * 自动快照：原来只有工具栏那个按钮会写 content，没人点就一直是空 ——
+ * 线上 3 篇导图/流程图/表格文档 content 长度全是 0，App 打开就是白屏。
+ */
+function scheduleAutoSnapshot() {
+  if (!props.canWrite) return
+  clearTimeout(autoSnapshotTimer)
+  autoSnapshotTimer = setTimeout(() => { saveSnapshot(true) }, 6000)
 }
 
 // ---------- 导出：Markdown / HTML ----------
@@ -800,6 +865,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   destroyed = true
   if (reconnectTimer) clearTimeout(reconnectTimer)
+  if (autoSnapshotTimer) clearTimeout(autoSnapshotTimer)
   document.removeEventListener('visibilitychange', onVisibility)
   provider?.destroy()
   editor.value?.destroy()
@@ -897,7 +963,7 @@ defineExpose({ insertMention })
           <button class="tb-btn" title="插入电子表格（Excel 式：公式/填充/冻结，带协同编辑锁）" @click="cmd('sheet')"><el-icon :size="15"><Grid /></el-icon> 表格</button>
         </div>
         <span class="tb-sep" />
-        <button class="tb-btn txt" data-tour="snapshot" :class="{ saving }" title="把当前内容保存为 HTML 快照" @click="saveSnapshot">
+        <button class="tb-btn txt" data-tour="snapshot" :class="{ saving }" title="把当前内容保存为 HTML 快照（含图块截图）" @click="saveSnapshot()">
           {{ saving ? '保存中…' : '存快照' }}
         </button>
       </div>
