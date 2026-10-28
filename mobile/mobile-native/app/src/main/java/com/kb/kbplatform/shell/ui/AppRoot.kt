@@ -183,7 +183,7 @@ fun AppRoot() {
                 AiChatScreen(onBack = { nav.popBackStack() })
             }
             composable("cards") { CardsScreen() }
-            composable("practice") { ExamPracticeScreen() }
+            composable("practice") { ExamPracticeScreen(onBack = { nav.popBackStack() }) }
             composable("share-import") { ShareImportScreen(onDone = { nav.popBackStack() }) }
             composable("admin") {
                 AdminHomeScreen(
