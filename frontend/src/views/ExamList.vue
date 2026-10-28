@@ -7,6 +7,7 @@
 
     <div class="bar" v-if="loggedIn">
       <el-button text type="primary" @click="goMine">我的成绩</el-button>
+      <el-button text type="primary" @click="router.push('/my-quiz')">我的测验</el-button>
       <el-button text type="primary" @click="router.push('/exams/wrong')">错题本</el-button>
     </div>
 

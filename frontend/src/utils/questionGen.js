@@ -8,7 +8,8 @@
 //   - 这边是对话驱动，用户说「帮我出 5 道关于请假的单选题」即可，
 //     生成后同样**先问要不要入库**，不擅自写题库。
 
-import { adminAiGenerateQuestions, adminBatchCreateQuestions } from '../api/training'
+import { adminAiGenerateQuestions, adminBatchCreateQuestions, selfExamGenerate, selfExamBatchCreate } from '../api/training'
+import { useAuthStore } from '../store/auth'
 import { listMyShares } from '../api/docShare'
 
 const TYPE_NAME = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }
@@ -97,7 +98,10 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
 
   let data
   try {
-    const res = await adminAiGenerateQuestions({
+    // 没有「考试管理」权限的用户（个人版）走个人自测接口：题库按 个人-{uid} 隔离
+    const isManager = useAuthStore().hasPerm('EXAM_MANAGE')
+    const genApi = isManager ? adminAiGenerateQuestions : selfExamGenerate
+    const res = await genApi({
       topic,
       count,
       types,
@@ -151,7 +155,8 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
       },
       options: (q.options || []).map((o) => ({ label: o.label, content: o.content, isCorrect: !!o.isCorrect })),
     }))
-    const res = await adminBatchCreateQuestions(items)
+    const saveApi = useAuthStore().hasPerm('EXAM_MANAGE') ? adminBatchCreateQuestions : selfExamBatchCreate
+    const res = await saveApi(items)
     const saved = res.data || res || []
     return `已加入题库 ${saved.length} 道（${basis}）。可在「考试管理 → 题库」查看，或去 /admin/exams 直接组卷。${warn}\n\n${preview}`
   } catch (e) {

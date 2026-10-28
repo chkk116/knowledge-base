@@ -192,3 +192,11 @@ export const wrongToCards = (ids) => api.post('/exams/wrong/to-cards', { ids })
 // 文档易错点：相关题目的全站错误率（作者/管理员看）
 export const docWeakPoints = (shareId, docId) =>
   api.get('/doc-shares/' + encodeURIComponent(shareId) + '/docs/' + encodeURIComponent(docId) + '/weak-points')
+
+// ---- 我的测验（个人自测，不依赖 EXAM_MANAGE）----
+// 个人题库与公共题库靠分类隔离：后端强制 category=个人-{userId}
+export const selfExamStats = () => api.get('/exams/self/stats')
+export const selfExamGenerate = (payload) => api.post('/exams/self/ai/generate', payload)
+export const selfExamBatchCreate = (items) => api.post('/exams/self/questions/batch', items)
+export const selfExamQuestions = () => api.get('/exams/self/questions')
+export const selfExamDeleteQuestion = (id) => api.delete('/exams/self/questions/' + encodeURIComponent(id))

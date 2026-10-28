@@ -42,6 +42,7 @@ const PAGES = [
   { label: 'AI 问答', path: '/ai/chat', kw: 'ai chat wenti' },
   { label: '培训课程', path: '/study/courses', kw: 'peixun kecheng course' },
   { label: '在线考试', path: '/exams', kw: 'kaoshi exam' },
+  { label: '我的测验（AI 出的个人题库）', path: '/my-quiz', kw: 'wodeceyan quiz personal' },
   { label: '答题闯关', path: '/quiz', kw: 'dati quiz' },
   { label: '我的收藏', path: '/favorites', kw: 'shoucang favorite' },
   { label: '浏览历史', path: '/history', kw: 'liulan history' },
