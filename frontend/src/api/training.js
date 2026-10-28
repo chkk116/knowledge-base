@@ -184,11 +184,11 @@ export const adminAssemble = (paperId, items) =>
 // ---- 错题 → 文档 → 复习卡 闭环 ----
 // 这道错题对应哪篇文档（返回 {shareId,docId,title,score,snippet}[]）
 export const relatedDocsForWrong = (questionId) =>
-  api.get('/exams/wrong/' + questionId + '/related-docs')
+  api.get('/exams/wrong/' + encodeURIComponent(questionId) + '/related-docs')
 
 // 错题一键转复习卡（同题去重）
 export const wrongToCards = (ids) => api.post('/exams/wrong/to-cards', { ids })
 
 // 文档易错点：相关题目的全站错误率（作者/管理员看）
 export const docWeakPoints = (shareId, docId) =>
-  api.get('/doc-shares/' + shareId + '/docs/' + docId + '/weak-points')
+  api.get('/doc-shares/' + encodeURIComponent(shareId) + '/docs/' + encodeURIComponent(docId) + '/weak-points')
