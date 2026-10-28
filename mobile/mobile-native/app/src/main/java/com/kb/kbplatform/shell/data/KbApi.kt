@@ -473,6 +473,26 @@ object KbApi {
         ApiClient.post("/api/admin/ai/models/$id/test")
     }
 
+    /** GET /admin/ai/models/platforms → 可选平台（key/label/默认 baseUrl/内置模型列表） */
+    suspend fun adminAiPlatforms(): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/admin/ai/models/platforms")
+    }
+
+    /**
+     * POST /admin/ai/models → 新建或更新（带 id 就是更新）。
+     * 字段对齐 Web 端表单：provider/name/model/baseUrl/apiKey/contextWindow/vision/enabled。
+     * ⚠️ apiKey 由后端 AES-GCM 加密落库，传明文即可，**不要**在本地做任何编码。
+     */
+    suspend fun adminSaveAiModel(body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/ai/models", body)
+    }
+
+    /** DELETE /admin/ai/models/{id} */
+    suspend fun adminDeleteAiModel(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/admin/ai/models/$id")
+        Unit
+    }
+
     /** GET /admin/docs/pending → 待审文章列表 */
     suspend fun adminPendingDocs(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/admin/docs/pending") }
 

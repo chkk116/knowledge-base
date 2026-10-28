@@ -6,6 +6,8 @@ package com.kb.kbplatform.shell.ui.admin
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -364,13 +366,19 @@ private fun roleCn(r: String) = when (r) {
 fun AdminAiScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var models by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var platforms by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
     var testingId by remember { mutableStateOf<Long?>(null) }
-    var testMsg by remember { mutableStateOf("") }
+    var actionMsg by remember { mutableStateOf("") }
+    var showForm by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<JSONObject?>(null) }
+    var deleteTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var saving by remember { mutableStateOf(false) }
 
     fun load() {
         loading = true
+        error = ""
         scope.launch {
             try {
                 models = KbApi.adminAiModels().objects()
@@ -382,25 +390,50 @@ fun AdminAiScreen(onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(Unit) { load() }
+    LaunchedEffect(Unit) {
+        load()
+        // 平台列表拿不到不影响主流程（表单里就只剩手动填）
+        platforms = runCatching { KbApi.adminAiPlatforms().objects() }.getOrDefault(emptyList())
+    }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "AI 模型管理", onBack = onBack)
-        if (loading) {
-            CenterHint("加载中…", loading = true)
-        } else if (error.isNotEmpty()) {
-            CenterHint(error)
-        } else if (models.isEmpty()) {
-            CenterHint("还没有模型，请在 Web 端「AI 模型管理」添加")
-        } else {
-            LazyColumn(
-                modifier = Modifier.widthIn(max = 720.dp).align(Alignment.CenterHorizontally),
+        TopBar(title = "AI 模型管理", onBack = onBack) {
+            TextButton(onClick = { editing = null; showForm = true }) { Text("添加", fontSize = 13.sp) }
+        }
+        if (actionMsg.isNotEmpty()) {
+            Text(
+                actionMsg, fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+            )
+        }
+        when {
+            loading -> CenterHint("加载中…", loading = true)
+            error.isNotEmpty() -> CenterHint(error)
+            models.isEmpty() -> Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("还没有模型", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Text("添加一个后，AI 问答、出题、OCR 就能用上", fontSize = 12.sp, color = KbTextDim)
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = { editing = null; showForm = true }) { Text("添加模型") }
+            }
+            else -> LazyColumn(
+                modifier = Modifier
+                    .widthIn(max = 720.dp)
+                    .align(Alignment.CenterHorizontally),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 itemsIndexed(models, key = { _, m -> m.optLong("id", 0) }) { i, m ->
                     val id = m.optLong("id", 0)
                     val enabled = m.optBoolean("enabled", true)
+                    val isDefault = m.optBoolean("isDefault", false)
                     KbCard(
                         modifier = Modifier.kbItemEnter(i),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -409,67 +442,283 @@ fun AdminAiScreen(onBack: () -> Unit) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(m.optString("name"), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                                        if (m.optBoolean("isDefault", false)) {
+                                        Text(
+                                            m.optString("name"),
+                                            fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                                            maxLines = 1
+                                        )
+                                        if (isDefault) {
                                             Spacer(Modifier.size(6.dp))
-                                            Text("默认", fontSize = 10.sp, color = KbBlue,
-                                                modifier = Modifier
-                                                    .background(KbBlue.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp))
+                                            Tag("默认", KbBlue)
+                                        }
+                                        if (m.optBoolean("vision", false)) {
+                                            Spacer(Modifier.size(4.dp))
+                                            Tag("OCR", KbGreen)
                                         }
                                     }
                                     Text(
-                                        "${m.optString("provider")} · ${m.optString("model")}",
-                                        fontSize = 11.sp, color = KbTextDim
+                                        m.optString("provider") + " · " + m.optString("model"),
+                                        fontSize = 11.sp, color = KbTextDim, maxLines = 1
                                     )
                                 }
                                 Switch(checked = enabled, onCheckedChange = { on ->
                                     scope.launch {
-                                        runCatching { KbApi.adminToggleAiModel(id, on) }
-                                        models = models.map {
-                                            if (it.optLong("id", 0) == id) JSONObject(it.toString()).put("enabled", on) else it
+                                        val r = runCatching { KbApi.adminToggleAiModel(id, on) }
+                                        if (r.isSuccess) {
+                                            models = models.map {
+                                                if (it.optLong("id", 0) == id) JSONObject(it.toString()).put("enabled", on) else it
+                                            }
+                                        } else {
+                                            actionMsg = "切换失败：" + (r.exceptionOrNull()?.message ?: "请重试")
                                         }
                                     }
                                 })
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                                OutlinedButton(onClick = {
-                                    testingId = id
-                                    scope.launch {
-                                        val r = runCatching { KbApi.adminTestAiModel(id) }
-                                        testingId = null
-                                        testMsg = r.fold(
-                                            onSuccess = { resp ->
-                                                if (resp.optBoolean("ok", false) || resp.has("latencyMs"))
-                                                    "✓ 模型 ${id} 连通正常"
-                                                else "✗ ${resp.optString("error", "测试失败")}"
-                                            },
-                                            onFailure = { "✗ ${it.message ?: "测试失败"}" }
-                                        )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                TextButton(
+                                    enabled = testingId != id,
+                                    onClick = {
+                                        testingId = id
+                                        actionMsg = ""
+                                        scope.launch {
+                                            val r = runCatching { KbApi.adminTestAiModel(id) }
+                                            testingId = null
+                                            actionMsg = r.fold(
+                                                onSuccess = { resp ->
+                                                    if (resp.optBoolean("ok", false) || resp.has("latencyMs"))
+                                                        "✓「${m.optString("name")}」连通正常"
+                                                    else "✗ " + resp.optString("error", "测试失败")
+                                                },
+                                                onFailure = { "✗ " + (it.message ?: "测试失败") }
+                                            )
+                                        }
                                     }
-                                }, enabled = testingId != id) {
-                                    Text(if (testingId == id) "测试中…" else "测试连接", fontSize = 12.sp)
-                                }
-                                if (!m.optBoolean("isDefault", false) && enabled) {
+                                ) { Text(if (testingId == id) "测试中…" else "测试", fontSize = 12.sp) }
+                                if (!isDefault && enabled) {
                                     TextButton(onClick = {
                                         scope.launch {
-                                            runCatching { KbApi.adminDefaultAiModel(id) }
-                                            load()
+                                            val r = runCatching { KbApi.adminDefaultAiModel(id) }
+                                            if (r.isSuccess) load() else actionMsg = "设置默认失败"
                                         }
                                     }) { Text("设为默认", fontSize = 12.sp) }
+                                }
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = { editing = m; showForm = true }) {
+                                    Text("编辑", fontSize = 12.sp)
+                                }
+                                TextButton(onClick = { deleteTarget = m }) {
+                                    Text("删除", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
                     }
                 }
-                if (testMsg.isNotEmpty()) {
-                    item {
-                        Text(testMsg, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
             }
         }
     }
+
+    if (showForm) {
+        AiModelFormDialog(
+            platforms = platforms,
+            initial = editing,
+            saving = saving,
+            onDismiss = { showForm = false },
+            onSave = { body ->
+                scope.launch {
+                    saving = true
+                    val r = runCatching { KbApi.adminSaveAiModel(body) }
+                    saving = false
+                    if (r.isSuccess) {
+                        actionMsg = ""
+                        showForm = false
+                        load()
+                    } else {
+                        actionMsg = "保存失败：" + (r.exceptionOrNull()?.message ?: "请检查填写内容")
+                    }
+                }
+            }
+        )
+    }
+
+    deleteTarget?.let { t ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除模型", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Text(
+                    "确定删除「" + t.optString("name") + "」？删除后 AI 功能会回退到其它可用模型。",
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val id = t.optLong("id", 0)
+                        deleteTarget = null
+                        scope.launch {
+                            val r = runCatching { KbApi.adminDeleteAiModel(id) }
+                            if (r.isSuccess) load()
+                            else actionMsg = "删除失败：" + (r.exceptionOrNull()?.message ?: "请重试")
+                        }
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } }
+        )
+    }
+}
+
+/** 小标签（默认 / OCR），统一圆角底色，避免每处手写一遍 */
+@Composable
+private fun Tag(text: String, color: Color) {
+    Text(
+        text, fontSize = 10.sp, color = color,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
+}
+
+/**
+ * 新建 / 编辑模型表单。
+ *
+ * 字段对齐 Web 端「AI 模型管理」：平台、显示名称、模型 ID、接口地址（仅 CUSTOM）、
+ * API Key、上下文窗口、用于 OCR、启用。
+ * 编辑时 API Key 留空 = 不修改（后端拿到空值不会覆盖已存的密文）。
+ */
+@Composable
+private fun AiModelFormDialog(
+    platforms: List<JSONObject>,
+    initial: JSONObject?,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (JSONObject) -> Unit
+) {
+    val editId = initial?.optLong("id", 0) ?: 0L
+    var provider by remember { mutableStateOf(initial?.optString("provider").orEmpty().ifBlank { "DEEPSEEK" }) }
+    var name by remember { mutableStateOf(initial?.optString("name").orEmpty()) }
+    var model by remember { mutableStateOf(initial?.optString("model").orEmpty()) }
+    var baseUrl by remember { mutableStateOf(initial?.optString("baseUrl").orEmpty()) }
+    var apiKey by remember { mutableStateOf("") }
+    var ctx by remember { mutableStateOf((initial?.optInt("contextWindow", 32000) ?: 32000).toString()) }
+    var vision by remember { mutableStateOf(initial?.optBoolean("vision", false) ?: false) }
+    var enabled by remember { mutableStateOf(initial?.optBoolean("enabled", true) ?: true) }
+    var tip by remember { mutableStateOf("") }
+    val isCustom = provider == "CUSTOM"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (editId > 0) "编辑模型" else "添加模型",
+                fontSize = 16.sp, fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("平台", fontSize = 11.sp, color = KbTextDim)
+                if (platforms.isEmpty()) {
+                    Text(provider, fontSize = 13.sp)
+                } else {
+                    // 平台一旦建好就不再改（换平台等于换接口协议），编辑时置灰
+                    platforms.chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            row.forEach { p ->
+                                val key = p.optString("key")
+                                val on = key == provider
+                                Text(
+                                    p.optString("label").ifBlank { key },
+                                    fontSize = 12.sp,
+                                    color = if (on) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier
+                                        .background(
+                                            if (on) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.surfaceVariant,
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable(enabled = editId == 0L) { provider = key }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text("显示名称（留空用模型 ID）", fontSize = 11.sp) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = model, onValueChange = { model = it },
+                    label = { Text("模型 ID（如 deepseek-chat）", fontSize = 11.sp) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                if (isCustom) {
+                    OutlinedTextField(
+                        value = baseUrl, onValueChange = { baseUrl = it },
+                        label = { Text("接口地址（https://…/v1）", fontSize = 11.sp) },
+                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                OutlinedTextField(
+                    value = apiKey, onValueChange = { apiKey = it },
+                    label = { Text(if (editId > 0) "API Key（留空不修改）" else "API Key", fontSize = 11.sp) },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = ctx,
+                    onValueChange = { v -> ctx = v.filter { it.isDigit() }.take(7) },
+                    label = { Text("上下文窗口（tokens）", fontSize = 11.sp) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("用于图片 OCR / 视觉识别", fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Switch(checked = vision, onCheckedChange = { vision = it })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("启用", fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Switch(checked = enabled, onCheckedChange = { enabled = it })
+                }
+                if (tip.isNotEmpty()) {
+                    Text(tip, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !saving,
+                onClick = {
+                    if (model.isBlank()) { tip = "请填写模型 ID"; return@Button }
+                    if (editId == 0L && apiKey.isBlank()) { tip = "新建时必须填写 API Key"; return@Button }
+                    if (isCustom && baseUrl.isBlank()) { tip = "自定义平台要填接口地址"; return@Button }
+                    val body = JSONObject()
+                        .put("provider", provider)
+                        .put("model", model.trim())
+                        .put("name", name.trim().ifBlank { model.trim() })
+                        .put("contextWindow", ctx.toIntOrNull() ?: 32000)
+                        .put("vision", vision)
+                        .put("enabled", enabled)
+                    if (baseUrl.isNotBlank()) body.put("baseUrl", baseUrl.trim())
+                    if (apiKey.isNotBlank()) body.put("apiKey", apiKey.trim())
+                    if (editId > 0) body.put("id", editId)
+                    onSave(body)
+                }
+            ) { Text(if (saving) "保存中…" else "保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }
 
 // ============ 文章审核 ============
