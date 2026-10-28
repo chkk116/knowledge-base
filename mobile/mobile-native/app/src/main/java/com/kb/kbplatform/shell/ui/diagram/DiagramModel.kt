@@ -75,6 +75,17 @@ object DiagramParser {
         }
     }
 
+    /** 按顺序取出每个图块的 data JSON（编辑页按序号取原始串用） */
+    fun dataList(html: String): List<String> {
+        val out = ArrayList<String>()
+        for (m in BLOCK.findAll(html)) {
+            val raw = ATTR_DATA.find(m.value) ?: continue
+            val v = raw.groupValues.let { if (it[2].isNotEmpty()) it[2] else it[3] }
+            if (v.isNotBlank()) out.add(v)
+        }
+        return out
+    }
+
     /**
      * 把正文 HTML 切成「文本段 + 图块段」。
      * 没有图块时返回单个 Html 片段，调用方可以继续走原来的纯文本渲染。

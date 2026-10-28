@@ -89,3 +89,6 @@ backend/**/*.jar
 outputs/publish-*.sh   # 发布脚本含服务器 IP/凭据配置，只留本地
 outputs/.deploykey
 .deploykey
+
+# 构建残留（maven 备份目录）
+backend/.target_old_*/

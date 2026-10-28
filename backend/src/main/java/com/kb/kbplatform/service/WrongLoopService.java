@@ -96,10 +96,15 @@ public class WrongLoopService {
     public List<Map<String, Object>> relatedDocs(Long userId, boolean sysAdmin, Long questionId) {
         Question q = qRepo.findById(questionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "题目不存在"));
+        // 只能在「自己做过的题」上查关联文档：否则可以拿题号挨个探测题库
+        if (!logRepo.existsByUserIdAndQuestionId(userId, questionId)) return List.of();
+        return matchDocs(userId, sysAdmin, q, docShare.listAllDocs(userId, sysAdmin, true));
+    }
+
+    /** 纯匹配：文档列表由调用方一次取好，批量场景（转卡）复用，避免每题重扫全库 */
+    private List<Map<String, Object>> matchDocs(Long userId, boolean sysAdmin, Question q, List<SharedDocument> docs) {
         List<String> kws = keywords(q.getContent(), q.getCategory(), q.getAnalysis());
         if (kws.isEmpty()) return List.of();
-
-        List<SharedDocument> docs = docShare.listAllDocs(userId, sysAdmin, true);
         List<Map<String, Object>> scored = new ArrayList<>();
         double max = 0;
         for (SharedDocument d : docs) {
@@ -150,12 +155,16 @@ public class WrongLoopService {
     @Transactional
     public Map<String, Object> toCards(Long userId, boolean sysAdmin, List<Long> questionIds) {
         int created = 0, skipped = 0;
+        // 文档列表只取一次（原来每题都全量扫一遍文档，100 题就是 100 次全表扫）
+        List<SharedDocument> docs = docShare.listAllDocs(userId, sysAdmin, true);
         for (Long qid : questionIds) {
             if (qid == null) continue;
             String source = "wrong:" + qid;
             if (cardRepo.existsByUserIdAndSource(userId, source)) { skipped++; continue; }
             Question q = qRepo.findById(qid).orElse(null);
             if (q == null) { skipped++; continue; }
+            // 只允许把「自己做过的题」转成卡：否则任何人可凭题号把整库答案套成复习卡
+            if (!logRepo.existsByUserIdAndQuestionId(userId, qid)) { skipped++; continue; }
 
             String front = plain(q.getContent());
             StringBuilder back = new StringBuilder();
@@ -171,10 +180,10 @@ public class WrongLoopService {
 
             // 顺带把关联文档记在卡片上，复习时能一键跳回去看原文
             Long shareId = null, docId = null;
-            List<Map<String, Object>> docs = relatedDocs(userId, sysAdmin, qid);
-            if (!docs.isEmpty()) {
-                shareId = ((Number) docs.get(0).get("shareId")).longValue();
-                docId = ((Number) docs.get(0).get("docId")).longValue();
+            List<Map<String, Object>> hit = matchDocs(userId, sysAdmin, q, docs);
+            if (!hit.isEmpty()) {
+                shareId = ((Number) hit.get(0).get("shareId")).longValue();
+                docId = ((Number) hit.get(0).get("docId")).longValue();
             }
             Flashcard c = new Flashcard();
             c.setUserId(userId);
@@ -203,15 +212,24 @@ public class WrongLoopService {
         // 文档没有分类字段，用标题/标签抽出的关键词在题库里反查（题目量级小，全量扫可接受）
         List<Question> pool = qRepo.findAllByOrderByCreatedAtDesc();
 
+        // 题目统计一次查完（原来每题两次 count，题库一大就是几百次查询）
+        Map<Long, long[]> stats = new HashMap<>();
+        for (Object[] row : logRepo.statsByQuestion()) {
+            if (row[0] == null) continue;
+            long total0 = row[1] == null ? 0 : ((Number) row[1]).longValue();
+            long ok0 = row[2] == null ? 0 : ((Number) row[2]).longValue();
+            stats.put(((Number) row[0]).longValue(), new long[]{total0, ok0});
+        }
         List<Map<String, Object>> samples = new ArrayList<>();
         int matched = 0, total = 0, wrong = 0;
         for (Question q : pool) {
             String text = (q.getContent() == null ? "" : q.getContent());
             boolean hit = kws.stream().anyMatch(text::contains);
             if (!hit) continue;
-            long all = logRepo.countByQuestionId(q.getId());
-            if (all <= 0) continue;
-            long ok = logRepo.countByQuestionIdAndCorrectTrue(q.getId());
+            long[] st = stats.get(q.getId());
+            if (st == null || st[0] <= 0) continue;
+            long all = st[0];
+            long ok = st[1];
             matched++;
             total += (int) all;
             wrong += (int) (all - ok);
