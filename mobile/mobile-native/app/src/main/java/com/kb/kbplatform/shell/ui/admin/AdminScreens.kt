@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -48,6 +50,8 @@ import androidx.compose.ui.unit.sp
 import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbCard
+import com.kb.kbplatform.shell.ui.common.kbItemEnter
+import com.kb.kbplatform.shell.ui.common.kbPress
 import com.kb.kbplatform.shell.ui.common.CenterHint
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
@@ -74,7 +78,13 @@ fun AdminHomeScreen(
 ) {
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "后台管理", onBack = onBack)
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        var enterIdx = 0
+        LazyColumn(
+            // 宽屏（平板/折叠屏）居中限宽，避免每张卡被拉成一条长带
+            modifier = Modifier.widthIn(max = 720.dp).align(Alignment.CenterHorizontally),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             item {
                 Text(
                     "按权限显示可用模块，完整后台（表单类）在「全部功能」的 Web 页面中",
@@ -82,25 +92,25 @@ fun AdminHomeScreen(
                 )
             }
             item {
-                AdminEntry("用户管理", "账号 / 角色 / 启停", KbBlue, onClick = { onOpen("admin/users") })
+                AdminEntry(index = enterIdx++, "用户管理", "账号 / 角色 / 启停", KbBlue, onClick = { onOpen("admin/users") })
             }
             item {
-                AdminEntry("AI 模型管理", "启停 / 默认模型 / 连通测试", Color(0xFF8B5CF6), onClick = { onOpen("admin/ai") })
+                AdminEntry(index = enterIdx++, "AI 模型管理", "启停 / 默认模型 / 连通测试", Color(0xFF8B5CF6), onClick = { onOpen("admin/ai") })
             }
             item {
-                AdminEntry("文章审核", "待审文章通过与驳回", KbGreen, onClick = { onOpen("admin/review") })
+                AdminEntry(index = enterIdx++, "文章审核", "待审文章通过与驳回", KbGreen, onClick = { onOpen("admin/review") })
             }
             item {
-                AdminEntry("公告管理", "发布 / 置顶 / 启停", KbWarn, onClick = { onOpen("admin/announce") })
+                AdminEntry(index = enterIdx++, "公告管理", "发布 / 置顶 / 启停", KbWarn, onClick = { onOpen("admin/announce") })
             }
             item {
-                AdminEntry("角色管理", "角色与权限分配", Color(0xFF0EA5E9), onClick = { onOpen("admin-roles") })
+                AdminEntry(index = enterIdx++, "角色管理", "角色与权限分配", Color(0xFF0EA5E9), onClick = { onOpen("admin-roles") })
             }
             item {
-                AdminEntry("内容管理", "全站文档查看与删除", Color(0xFF8B5CF6), onClick = { onOpen("admin-docs") })
+                AdminEntry(index = enterIdx++, "内容管理", "全站文档查看与删除", Color(0xFF8B5CF6), onClick = { onOpen("admin-docs") })
             }
             item {
-                AdminEntry("完整后台（Web）", "内容管理 / 检索测试 / 数据看板", Color(0xFF64748B),
+                AdminEntry(index = enterIdx++, "完整后台（Web）", "内容管理 / 检索测试 / 数据看板", Color(0xFF64748B),
                     onClick = { onOpenWeb("/m/manage/users", "后台管理") })
             }
         }
@@ -108,13 +118,14 @@ fun AdminHomeScreen(
 }
 
 @Composable
-private fun AdminEntry(title: String, sub: String, tint: Color, onClick: () -> Unit) {
+private fun AdminEntry(index: Int = 0, title: String, sub: String, tint: Color, onClick: () -> Unit) {
     KbCard(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .kbItemEnter(index)
+            .kbPress(onClick = onClick)
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -195,11 +206,16 @@ fun AdminUsersScreen(onBack: () -> Unit) {
         } else if (error.isNotEmpty()) {
             CenterHint(error)
         } else {
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(users, key = { it.optLong("id", 0) }) { u ->
+            LazyColumn(
+                modifier = Modifier.widthIn(max = 720.dp).align(Alignment.CenterHorizontally),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(users, key = { _, u -> u.optLong("id", 0) }) { i, u ->
                     val id = u.optLong("id", 0)
                     val enabled = u.optBoolean("enabled", true)
                     KbCard(
+                        modifier = Modifier.kbItemEnter(i),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Column(Modifier.padding(12.dp)) {
@@ -377,11 +393,16 @@ fun AdminAiScreen(onBack: () -> Unit) {
         } else if (models.isEmpty()) {
             CenterHint("还没有模型，请在 Web 端「AI 模型管理」添加")
         } else {
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(models, key = { it.optLong("id", 0) }) { m ->
+            LazyColumn(
+                modifier = Modifier.widthIn(max = 720.dp).align(Alignment.CenterHorizontally),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(models, key = { _, m -> m.optLong("id", 0) }) { i, m ->
                     val id = m.optLong("id", 0)
                     val enabled = m.optBoolean("enabled", true)
                     KbCard(
+                        modifier = Modifier.kbItemEnter(i),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Column(Modifier.padding(12.dp)) {
@@ -489,10 +510,15 @@ fun AdminReviewScreen(onBack: () -> Unit) {
         } else if (docs.isEmpty()) {
             CenterHint("没有待审核的文章 🎉")
         } else {
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(docs, key = { it.optLong("id", 0) }) { d ->
+            LazyColumn(
+                modifier = Modifier.widthIn(max = 720.dp).align(Alignment.CenterHorizontally),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(docs, key = { _, d -> d.optLong("id", 0) }) { i, d ->
                     val id = d.optLong("id", 0)
                     KbCard(
+                        modifier = Modifier.kbItemEnter(i),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Column(Modifier.padding(12.dp)) {
@@ -590,11 +616,16 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
         } else if (list.isEmpty()) {
             CenterHint("暂无公告")
         } else {
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(list, key = { it.optLong("id", 0) }) { a ->
+            LazyColumn(
+                modifier = Modifier.widthIn(max = 720.dp).align(Alignment.CenterHorizontally),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(list, key = { _, a -> a.optLong("id", 0) }) { i, a ->
                     val id = a.optLong("id", 0)
                     val enabled = a.optBoolean("enabled", true)
                     KbCard(
+                        modifier = Modifier.kbItemEnter(i),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Column(Modifier.padding(12.dp)) {
