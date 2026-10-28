@@ -84,6 +84,23 @@ fun AppRoot() {
         }
     }
 
+    // 站内通知落地成系统通知：仅当 App 不在前台（在前台顶部红点已经够了）
+    LaunchedEffect(Unit) {
+        com.kb.kbplatform.shell.data.SseClient.events.collect { obj ->
+            if (!com.kb.kbplatform.shell.data.AppForeground.active) {
+                val body = obj.optString("summary")
+                    .ifBlank { obj.optString("content") }
+                    .ifBlank { "你有一条新消息" }
+                val who = obj.optString("actor")
+                com.kb.kbplatform.shell.data.MsgNotify.show(
+                    appCtx,
+                    if (who.isBlank()) "知识库" else who,
+                    body
+                )
+            }
+        }
+    }
+
     LaunchedEffect(token) {
         if (token != null) {
             SseClient.start()

@@ -37,10 +37,15 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppLock.onAppForegrounded()
+        com.kb.kbplatform.shell.data.AppForeground.active = true
+        // 首次进前台申请一次通知权限（Android 13+）：原来只在「更新下载」时申请，
+        // 用户不点更新就永远收不到消息通知
+        com.kb.kbplatform.shell.data.MsgNotify.ensurePermission(this)
     }
 
     override fun onStop() {
         super.onStop()
+        com.kb.kbplatform.shell.data.AppForeground.active = false
         AppLock.onAppBackgrounded()
     }
 
