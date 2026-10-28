@@ -161,6 +161,9 @@ fun AdminUsersScreen(onBack: () -> Unit) {
     var roleTarget by remember { mutableStateOf<JSONObject?>(null) }
     var disableTarget by remember { mutableStateOf<JSONObject?>(null) }
     var actionMsg by remember { mutableStateOf("") }
+    var showCreate by remember { mutableStateOf(false) }
+    var resetTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var resetResult by remember { mutableStateOf("") }
 
     fun load(p: Int) {
         loading = true
@@ -182,7 +185,9 @@ fun AdminUsersScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) { load(0) }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "用户管理", onBack = onBack)
+        TopBar(title = "用户管理", onBack = onBack) {
+            TextButton(onClick = { showCreate = true }) { Text("新建", fontSize = 13.sp) }
+        }
         OutlinedTextField(
             value = keyword,
             onValueChange = { keyword = it },
@@ -262,6 +267,9 @@ fun AdminUsersScreen(onBack: () -> Unit) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { roleTarget = u }, enabled = enabled) {
                                     Text("改角色", fontSize = 12.sp)
+                                }
+                                TextButton(onClick = { resetTarget = u }) {
+                                    Text("重置密码", fontSize = 12.sp)
                                 }
                             }
                         }
@@ -350,6 +358,151 @@ fun AdminUsersScreen(onBack: () -> Unit) {
                 }) { Text("保存") }
             },
             dismissButton = { TextButton(onClick = { roleTarget = null }) { Text("取消") } }
+        )
+    }
+
+    // 新建用户
+    if (showCreate) {
+        var nu by remember { mutableStateOf("") }
+        var nn by remember { mutableStateOf("") }
+        var np by remember { mutableStateOf("") }
+        var nrole by remember { mutableStateOf("USER") }
+        var nEnabled by remember { mutableStateOf(true) }
+        var tip by remember { mutableStateOf("") }
+        var busy by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { if (!busy) showCreate = false },
+            title = { Text("新建用户", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = nu, onValueChange = { nu = it.trim() },
+                        label = { Text("用户名（登录用）", fontSize = 11.sp) },
+                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = nn, onValueChange = { nn = it },
+                        label = { Text("昵称（留空用用户名）", fontSize = 11.sp) },
+                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = np, onValueChange = { np = it },
+                        label = { Text("初始密码（至少 6 位）", fontSize = 11.sp) },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("角色", fontSize = 11.sp, color = KbTextDim)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("USER" to "普通用户", "ADMIN" to "管理员").forEach { (v, label) ->
+                            val on = nrole == v
+                            Text(
+                                label, fontSize = 12.sp,
+                                color = if (on) Color.White else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .background(
+                                        if (on) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.surfaceVariant,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { nrole = v }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("立即启用", fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Switch(checked = nEnabled, onCheckedChange = { nEnabled = it })
+                    }
+                    if (tip.isNotEmpty()) {
+                        Text(tip, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !busy,
+                    onClick = {
+                        if (nu.isBlank()) { tip = "请填写用户名"; return@Button }
+                        if (np.length < 6) { tip = "密码至少 6 位"; return@Button }
+                        busy = true
+                        scope.launch {
+                            val r = runCatching {
+                                KbApi.adminCreateUser(
+                                    JSONObject()
+                                        .put("username", nu)
+                                        .put("displayName", nn.trim().ifBlank { nu })
+                                        .put("password", np)
+                                        .put("role", nrole)
+                                        .put("enabled", nEnabled)
+                                )
+                            }
+                            busy = false
+                            if (r.isSuccess) {
+                                showCreate = false
+                                actionMsg = ""
+                                load(0)
+                            } else {
+                                tip = "创建失败：" + (r.exceptionOrNull()?.message ?: "请重试")
+                            }
+                        }
+                    }
+                ) { Text(if (busy) "创建中…" else "创建") }
+            },
+            dismissButton = { TextButton(onClick = { showCreate = false }) { Text("取消") } }
+        )
+    }
+
+    // 重置密码：服务端生成随机密码，这里直接把新密码显示出来（只显示一次）
+    resetTarget?.let { u ->
+        val name = u.optString("displayName").ifBlank { u.optString("username") }
+        AlertDialog(
+            onDismissRequest = { resetTarget = null; resetResult = "" },
+            title = { Text(if (resetResult.isEmpty()) "重置密码" else "新密码") },
+            text = {
+                if (resetResult.isEmpty()) {
+                    Text("确定重置「$name」的密码？旧密码立即失效。", fontSize = 13.sp)
+                } else {
+                    Column {
+                        Text("请把新密码发给该用户，关闭后无法再次查看：", fontSize = 12.sp, color = KbTextDim)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            resetResult, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (resetResult.isEmpty()) {
+                    Button(onClick = {
+                        val uid = u.optLong("id", 0)
+                        scope.launch {
+                            val r = runCatching { KbApi.adminResetPassword(uid) }
+                            r.fold(
+                                onSuccess = { resp ->
+                                    val pwd = resp.optString("password").ifBlank {
+                                        resp.optString("newPassword").ifBlank { "（服务端未返回，请让用户走找回密码）" }
+                                    }
+                                    resetResult = pwd
+                                },
+                                onFailure = {
+                                    resetTarget = null
+                                    actionMsg = "重置失败：" + (it.message ?: "请重试")
+                                }
+                            )
+                        }
+                    }) { Text("确认重置") }
+                } else {
+                    Button(onClick = { resetTarget = null; resetResult = "" }) { Text("知道了") }
+                }
+            },
+            dismissButton = if (resetResult.isEmpty()) {
+                { TextButton(onClick = { resetTarget = null }) { Text("取消") } }
+            } else null
         )
     }
 }
@@ -838,6 +991,7 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<JSONObject?>(null) }
 
     fun load() {
         loading = true
@@ -907,6 +1061,7 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                                 maxLines = 2
                             )
                             Row(Modifier.padding(top = 6.dp)) {
+                                TextButton(onClick = { editTarget = a }) { Text("编辑", fontSize = 12.sp) }
                                 TextButton(onClick = {
                                     scope.launch {
                                         runCatching { KbApi.adminPinAnnouncement(id) }
@@ -956,6 +1111,49 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                 }) { Text("发布") }
             },
             dismissButton = { TextButton(onClick = { showCreate = false }) { Text("取消") } }
+        )
+    }
+
+    // 编辑公告：与发布共用同一套字段，保存走 PUT
+    editTarget?.let { a ->
+        val id = a.optLong("id", 0)
+        var title by remember { mutableStateOf(a.optString("title")) }
+        var content by remember { mutableStateOf(a.optString("content")) }
+        var busy by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { if (!busy) editTarget = null },
+            title = { Text("编辑公告", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = title, onValueChange = { title = it },
+                        placeholder = { Text("标题") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = content, onValueChange = { content = it },
+                        placeholder = { Text("内容") }, minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !busy && title.isNotBlank(),
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            val r = runCatching { KbApi.adminUpdateAnnouncement(id, title.trim(), content.trim()) }
+                            busy = false
+                            if (r.isSuccess) { editTarget = null; load() } else { error = "保存失败，请重试" }
+                        }
+                    }
+                ) { Text(if (busy) "保存中…" else "保存") }
+            },
+            dismissButton = { TextButton(onClick = { editTarget = null }) { Text("取消") } }
         )
     }
 }

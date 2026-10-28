@@ -299,6 +299,17 @@ object KbApi {
     suspend fun markNotificationRead(id: Long): Unit =
         withContext(Dispatchers.IO) { ApiClient.post("/api/notifications/$id/read") }
 
+    /** POST /notifications/read-all → 全部标已读 */
+    suspend fun markAllNotificationsRead(): Unit =
+        withContext(Dispatchers.IO) { ApiClient.post("/api/notifications/read-all") }
+
+    /** DELETE /notifications/{id} → 删除单条（只影响自己那条） */
+    suspend fun deleteNotification(id: Long): Unit =
+        withContext(Dispatchers.IO) {
+            ApiClient.delete("/api/notifications/$id")
+            Unit
+        }
+
     /** GET /notifications/unread → { count } */
     suspend fun unreadCount(): Int = withContext(Dispatchers.IO) {
         ApiClient.get("/api/notifications/unread").optInt("count", 0)
@@ -533,6 +544,23 @@ object KbApi {
     /** DELETE /admin/announcements/{id} */
     suspend fun adminDeleteAnnouncement(id: Long): Unit = withContext(Dispatchers.IO) {
         ApiClient.delete("/api/admin/announcements/$id")
+        Unit
+    }
+
+    /** PUT /admin/announcements/{id} {title, content} → 编辑公告 */
+    suspend fun adminUpdateAnnouncement(id: Long, title: String, content: String): Unit =
+        withContext(Dispatchers.IO) {
+            ApiClient.put("/api/admin/announcements/$id", JSONObject().put("title", title).put("content", content))
+        }
+
+    /** POST /admin/users → 新建用户（username/displayName/password/role/enabled） */
+    suspend fun adminCreateUser(body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/users", body)
+    }
+
+    /** POST /admin/users/{id}/reset-password → 重置为随机初始密码（返回体里带新密码） */
+    suspend fun adminResetPassword(id: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/users/$id/reset-password")
     }
 
     /** POST /admin/announcements/{id}/enable {enabled} / pin */

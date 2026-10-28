@@ -22,13 +22,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.MarkEmailRead
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +45,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,8 +54,6 @@ import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.SseClient
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbCard
-import com.kb.kbplatform.shell.ui.common.CenterHint
-import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
 import com.kb.kbplatform.shell.ui.theme.KbBlue
 import kotlinx.coroutines.launch
@@ -55,9 +61,17 @@ import org.json.JSONObject
 
 /**
  * 消息 Tab：通知列表（GET /notifications，倒序）。
- * SSE 到达自动刷新（SseClient.events）；进页用 /notifications/unread 校准角标；
- * 点一条标记已读（POST /{id}/read，乐观更新 + 角标减一）。
+ * SSE 到达自动刷新（SseClient.events）；进页用 /notifications/unread 校准角标。
+ *
+ * 手势（2026-10-28 加）：
+ *   - 左滑（EndToStart）→ 标记已读
+ *   - 右滑（StartToEnd）→ 删除
+ * 两个方向都**不真正移除条目**（confirmValueChange 返回 false，卡片回弹），
+ * 状态由我们自己改：删除立即从列表移除，已读只降透明度 —— 避免手势误触把消息滑没了。
+ *
+ * 视觉：未读左侧蓝点 + 正常不透明度；已读整条降到 60%，一眼能分出哪些看过。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MessagesScreen() {
     val scope = rememberCoroutineScope()
@@ -89,8 +103,43 @@ fun MessagesScreen() {
         if (refreshKey > 0) load()
     }
 
+    // 标已读：乐观更新（先改 UI 再发请求），失败也不回滚——下次刷新会以服务端为准
+    fun markRead(id: Long) {
+        val wasUnread = items.any { it.optLong("id", 0) == id && !it.optBoolean("read", true) }
+        if (!wasUnread) return
+        items = items.map {
+            if (it.optLong("id", 0) == id) JSONObject(it.toString()).put("read", true) else it
+        }
+        SseClient.decrementUnread()
+        scope.launch { runCatching { KbApi.markNotificationRead(id) } }
+    }
+
+    // 删除：先从列表移除（手感即时），失败就重载把那条找回来
+    fun deleteOne(id: Long) {
+        val wasUnread = items.any { it.optLong("id", 0) == id && !it.optBoolean("read", true) }
+        items = items.filter { it.optLong("id", 0) != id }
+        if (wasUnread) SseClient.decrementUnread()
+        scope.launch {
+            val r = runCatching { KbApi.deleteNotification(id) }
+            if (r.isFailure) refreshKey++
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         com.kb.kbplatform.shell.ui.common.KbPageHeader(title = "消息") {
+            IconButton(
+                enabled = items.any { !it.optBoolean("read", true) },
+                onClick = {
+                    items = items.map { JSONObject(it.toString()).put("read", true) }
+                    SseClient.setUnread(0)
+                    scope.launch {
+                        val r = runCatching { KbApi.markAllNotificationsRead() }
+                        if (r.isFailure) refreshKey++
+                    }
+                }
+            ) {
+                Icon(Icons.Filled.Done, contentDescription = "全部已读")
+            }
             IconButton(onClick = { refreshKey++ }) {
                 Icon(Icons.Filled.Refresh, contentDescription = "刷新")
             }
@@ -110,50 +159,89 @@ fun MessagesScreen() {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { n ->
                     val id = n.optLong("id", 0)
                     val read = n.optBoolean("read", true)
-                    KbCard(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = !read) {
-                                // 乐观更新：先置已读再发请求，失败不打断（下次刷新恢复）
-                                items = items.map {
-                                    if (it.optLong("id", 0) == id) JSONObject(it.toString()).put("read", true) else it
-                                }
-                                SseClient.decrementUnread()
-                                scope.launch { runCatching { KbApi.markNotificationRead(id) } }
+
+                    val dismissState = rememberSwipeToDismissBoxState(
+                        confirmValueChange = { v ->
+                            when (v) {
+                                SwipeToDismissBoxValue.StartToEnd -> deleteOne(id)   // 右滑删除
+                                SwipeToDismissBoxValue.EndToStart -> markRead(id)    // 左滑标已读
+                                else -> Unit
                             }
-                    ) {
-                        Row(Modifier.padding(14.dp)) {
-                            if (!read) {
-                                Box(
-                                    Modifier
-                                        .padding(top = 6.dp)
-                                        .size(8.dp)
-                                        .background(KbBlue, CircleShape)
+                            false   // 不让卡片真的滑走，状态由数据决定
+                        }
+                    )
+
+                    SwipeToDismissBox(
+                        state = dismissState,
+                        modifier = Modifier.fillMaxWidth(),
+                        enableDismissFromStartToEnd = true,
+                        enableDismissFromEndToStart = !read,
+                        backgroundContent = {
+                            val del = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+                            Row(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        if (del) MaterialTheme.colorScheme.error else KbBlue,
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .padding(horizontal = 18.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = if (del) Arrangement.Start else Arrangement.End
+                            ) {
+                                Icon(
+                                    if (del) Icons.Filled.Delete else Icons.Filled.MarkEmailRead,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Spacer(Modifier.size(10.dp))
-                            }
-                            Column(Modifier.weight(1f)) {
+                                Spacer(Modifier.size(6.dp))
                                 Text(
-                                    n.optString("actor").ifBlank { "系统" },
-                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                                    if (del) "删除" else "标已读",
+                                    color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium
                                 )
-                                if (n.optString("summary").isNotEmpty()) {
-                                    Spacer(Modifier.height(2.dp))
+                            }
+                        }
+                    ) {
+                        KbCard(
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .alpha(if (read) 0.6f else 1f)
+                                .clickable(enabled = !read) { markRead(id) }
+                        ) {
+                            Row(Modifier.padding(14.dp)) {
+                                if (!read) {
+                                    Box(
+                                        Modifier
+                                            .padding(top = 6.dp)
+                                            .size(8.dp)
+                                            .background(KbBlue, CircleShape)
+                                    )
+                                    Spacer(Modifier.size(10.dp))
+                                }
+                                Column(Modifier.weight(1f)) {
                                     Text(
-                                        n.optString("summary"),
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 2
+                                        n.optString("actor").ifBlank { "系统" },
+                                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (n.optString("summary").isNotEmpty()) {
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            n.optString("summary"),
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2
+                                        )
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        formatDateTime(n.optString("createdAt")),
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    formatDateTime(n.optString("createdAt")),
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }
