@@ -62,6 +62,13 @@ public class CourseController {
         return svc.finishChapter(resolveOwner(c), id, cid);
     }
 
+    /** 登录：重学章节（进度归零，扣回该章积分） */
+    @PostMapping("/{id}/chapters/{cid}/reset")
+    public LearningProgress reset(@RequestAttribute("kbUser") TokenClaims c,
+                                  @PathVariable Long id, @PathVariable Long cid) {
+        return svc.resetChapter(resolveOwner(c), id, cid);
+    }
+
     /** 登录：我的学习概览 */
     @GetMapping("/mine")
     public List<Map<String, Object>> mine(@RequestAttribute("kbUser") TokenClaims c) {

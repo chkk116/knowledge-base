@@ -5,7 +5,7 @@
  */
 import { onMounted, ref, computed, nextTick, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getCourse, finishChapter, courseProgress } from '../../api/training'
+import { getCourse, finishChapter, courseProgress, resetChapter } from '../../api/training'
 
 const route = useRoute()
 const router = useRouter()
@@ -114,6 +114,62 @@ watch(canFinish, (ok) => {
   autoTried = true
   markDone(true)
 })
+
+// ---------- 自动翻页（学习通式）：完成后倒计时进入下一章 ----------
+const autoNextLeft = ref(0)
+let autoNextTimer = null
+
+function hasNext() {
+  return idx.value >= 0 && idx.value < chapters.value.length - 1
+}
+
+function startAutoNext() {
+  if (!hasNext()) return
+  clearInterval(autoNextTimer)
+  autoNextLeft.value = 3
+  autoNextTimer = setInterval(() => {
+    autoNextLeft.value -= 1
+    if (autoNextLeft.value <= 0) {
+      clearInterval(autoNextTimer)
+      autoNextTimer = null
+      go(idx.value + 1)
+    }
+  }, 1000)
+}
+
+function cancelAutoNext() {
+  if (autoNextTimer) { clearInterval(autoNextTimer); autoNextTimer = null }
+  autoNextLeft.value = 0
+}
+
+// 完成 → 自动翻页；离开页面/切换章节都要清掉，否则会跳错章
+watch(finished, (v) => { if (v) { startAutoNext() } else { cancelAutoNext() } })
+watch(idx, () => cancelAutoNext())
+
+/** 重学：进度归零、停留与「滑到底」状态全部重置，回到顶部重新走门槛 */
+const relearning = ref(false)
+async function relearn() {
+  if (relearning.value) return
+  cancelAutoNext()
+  relearning.value = true
+  try {
+    await resetChapter(courseId, chapterId)
+    finished.value = false
+    autoTried = false
+    dwell.value = 0
+    reachedBottom.value = false
+    needsScroll.value = false
+    await nextTick()
+    measure()
+    scrollEl?.scrollTo({ top: 0, behavior: 'smooth' })
+    window.__kbMsg?.success('已重置，重新学习本章')
+  } catch (e) {
+    window.__kbMsg?.error(e?.response?.data?.error || '重置失败，请重试')
+  } finally {
+    relearning.value = false
+  }
+}
+
 function go(i) {
   const ch = chapters.value[i]
   if (ch) router.replace(`/course/${courseId}/chapter/${ch.id}`)
@@ -132,6 +188,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   if (tickTimer) clearInterval(tickTimer)
+  if (autoNextTimer) clearInterval(autoNextTimer)
   scrollEl?.removeEventListener('scroll', onScroll)
 })
 </script>
@@ -150,14 +207,29 @@ onUnmounted(() => {
       <div class="m-card prose" v-html="chapter.content || '<p style=\'color:#86909c\'>本章暂无内容</p>'"></div>
 
       <div v-if="gateText" class="gate-tip">{{ gateText }}</div>
-      <!-- 不再手动点：条件满足会自动完成；完成后直接给「下一章」 -->
+
+      <!-- 未完成：进度提示（按钮不可点，条件满足会自动完成） -->
       <button v-if="!finished" class="m-btn" disabled>
         {{ dwellLeft
           ? `阅读中… 还剩 ${dwellLeft}s`
           : (needsScroll && !reachedBottom ? '滑到章节末尾即自动完成' : '正在标记完成…') }}
       </button>
-      <button v-else-if="idx < chapters.length - 1" class="m-btn" @click="go(idx + 1)">下一章</button>
-      <button v-else class="m-btn" disabled>本章已学完</button>
+
+      <!-- 已完成：自动翻页倒计时 + 重学 -->
+      <template v-else>
+        <div v-if="autoNextLeft > 0" class="auto-next">
+          <span class="an-text">{{ autoNextLeft }} 秒后自动进入下一章</span>
+          <button class="an-btn" @click="cancelAutoNext">暂停</button>
+          <button class="an-btn primary" @click="go(idx + 1)">立即进入</button>
+        </div>
+        <div v-else class="done-row">
+          <button class="m-btn ghost" :disabled="relearning" @click="relearn">
+            {{ relearning ? '重置中…' : '重学本章' }}
+          </button>
+          <button v-if="hasNext()" class="m-btn" @click="go(idx + 1)">下一章</button>
+          <button v-else class="m-btn" disabled>已学完全部章节</button>
+        </div>
+      </template>
     </div>
   </div>
   <div v-else class="loading">{{ loading ? '加载中…' : '章节不存在' }}</div>
@@ -177,4 +249,14 @@ onUnmounted(() => {
 .gate-tip { margin: 14px 2px 8px; font-size: 12px; line-height: 1.5; color: var(--m-text-dim); text-align: center; }
 .prose { font-size: 14.5px; line-height: 1.8; color: var(--m-text); }
 .loading { padding: 40px; text-align: center; color: var(--m-text-dim); }
+/* 自动翻页倒计时条 */
+.auto-next { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px;
+  padding: 10px 12px; background: var(--m-card-2); border-radius: 10px; }
+.an-text { flex: 1; font-size: 13px; color: var(--m-text-sub); }
+.an-btn { border: none; background: transparent; color: var(--m-text-sub); font-size: 13px;
+  padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+.an-btn.primary { background: var(--m-primary); color: #fff; font-weight: 600; }
+.done-row { display: flex; gap: 10px; margin-top: 10px; }
+.done-row .m-btn { flex: 1; margin-top: 0; }
+.m-btn.ghost { background: var(--m-card-2); color: var(--m-text-sub); }
 </style>

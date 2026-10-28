@@ -23,8 +23,9 @@
           </div>
           <div class="act" @click.stop>
             <el-tag v-if="isDone(ch.id)" type="success" effect="plain" size="small">已完成</el-tag>
-            <el-button v-if="loggedIn && !isDone(ch.id)" size="small" type="primary" @click="finish(ch)">标记完成</el-button>
-            <el-button size="small" text @click.stop="goChapter(ch)">去学习</el-button>
+            <!-- 不再提供「标记完成」：完成状态由学习页按停留时长 + 滑到底自动判定 -->
+            <el-button v-if="loggedIn && isDone(ch.id)" size="small" text :loading="relearning === ch.id" @click="relearn(ch)">重学</el-button>
+            <el-button size="small" text @click.stop="goChapter(ch)">{{ isDone(ch.id) ? '复习' : '去学习' }}</el-button>
             <el-button v-if="ch.articleId" size="small" text @click.stop="openArticle(ch.articleId)">看资料</el-button>
           </div>
         </div>
@@ -70,7 +71,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getCourse, courseProgress, finishChapter, listPapers, myExams, courseCertificate } from '../api/training'
+import { getCourse, courseProgress, finishChapter, resetChapter, listPapers, myExams, courseCertificate } from '../api/training'
 import { useAuthStore } from '../store/auth'
 import CertDialog from '../components/CertDialog.vue'
 import { errMsg } from '../utils/errMsg'
@@ -137,6 +138,21 @@ const finish = (ch) => {
     ElMessage.success('已标记完成')
     load()
   }).catch(e => ElMessage.error(errMsg(e, '操作失败')))
+}
+/** 重学：进度归零（服务端扣回该章积分，重新完成再发） */
+const relearning = ref(null)
+const relearn = async (ch) => {
+  if (relearning.value) return
+  relearning.value = ch.id
+  try {
+    await resetChapter(route.params.id, ch.id)
+    await load()
+    ElMessage.success('已重置，进入章节重新学习')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '重置失败，请重试'))
+  } finally {
+    relearning.value = null
+  }
 }
 const openArticle = (id) => router.push('/post/' + id)
 

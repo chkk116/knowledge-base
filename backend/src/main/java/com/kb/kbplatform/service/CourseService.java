@@ -123,6 +123,42 @@ public class CourseService {
         return saved;
     }
 
+    /**
+     * 登录：重学某章节 —— 进度归零，允许重新走一遍阅读门槛。
+     *
+     * 同时**扣回**该章已发的学习积分：否则「重学 → 再完成」可以无限刷分。
+     * 重学后再完成会重新发放，净额不变。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public LearningProgress resetChapter(Long userId, Long courseId, Long chapterId) {
+        if (!chapterRepo.findById(chapterId).map(c -> c.getCourseId().equals(courseId)).orElse(false)) {
+            throw new IllegalArgumentException("章节不属于该课程");
+        }
+        LearningProgress p = progressRepo.findByUserIdAndChapterId(userId, chapterId).orElse(null);
+        if (p == null) {
+            LearningProgress np = new LearningProgress();
+            np.setUserId(userId);
+            np.setCourseId(courseId);
+            np.setChapterId(chapterId);
+            np.setFinished(false);
+            np.setProgress(0);
+            np.setLastAt(LocalDateTime.now());
+            return progressRepo.save(np);
+        }
+        boolean wasFinished = p.isFinished();
+        p.setFinished(false);
+        p.setProgress(0);
+        p.setLastAt(LocalDateTime.now());
+        LearningProgress saved = progressRepo.save(p);
+        if (wasFinished) {
+            CourseChapter ch = chapterRepo.findById(chapterId).orElse(null);
+            String title = ch != null && ch.getTitle() != null ? ch.getTitle() : "章节";
+            authService.awardPoints(userId, -AuthService.COURSE_CHAPTER_POINTS, "COURSE",
+                    "重学章节《" + title + "》扣回");
+        }
+        return saved;
+    }
+
     /** 登录：我的学习概览（每门课的完成度） */
     public List<Map<String, Object>> myLearning(Long userId) {
         List<Course> courses = courseRepo.findAllByStatusOrderBySortOrderAscIdAsc("PUBLISHED");

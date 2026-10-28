@@ -1,9 +1,9 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
-import { getCourse, courseProgress, finishChapter } from '../api/training'
+import { getCourse, courseProgress, finishChapter, resetChapter } from '../api/training'
 import { getChapterNote, saveChapterNote } from '../api/kb'
 import CommentSection from '../components/CommentSection.vue'
 import { errMsg } from '../utils/errMsg'
@@ -67,23 +67,161 @@ const scheduleSave = () => {
 }
 watch(noteContent, scheduleSave)
 
-const finish = (ch) => {
+// ===== 学习通式：停留够 + 滑到底 → 自动完成；完成后倒计时自动翻页；可重学 =====
+const pageEl = ref(null)
+const dwell = ref(0)
+const reachedBottom = ref(false)
+const needsScroll = ref(false)
+const autoNextLeft = ref(0)
+const relearning = ref(false)
+let tickTimer = null
+let autoNextTimer = null
+let autoTried = false
+let scrollEl = null
+
+const textLen = computed(() => String(chapter.value?.content || '').replace(/<[^>]*>/g, '').length)
+/** 最短停留：按字数折算，8~90 秒封顶 */
+const minSeconds = computed(() => Math.min(90, Math.max(8, Math.ceil(textLen.value / 120))))
+const dwellLeft = computed(() => Math.max(0, minSeconds.value - dwell.value))
+const done = computed(() => !!chapter.value && isDone(chapter.value.id))
+const canFinish = computed(() => auth.loggedIn && !!chapter.value && !done.value
+  && dwellLeft.value <= 0 && (!needsScroll.value || reachedBottom.value))
+const gateText = computed(() => {
+  if (!auth.loggedIn) return ''
+  if (done.value) return ''
+  if (dwellLeft.value > 0) return `继续阅读 ${dwellLeft.value} 秒后自动完成`
+  if (needsScroll.value && !reachedBottom.value) return '滑到章节末尾后自动完成'
+  return '条件已满足，正在自动完成…'
+})
+
+/** 真正的滚动容器不一定是 window（App 骨架里是 .main） */
+function findScroller() {
+  let el = pageEl.value?.parentElement
+  while (el) {
+    const oy = getComputedStyle(el).overflowY
+    if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return el
+    el = el.parentElement
+  }
+  return document.scrollingElement || document.documentElement
+}
+
+function measure() {
+  if (!scrollEl) scrollEl = findScroller()
+  if (!scrollEl) return
+  needsScroll.value = scrollEl.scrollHeight - scrollEl.clientHeight > 40
+  if (!needsScroll.value) reachedBottom.value = true
+  else if (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 24) reachedBottom.value = true
+}
+
+function onScroll() {
+  if (!scrollEl) return
+  if (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 24) reachedBottom.value = true
+}
+
+function startAutoNext() {
+  if (!nextCh.value) return
+  clearInterval(autoNextTimer)
+  autoNextLeft.value = 3
+  autoNextTimer = setInterval(() => {
+    autoNextLeft.value -= 1
+    if (autoNextLeft.value <= 0) {
+      clearInterval(autoNextTimer)
+      autoNextTimer = null
+      goChapter(nextCh.value)
+    }
+  }, 1000)
+}
+
+function cancelAutoNext() {
+  if (autoNextTimer) { clearInterval(autoNextTimer); autoNextTimer = null }
+  autoNextLeft.value = 0
+}
+
+const finish = (ch, auto = false) => {
+  if (!ch) return
   finishChapter(route.params.courseId, ch.id).then(() => {
-    ElMessage.success('已标记完成 +10 积分')
+    ElMessage.success(auto ? '已读完，本章自动完成 +10 积分' : '已标记完成 +10 积分')
     load()
-  }).catch(e => ElMessage.error(errMsg(e, '操作失败')))
+  }).catch(e => {
+    autoTried = false   // 失败允许重试，别把用户卡死在「正在自动完成」
+    ElMessage.error(errMsg(e, '操作失败'))
+  })
+}
+
+// 条件满足 → 自动完成（只试一次，失败才允许重试）
+watch(canFinish, (ok) => {
+  if (!ok || autoTried) return
+  autoTried = true
+  finish(chapter.value, true)
+})
+
+// 完成后自动翻页；切章 / 离开都清掉计时器
+watch(done, (v) => { if (v) { startAutoNext() } else { cancelAutoNext() } })
+watch(() => route.params.chapterId, () => { cancelAutoNext() })
+
+/** 重学：进度归零 + 停留/滑到底状态重置，回到顶部重新走门槛 */
+const relearn = async () => {
+  if (!chapter.value || relearning.value) return
+  cancelAutoNext()
+  relearning.value = true
+  try {
+    await resetChapter(route.params.courseId, chapter.value.id)
+    autoTried = false
+    dwell.value = 0
+    reachedBottom.value = false
+    needsScroll.value = false
+    await load()
+    scrollEl?.scrollTo({ top: 0, behavior: 'smooth' })
+    ElMessage.success('已重置，重新学习本章')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '重置失败，请重试'))
+  } finally {
+    relearning.value = false
+  }
 }
 
 const goChapter = (ch) => { if (ch) router.push(`/study/courses/${route.params.courseId}/chapters/${ch.id}`) }
 const openArticle = (id) => router.push('/post/' + id)
 
-onMounted(() => { load(); loadNote() })
-watch(() => route.params.chapterId, () => { load(); loadNote() })
-onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
+onMounted(() => {
+  load()
+  loadNote()
+  // 每秒累加停留时间；每 2 秒重量一次高度（图片加载后页面会变长）
+  tickTimer = setInterval(() => {
+    dwell.value++
+    if (dwell.value % 2 === 0) measure()
+  }, 1000)
+})
+
+// 章节内容到位后重新找滚动容器（正文高度变了，可能从「不用滚」变成「要滚」）
+watch(chapter, async () => {
+  await nextTick()
+  scrollEl?.removeEventListener('scroll', onScroll)
+  scrollEl = findScroller()
+  scrollEl?.addEventListener('scroll', onScroll, { passive: true })
+  measure()
+})
+
+watch(() => route.params.chapterId, () => {
+  autoTried = false
+  dwell.value = 0
+  reachedBottom.value = false
+  needsScroll.value = false
+  cancelAutoNext()
+  load()
+  loadNote()
+})
+
+onBeforeUnmount(() => {
+  if (saveTimer) clearTimeout(saveTimer)
+  if (tickTimer) clearInterval(tickTimer)
+  if (autoNextTimer) clearInterval(autoNextTimer)
+  scrollEl?.removeEventListener('scroll', onScroll)
+})
 </script>
 
 <template>
-  <div class="page" v-if="chapter">
+  <div class="page" ref="pageEl" v-if="chapter">
     <!-- 面包屑 -->
     <div class="crumb">
       <span class="lk" @click="router.push('/study/courses')">培训课程</span>
@@ -96,13 +234,22 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
     <h1 class="title">{{ chapter.title }}</h1>
     <div class="meta">
       <span v-if="chapter.durationMin">约 {{ chapter.durationMin }} 分钟</span>
-      <el-tag v-if="isDone(chapter.id)" type="success" effect="plain" size="small">已完成</el-tag>
-      <el-button v-if="auth.loggedIn && !isDone(chapter.id)" size="small" type="primary" @click="finish(chapter)">标记完成</el-button>
+      <el-tag v-if="done" type="success" effect="plain" size="small">已完成</el-tag>
+      <!-- 不再给「标记完成」按钮：条件满足会自动完成，这里只说明还差什么 -->
+      <el-tag v-else-if="auth.loggedIn" type="info" effect="plain" size="small">{{ gateText || '学习中' }}</el-tag>
       <el-button v-if="chapter.articleId" size="small" text @click="openArticle(chapter.articleId)">看资料</el-button>
+      <el-button v-if="auth.loggedIn && done" size="small" text :loading="relearning" @click="relearn">重学本章</el-button>
     </div>
 
     <!-- 正文 -->
     <article class="content" v-html="chapter.content || '<p style=\'color:#94a3b8\'>本章暂无正文内容，可在管理后台「培训管理」中编辑章节正文。</p>'"></article>
+
+    <!-- 自动翻页倒计时（学完自动进入下一章，可暂停） -->
+    <div v-if="autoNextLeft > 0" class="auto-next">
+      <span class="an-text">{{ autoNextLeft }} 秒后自动进入下一章</span>
+      <el-button size="small" text @click="cancelAutoNext">暂停</el-button>
+      <el-button size="small" type="primary" @click="goChapter(nextCh)">立即进入</el-button>
+    </div>
 
     <!-- 上/下章导航 -->
     <div class="nav">
@@ -166,6 +313,11 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .content :deep(ul), .content :deep(ol) { padding-left: 22px; margin: 8px 0; }
 .content :deep(blockquote) { margin: 8px 0; padding: 6px 14px; border-left: 3px solid #c7d2fe; background: #f8fafc; color: #475569; }
 .nav { display: flex; justify-content: space-between; gap: 12px; margin: 18px 0; }
+.auto-next { display: flex; align-items: center; gap: 10px; margin: 18px 0 0;
+  padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
+.auto-next .an-text { flex: 1; font-size: 13.5px; color: #475569; }
+:deep(html.dark) .auto-next { background: #1b1b2e; border-color: #2c2c44; }
+:deep(html.dark) .auto-next .an-text { color: #a5a7bd; }
 .nav-btn { border: 1px solid #e2e8f0; background: #fff; border-radius: 10px; padding: 9px 18px; cursor: pointer; color: #475569; font-size: 14px; transition: .15s; }
 .nav-btn:hover:not(:disabled) { border-color: #c7d2fe; color: #4f46e5; }
 .nav-btn:disabled { opacity: .45; cursor: not-allowed; }

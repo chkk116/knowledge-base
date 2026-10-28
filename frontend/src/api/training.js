@@ -16,6 +16,10 @@ export const courseProgress = (id) =>
 export const finishChapter = (courseId, chapterId) =>
   api.post('/courses/' + courseId + '/chapters/' + chapterId + '/finish')
 
+// 重学：进度归零（服务端会扣回该章已发积分，重新完成再发，净额不变）
+export const resetChapter = (courseId, chapterId) =>
+  api.post('/courses/' + courseId + '/chapters/' + chapterId + '/reset')
+
 export const myLearning = () =>
   api.get('/courses/mine')
 
