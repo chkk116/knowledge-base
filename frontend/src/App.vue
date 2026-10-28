@@ -353,7 +353,7 @@ const menus = computed(() => {
   if (auth.hasPerm('SITE_FEATURE_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/maintain', title: '功能开关', icon: 'Setting' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/watermark', title: '水印设置', icon: 'Stamp' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/notify-webhook', title: '通知外发', icon: 'Promotion' })
-  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/sso-ldap', title: '企业登录', icon: 'Connection' })
+  if (auth.hasPerm('SSO_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/sso-ldap', title: '企业登录', icon: 'Connection' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Postcard' })

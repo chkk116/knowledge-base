@@ -19,6 +19,7 @@ export const PERM_LABELS = {
   SHARE_DELETE: '共享文档管理（删除空间）',
   SHARE_CAPACITY: '共享文档管理（容量分配）',
   CORE_MAINTAIN: '功能开关与站点设置',
+  SSO_MANAGE: '企业登录配置',
   DOC_EXPORT: '文档导出',
   BANNED_WORDS_MANAGE: '违禁词管理',
   DOC_SHARE: '共享文档管理（旧权限，已拆分）',

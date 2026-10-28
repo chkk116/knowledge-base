@@ -32,7 +32,8 @@ export const PERM_GROUPS = [
     title: '站点设置',
     perms: [
       { value: 'SITE_FEATURE_MANAGE', label: '功能开关' },
-      { value: 'SITE_SETTINGS_MANAGE', label: '站点配置（水印 / 外观 / 页脚 / 登录页二维码 / 企业登录 / 通知外发）' },
+      { value: 'SITE_SETTINGS_MANAGE', label: '站点配置（水印 / 外观 / 页脚 / 登录页二维码 / 通知外发）' },
+      { value: 'SSO_MANAGE', label: '企业登录（LDAP / OIDC / GitHub / Gitee / 微信 / QQ）' },
       { value: 'SYSTEM_STATUS_VIEW', label: '系统状态（含 Redis 开关）' }
     ]
   },

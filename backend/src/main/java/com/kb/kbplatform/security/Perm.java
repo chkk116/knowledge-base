@@ -20,7 +20,7 @@ public final class Perm {
             "SHARE_CREATE", "SHARE_VIEW", "SHARE_DELETE", "SHARE_CAPACITY", "CORE_MAINTAIN",
             // 站点设置细分（2026-10-28）：原来整块只有 CORE_MAINTAIN 一个码，勾了等于把 8 个页面全给出去。
             // CORE_MAINTAIN 保留为「站点设置（全部）」总码，老角色不受影响。
-            "SITE_FEATURE_MANAGE", "SITE_SETTINGS_MANAGE", "SYSTEM_STATUS_VIEW",
+            "SITE_FEATURE_MANAGE", "SITE_SETTINGS_MANAGE", "SSO_MANAGE", "SYSTEM_STATUS_VIEW",
             "DOC_EXPORT", "BANNED_WORDS_MANAGE", "ASSET_MANAGE", "AVATAR_REVIEW",
             "AUDIT_VIEW", "LOGIN_LOG_VIEW",   // 操作审计 / 登录日志：独立只读权限（2026-10-06 从 ADMIN_VIEW 拆出）
             "ADMIN_VIEW", "DEMO_MODE"

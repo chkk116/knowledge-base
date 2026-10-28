@@ -137,7 +137,8 @@ public class SsoController {
     }
 
     private void requireAdmin(TokenClaims c) {
-        if (c == null || !c.isAdmin()) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "仅管理员可配置企业登录");
+        if (c == null || (!c.isAdmin() && !c.hasPerm("SSO_MANAGE")))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要企业登录配置权限");
     }
 
     @GetMapping("/api/admin/sso/ldap")
