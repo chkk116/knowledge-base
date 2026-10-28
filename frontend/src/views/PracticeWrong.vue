@@ -29,9 +29,23 @@
           <el-tag size="small" effect="plain">{{ TYPE_CN[q.type] || '单选' }}</el-tag>
           <span v-if="q.category" class="cat">{{ q.category }}</span>
           <span class="spacer" />
+          <el-button size="small" text @click="toggleDocs(q)">相关文档</el-button>
+          <el-button size="small" text type="primary" @click="addCard(q)">加入复习卡</el-button>
           <el-button size="small" text type="primary" @click="markKnown(q)">已掌握</el-button>
         </div>
         <div class="c-q" v-html="q.content"></div>
+        <div v-if="openDocs[q.id]" class="c-docs">
+          <div v-if="docsLoading[q.id]" class="tip">查找相关文档…</div>
+          <template v-else-if="(docsMap[q.id] || []).length">
+            <div class="c-docs-t">这道题对应的文档（按关键词命中排序）</div>
+            <div v-for="d in docsMap[q.id]" :key="d.shareId + '-' + d.docId" class="c-doc"
+                 @click="openDoc(d)">
+              <div class="c-doc-t">{{ d.title }}</div>
+              <div class="c-doc-s">{{ d.snippet }}</div>
+            </div>
+          </template>
+          <div v-else class="tip">没找到匹配的文档（可能还没人写过这个知识点）</div>
+        </div>
         <div class="c-ans">
           <div class="line bad">
             <span class="lab">我的答案</span>
@@ -57,7 +71,7 @@
 /** 错题本（2026-10-21）：练习流水派生，答对自动移出，也可手动「已掌握」 */
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { practiceWrongList, practiceWrongClear, practiceStats } from '../api/training'
+import { practiceWrongList, practiceWrongClear, practiceStats, relatedDocsForWrong, wrongToCards } from '../api/training'
 
 const TYPE_CN = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }
 const list = ref([])
@@ -88,6 +102,42 @@ async function markKnown(q) {
     practiceStats().then((r) => { stats.value = r.data || {} }).catch(() => {})
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || '操作失败')
+  }
+}
+
+// ---- 错题 → 文档 → 复习卡 ----
+const openDocs = ref({})
+const docsLoading = ref({})
+const docsMap = ref({})
+
+async function toggleDocs(q) {
+  const id = q.id
+  if (openDocs.value[id]) { openDocs.value = { ...openDocs.value, [id]: false }; return }
+  openDocs.value = { ...openDocs.value, [id]: true }
+  if (docsMap.value[id]) return
+  docsLoading.value = { ...docsLoading.value, [id]: true }
+  try {
+    const { data } = await relatedDocsForWrong(id)
+    docsMap.value = { ...docsMap.value, [id]: data || [] }
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.error || '查找相关文档失败')
+  } finally {
+    docsLoading.value = { ...docsLoading.value, [id]: false }
+  }
+}
+
+function openDoc(d) {
+  // 桌面阅读路由：/doc-shares/:spaceId?doc=:docId
+  window.open(`/doc-shares/${d.shareId}?doc=${d.docId}`, '_blank')
+}
+
+async function addCard(q) {
+  try {
+    const { data } = await wrongToCards([q.id])
+    if (data.created > 0) ElMessage.success('已加入复习卡，去「复习」里开始记忆')
+    else ElMessage.info('这道题已经在复习卡里了')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.error || '加入复习卡失败')
   }
 }
 
@@ -130,4 +180,11 @@ onMounted(reload)
 }
 :deep(html.dark) .stats, :deep(html.dark) .card { background: #1b1b2e; border-color: #2c2c44; }
 :deep(html.dark) .c-q, :deep(html.dark) .st b, :deep(html.dark) .empty-t { color: #e5e7eb; }
+
+.c-docs { margin: 8px 0 4px; padding: 10px 12px; border-radius: 10px; background: #f7f8ff; border: 1px solid #e4e7ff; }
+.c-docs-t { font-size: 12px; color: #6366f1; margin-bottom: 6px; }
+.c-doc { padding: 8px 10px; border-radius: 8px; background: #fff; border: 1px solid #eef0f7; cursor: pointer; margin-bottom: 6px; }
+.c-doc:hover { border-color: #6366f1; }
+.c-doc-t { font-size: 13.5px; font-weight: 600; color: #1f2340; }
+.c-doc-s { font-size: 12.5px; color: #6b7280; margin-top: 3px; line-height: 1.6; }
 </style>

@@ -24,4 +24,7 @@ public interface FlashcardRepository extends JpaRepository<Flashcard, Long> {
     long countByUserIdAndDueAtLessThanEqual(Long userId, LocalDateTime at);
 
     List<Flashcard> findByUserIdAndDueAtLessThanEqualOrderByDueAtAsc(Long userId, LocalDateTime at);
+
+    /** 错题转卡去重：同一道题重复点「加入复习卡」不应产生多张卡 */
+    boolean existsByUserIdAndSource(Long userId, String source);
 }

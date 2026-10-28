@@ -21,4 +21,8 @@ public interface PracticeLogRepository extends JpaRepository<PracticeLog, Long> 
 
     /** 移除某道题的错题记录（学员点「已掌握」） */
     long deleteByUserIdAndQuestionId(Long userId, Long questionId);
+
+    /** 某题被作答次数 / 答对次数：用于「文档易错点」统计 */
+    long countByQuestionId(Long questionId);
+    long countByQuestionIdAndCorrectTrue(Long questionId);
 }
