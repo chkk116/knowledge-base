@@ -57,11 +57,16 @@ export const useAuthStore = defineStore('auth', () => {
   })
 
   /** 是否拥有某权限码（ADMIN 或包含该码或通配 * 即视为拥有；兼容旧 DOC_SHARE 码 = 拥有全部 SHARE_* 细分权限） */
+  /**
+   * 是否持有权限码。支持 "A|B" 形式（任一命中即通过）—— 用于「新细分码 或 总码」的兼容，
+   * 例如 'SITE_FEATURE_MANAGE|CORE_MAINTAIN'：勾了新的细分码或老的站点总码都能进。
+   */
   function hasPerm(code) {
     if (isAdmin.value) return true
     const perms = permissions.value
-    if (perms.includes(code) || perms.includes('*')) return true
-    if (code && code.startsWith('SHARE_') && perms.includes('DOC_SHARE')) return true
+    const codes = Array.isArray(code) ? code : String(code || '').split('|').filter(Boolean)
+    if (codes.some((c) => perms.includes(c) || perms.includes('*'))) return true
+    if (codes.some((c) => c.startsWith('SHARE_') && perms.includes('DOC_SHARE'))) return true
     return false
   }
 

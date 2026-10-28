@@ -29,6 +29,14 @@ export const PERM_GROUPS = [
     ]
   },
   {
+    title: '站点设置',
+    perms: [
+      { value: 'SITE_FEATURE_MANAGE', label: '功能开关' },
+      { value: 'SITE_SETTINGS_MANAGE', label: '站点配置（水印 / 外观 / 页脚 / 登录页二维码 / 企业登录 / 通知外发）' },
+      { value: 'SYSTEM_STATUS_VIEW', label: '系统状态（含 Redis 开关）' }
+    ]
+  },
+  {
     title: '系统与运营',
     perms: [
       { value: 'USER_MANAGE', label: '用户管理' },
@@ -37,7 +45,7 @@ export const PERM_GROUPS = [
       { value: 'DOC_EXPORT', label: '文档导出' },
       { value: 'ASSET_MANAGE', label: '资产管理' },
       { value: 'BLACKLIST_MANAGE', label: '黑名单管理' },
-      { value: 'CORE_MAINTAIN', label: '功能开关与站点设置' },
+      { value: 'CORE_MAINTAIN', label: '站点设置（全部，含上面三项）' },
       { value: 'AI_MANAGE', label: 'AI 模型管理' },
       { value: 'AUDIT_VIEW', label: '操作审计' },
       { value: 'LOGIN_LOG_VIEW', label: '登录日志' }

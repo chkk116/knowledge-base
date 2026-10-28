@@ -34,7 +34,7 @@ public class AdminFeatureController {
     }
 
     private void requirePerm(TokenClaims c) {
-        if (c == null || !c.hasPerm("CORE_MAINTAIN")) {
+        if (c == null || !(c.hasPerm("SITE_FEATURE_MANAGE") || c.hasPerm("CORE_MAINTAIN"))) {
             throw new ResponseStatusException(FORBIDDEN, "需要「核心维护」权限");
         }
     }

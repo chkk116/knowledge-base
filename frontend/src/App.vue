@@ -349,15 +349,16 @@ const menus = computed(() => {
   // 二级分组：站点设置（功能开关 / 水印 / 登录页二维码 / 外观）
   // 站点级配置，与「内容资源」分离：调的是整站的开关与呈现，不涉及具体条目
   const siteConfig = []
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/maintain', title: '功能开关', icon: 'Setting' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/watermark', title: '水印设置', icon: 'Stamp' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/notify-webhook', title: '通知外发', icon: 'Promotion' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/sso-ldap', title: '企业登录', icon: 'Connection' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Postcard' })
-  // 系统状态：Redis / 第三方登录连通性（只读诊断，改配置不在这里）
-  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/system', title: '系统状态', icon: 'Monitor' })
+  // 站点设置细分（2026-10-28）：三项各有独立权限码，CORE_MAINTAIN 作为总码仍可全通
+  if (auth.hasPerm('SITE_FEATURE_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/maintain', title: '功能开关', icon: 'Setting' })
+  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/watermark', title: '水印设置', icon: 'Stamp' })
+  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/notify-webhook', title: '通知外发', icon: 'Promotion' })
+  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/sso-ldap', title: '企业登录', icon: 'Connection' })
+  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
+  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
+  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Postcard' })
+  // 系统状态：Redis / 第三方登录连通性 + Redis 开关
+  if (auth.hasPerm('SYSTEM_STATUS_VIEW|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/system', title: '系统状态', icon: 'Monitor' })
   if (siteConfig.length) base.push({ index: 'g-site', title: '站点设置', icon: 'Tools', children: siteConfig })
 
   if (auth.loggedIn) {

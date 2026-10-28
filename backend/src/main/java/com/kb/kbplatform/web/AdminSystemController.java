@@ -50,7 +50,7 @@ public class AdminSystemController {
      * 只认 isAdmin() 会让持有该权限的非管理员「能进页面但接口 403」。
      */
     private void requireMaintain(TokenClaims c) {
-        if (c == null || !(c.isAdmin() || c.hasPerm("CORE_MAINTAIN"))) {
+        if (c == null || !(c.isAdmin() || c.hasPerm("SYSTEM_STATUS_VIEW") || c.hasPerm("CORE_MAINTAIN"))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要「核心维护」权限");
         }
     }

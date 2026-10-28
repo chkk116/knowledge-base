@@ -239,8 +239,12 @@ public class AuthFilter implements Filter {
             }
             return "SHARE_VIEW";
         }
-        if (path.startsWith("/api/admin/features")) return "CORE_MAINTAIN";
-        if (path.startsWith("/api/admin/settings")) return "CORE_MAINTAIN";
+        // 站点设置细分：新码与总码 CORE_MAINTAIN 任一命中即可（"A|B" 由下面的判定拆开）
+        if (path.startsWith("/api/admin/features")) return "SITE_FEATURE_MANAGE|CORE_MAINTAIN";
+        if (path.startsWith("/api/admin/settings")) return "SITE_SETTINGS_MANAGE|CORE_MAINTAIN";
+        if (path.startsWith("/api/admin/sso")) return "SITE_SETTINGS_MANAGE|CORE_MAINTAIN";
+        if (path.startsWith("/api/admin/notify")) return "SITE_SETTINGS_MANAGE|CORE_MAINTAIN";
+        if (path.startsWith("/api/admin/system")) return "SYSTEM_STATUS_VIEW|CORE_MAINTAIN";
         if (path.startsWith("/api/admin/banned-words")) return "BANNED_WORDS_MANAGE";
         // AI 模型管理：细粒度权限 AI_MANAGE（2026-10-06 起可在角色管理里授予）。
         // 列表接口对 Key 一律脱敏（keyMasked）；演示号（DEMO_MODE）的写请求仍被上方统一拦截。
