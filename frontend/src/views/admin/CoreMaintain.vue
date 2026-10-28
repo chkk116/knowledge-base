@@ -5,6 +5,8 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listFeatures, updateFeature } from '../../api/features'
 import { resetFeatureFlags } from '../../router'
+import api from '../../api/request'
+import { errMsg } from '../../utils/errMsg'
 
 const router = useRouter()
 const items = ref([])
@@ -37,6 +39,36 @@ const load = async () => {
     ElMessage.error('加载功能开关失败')
   } finally {
     loading.value = false
+  }
+}
+
+// ---------- 基础设施开关：Redis（热生效，不用重启后端） ----------
+const redisOn = ref(true)
+const redisBusy = ref(false)
+const redisLoading = ref(false)
+
+async function loadRedis() {
+  redisLoading.value = true
+  try {
+    const { data } = await api.get('/admin/system/redis')
+    redisOn.value = data?.enabled !== false
+  } catch (e) {
+    // 拿不到状态就不显示错误，避免这个次要信息打扰主流程
+  } finally {
+    redisLoading.value = false
+  }
+}
+
+async function toggleRedis(val) {
+  redisBusy.value = true
+  try {
+    await api.post('/admin/system/redis/toggle', { enabled: val })
+    ElMessage.success(val ? '已启用 Redis，约 5 秒内生效' : '已关闭 Redis，限流/会话改走内存')
+  } catch (e) {
+    redisOn.value = !val
+    ElMessage.error(errMsg(e, '切换失败'))
+  } finally {
+    redisBusy.value = false
   }
 }
 
@@ -129,7 +161,7 @@ function goAdminPage(row) {
 
 const enabledCount = computed(() => items.value.filter((i) => i.enabled).length)
 
-onMounted(load)
+onMounted(() => { load(); loadRedis() })
 </script>
 
 <template>
@@ -143,6 +175,23 @@ onMounted(load)
       </div>
       </div>
       <el-tag type="info" effect="plain">已开启 {{ enabledCount }} / {{ items.length }}</el-tag>
+    </div>
+
+    <!-- 基础设施开关：Redis（热生效，改完不用重启后端） -->
+    <div class="infra-card">
+      <div class="infra-main">
+        <div class="infra-title">
+          Redis 缓存
+          <el-tag v-if="redisOn" type="success" size="small" effect="plain">已启用</el-tag>
+          <el-tag v-else type="warning" size="small" effect="plain">已关闭（走内存）</el-tag>
+        </div>
+        <p class="infra-desc">
+          关闭后：限流 / 第三方登录 state / 练习判分会话改用内存（重启不保留、多实例不共享），
+          <code>@Cacheable</code> 缓存失效、接口直查数据库。改完立即生效，不用重启后端；
+          Redis 里已有的键不会删除，重新打开即可继续使用。
+        </p>
+      </div>
+      <el-switch v-model="redisOn" :loading="redisBusy" :disabled="redisLoading" @change="toggleRedis" />
     </div>
 
     <el-skeleton :loading="loading" :rows="6" animated>
@@ -249,6 +298,15 @@ onMounted(load)
 </template>
 
 <style scoped>
+.infra-card {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding: 14px 16px; margin-bottom: 16px;
+  background: #f7f8fa; border: 1px solid #ebeef5; border-radius: 10px;
+}
+.infra-main { flex: 1; min-width: 0; }
+.infra-title { font-size: 14px; font-weight: 600; color: #1d2129; display: flex; align-items: center; gap: 8px; }
+.infra-desc { margin: 6px 0 0; font-size: 12.5px; line-height: 1.7; color: #6b7280; }
+.infra-desc code { background: #eef1f6; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 .maintain { padding: 4px 4px 40px; }
 .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .head h2 { margin: 0 0 6px; font-size: 20px; color: #0f172a; }
