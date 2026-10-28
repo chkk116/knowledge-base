@@ -38,13 +38,21 @@ import org.springframework.web.server.ResponseStatusException;
 public class WrongLoopService {
 
     private static final int MAX_DOCS = 5;
-    private static final double MIN_SCORE = 0.15;
+    private static final double MIN_SCORE = 0.35;   // 归一化后的展示分门槛
+    private static final double MIN_RAW = 3;        // 原始分门槛：标题命中1次 or 正文命中3次
 
     private static final Pattern CJK = Pattern.compile("[\u4e00-\u9fa5]{2,6}");
     private static final Pattern WORD = Pattern.compile("[A-Za-z0-9_]{3,}");
+    /**
+     * 停用词：题干里的「提问措辞」本身没有检索价值。
+     * 实测教训：只去掉「下列/关于」时，"TCP 三次握手的主要作用是？" 会靠「主要」「作用」
+     * 误命中无关文档——这类泛词必须一起过滤，否则精度很差。
+     */
     private static final Set<String> STOP = Set.of(
             "下列", "以下", "哪个", "哪些", "关于", "说法", "正确", "错误", "的是", "不是", "可以", "应该",
-            "如何", "什么", "简述", "说明", "请", "以及", "并且", "或者", "一个", "我们", "他们"
+            "如何", "什么", "简述", "说明", "请", "以及", "并且", "或者", "一个", "我们", "他们",
+            "主要", "作用", "属于", "常见", "解决", "方案", "目的", "意义", "特点", "优点", "缺点",
+            "描述", "陈述", "判断", "选择", "填空", "问答", "问题", "内容", "情况", "方式", "方法"
     );
 
     private final QuestionRepository qRepo;
@@ -108,12 +116,15 @@ public class WrongLoopService {
             row.put("docId", d.getId());
             row.put("title", title);
             row.put("score", score);
+            row.put("raw", score);   // 原始分：用于绝对门槛判断（归一化会把弱命中抬成 1.0）
             row.put("snippet", snippet(body, kws));
             scored.add(row);
             max = Math.max(max, score);
         }
         final double denom = max <= 0 ? 1 : max;
         return scored.stream()
+                // 绝对门槛优先：标题命中(3分)或正文命中≥3次才够格，避免「一处弱命中」被归一化抬到 1.0
+                .filter(r -> (double) r.get("raw") >= MIN_RAW)
                 .peek(r -> r.put("score", Math.round(((double) r.get("score") / denom) * 100) / 100.0))
                 .filter(r -> (double) r.get("score") >= MIN_SCORE)
                 .sorted((a, b) -> Double.compare((double) b.get("score"), (double) a.get("score")))
