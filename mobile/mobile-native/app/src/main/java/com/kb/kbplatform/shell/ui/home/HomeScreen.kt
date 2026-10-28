@@ -126,6 +126,14 @@ fun HomeScreen(
     var spaces by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
+    // 骨架屏防闪：150ms 内数据就回来的话不画骨架 —— 否则每次进首页都先闪一块白再跳成内容。
+    // 真慢的时候骨架照常出现（用户至少知道在加载），且带一次淡入，不会硬切。
+    var showSkeleton by remember { mutableStateOf(false) }
+    LaunchedEffect(loading) {
+        if (!loading) { showSkeleton = false; return@LaunchedEffect }
+        kotlinx.coroutines.delay(150)
+        if (loading) showSkeleton = true
+    }
     val sharePending by ShareInbox.pending.collectAsState()
     val draftCtx = androidx.compose.ui.platform.LocalContext.current
     var draftCount by remember { mutableIntStateOf(0) }
@@ -170,7 +178,11 @@ fun HomeScreen(
         ) {
             if (loading) {
                 // 骨架屏：先把问候语/九宫格/统计条的版式画出来，数据到了直接填（原来是一个转圈）
-                item { KbSkeletonHome() }
+                if (showSkeleton) {
+                    item {
+                        Box(Modifier.kbItemEnter(index = 0, fromBottom = 0)) { KbSkeletonHome() }
+                    }
+                }
             } else if (error.isNotEmpty()) {
                 item { KbEmpty("⚠️", error) }
             } else {
@@ -178,7 +190,8 @@ fun HomeScreen(
                     item {
                         NoticeCard(
                             Icons.Filled.CloudUpload, KbToneKind.Blue,
-                            "收到 ${sharePending.size} 个分享文件", "点击导入到知识库"
+                            "收到 ${sharePending.size} 个分享文件", "点击导入到知识库",
+                            modifier = Modifier.kbItemEnter(0)
                         ) { openRoute("share-import") }
                     }
                 }
@@ -187,6 +200,7 @@ fun HomeScreen(
                         NoticeCard(
                             Icons.Filled.CloudUpload, KbToneKind.Orange,
                             "$draftCount 篇草稿待同步", "联网后会自动上传到「我的文档」",
+                            modifier = Modifier.kbItemEnter(1),
                             onClick = { openRoute("drafts") }
                         )
                     }
@@ -195,7 +209,8 @@ fun HomeScreen(
                     item {
                         NoticeCard(
                             Icons.Filled.Style, KbToneKind.Orange,
-                            "$dueCards 张卡片待复习", "花两分钟过一遍，别让记过的忘掉"
+                            "$dueCards 张卡片待复习", "花两分钟过一遍，别让记过的忘掉",
+                            modifier = Modifier.kbItemEnter(2)
                         ) { openRoute("cards") }
                     }
                 }
@@ -218,7 +233,7 @@ fun HomeScreen(
                         Quick("我的数据", Icons.Filled.Insights, KbToneKind.Red, "stats")
                     )
                     Column(
-                        Modifier.padding(top = 16.dp),
+                        Modifier.padding(top = 16.dp).kbItemEnter(3),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         quicks.chunked(4).forEach { row ->
@@ -235,6 +250,7 @@ fun HomeScreen(
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .kbItemEnter(4)
                             .clip(RoundedCornerShape(14.dp))
                             .background(MaterialTheme.colorScheme.surface)
                             .kbPress(scaleDown = 0.99f) { openRoute("stats") }
@@ -257,6 +273,7 @@ fun HomeScreen(
                         Row(
                             Modifier
                                 .fillMaxWidth()
+                                .kbItemEnter(5)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(tone.bg)
                                 .kbPress(scaleDown = 0.99f) { annDetail = a }
@@ -292,7 +309,10 @@ fun HomeScreen(
                     item {
                         SectionTitle("最近文档")
                         Spacer(Modifier.height(8.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.kbItemEnter(6)
+                        ) {
                             items(recent, key = { it.optLong("id", it.hashCode().toLong()) }) { d ->
                                 val docId = if (d.has("docId")) d.optLong("docId") else d.optLong("id", 0)
                                 KbCard(
@@ -336,7 +356,7 @@ fun HomeScreen(
                     item {
                         SectionTitle("我的空间")
                         Spacer(Modifier.height(8.dp))
-                        KbCard {
+                        KbCard(modifier = Modifier.kbItemEnter(7)) {
                             spaces.take(5).forEach { s ->
                                 Row(
                                     Modifier
@@ -502,12 +522,13 @@ private fun NoticeCard(
     tone: KbToneKind,
     title: String,
     desc: String,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     // 对齐套壳 .offline-card：浅色底 + 同色深字（不是白卡），图标是 38dp 渐变瓦片
     val t = kbTone(tone)
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(t.bg)
