@@ -101,16 +101,6 @@ object UpdateNotify {
      * 下载和安装照常（进度还能在「我的 → 检查更新」那行看到）。
      */
     fun ensurePermission(ctx: Context) {
-        if (Build.VERSION.SDK_INT < 33) return
-        val ok = androidx.core.content.ContextCompat.checkSelfPermission(
-            ctx, android.Manifest.permission.POST_NOTIFICATIONS
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (ok) return
-        val act = ctx as? android.app.Activity ?: return
-        runCatching {
-            androidx.core.app.ActivityCompat.requestPermissions(
-                act, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7301
-            )
-        }
+        NotifyPerm.request(ctx)
     }
 }

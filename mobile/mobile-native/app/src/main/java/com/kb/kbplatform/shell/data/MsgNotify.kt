@@ -40,13 +40,7 @@ object MsgNotify {
 
     /** 首次进前台时申请一次；已授权/已拒绝都不再打扰（拒绝后可在系统设置里开） */
     fun ensurePermission(ctx: Context) {
-        if (Build.VERSION.SDK_INT < 33 || granted(ctx)) return
-        val act = ctx as? android.app.Activity ?: return
-        runCatching {
-            ActivityCompat.requestPermissions(
-                act, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), REQ_CODE
-            )
-        }
+        NotifyPerm.request(ctx)
     }
 
     fun show(ctx: Context, title: String, body: String) {

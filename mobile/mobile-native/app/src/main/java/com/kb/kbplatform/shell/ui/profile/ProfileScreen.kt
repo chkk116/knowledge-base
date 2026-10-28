@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ExitToApp
@@ -107,6 +108,7 @@ fun ProfileScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showLockDialog by remember { mutableStateOf(false) }
+    var showNotifyDialog by remember { mutableStateOf(false) }
     var lockEnabled by remember { mutableStateOf(com.kb.kbplatform.shell.data.AppLock.enabled()) }
 
     val updateState by AppUpdater.state.collectAsState()
@@ -250,6 +252,10 @@ fun ProfileScreen(
                 Icons.Filled.Security, "应用锁",
                 if (com.kb.kbplatform.shell.data.AppLock.enabled()) "已开启（PIN 保护）" else "未开启"
             ) { showLockDialog = true },
+            MenuItem(
+                Icons.Filled.Notifications, "通知提醒",
+                if (com.kb.kbplatform.shell.data.NotifyPerm.granted(ctx)) "已开启" else "未开启，点击去开启"
+            ) { showNotifyDialog = true },
             MenuItem(Icons.Filled.SystemUpdate, "检查更新", updateSubtitle) {
                 showUpdateDialog = true
                 // 点过「稍后」会把状态 reset 成 Idle，再进来只显示「当前已是最新版」——
@@ -299,6 +305,30 @@ fun ProfileScreen(
                 .fillMaxWidth()
                 .padding(top = 16.dp, bottom = 20.dp),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+    }
+
+    if (showNotifyDialog) {
+        val granted = com.kb.kbplatform.shell.data.NotifyPerm.granted(ctx)
+        AlertDialog(
+            onDismissRequest = { showNotifyDialog = false },
+            title = { Text("通知提醒") },
+            text = {
+                Text(
+                    if (granted) "通知已开启：更新下载进度、站内消息会显示在通知栏。可在系统设置里调整。"
+                    else "通知未开启：更新下载进度和站内消息都不会提醒。\n点「去系统设置」后允许「知识库」发送通知即可。",
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showNotifyDialog = false
+                    com.kb.kbplatform.shell.data.NotifyPerm.openSettings(ctx)
+                }) { Text("去系统设置") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotifyDialog = false }) { Text("关闭") }
+            }
         )
     }
 

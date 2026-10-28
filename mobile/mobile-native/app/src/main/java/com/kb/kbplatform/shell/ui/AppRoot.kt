@@ -397,6 +397,15 @@ private fun GlobalUpdatePrompt() {
                         fontSize = 12.sp,
                         color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    // 通知被关掉时明确说一声，否则用户切走后完全看不到下载进度
+                    if (!com.kb.kbplatform.shell.data.NotifyPerm.granted(ctx)) {
+                        androidx.compose.foundation.layout.Spacer(Modifier.height(6.dp))
+                        androidx.compose.material3.Text(
+                            "通知未开启：下载进度不会显示在通知栏，可在「我的 → 通知提醒」里开启。",
+                            fontSize = 12.sp,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             },
             confirmButton = {
