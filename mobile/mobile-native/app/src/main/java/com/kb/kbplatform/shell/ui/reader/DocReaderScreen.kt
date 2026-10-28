@@ -6,6 +6,13 @@ package com.kb.kbplatform.shell.ui.reader
 
 import android.annotation.SuppressLint
 import android.webkit.WebView
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.fromHtml
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,9 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -113,10 +118,50 @@ fun DocReaderScreen(
             html != null -> Box(Modifier.fillMaxSize()) {
                 // 纯文本类正文（段落/标题/列表/粗体/链接）**原生渲染**，滚动/选中/深色/字体缩放都跟系统走；
                 // 只有含图片/表格/视频/iframe 的文档才交给 WebView（原生文本渲染画不出这些）
-                if (needsRichWebView(html!!)) {
-                    ReaderWebView(html!!)
-                } else {
-                    NativeHtmlText(html!!)
+                val pieces = androidx.compose.runtime.remember(html) {
+                    com.kb.kbplatform.shell.ui.diagram.DiagramParser.split(html!!)
+                }
+                val hasDiagram = pieces.any { it is com.kb.kbplatform.shell.ui.diagram.DocPiece.Diagram }
+                when {
+                    // 有流程图/思维导图：原生混排渲染（文本段用 fromHtml，图块用 NativeDiagram 画）
+                    hasDiagram -> NativeDocContent(pieces)
+                    needsRichWebView(html!!) -> ReaderWebView(html!!)
+                    else -> NativeHtmlText(html!!)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 原生混排正文：普通段落走 AnnotatedString.fromHtml，图块走 NativeDiagram（Compose 绘制）。
+ * 这样流程图/思维导图在原生壳里是「真·原生渲染」，不再依赖 WebView。
+ */
+@Composable
+private fun NativeDocContent(pieces: List<com.kb.kbplatform.shell.ui.diagram.DocPiece>) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 40.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        pieces.forEach { piece ->
+            when (piece) {
+                is com.kb.kbplatform.shell.ui.diagram.DocPiece.Html -> Text(
+                    text = AnnotatedString.fromHtml(piece.html),
+                    fontSize = 16.sp,
+                    lineHeight = 28.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                is com.kb.kbplatform.shell.ui.diagram.DocPiece.Diagram -> {
+                    Text(
+                        text = piece.title,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    com.kb.kbplatform.shell.ui.diagram.NativeDiagram(piece.data)
                 }
             }
         }
