@@ -6,6 +6,7 @@ package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.KvStore;
+import com.kb.kbplatform.service.RuntimeFlags;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -15,6 +16,8 @@ import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,19 +36,31 @@ public class AdminSystemController {
 
     private final StringRedisTemplate redis;
     private final KvStore kv;
+    private final RuntimeFlags flags;
 
-    public AdminSystemController(ObjectProvider<StringRedisTemplate> provider, KvStore kv) {
+    public AdminSystemController(ObjectProvider<StringRedisTemplate> provider, KvStore kv, RuntimeFlags flags) {
         this.redis = provider.getIfAvailable();
         this.kv = kv;
+        this.flags = flags;
+    }
+
+    /**
+     * 系统状态页的权限口径：ADMIN 或「核心维护 CORE_MAINTAIN」。
+     * 与 /api/admin/settings/** 保持一致 —— 页面路由就是按 CORE_MAINTAIN 放行的，
+     * 只认 isAdmin() 会让持有该权限的非管理员「能进页面但接口 403」。
+     */
+    private void requireMaintain(TokenClaims c) {
+        if (c == null || !(c.isAdmin() || c.hasPerm("CORE_MAINTAIN"))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要「核心维护」权限");
+        }
     }
 
     @GetMapping("/api/admin/system/redis")
     public Map<String, Object> redisStatus(@RequestAttribute("kbUser") TokenClaims c) {
-        if (c == null || !c.isAdmin()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "仅管理员可查看系统状态");
-        }
+        requireMaintain(c);
 
         Map<String, Object> out = new LinkedHashMap<>();
+        out.put("enabled", flags.redisEnabled());  // 后台开关状态（关掉时不使用 Redis）
         out.put("backend", kv.backend());          // redis / memory（KvStore 实际在用哪个）
         out.put("connected", "redis".equals(kv.backend()));
 
@@ -108,5 +123,23 @@ public class AdminSystemController {
 
     private static String prop(Properties p, String key) {
         return p == null ? null : p.getProperty(key);
+    }
+
+    /**
+     * 开关 Redis（热生效，不用重启）。
+     *
+     * 关掉后：KvStore 立刻切内存（限流 / 登录 state / 练习会话不跨重启保留），
+     * @Cacheable 全部退化为直查数据库。Redis 里的旧键不会被删，重新打开后还能用。
+     */
+    @PostMapping("/api/admin/system/redis/toggle")
+    public Map<String, Object> toggleRedis(@RequestAttribute("kbUser") TokenClaims c,
+                                           @RequestBody(required = false) Map<String, Object> body) {
+        requireMaintain(c);
+        Object raw = body == null ? null : body.get("enabled");
+        if (!(raw instanceof Boolean b)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "enabled 必须是 true / false");
+        }
+        flags.setRedisEnabled(b);
+        return Map.of("ok", true, "enabled", b);
     }
 }

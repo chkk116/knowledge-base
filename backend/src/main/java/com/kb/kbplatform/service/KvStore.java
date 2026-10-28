@@ -40,6 +40,8 @@ public class KvStore {
     private static final Logger log = LoggerFactory.getLogger(KvStore.class);
 
     private final StringRedisTemplate redis;
+    /** 运行时开关（后台可关 Redis） */
+    private final RuntimeFlags flags;
     /** 内存兜底：key → {值, 过期毫秒} */
     private final Map<String, String[]> mem = new ConcurrentHashMap<>();
     /** 滑动窗口用的内存队列（限流） */
@@ -54,8 +56,9 @@ public class KvStore {
         return t;
     });
 
-    public KvStore(ObjectProvider<StringRedisTemplate> provider) {
+    public KvStore(ObjectProvider<StringRedisTemplate> provider, RuntimeFlags flags) {
         this.redis = provider.getIfAvailable();
+        this.flags = flags;
     }
 
     @PostConstruct
@@ -74,6 +77,13 @@ public class KvStore {
 
     /** 启动时探测；连不上就永久走内存（除非后面自动恢复） */
     private void probe() {
+        // 后台「系统状态」里关掉 Redis 时，即使连得上也不用它 —— 热切换，不用重启
+        if (!flags.redisEnabled()) {
+            if (redisUp) log.info("Redis 已被后台关闭，键值存储切换到内存");
+            redisUp = false;
+            nextProbeAt = System.currentTimeMillis() + 5_000L;   // 5 秒后复查开关
+            return;
+        }
         if (redis == null) {
             log.info("未配置 Redis（或未引入依赖），键值存储使用内存兜底");
             redisUp = false;
@@ -91,12 +101,14 @@ public class KvStore {
     }
 
     public boolean redisReady() {
-        return redisUp;
+        maybeRecover();   // 后台刚打开开关时，这里顺手探一次，状态页才不会一直显示内存
+        return flags.redisEnabled() && redisUp;
     }
 
     /** 当前实际后端，用于健康检查 / 后台展示 */
     public String backend() {
-        return redisUp ? "redis" : "memory";
+        maybeRecover();
+        return (flags.redisEnabled() && redisUp) ? "redis" : "memory";
     }
 
     private void markDown(Exception e) {
@@ -107,7 +119,15 @@ public class KvStore {
     }
 
     private void maybeRecover() {
-        if (!redisUp && redis != null && System.currentTimeMillis() > nextProbeAt) {
+        long now = System.currentTimeMillis();
+        // 后台关掉 Redis：下一次操作立刻切内存（不能等 probe —— 连着的时候根本不会重探）
+        if (!flags.redisEnabled()) {
+            if (redisUp) log.info("Redis 已在后台关闭，键值存储改用内存");
+            redisUp = false;
+            nextProbeAt = now + 5_000L;   // 重新打开后最多 5 秒恢复
+            return;
+        }
+        if (!redisUp && redis != null && now > nextProbeAt) {
             probe();
         }
     }

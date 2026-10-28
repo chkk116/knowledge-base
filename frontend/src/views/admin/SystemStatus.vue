@@ -13,9 +13,26 @@
       </template>
 
       <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px">
-        Redis 只用于「限流 / 第三方登录 state / 练习判分会话」。
+        Redis 只用于「限流 / 第三方登录 state / 练习判分会话」和少量 @Cacheable 缓存。
         <b>它挂了不会影响登录和使用</b> —— 会自动降级成内存存储，只是重启后计数与会话不保留、多实例不共享。
       </el-alert>
+
+      <!-- 总开关：热生效，关掉后立刻走内存 -->
+      <div class="sw-row">
+        <div class="sw-main">
+          <div class="sw-title">启用 Redis</div>
+          <div class="sw-desc">
+            关闭后限流 / 登录 state / 练习会话改用内存（重启不保留），@Cacheable 缓存失效、接口直查数据库。
+            <b>改完立即生效，不用重启后端</b>；Redis 里已有的键不会被删除，重新打开即可继续使用。
+          </div>
+        </div>
+        <el-switch
+          v-model="redis.enabled"
+          :loading="togglingRedis"
+          :disabled="loadingRedis"
+          @change="toggleRedis"
+        />
+      </div>
 
       <el-descriptions v-loading="loadingRedis" :column="3" border>
         <el-descriptions-item label="当前后端">
@@ -123,6 +140,23 @@ async function loadRedis() {
   }
 }
 
+// 开关：热生效，不用重启后端
+const togglingRedis = ref(false)
+async function toggleRedis(val) {
+  togglingRedis.value = true
+  try {
+    await api.post('/admin/system/redis/toggle', { enabled: val })
+    ElMessage.success(val ? '已启用 Redis，约 5 秒内生效' : '已关闭 Redis，改为内存存储')
+    // 等开关的读库缓存（10 秒 TTL）过期后再拉状态，否则还是旧值
+    setTimeout(loadRedis, 1500)
+  } catch (e) {
+    redis.value.enabled = !val   // 回滚 UI
+    ElMessage.error(errMsg(e, '切换失败'))
+  } finally {
+    togglingRedis.value = false
+  }
+}
+
 async function runDiag() {
   diagLoading.value = true
   diagRows.value = []
@@ -146,6 +180,14 @@ onMounted(loadRedis)
 
 <style scoped>
 .sys { max-width: 1100px; }
+.sw-row {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding: 14px 16px; margin-bottom: 16px;
+  background: #f7f8fa; border-radius: 10px;
+}
+.sw-main { flex: 1; min-width: 0; }
+.sw-title { font-size: 14px; font-weight: 600; color: #1d2129; margin-bottom: 4px; }
+.sw-desc { font-size: 12.5px; line-height: 1.7; color: #6b7280; }
 .hd { display: flex; align-items: center; gap: 10px; font-weight: 600; }
 .tip { color: #6b7280; font-size: 13px; line-height: 1.8; margin: 0 0 14px; }
 .hint { color: #9aa0ac; font-size: 12px; margin-top: 10px; line-height: 1.7; }

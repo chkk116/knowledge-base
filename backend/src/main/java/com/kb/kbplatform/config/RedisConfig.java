@@ -7,7 +7,10 @@ package com.kb.kbplatform.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.support.SimpleValueWrapper;
+import org.springframework.cache.Cache.ValueRetrievalException;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -55,7 +58,8 @@ public class RedisConfig {
     @Bean
     public CacheManager cacheManager(
             LettuceConnectionFactory factory,
-            @Value("${kb.redis.ttl-minutes:30}") long ttlMinutes) {
+            @Value("${kb.redis.ttl-minutes:30}") long ttlMinutes,
+            com.kb.kbplatform.service.RuntimeFlags flags) {
         RedisCacheConfiguration cc = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(ttlMinutes))
                 .serializeKeysWith(RedisSerializationContext.SerializationPair
@@ -63,6 +67,53 @@ public class RedisConfig {
                 .serializeValuesWith(RedisSerializationContext.SerializationPair
                         .fromSerializer(RedisSerializer.json()))
                 .disableCachingNullValues();
-        return RedisCacheManager.builder(factory).cacheDefaults(cc).build();
+        CacheManager redis = RedisCacheManager.builder(factory).cacheDefaults(cc).build();
+        // 包一层：后台关掉 Redis 后，@Cacheable 立刻退化成「永远不命中、也不写入」
+        return new ToggleCacheManager(redis, flags);
+    }
+
+    /**
+     * 可按运行时开关旁路的缓存管理器。
+     *
+     * 关掉时返回一个空缓存：读永远 miss、写直接丢弃 —— 等价于 `@EnableCaching` 没开，
+     * 也就是 `kb.redis.enabled=false` 启动时的行为，但**不需要重启**。
+     */
+    static final class ToggleCacheManager implements CacheManager {
+        private final CacheManager delegate;
+        private final com.kb.kbplatform.service.RuntimeFlags flags;
+        private final Cache noop = new NoOpCache();
+
+        ToggleCacheManager(CacheManager delegate, com.kb.kbplatform.service.RuntimeFlags flags) {
+            this.delegate = delegate;
+            this.flags = flags;
+        }
+
+        @Override
+        public Cache getCache(String name) {
+            return flags.redisEnabled() ? delegate.getCache(name) : noop;
+        }
+
+        @Override
+        public java.util.Collection<String> getCacheNames() {
+            return flags.redisEnabled() ? delegate.getCacheNames() : java.util.List.of();
+        }
+    }
+
+    /** 什么都不存的缓存：读 miss、写丢弃、清空无操作 */
+    static final class NoOpCache implements Cache {
+        @Override public String getName() { return "noop"; }
+        @Override public Object getNativeCache() { return this; }
+        @Override public ValueWrapper get(Object key) { return null; }
+        @Override public <T> T get(Object key, Class<T> type) { return null; }
+        @Override public <T> T get(Object key, java.util.concurrent.Callable<T> loader) throws ValueRetrievalException {
+            try {
+                return loader.call();
+            } catch (Exception e) {
+                throw new ValueRetrievalException(key, loader, e);
+            }
+        }
+        @Override public void put(Object key, Object value) { }
+        @Override public void evict(Object key) { }
+        @Override public void clear() { }
     }
 }
