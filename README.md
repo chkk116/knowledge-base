@@ -376,6 +376,24 @@ cd android && gradlew.bat assembleDebug
   `KB_ALLOW_UNSIGNED_RELEASE=1` 回退 debug 签名
 - 已放行明文 HTTP（`usesCleartextTraffic`），适配纯内网环境；国内镜像：Gradle 腾讯镜像、依赖阿里云 Maven
 
+## 部署形态（公网 / 内网）
+
+同一个仓库同时服务两套环境，差别只在「对外地址」与「是否走 HTTPS」，代码完全一致：
+
+| 环境 | 访问地址 | 说明 |
+|---|---|---|
+| 公网 | `https://你的域名` | 腾讯云单机，nginx 反代 8090；静态站 `/www/wwwroot/kb.你的域名` |
+| 内网 | `http://内网IP:8080` | 域内网自建实例，后端同端口直出，无反向代理 |
+
+换环境/换域名时要同时改**三处**，漏一处就会出现「页面能开、接口 404」或「登录滑块永远 403」：
+
+1. 前端构建的 `VITE_BASE_URL`（Nginx 反代时留空走同源 `/api`，直连后端时写完整地址）
+2. `KB_CORS_ORIGINS`（带 Origin 的 POST 必须命中，否则登录验证码直接 403）
+3. nginx 的 `root` 与 `proxy_pass`（仅公网环境需要）
+
+内网实例的额外注意点：浏览器可能拦截明文 HTTP 的混合内容（`getUserMedia`、剪贴板、通知）；
+App 壳内走 WebView，需要在 preferences 里写死后端地址，不能用相对路径。
+
 ## 生产部署
 
 `deploy/` 提供生产 / 测试两套环境文件（`env.prod` / `env.test`）与 nginx 模板（`nginx-example.conf`：HTTPS + 静态预压缩）。
