@@ -128,6 +128,23 @@ fun DocReaderScreen(
 private fun ReaderWebView(contentHtml: String) {
     // 正文是后端产出的 HTML 片段；外链资源（图片/上传文件）用后端绝对地址解析
     val base = AppConfig.effectiveBaseUrl
+    // 图块（流程图/思维导图/表格）的数据在 data 属性里，靠 Vue Flow 在网页端绘制；
+    // 这里是关闭 JS 的静态模板，原样塞进去只会是一个空 div（用户看到「空白」）。
+    // 统一替换成可读的占位块，至少让人知道这里有什么、去哪里看。
+    val safeHtml = contentHtml
+        .replace(Regex("<div[^>]*data-type=\"[^\"]*\"[^>]*>.*?</div>", RegexOption.DOT_MATCHES_ALL)) { m ->
+            val kind = Regex("data-type=\"([^\"]*)\"").find(m.value)?.groupValues?.get(1).orEmpty()
+            val label = when {
+                kind.contains("flowchart") -> "流程图"
+                kind.contains("mindmap") -> "思维导图"
+                kind.contains("sheet") -> "表格"
+                else -> "图形块"
+            }
+            "<div style=\"margin:10px 0;padding:14px 16px;border:1px dashed #c7d2fe;border-radius:10px;" +
+                "background:#f5f7ff;color:#4338ca;font-size:14px;line-height:1.7\">" +
+                "📊 <b>$label</b><br><span style=\"color:#6b7280;font-size:13px\">" +
+                "该图形需要在 App 编辑页或网页端查看（静态阅读页不加载绘图组件）</span></div>"
+        }
     val doc = """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -141,7 +158,7 @@ private fun ReaderWebView(contentHtml: String) {
           blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid #c7d2fe; color: #4b5563; }
           pre { background: #f3f4f6; padding: 10px; border-radius: 8px; overflow-x: auto; }
         </style></head>
-        <body>$contentHtml</body></html>
+        <body>$safeHtml</body></html>
     """.trimIndent()
 
     AndroidView(
