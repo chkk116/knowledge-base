@@ -89,13 +89,20 @@ export const useNotificationStore = defineStore('notification', () => {
 
   function handleFrame(frame) {
     const dataLines = []
+    let eventName = ''
     for (const line of frame.split('\n')) {
       if (!line || line.startsWith(':')) continue        // 空行 / 注释（心跳）忽略
+      if (line.startsWith('event:')) { eventName = line.slice(6).trim(); continue }
       if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, '').replace(/\r$/, ''))
     }
     if (!dataLines.length) return
     let d = null
     try { d = JSON.parse(dataLines.join('\n')) } catch (e) { d = null }
+    // 私信事件：交给具体页面处理（聊天页实时追加、其它页面刷新未读），不走通知未读那一套
+    if (eventName === 'dm' && d) {
+      window.dispatchEvent(new CustomEvent('kb:dm', { detail: d }))
+      return
+    }
     if (d && typeof d.unread === 'number') {
       unread.value = d.unread
     } else {

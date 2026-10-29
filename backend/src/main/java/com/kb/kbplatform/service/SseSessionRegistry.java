@@ -81,6 +81,20 @@ public class SseSessionRegistry {
         }
     }
 
+
+    /** 私信实时推送：独立事件名 dm，与通知未读分开（前端按事件名分流） */
+    public void pushDm(Long userId, Object payload) {
+        List<SseEmitter> list = clients.get(userId);
+        if (list == null || list.isEmpty()) return;
+        for (SseEmitter e : list) {
+            try {
+                e.send(SseEmitter.event().name("dm").data(payload));
+            } catch (Exception ex) {
+                cleanup(userId, e);
+            }
+        }
+    }
+
     /** 推送未读数量（NotificationService 计算好再传，避免重复查库） */
     public void pushUnread(Long userId, long unread) {
         push(userId, unread);

@@ -226,17 +226,38 @@ function startPoll() {
       } catch (e) { /* ignore */ }
     }
     loadConvs()
-  }, 4000)
+  }, 30000)   // 实时靠 SSE（kb:dm 事件），这里只做兜底对账
 }
 function stopPoll() { if (timer) { clearInterval(timer); timer = null } }
 
+// SSE 推来的新私信：正在聊的人直接追加并回已读，其它人只刷新会话列表（出未读徽标）
+async function onDmEvent(ev) {
+  const d = ev.detail || {}
+  if (peer.value && Number(d.fromId) === Number(peer.value.peerId)) {
+    if (!msgs.value.some((m) => m.id === d.id)) {
+      const atBottom = scroller.value && (scroller.value.scrollHeight - scroller.value.scrollTop - scroller.value.clientHeight < 80)
+      msgs.value.push({
+        id: d.id, fromId: d.fromId, kind: 'TEXT', content: d.content,
+        createdAt: d.createdAt || new Date().toISOString(), read: true,
+      })
+      try { await dmRead(peer.value.peerId) } catch (e) { /* ignore */ }
+      if (atBottom) await scrollBottom()
+    }
+  }
+  loadConvs()
+}
+
 onMounted(async () => {
+  window.addEventListener('kb:dm', onDmEvent)
   await loadConvs()
   const p = Number(route.query.peer)
   if (p) await openPeer(p)
   startPoll()
 })
-onUnmounted(stopPoll)
+onUnmounted(() => {
+  stopPoll()
+  window.removeEventListener('kb:dm', onDmEvent)
+})
 watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 </script>
 

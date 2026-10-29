@@ -36,13 +36,16 @@ public class DmService {
     private final DmSettingRepository settings;
     private final FollowRepository follows;
     private final UserRepository users;
+    private final SseSessionRegistry sse;
 
     public DmService(DmMessageRepository msgs, DmSettingRepository settings,
-                     FollowRepository follows, UserRepository users) {
+                     FollowRepository follows, UserRepository users,
+                     SseSessionRegistry sse) {
         this.msgs = msgs;
         this.settings = settings;
         this.follows = follows;
         this.users = users;
+        this.sse = sse;
     }
 
     public boolean allowDm(Long userId) {
@@ -108,6 +111,19 @@ public class DmService {
         m.setContent(text);
         m.setCreatedAt(LocalDateTime.now());
         msgs.save(m);
+
+        // 实时推给收件人（多标签页都能收到）；发送方自己靠接口返回当场渲染，不用回推
+        try {
+            Map<String, Object> ev = new LinkedHashMap<>();
+            ev.put("type", "dm");
+            ev.put("id", m.getId());
+            ev.put("fromId", me);
+            ev.put("content", text);
+            ev.put("createdAt", m.getCreatedAt());
+            sse.pushDm(to, ev);
+        } catch (Exception ignore) {
+            // 推送失败不影响消息落库（离线用户靠下次拉取）
+        }
 
         Map<String, Object> ret = new LinkedHashMap<>();
         ret.put("id", m.getId());
