@@ -92,7 +92,20 @@ public class ThumbController {
             return ResponseEntity.notFound().build();
         }
 
-        // 5. 原图已不比目标宽大 → 原样返回（不浪费算力）
+        // 5. 命中缓存直接返回（审查 r21：命中检查必须放在解码之前，否则缓存只省编码不省解码）
+        // 缓存相对路径必须从已归一化的 file 反推（审查 NH1）：直接用入参 rel 拼接，
+        // "../" 可逃逸出缩略图目录覆盖上传目录里的原文件
+        Path thumbRoot = Paths.get(thumbDir).toAbsolutePath().normalize();
+        Path cacheRel = root.relativize(file);
+        Path cache = thumbRoot.resolve(String.valueOf(w)).resolve(cacheRel).normalize();
+        if (!cache.startsWith(thumbRoot)) {
+            return ResponseEntity.notFound().build();
+        }
+        if (Files.isRegularFile(cache)) {
+            return serveFromCache(cache);
+        }
+
+        // 6. 原图已不比目标宽大 → 原样返回（不浪费算力）
         BufferedImage original;
         try {
             original = ImageIO.read(file.toFile());
@@ -104,19 +117,6 @@ public class ThumbController {
         }
         if (original.getWidth() <= w) {
             return serveOriginal(file);
-        }
-
-        // 5. 命中缓存直接返回
-        // 缓存相对路径必须从已归一化的 file 反推（审查 NH1）：直接用入参 rel 拼接，
-        // "../" 可逃逸出缩略图目录覆盖上传目录里的原文件
-        Path thumbRoot = Paths.get(thumbDir).toAbsolutePath().normalize();
-        Path cacheRel = root.relativize(file);
-        Path cache = thumbRoot.resolve(String.valueOf(w)).resolve(cacheRel).normalize();
-        if (!cache.startsWith(thumbRoot)) {
-            return ResponseEntity.notFound().build();
-        }
-        if (Files.isRegularFile(cache)) {
-            return serveFromCache(cache);
         }
 
         // 6. 等比缩放并重编码
@@ -188,16 +188,20 @@ public class ThumbController {
 
     private ResponseEntity<byte[]> serveOriginal(Path file) {
         try {
-            byte[] bytes = Files.readAllBytes(file);
-            if (bytes.length > MAX_ORIGINAL_BYTES) {
-                return ResponseEntity.status(200)
-                        .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                        .body(bytes);
+            // 大小前置校验（审查 r21）：先判长度再读入内存，超限直接 413
+            if (Files.size(file) > MAX_ORIGINAL_BYTES) {
+                return ResponseEntity.status(413).build();
             }
-            return ResponseEntity.ok()
+            byte[] bytes = Files.readAllBytes(file);
+            var b = ResponseEntity.ok()
                     .contentType(detectType(file))
-                    .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS))
-                    .body(bytes);
+                    .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS));
+            // SVG 可携带脚本：缩略图接口不在 /uploads 的 sandbox 覆盖内，单独加 CSP sandbox
+            // （审查 r21 High：上传的含脚本 SVG 经 image/svg+xml 直出会造成存储型 XSS）
+            if (file.getFileName().toString().toLowerCase().endsWith(".svg")) {
+                b.header("Content-Security-Policy", "sandbox");
+            }
+            return b.body(bytes);
         } catch (IOException e) {
             return ResponseEntity.notFound().build();
         }

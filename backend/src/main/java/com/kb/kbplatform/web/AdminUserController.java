@@ -118,6 +118,11 @@ public class AdminUserController {
             throw new ResponseStatusException(FORBIDDEN, "无权限分配管理员角色");
         }
         requirePerm(c, "USER_MANAGE");
+        // 防提权（审查 r21 critical）：非 ADMIN 不得修改 ADMIN 账号的任何信息
+        // （与 delete/toggle/reset-password 同口径，否则可改 ADMIN 的昵称/邮箱等字段）
+        if (!"ADMIN".equals(c.role()) && "ADMIN".equals(svc.requireUser(id).getRole())) {
+            throw new ResponseStatusException(FORBIDDEN, "无权限修改管理员账号");
+        }
         // 防提权（2026-10-13 审查 C3）：非 ADMIN 操作者给他人分配的细粒度权限 / 角色，必须是自身权限的子集。
         // 否则持 USER_MANAGE 者可把全权限角色分配给任意普通账号（或新建账号）间接提权。
         if (!"ADMIN".equals(c.role())) {

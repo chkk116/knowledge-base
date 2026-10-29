@@ -97,6 +97,17 @@ export function parseQuestions(text) {
     if (!options.length && !judge) warn.push('没有识别到选项');
     if (!answerRaw) warn.push('没有识别到答案');
 
+    // 判断词答案 + 题目自带选项（如「已执行/未执行」）：把对/错映射到内容匹配的选项，
+    // 而不是无脑补 AB 两个判断选项（审查 r21 High）
+    if (judge && options.length) {
+      const word = answerRaw.trim();
+      const wantRight = /^(对|正确|是|√|✓)$/i.test(word);
+      const hit = options.find((o) => wantRight
+        ? /正确|对|是|√|✓/.test(o.content)
+        : /错误|错|否|×|✗/.test(o.content));
+      if (hit) { letters.length = 0; letters.push(hit.label); }
+    }
+
     // 判断题：没有选项时补「正确/错误」
     if (!options.length && judge) {
       options.push({ label: 'A', content: '正确' }, { label: 'B', content: '错误' });

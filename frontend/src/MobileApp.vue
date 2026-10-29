@@ -15,6 +15,7 @@ import { useSiteInfoStore } from './store/siteInfo'
 import { syncOnReconnect, pendingCount } from './utils/offlineStore'
 import { openExternal } from './utils/openExternal'
 import { downloadAndInstall, assertSafeAssetUrl, getCachedApk, installCachedApk } from './utils/appUpdate'
+import { verifyBundleSignature } from './utils/bundleSignature'
 import { getAppVersion, getAppBundle } from './api/app'
 import { shouldLock, verifyPin, getLockConfig } from './utils/appLock'
 import { parseNotes, changelogOf } from './changelog'
@@ -309,6 +310,10 @@ async function checkBundle() {
     // 缺 checksum 一律跳过本次热更（外部审查 2026-10-11；签名验签为后续增强项）
     if (!data.checksum) { console.warn('[热更] 后端未提供 checksum，跳过本次热更'); return }
     try { assertSafeAssetUrl(data.url) } catch (e) { console.warn('[热更] 地址校验未通过，跳过：', e?.message || e); return }
+    // 签名校验（RS256，覆盖 version/url/checksum）：缺签名或验签失败一律拒绝。
+    // 只校验 SHA-256 挡不住能改元数据的人——把 url 和 checksum 一起换掉即可推恶意包。
+    if (!data.signature) { console.warn('[热更] 后端未提供签名，跳过本次热更'); return }
+    if (!(await verifyBundleSignature(data))) { console.warn('[热更] 签名校验失败，拒绝本次热更'); return }
     const cur = await updater.current()
     if (cur?.bundle?.version === data.version) return // 已是最新
     const b = await updater.download({ url: data.url, version: data.version, checksum: data.checksum })

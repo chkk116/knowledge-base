@@ -80,8 +80,13 @@ public class ReportController {
             if (dm != null) { m.put("targetTitle", dm.getContent()); m.put("authorId", dm.getFromId());
                 m.put("authorName", users.findById(dm.getFromId()).map(u -> u.getUsername()).orElse("")); }
         } else if ("DOC".equals(type) && tid != null) {
-            var d = sharedDocRepo.findById(tid).orElse(null);
-            if (d != null) { m.put("targetTitle", d.getTitle()); m.put("authorId", d.getOwnerId()); }
+            var sd = sharedDocRepo.findById(tid).orElse(null);
+            var dd = sd == null ? docRepo.findById(tid).orElse(null) : null;
+            if (sd != null) {
+                m.put("targetTitle", sd.getTitle()); m.put("authorId", sd.getOwnerId());
+            } else if (dd != null) {
+                m.put("targetTitle", dd.getTitle()); m.put("authorId", dd.getOwnerId());
+            }
         } else if ("USER".equals(type) && tid != null) {
             var u = users.findById(tid).orElse(null);
             if (u != null) { m.put("targetTitle", u.getUsername()); m.put("authorId", u.getId());
@@ -167,6 +172,10 @@ public class ReportController {
                                       @PathVariable Long id, @RequestBody Map<String, Object> body) {
         if (!c.isAdmin()) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要管理员权限");
         Report r = repo.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "记录不存在"));
+        // 防重复处置（审查 r21-06）：已处理/已驳回的举报不允许再次执行处置动作
+        if (!"PENDING".equals(r.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该举报已处理过，不能重复处置");
+        }
         String st = String.valueOf(body.getOrDefault("status", "HANDLED")).toUpperCase(Locale.ROOT);
         if (!"HANDLED".equals(st) && !"REJECTED".equals(st)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "状态不合法");
         String action = String.valueOf(body.getOrDefault("action", "NONE")).toUpperCase(Locale.ROOT);

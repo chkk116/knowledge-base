@@ -478,15 +478,22 @@ public class SsoController {
         // 1) 配置白名单
         if (baseAllowlist != null && baseAllowlist.contains(o)) return o;
         // 2) 同主机放行：origin 的 host:port 与本次请求的 Host 头一致，
-        //    说明就是「回到当前站点」——内网用 IP 访问的部署形态靠这条放行，不必把 IP 硬编码进白名单
+        //    说明就是「回到当前站点」——内网用 IP 访问的部署形态靠这条放行，不必把 IP 硬编码进白名单。
+        //    仅在请求来自可信来源（本机 nginx 或内网直连）时才采信 Host 头（审查 r21：
+        //    直连后端的攻击者可伪造 X-Forwarded-Host / Host 绕过白名单）
         try {
             var req = currentRequest();
             if (req != null) {
-                java.net.URI u = java.net.URI.create(o);
-                if (u.getHost() != null) {
-                    String hostPort = u.getHost() + (u.getPort() > 0 ? ":" + u.getPort() : "");
-                    String reqHost = firstNonBlank(req.getHeader("X-Forwarded-Host"), req.getHeader("Host"), "");
-                    if (reqHost != null && hostPort.equalsIgnoreCase(reqHost.trim())) return o;
+                String ra = req.getRemoteAddr();
+                var raAddr = java.net.InetAddress.getByName(ra == null ? "" : ra.trim());
+                boolean trusted = raAddr.isLoopbackAddress() || raAddr.isSiteLocalAddress();
+                if (trusted) {
+                    java.net.URI uu = java.net.URI.create(o);
+                    if (uu.getHost() != null) {
+                        String hostPort = uu.getHost() + (uu.getPort() > 0 ? ":" + uu.getPort() : "");
+                        String reqHost = firstNonBlank(req.getHeader("X-Forwarded-Host"), req.getHeader("Host"), "");
+                        if (reqHost != null && hostPort.equalsIgnoreCase(reqHost.trim())) return o;
+                    }
                 }
             }
         } catch (Exception ignore) {

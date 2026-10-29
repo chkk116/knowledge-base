@@ -21,6 +21,11 @@ public interface DmMessageRepository extends JpaRepository<DmMessage, Long> {
 
     long countByToIdAndReadAtIsNull(Long toId);
 
+    /** 按会话聚合未读数（审查 r21：原实现只基于最近 200 条消息，长会话未读数会漏计） */
+    @org.springframework.data.jpa.repository.Query(
+            "select m.fromId, count(m) from DmMessage m where m.toId = :me and m.readAt is null group by m.fromId")
+    java.util.List<Object[]> countUnreadByPeer(@org.springframework.data.repository.query.Param("me") Long me);
+
     /** 会话列表：我参与的会话里最新一条（按 id desc 取，再在内存里按会话去重） */
     List<DmMessage> findTop200ByFromIdOrToIdOrderByIdDesc(Long fromId, Long toId);
 

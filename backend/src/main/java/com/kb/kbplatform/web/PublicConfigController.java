@@ -249,6 +249,9 @@ public class PublicConfigController {
         r.put("version", nvl(str(n, "version")));
         r.put("url", nvl(str(n, "url")));
         r.put("checksum", nvl(str(n, "checksum")));
+        // 热更包签名（RS256，覆盖 version\nurl\nchecksum）：App 内置公钥验签，缺签名一律拒绝
+        r.put("signature", nvl(str(n, "signature")));
+        r.put("sigAlg", nvl(str(n, "sigAlg")));
         r.put("notes", nvl(str(n, "notes")));
         return r;
     }

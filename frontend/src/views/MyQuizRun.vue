@@ -18,6 +18,10 @@
           <el-tag size="small" effect="plain">{{ TYPE_CN[cur.type] || cur.type }}</el-tag>
         </div>
         <div class="q-body pre">{{ cur.content }}</div>
+        <div v-if="!cur.options || !cur.options.length" class="no-opts">
+          该题型（{{ cur.type === 'FILL' ? '填空' : cur.type === 'SUBJECTIVE' ? '主观' : cur.type }}）暂不支持在线作答，
+          点「提交」看答案与解析。
+        </div>
 
         <div class="opts">
           <label
@@ -50,7 +54,9 @@
         </div>
 
         <div class="acts">
-          <el-button v-if="!result" type="primary" :disabled="!selected.length" @click="submit">提交</el-button>
+          <el-button v-if="!result" type="primary" :disabled="!selected.length || submitting" @click="submit">
+            {{ submitting ? '判分中…' : '提交' }}
+          </el-button>
           <el-button v-else type="primary" @click="next">
             {{ idx + 1 >= questions.length ? '看结果' : '下一题' }}
           </el-button>
@@ -82,6 +88,7 @@ const questions = ref([])
 const sessionId = ref('')
 const idx = ref(0)
 const selected = ref([])
+const submitting = ref(false)
 const result = ref(null)
 const right = ref(0)
 const done = ref(false)
@@ -128,14 +135,20 @@ function pick(label) {
 }
 
 async function submit() {
+  if (submitting.value) return          // 防双击重复提交（审查 r21 High）
+  submitting.value = true
   try {
     // correctAnswer 可能是 [{label,content}] 或 ['A']，统一成 label 数组
-    const { data } = await practiceCheck(sessionId.value, cur.value.id, [...selected.value])
+    // 填空/主观题无选项：提交空答案，判分后看解析（审查 r21：这类题型此前无法作答）
+    const ans = (cur.value.options && cur.value.options.length) ? [...selected.value] : []
+    const { data } = await practiceCheck(sessionId.value, cur.value.id, ans)
     data.correctAnswer = (data.correctAnswer || []).map((x) => (typeof x === 'string' ? x : x.label))
     result.value = data
     if (data.correct) right.value += 1
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || '提交失败（会话可能已过期，重新开始）')
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -179,4 +192,7 @@ onMounted(start)
 .sum .acts { justify-content: center; }
 
 .pre { white-space: pre-wrap; word-break: break-word; }
+
+.no-opts { margin-top: 8px; font-size: 12.5px; color: #b45309; background: #fffbeb; border-radius: 8px; padding: 8px 12px; }
+html.dark .no-opts { background: #33270f; color: #fbbf24; }
 </style>

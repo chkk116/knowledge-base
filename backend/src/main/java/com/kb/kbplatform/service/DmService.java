@@ -212,11 +212,10 @@ public class DmService {
                 byPeer.put(peerId, row);
             }
         }
-        // 未读数（一次聚合，避免逐会话查询）
-        for (DmMessage m : recent) {
-            if (!m.getToId().equals(me) || m.getReadAt() != null) continue;
-            Map<String, Object> row = byPeer.get(m.getFromId());
-            if (row != null) row.put("unread", ((Number) row.get("unread")).intValue() + 1);
+        // 未读数：数据库按会话聚合（审查 r21：原来只基于最近 200 条，长会话未读会漏计）
+        for (Object[] row : msgs.countUnreadByPeer(me)) {
+            Map<String, Object> row2 = byPeer.get(((Number) row[0]).longValue());
+            if (row2 != null) row2.put("unread", ((Number) row[1]).intValue());
         }
         return new ArrayList<>(byPeer.values());
     }
