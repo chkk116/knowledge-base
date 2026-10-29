@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore, permLabel } from './store/auth'
+import { dmUnreadCount, refreshDmUnread } from './store/dm'
 import { useWatermarkStore, buildContent } from './store/watermark'
 import { useSiteInfoStore } from './store/siteInfo'
 import { usePrefsStore, applyPrefs } from './store/prefs'
@@ -66,7 +67,11 @@ onMounted(async () => {
   // 水印配置与 client-info 都要求登录态（匿名访问会 401），仅登录后拉取；
   // 匿名用户本就不显示水印，无需请求。等 fetchMe 恢复登录态/令牌后再调，避免 401 噪音。
   if (auth.loggedIn) wm.load()
-  if (auth.loggedIn) { notification.connect(); loadFlags(); loadAppearance() }
+  if (auth.loggedIn) {
+    notification.connect(); loadFlags(); loadAppearance()
+    refreshDmUnread()                                   // 私信未读红点：首屏拉一次
+    window.addEventListener('kb:dm', refreshDmUnread)    // 收到私信事件时刷新红点
+  }
 })
 
 // 外观配置见 utils/appearance.js（共享缓存：Logo + 资料页背景，一次拉取全站使用）
@@ -761,6 +766,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                           @pointerdown.stop="onPressStart('sub', m.index, ci, $event)">
               <MenuIcon :name="c.icon" :size="18" />
               <span>{{ c.title }}</span>
+              <el-badge v-if="c.index === '/messages' && dmUnreadCount" :value="dmUnreadCount" :max="99" class="menu-dot" />
             </el-menu-item>
           </el-sub-menu>
           <el-menu-item v-else :index="m.index" class="drag-item"
@@ -769,6 +775,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                         @pointerdown="onPressStart('primary', '', i, $event)">
             <MenuIcon :name="m.icon" :size="20" />
             <span>{{ m.title }}</span>
+            <el-badge v-if="m.index === '/messages' && dmUnreadCount" :value="dmUnreadCount" :max="99" class="menu-dot" />
           </el-menu-item>
         </template>
       </el-menu>
@@ -1363,4 +1370,7 @@ html.dark .help-content code { background: #23234a; }
   .help-nav-item { white-space: nowrap; }
   .help-content { padding-right: 0; }
 }
+
+.menu-dot { margin-left: auto; }
+.menu-dot :deep(.el-badge__content) { transform: translateY(-1px); }
 </style>

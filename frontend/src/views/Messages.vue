@@ -92,6 +92,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings } from '../api/dm'
+import { refreshDmUnread } from '../store/dm'
 import { followUser, unfollowUser } from '../api/kb'
 
 const route = useRoute()
@@ -147,6 +148,7 @@ async function openPeer(peerId, info) {
     msgs.value = m.data || []
     Object.assign(quota, q.data || {})
     await dmRead(peerId)
+    refreshDmUnread()          // 清侧栏红点
     const c = convs.value.find((x) => x.peerId === peerId)
     if (c) c.unread = 0
     await scrollBottom()
@@ -240,7 +242,7 @@ async function onDmEvent(ev) {
         id: d.id, fromId: d.fromId, kind: 'TEXT', content: d.content,
         createdAt: d.createdAt || new Date().toISOString(), read: true,
       })
-      try { await dmRead(peer.value.peerId) } catch (e) { /* ignore */ }
+      try { await dmRead(peer.value.peerId); refreshDmUnread() } catch (e) { /* ignore */ }
       if (atBottom) await scrollBottom()
     }
   }
