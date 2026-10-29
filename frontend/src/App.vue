@@ -309,9 +309,14 @@ const menus = computed(() => {
     )
     if (featureOpen('ranking')) base.push({ index: '/ranking', title: '积分排行榜', icon: 'TrendCharts' })
     if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: 'AI 问答', icon: 'ChatDotRound' })
-    base.push({ index: '/messages', title: '私信', icon: 'ChatDotRound' })
+    base.push({ index: '/messages', title: '消息中心', icon: 'ChatDotRound' })
     if (featureOpen('courses')) base.push({ index: '/study/courses', title: '培训', icon: 'Reading' })
-    if (featureOpen('quiz')) base.push({ index: '/quiz', title: '答题', icon: 'Edit' })
+    // 考试与练习：原 7 个入口收敛为「在线考试」「练习」两个主入口（原「答题闯关」/quiz 并入在线考试），
+    // 错题本 / 我的成绩 / 我的题库 在页内用 tab 切换（2026-10-29 入口收敛）
+    if (featureOpen('exams') || featureOpen('quiz')) {
+      base.push({ index: '/exams', title: '在线考试', icon: 'Trophy' })
+      base.push({ index: '/exams/practice', title: '练习', icon: 'Edit' })
+    }
     if (featureOpen('doc_shares')) base.push({ index: '/doc-shares', title: '共享文档', icon: 'DocumentCopy' })
     if (featureOpen('doc_shares')) base.push({ index: '/doc-shares/all', title: '全部文档', icon: 'Tickets' })
   }
@@ -353,6 +358,8 @@ const menus = computed(() => {
   if (auth.isAdmin || auth.hasPerm('ADMIN_VIEW')) contentMgmt.push({ index: '/admin/search-test', title: '检索测试', icon: 'Search' })
   // AI 模型管理：细粒度权限 AI_MANAGE（列表对 Key 脱敏，演示号勾上后只读）
   if (auth.isAdmin || auth.hasPerm('AI_MANAGE')) contentMgmt.push({ index: '/admin/ai-models', title: 'AI 模型管理', icon: 'Cpu' })
+  // AI 反馈与知识缺口：赞/踩 + 检索未命中，指导补文档（只读）
+  if (auth.isAdmin || auth.hasPerm('AI_MANAGE')) contentMgmt.push({ index: '/admin/ai-feedback', title: 'AI 反馈', icon: 'Collection' })
   if (contentMgmt.length) base.push({ index: 'g-content', title: '内容管理', icon: 'Document', children: contentMgmt })
 
   // 二级分组：站点设置（功能开关 / 水印 / 登录页二维码 / 外观）
@@ -661,10 +668,11 @@ const helpData = [
   <li>读完本章（停留够时长并滑到末尾）会<strong>自动标记完成</strong>并累计进度，无需手动点。</li>
   <li>完成后会倒计时<strong>自动进入下一章</strong>，可随时暂停；已完成的章节可点「重学」重新走一遍。</li>
 </ul>` },
-  { key: 'exam', title: '考试与答题', html: `<h3>考试与答题</h3>
+  { key: 'exam', title: '考试与练习', html: `<h3>考试与练习</h3>
 <ul>
   <li>「在线考试」：参加测评、提交后查看成绩与解析。</li>
-  <li>「答题」：闯关模式，趣味答题积累积分。</li>
+  <li>「练习」：答一题判一题，不落成绩；答错的题自动进「错题本」，答对即移出。</li>
+  <li>「我的成绩」查看历次考试；「我的题库」用 AI 按你的文档出题，只属于你自己。</li>
 </ul>` },
   { key: 'points', title: '积分体系', html: `<h3>积分体系</h3>
 <ul>
@@ -674,7 +682,7 @@ const helpData = [
   { key: 'profile', title: '个人中心', html: `<h3>个人中心</h3>
 <ul>
   <li>「个人资料」：修改头像、简介、登录密码。</li>
-  <li>「我的收藏」「浏览历史」「通知」：管理你的内容与消息。</li>
+  <li>「我的收藏」「浏览历史」「消息中心」：管理你的内容与消息（私信与通知在同一处切换）。</li>
 </ul>` },
   { key: 'rule', title: '使用规范', html: `<h3>使用规范与社区公约</h3>
 <ul>
@@ -824,7 +832,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
             <span class="cmd-k">Ctrl K</span>
           </el-button>
           <template v-if="auth.loggedIn">
-            <el-badge :value="notification.unread" :hidden="notification.unread === 0" :max="99">
+            <el-badge :value="notification.unread + dmUnreadCount" :hidden="!notification.unread && !dmUnreadCount" :max="99">
               <el-button class="bell" text circle title="通知" @click="goNotifications">
                 <el-icon size="18"><Bell /></el-icon>
               </el-button>
@@ -1376,6 +1384,6 @@ html.dark .help-content code { background: #23234a; }
   .help-content { padding-right: 0; }
 }
 
-.menu-dot { margin-left: auto; }
-.menu-dot :deep(.el-badge__content) { transform: translateY(-1px); }
+.menu-dot { margin-left: 5px; }
+.menu-dot :deep(.el-badge__content) { position: static; transform: none; display: inline-block; vertical-align: middle; }
 </style>

@@ -3,7 +3,11 @@
     <!-- 左：会话列表 -->
     <aside class="dm-side">
       <div class="dm-side-hd">
-        <span>私信</span>
+        <!-- 消息中心统一入口：私信 / 通知 两个 Tab（原先通知在顶栏铃铛、私信在侧栏，入口分散） -->
+        <div class="mc-switch">
+          <span class="on">私信</span>
+          <span @click="router.push('/notifications')">通知</span>
+        </div>
         <el-tooltip content="私信设置" placement="bottom">
           <el-button text size="small" @click="openSettings"><el-icon><Setting /></el-icon></el-button>
         </el-tooltip>
@@ -110,7 +114,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings, dmRecall } from '../api/dm'
@@ -120,6 +124,7 @@ import ReportDialog from '../components/ReportDialog.vue'
 import { followUser, unfollowUser } from '../api/kb'
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const meId = computed(() => auth.user?.id)
 
@@ -354,6 +359,14 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .dm { display: flex; height: calc(100vh - 120px); background: #fff; border: 1px solid #ebeef5; border-radius: 12px; overflow: hidden; }
 .dm-side { width: 264px; border-right: 1px solid #f0f0f0; display: flex; flex-direction: column; background: #fafbfc; }
 .dm-side-hd { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; font-weight: 600; font-size: 14px; }
+/* 消息中心 Tab 切换（私信 / 通知） */
+.mc-switch { display: inline-flex; gap: 2px; background: #eef2f7; border-radius: 8px; padding: 3px; }
+.mc-switch span { font-size: 13px; font-weight: 500; color: #64748b; padding: 4px 11px; border-radius: 6px; cursor: pointer; line-height: 1; }
+.mc-switch span:hover { color: #2563eb; }
+.mc-switch span.on { background: #fff; color: #2563eb; font-weight: 600; box-shadow: 0 1px 2px rgba(15, 23, 42, .1); }
+:deep(html.dark) .mc-switch { background: #23233a; }
+:deep(html.dark) .mc-switch span { color: #a5a7bd; }
+:deep(html.dark) .mc-switch span.on { background: #2f2f4a; color: #a9c2ff; box-shadow: none; }
 .dm-search { padding: 0 12px 8px; }
 .dm-convs { flex: 1; overflow-y: auto; }
 .dm-empty-s { padding: 24px 14px; color: #9ca3af; font-size: 13px; text-align: center; }
@@ -404,4 +417,28 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .quote-bar { display: flex; align-items: center; gap: 8px; padding: 6px 16px;
   background: #f5f7ff; border-top: 1px solid #e6ecff; font-size: 12.5px; color: #4b5563; }
 .quote-bar .q-body { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 暗色模式 ---------- */
+html.dark .dm { background: #17171f; border-color: #2a2a35; }
+html.dark .dm-side { background: #1b1b24; border-right-color: #2a2a35; }
+html.dark .dm-side-hd { color: #e7e7ee; }
+html.dark .dm-conv:hover { background: #23232e; }
+html.dark .dm-conv.on { background: #1f2a44; }
+html.dark .dm-conv-top .nm { color: #e7e7ee; }
+html.dark .dm-conv-bot .msg { color: #7b8190; }
+html.dark .dm-empty-s { color: #5b5f6b; }
+html.dark .dm-blank { color: #5b5f6b; }
+html.dark .dm-tip { color: #5b5f6b; }
+html.dark .dm-chat-hd { border-bottom-color: #2a2a35; }
+html.dark .dm-chat-hd .nm { color: #e7e7ee; }
+html.dark .dm-msgs { background: #13131a; }
+html.dark .bubble { background: #23232e; border-color: #2a2a35; color: #d7dae2; }
+html.dark .dm-row.mine .bubble { background: #2563eb; border-color: #2563eb; color: #fff; }
+html.dark .meta { color: #5b5f6b; }
+html.dark .recalled { background: #23232e; color: #7b8190; }
+html.dark .quote { background: #1f2330; color: #8b90a0; }
+html.dark .quote .q-from { color: #7aa2ff; }
+html.dark .quote-bar { background: #1f2330; border-top-color: #2a2a35; color: #8b90a0; }
+html.dark .dm-quota { background: #33270f; color: #fbbf24; border-top-color: #4d3a12; }
+html.dark .dm-input { border-top-color: #2a2a35; }
 </style>
