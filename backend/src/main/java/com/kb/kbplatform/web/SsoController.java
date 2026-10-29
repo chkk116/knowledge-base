@@ -343,7 +343,7 @@ public class SsoController {
             }
         } else if (autoReg) {
             // 命名策略（2026-10-29 用户反馈：github_gh_108394897 太长）：
-            // GitHub / Gitee 的对外「登录名」本身就是可读的（chkk116），直接用它；
+            // GitHub / Gitee 的对外「登录名」本身就是可读的（如 twitter handle 风格的用户名），直接用它；
             // 微信用 openid、QQ 用 openid，都不适合当用户名，仍用 provider_extId。
             // 撞名时再追加短哈希，不要默认就加。
             String preferred = ("github".equals(provider) || "gitee".equals(provider)) && notBlank(openId)
@@ -466,8 +466,10 @@ public class SsoController {
 
     // 回调落地站点白名单：origin 只允许本站域名，防止令牌被 302 带到外部域（审查 r20 critical）。
     // 可用 kb.sso.base-allowlist 覆盖（逗号分隔）；默认含本站域名与本地开发地址。
+    // 默认只放本地开发地址；生产域名由部署者自己配置（如 KB_SSO_BASE_ALLOWLIST），
+    // 或直接依赖下面的「同主机放行」——回调 origin 与请求 Host 一致即放行，任何域名的部署都天然可用
     @org.springframework.beans.factory.annotation.Value(
-            "${kb.sso.base-allowlist:https://你的域名,https://www.你的域名,http://localhost:5173,http://127.0.0.1:5173}")
+            "${kb.sso.base-allowlist:http://localhost:5173,http://127.0.0.1:5173}")
     private List<String> baseAllowlist;
 
     private String base(String origin) {
