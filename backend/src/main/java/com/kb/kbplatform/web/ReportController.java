@@ -70,7 +70,7 @@ public class ReportController {
             var d = docRepo.findById(tid).orElse(null);
             if (d != null) { m.put("targetTitle", d.getTitle()); m.put("authorId", d.getOwnerId());
                 users.findById(d.getOwnerId()).ifPresent(u -> m.put("authorName", u.getUsername()));
-                m.put("status", d.getStatus()); m.put("link", "/post/" + tid); }
+                m.put("targetStatus", d.getStatus()); m.put("link", "/post/" + tid); }
         } else if ("COMMENT".equals(type) && tid != null) {
             var c = commentRepo.findById(tid).orElse(null);
             if (c != null) { m.put("targetTitle", c.getContent()); m.put("authorId", c.getUserId());
@@ -85,7 +85,7 @@ public class ReportController {
         } else if ("USER".equals(type) && tid != null) {
             var u = users.findById(tid).orElse(null);
             if (u != null) { m.put("targetTitle", u.getUsername()); m.put("authorId", u.getId());
-                m.put("authorName", u.getUsername()); m.put("status", u.isEnabled() ? "正常" : "已禁用"); }
+                m.put("authorName", u.getUsername()); m.put("targetStatus", u.isEnabled() ? "正常" : "已禁用"); }
         }
         return m;
     }
