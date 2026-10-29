@@ -7,6 +7,7 @@
       </div>
       <div class="hd-acts">
         <el-button type="primary" :disabled="!list.length" @click="$router.push('/my-quiz/run')">开始刷题</el-button>
+        <el-button plain @click="openImport">粘贴导入</el-button>
         <el-button plain @click="$router.push('/ai')">让 AI 出题</el-button>
       </div>
     </div>
@@ -46,15 +47,96 @@
         </el-collapse>
       </div>
     </div>
+    <el-dialog v-model="imp.open" title="粘贴导入题目" width="760px" :close-on-click-modal="false">
+      <div class="imp">
+        <el-alert type="info" :closable="false" show-icon
+          title="把题目文本粘进来，本地解析（断网也能用）。支持题目编号 1. / 1、，选项 A. / A、/（A），以及「答案：B」「解析：…」；判断题答「正确/错误」也行。" />
+        <el-input
+          v-model="imp.text" type="textarea" :rows="12" class="imp-ta"
+          placeholder="1. 题干…&#10;A. 选项一&#10;B. 选项二&#10;答案：B&#10;解析：…" />
+        <div class="imp-acts">
+          <el-button @click="doParse" :disabled="!imp.text.trim()">解析</el-button>
+          <span v-if="imp.parsed.length" class="imp-sum">
+            共 {{ imp.parsed.length }} 题，可导入 <b>{{ imp.okCount }}</b> 题
+            <span v-if="imp.badCount" class="imp-bad">（{{ imp.badCount }} 题有警告）</span>
+          </span>
+          <span class="spacer" />
+          <el-button type="primary" :disabled="!imp.okCount || imp.saving" @click="doImport">
+            {{ imp.saving ? '导入中…' : '导入到我的题库' }}
+          </el-button>
+        </div>
+
+        <div v-if="imp.parsed.length" class="imp-list">
+          <label v-for="(p, i) in imp.parsed" :key="i" class="imp-item" :class="{ bad: p.warn.length }">
+            <el-checkbox v-model="p._pick" :disabled="p.warn.length && !p.options.length" />
+            <div class="imp-body">
+              <div class="imp-q">
+                <el-tag size="small" effect="plain">{{ TYPE_CN[p.question.type] || p.question.type }}</el-tag>
+                <span v-html="esc(p.question.content).slice(0, 120)"></span>
+              </div>
+              <div class="imp-opts">
+                <span v-for="o in p.options" :key="o.label" :class="{ right: o.isCorrect }">
+                  {{ o.label }}.{{ o.content }}
+                </span>
+              </div>
+              <div v-if="p.warn.length" class="imp-warn">⚠ {{ p.warn.join('；') }}</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="imp.open = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { selfExamStats, selfExamQuestions, selfExamDeleteQuestion } from '../api/training'
+import { selfExamStats, selfExamQuestions, selfExamDeleteQuestion, selfExamBatchCreate } from '../api/training'
+import { parseQuestions } from '../utils/quizParser'
 
 const TYPE_CN = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', SUBJECTIVE: '主观' }
+
+// 粘贴导入（纯本地解析，断网可用；只有最后入库需要联网）
+const imp = ref({ open: false, text: '', parsed: [], saving: false, okCount: 0, badCount: 0 })
+const esc = (s) => String(s || '').replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'))
+
+function openImport() {
+  imp.value = { open: true, text: '', parsed: [], saving: false, okCount: 0, badCount: 0 }
+}
+
+function doParse() {
+  const list = parseQuestions(imp.value.text)
+  list.forEach((p) => { p._pick = p.warn.length === 0 })
+  imp.value.parsed = list
+  imp.value.badCount = list.filter((p) => p.warn.length).length
+  imp.value.okCount = list.filter((p) => p._pick).length
+  if (!list.length) ElMessage.warning('没解析出题目，检查一下格式')
+}
+
+function syncPick() {
+  imp.value.okCount = imp.value.parsed.filter((p) => p._pick).length
+}
+
+async function doImport() {
+  const picked = imp.value.parsed.filter((p) => p._pick)
+  if (!picked.length) return
+  if (picked.length > 50) { ElMessage.warning('一次最多导入 50 题，请分两次'); return }
+  imp.value.saving = true
+  try {
+    const items = picked.map((p) => ({ question: p.question, options: p.options }))
+    const { data } = await selfExamBatchCreate(items)
+    ElMessage.success(`已导入 ${(data || []).length} 题`)
+    imp.value.open = false
+    await load()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.error || '导入失败')
+  } finally {
+    imp.value.saving = false
+  }
+}
 const loading = ref(false)
 const list = ref([])
 const stats = ref({})
@@ -84,6 +166,8 @@ async function remove(q) {
   }
 }
 
+watch(imp, () => { syncPick() }, { deep: true })
+
 onMounted(load)
 </script>
 
@@ -110,4 +194,18 @@ onMounted(load)
 .spacer { flex: 1; }
 .c-q { font-size: 14.5px; line-height: 1.7; color: #1f2937; }
 .c-an { margin-top: 6px; }
+
+.imp-ta { margin: 10px 0; }
+.imp-acts { display: flex; align-items: center; gap: 10px; }
+.imp-acts .spacer { flex: 1; }
+.imp-sum { font-size: 12.5px; color: #6b7280; }
+.imp-bad { color: #d97706; }
+.imp-list { margin-top: 12px; max-height: 320px; overflow: auto; border-top: 1px solid #f0f0f0; }
+.imp-item { display: flex; gap: 10px; padding: 10px 4px; border-bottom: 1px dashed #f0f0f0; }
+.imp-item.bad { background: #fffbeb; }
+.imp-body { flex: 1; min-width: 0; }
+.imp-q { font-size: 13.5px; line-height: 1.6; color: #1f2937; display: flex; gap: 6px; align-items: flex-start; }
+.imp-opts { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: #6b7280; }
+.imp-opts .right { color: #16a34a; font-weight: 600; }
+.imp-warn { margin-top: 4px; font-size: 12px; color: #d97706; }
 </style>
