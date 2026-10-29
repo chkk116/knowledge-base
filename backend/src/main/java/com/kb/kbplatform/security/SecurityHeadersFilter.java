@@ -48,6 +48,15 @@ public class SecurityHeadersFilter implements Filter {
         if (req.getRequestURI().startsWith("/uploads/")
                 && isSandboxableUpload(req.getRequestURI())) {
             res.setHeader("Content-Security-Policy", "sandbox");
+        } else if (!req.getRequestURI().startsWith("/uploads/")) {
+            // SPA 页面与静态资源：加一层 CSP（外部审查 2026-10-29 建议）。
+            // Vite 产物为外部脚本 + 运行时注入 <style>，故 style-src 需 'unsafe-inline'；
+            // 头像/远端图片允许 https: 与 data:；协同走同源 ws/wss。
+            res.setHeader("Content-Security-Policy",
+                    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                  + "img-src 'self' data: blob: https: http:; media-src 'self' blob:; "
+                  + "font-src 'self' data:; connect-src 'self' ws: wss:; "
+                  + "object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
         }
 
         // 上传的音频/视频：屏蔽 Range 分段，一律整包 200 返回。

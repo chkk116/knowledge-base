@@ -175,6 +175,10 @@ public class CollabRelayLauncher implements ApplicationRunner, DisposableBean {
             // 注入与后端一致的密钥与数据源，环境变量的键与 collab-relay/index.js 对齐
             pb.environment().put("COLLAB_PORT", String.valueOf(port));
             pb.environment().put("COLLAB_SAVE_INTERVAL", String.valueOf(saveInterval));
+            if (tokenSecretProvider.get() != null
+                    && tokenSecretProvider.get().toUpperCase().startsWith("CHANGE_ME")) {
+                throw new IllegalStateException("检测到 CHANGE_ME 占位符密钥，协同中继拒绝启动。");
+            }
             pb.environment().put("KB_TOKEN_SECRET", tokenSecretProvider.get());
             DbConn db = parseDbUrl();
             pb.environment().put("COLLAB_DB_HOST", db.host);

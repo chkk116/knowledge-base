@@ -122,7 +122,13 @@ export function pinFailState() {
 function noteFail() {
   const s = pinFailState()
   s.n++
-  if (s.n >= MAX_FAILS) { s.lockUntil = Date.now() + LOCK_MS; s.n = 0 }
+  if (s.n >= MAX_FAILS) {
+    // 递增锁定：触发后每次失败锁定时长翻倍（15 分钟 → 30 分钟 → …，上限 24 小时），
+    // 抬高 4 位 PIN 的穷举成本（外部审查 2026-10-29）
+    const over = Math.min(s.n - MAX_FAILS, 10)
+    const ms = Math.min(LOCK_MS * (1 << over), 24 * 60 * 60 * 1000)
+    s.lockUntil = Date.now() + ms
+  }
   try { localStorage.setItem(FAIL_KEY, JSON.stringify(s)) } catch { /* ignore */ }
   return s
 }

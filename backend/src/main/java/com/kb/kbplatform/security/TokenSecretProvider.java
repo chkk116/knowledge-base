@@ -37,6 +37,11 @@ public class TokenSecretProvider {
 
     public TokenSecretProvider(@Value("${kb.security.token-secret:}") String raw) {
         String v = raw == null ? "" : raw.trim();
+        if (v != null && v.toUpperCase().startsWith("CHANGE_ME")) {
+            throw new IllegalStateException(
+                    "检测到 deploy/env.prod 模板占位符（CHANGE_ME_...）被原样用作令牌密钥，拒绝启动。" +
+                    "请替换 KB_TOKEN_SECRET 为不少于 32 位的随机串后重启。");
+        }
         if (COMPROMISED.equalsIgnoreCase(v)) {
             throw new IllegalStateException(
                     "检测到已泄漏的默认令牌密钥（kb-dev-secret-...），拒绝启动。" +

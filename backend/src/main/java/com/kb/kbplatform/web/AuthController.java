@@ -112,12 +112,9 @@ public class AuthController {
                         || have.containsAll(com.kb.kbplatform.security.Perm.WHITELIST);
                 boolean adminLike = lu != null && ("ADMIN".equals(lu.getRole()) || coversAll);
                 if (adminLike && suspiciousClient) {
-                    String xff = request.getHeader("X-Forwarded-For");
-                    // nginx $proxy_add_x_forwarded_for 会把真实地址附加在尾部，首段可被客户端伪造——
-                    // 两段都带上，事件响应时可甄别（第二段为 TCP 层来源，不可伪造）
-                    String realIp = (xff == null || xff.isBlank()) ? request.getRemoteAddr()
-                            : xff.split(",")[0].trim() + " (via " + request.getRemoteAddr() + ")";
-                    notificationService.notifySecurityAlert(logName, realIp, ua);
+                    // 统一走 ClientIp 解析口径（与登录日志一致），避免告警文本里出现可伪造的 XFF 首段
+                    notificationService.notifySecurityAlert(logName,
+                            com.kb.kbplatform.security.ClientIp.resolve(request), ua);
                 }
             } catch (Exception alertEx) {
                 // 告警只是旁路，登录主流程不受影响；但留痕便于排查"为什么没收到告警"
