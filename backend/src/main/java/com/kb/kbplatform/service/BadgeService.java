@@ -60,26 +60,26 @@ public class BadgeService {
     /** 徽章目录（静态定义，顺序排列即展示顺序） */
     private static final List<BadgeDef> CATALOG = List.of(
         // —— 创作类 ——
-        new BadgeDef("first_post", "初执笔", "发布第 1 篇文章", "🌱", C_ENTRY, "入门", "DOCS", 1),
-        new BadgeDef("writer", "写手", "累计发布 5 篇文章", "✍️", C_ADV, "进阶", "DOCS", 5),
-        new BadgeDef("author", "著书立说", "累计发布 20 篇文章", "📚", C_SENIOR, "高级", "DOCS", 20),
-        new BadgeDef("sage", "知识宗师", "累计发布 50 篇文章", "🏛️", C_HONOR, "荣誉", "DOCS", 50),
+        new BadgeDef("first_post", "初执笔", "发布第 1 篇文章", "EditPen", C_ENTRY, "入门", "DOCS", 1),
+        new BadgeDef("writer", "写手", "累计发布 5 篇文章", "Edit", C_ADV, "进阶", "DOCS", 5),
+        new BadgeDef("author", "著书立说", "累计发布 20 篇文章", "Notebook", C_SENIOR, "高级", "DOCS", 20),
+        new BadgeDef("sage", "知识宗师", "累计发布 50 篇文章", "Trophy", C_HONOR, "荣誉", "DOCS", 50),
         // —— 人气类 ——
-        new BadgeDef("liked10", "小有口碑", "获得 10 个赞", "👍", C_ENTRY, "入门", "LIKES", 10),
-        new BadgeDef("liked100", "人气作者", "获得 100 个赞", "💖", C_SENIOR, "高级", "LIKES", 100),
-        new BadgeDef("liked500", "明星作者", "获得 500 个赞", "🌟", C_HONOR, "荣誉", "LIKES", 500),
-        new BadgeDef("fav20", "珍藏之选", "被收藏 20 次", "⭐", C_ADV, "进阶", "FAVS", 20),
+        new BadgeDef("liked10", "小有口碑", "获得 10 个赞", "Pointer", C_ENTRY, "入门", "LIKES", 10),
+        new BadgeDef("liked100", "人气作者", "获得 100 个赞", "Pointer", C_SENIOR, "高级", "LIKES", 100),
+        new BadgeDef("liked500", "明星作者", "获得 500 个赞", "Star", C_HONOR, "荣誉", "LIKES", 500),
+        new BadgeDef("fav20", "珍藏之选", "被收藏 20 次", "Star", C_ADV, "进阶", "FAVS", 20),
         // —— 积分类 ——
-        new BadgeDef("pts100", "初露锋芒", "累计 100 积分", "🔥", C_ENTRY, "入门", "POINTS", 100),
-        new BadgeDef("pts1000", "积分达人", "累计 1000 积分", "💎", C_SENIOR, "高级", "POINTS", 1000),
-        new BadgeDef("pts5000", "积分王者", "累计 5000 积分", "👑", C_HONOR, "荣誉", "POINTS", 5000),
+        new BadgeDef("pts100", "初露锋芒", "累计 100 积分", "Lightning", C_ENTRY, "入门", "POINTS", 100),
+        new BadgeDef("pts1000", "积分达人", "累计 1000 积分", "StarFilled", C_SENIOR, "高级", "POINTS", 1000),
+        new BadgeDef("pts5000", "积分王者", "累计 5000 积分", "Trophy", C_HONOR, "荣誉", "POINTS", 5000),
         // —— 社交类 ——
-        new BadgeDef("fan1", "初识", "收获第 1 位粉丝", "🤝", C_ENTRY, "入门", "FANS", 1),
-        new BadgeDef("fan50", "小有名气", "粉丝达到 50 人", "👥", C_ADV, "进阶", "FANS", 50),
-        new BadgeDef("fan200", "意见领袖", "粉丝达到 200 人", "📡", C_HONOR, "荣誉", "FANS", 200),
-        new BadgeDef("social10", "社交达人", "关注 10 位作者", "🔗", C_ADV, "进阶", "FOLLOWING", 10),
+        new BadgeDef("fan1", "初识", "收获第 1 位粉丝", "Connection", C_ENTRY, "入门", "FANS", 1),
+        new BadgeDef("fan50", "小有名气", "粉丝达到 50 人", "UserFilled", C_ADV, "进阶", "FANS", 50),
+        new BadgeDef("fan200", "意见领袖", "粉丝达到 200 人", "ChatDotRound", C_HONOR, "荣誉", "FANS", 200),
+        new BadgeDef("social10", "社交达人", "关注 10 位作者", "Connection", C_ADV, "进阶", "FOLLOWING", 10),
         // —— 元老类 ——
-        new BadgeDef("vet365", "元老用户", "注册满 365 天", "🏅", C_HONOR, "荣誉", "DAYS", 365)
+        new BadgeDef("vet365", "元老用户", "注册满 365 天", "Medal", C_HONOR, "荣誉", "DAYS", 365)
     );
 
     /** 汇总某用户用于徽章判定的统计维度 */
