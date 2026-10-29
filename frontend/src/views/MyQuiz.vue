@@ -9,7 +9,7 @@
         <el-button type="primary" :disabled="!list.length" @click="$router.push('/my-quiz/run')">开始刷题</el-button>
         <el-button plain @click="openGen">从文档生成</el-button>
         <el-button plain @click="openImport">粘贴导入</el-button>
-        <el-button plain @click="$router.push('/ai')">让 AI 出题</el-button>
+        <el-button plain @click="$router.push('/ai/chat?mode=agent')">让 AI 出题</el-button>
       </div>
     </div>
 
@@ -29,7 +29,7 @@
       <div class="empty-ico">📝</div>
       <div class="empty-t">还没有自己的题目</div>
       <div class="empty-s">去 AI 问答里让它按你的文档出几道题</div>
-      <el-button type="primary" @click="$router.push('/ai')">去出题</el-button>
+      <el-button type="primary" @click="$router.push('/ai/chat?mode=agent')">去出题</el-button>
     </div>
 
     <div v-else class="list">

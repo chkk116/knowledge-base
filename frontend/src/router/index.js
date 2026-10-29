@@ -46,6 +46,7 @@ const routes = [
   // 徽章 / 勋章墙：基于用户实时统计派生（积分 / 文章 / 获赞 / 粉丝等），无需落库
   { path: '/badges', component: () => import('../views/Badges.vue'), meta: { title: '我的勋章', maintenance: 'profile' } },
   { path: '/ai/chat', component: () => import('../views/AiChat.vue'), meta: { title: 'AI 问答', maintenance: 'ai_chat' } },
+  { path: '/ai', redirect: (to) => ({ path: '/ai/chat', query: to.query }), meta: { title: 'AI 问答' } },
   // 培训体系：学员侧浏览 / 学习
   { path: '/study/courses', component: () => import('../views/CourseList.vue'), meta: { title: '培训课程', maintenance: 'courses' } },
   { path: '/study/courses/:id', component: () => import('../views/CourseDetail.vue'), meta: { title: '课程详情', maintenance: 'courses' } },

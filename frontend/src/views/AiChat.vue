@@ -324,7 +324,13 @@ const suggestions = [
   '知识库支持哪些内容格式？',
   '怎么查看我的积分明细？',
   '帮我总结一下知识库的常见用法',
+  '知识库里有哪些关于新员工入职的内容？',
+  '最近更新的文档有哪些？',
+  '帮我看看还差哪些勋章没拿到',
+  '怎么把文档分享给同事？',
 ]
+// 多一点轮换：每次进入随机抽 4 条，避免永远是同一套开场
+const rotateSugs = (arr, n = 4) => [...arr].sort(() => Math.random() - 0.5).slice(0, n)
 
 // 空状态文案必须跟着模式走：切到「通用」后如果还挂着「我是知识库 AI 助手 / 基于知识库检索作答」
 // 和一堆知识库相关的推荐问题，用户会以为模式没生效 —— 这正是「选了通用还感觉基于知识库」的来源之一。
@@ -333,12 +339,19 @@ const generalSuggestions = [
   '帮我把这段话润色得更正式',
   '推荐几本讲系统设计的好书',
   '写一个 Python 读取 Excel 的例子',
+  '把这段会议纪要提炼成三个要点',
+  '帮我写一封项目延期的通知邮件',
+  '解释一下什么是幂等性，举个例子',
+  '给我的周报起几个标题',
 ]
 const agentSuggestions = [
   '帮我写一篇关于「消防演练注意事项」的文档，存进知识库',
   '帮我出 5 道关于请假流程的单选题，加进题库',
   '审查我最近的一篇文档，指出问题并优化',
   '把知识库里关于报销的内容找出来，对比有没有矛盾',
+  '整理一篇「远程办公设备清单」并存为文档',
+  '出 3 道关于信息安全的判断题放进我的题库',
+  '帮我检查最近的文档里有没有过期日期',
 ]
 const emptyCopy = computed(() => {
   if (mode.value === 'agent') {
@@ -350,7 +363,7 @@ const emptyCopy = computed(() => {
         { icon: 'EditPen', text: '写 / 改文档' },
         { icon: 'Cpu', text: '多步执行' },
       ],
-      sugs: agentSuggestions,
+      sugs: rotateSugs(agentSuggestions),
     }
   }
   if (mode.value === 'general') {
@@ -362,7 +375,7 @@ const emptyCopy = computed(() => {
         { icon: 'EditPen', text: '写作润色' },
         { icon: 'Cpu', text: '编程协助' },
       ],
-      sugs: generalSuggestions,
+      sugs: rotateSugs(generalSuggestions),
     }
   }
   return {
@@ -1115,6 +1128,9 @@ function onKey(e) {
 }
 
 onMounted(async () => {
+  // 支持 /ai/chat?mode=agent 直达对应模式（「我的测验 → 让 AI 出题」就用这个）
+  const qm = String(route.query.mode || '').toLowerCase()
+  if (['kb', 'general', 'agent'].includes(qm)) mode.value = qm
   loadAiGuard()
   // 窄屏判定：与 CSS 断点保持一致（≤1024 侧栏变抽屉）
   mqNarrow = window.matchMedia('(max-width: 1024px)')
