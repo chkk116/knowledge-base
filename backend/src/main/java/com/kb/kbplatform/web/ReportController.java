@@ -70,7 +70,7 @@ public class ReportController {
             var d = docRepo.findById(tid).orElse(null);
             if (d != null) { m.put("targetTitle", d.getTitle()); m.put("authorId", d.getOwnerId());
                 users.findById(d.getOwnerId()).ifPresent(u -> m.put("authorName", u.getUsername()));
-                m.put("targetStatus", d.getStatus()); m.put("link", "/post/" + tid); }
+                m.put("targetStatus", d.getStatus()); m.put("link", "/post/" + tid); m.put("docId", tid); }
         } else if ("COMMENT".equals(type) && tid != null) {
             var c = commentRepo.findById(tid).orElse(null);
             if (c != null) { m.put("targetTitle", c.getContent()); m.put("authorId", c.getUserId());
