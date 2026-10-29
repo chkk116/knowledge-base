@@ -5,7 +5,10 @@
         <h1>我的测验</h1>
         <p class="sub">用 AI 从你的资料里出题，只属于你自己，不进公共题库</p>
       </div>
-      <el-button type="primary" plain @click="$router.push('/ai')">让 AI 出题</el-button>
+      <div class="hd-acts">
+        <el-button type="primary" :disabled="!list.length" @click="$router.push('/my-quiz/run')">开始刷题</el-button>
+        <el-button plain @click="$router.push('/ai')">让 AI 出题</el-button>
+      </div>
     </div>
 
     <div class="stats">
@@ -87,6 +90,7 @@ onMounted(load)
 <style scoped>
 .page { max-width: 900px; margin: 0 auto; padding: 20px 16px 60px; }
 .hd { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.hd-acts { display: flex; gap: 8px; flex-shrink: 0; }
 .hd h1 { font-size: 20px; margin: 0 0 4px; }
 .sub { margin: 0; font-size: 13px; color: #6b7280; }
 .stats { display: flex; align-items: center; gap: 18px; margin: 14px 0; }
