@@ -40,19 +40,25 @@
             <el-tag v-if="quota.mutual" size="small" type="success" effect="plain">互相关注</el-tag>
             <el-tag v-else-if="quota.replied" size="small" effect="plain">对方已回复</el-tag>
           </div>
-          <el-button text size="small" @click="toggleFollow">{{ following ? '已关注' : '+ 关注' }}</el-button>
+          <div class="hd-acts">
+            <el-button text size="small" @click="toggleFollow">{{ following ? '已关注' : '+ 关注' }}</el-button>
+            <el-button text size="small" @click="reportOpen = true">举报</el-button>
+          </div>
         </header>
 
         <div ref="scroller" class="dm-msgs">
           <div v-if="loading" class="dm-tip">加载中…</div>
           <div v-for="(m, i) in msgs" :key="m.id" class="dm-row" :class="{ mine: m.fromId === meId }">
-            <div class="bubble" :class="{ img: m.kind === 'IMAGE' }">
+            <div v-if="m.kind === 'RECALL'" class="recalled">对方撤回了一条消息</div>
+            <div v-else class="bubble" :class="{ img: m.kind === 'IMAGE' }">
               <img v-if="m.kind === 'IMAGE'" :src="m.content" class="img" />
               <span v-else>{{ m.content }}</span>
             </div>
+
             <div class="meta">
               <span class="t">{{ clock(m.createdAt) }}</span>
               <span v-if="m.fromId === meId && m.read" class="read">已读</span>
+              <span v-if="m.fromId === meId && canRecall(m)" class="recall" @click="recall(m)">撤回</span>
             </div>
           </div>
         </div>
@@ -62,6 +68,10 @@
         </div>
 
         <footer class="dm-input">
+          <el-button text :disabled="!quota.peerAllowDm || sending" @click="pickImage" title="发送图片">
+            <el-icon><Picture /></el-icon>
+          </el-button>
+          <input ref="fileInput" type="file" accept="image/*" class="hidden-file" @change="onPickImage" />
           <el-input
             v-model="draft" type="textarea" :rows="2" resize="none"
             :placeholder="quota.peerAllowDm ? '输入消息，Enter 发送，Shift+Enter 换行' : '对方未开放私信'"
@@ -72,6 +82,9 @@
       </template>
       <div v-else class="dm-blank">选择左侧会话开始聊天</div>
     </section>
+
+    <ReportDialog v-model="reportOpen" target-type="USER" :target-id="peer?.peerId"
+                  :target-label="'举报用户：' + (peer?.name || '')" />
 
     <!-- 私信设置 -->
     <el-dialog v-model="settings.open" title="私信设置" width="420px">
@@ -89,10 +102,12 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
-import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings } from '../api/dm'
+import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings, dmRecall } from '../api/dm'
 import { refreshDmUnread } from '../store/dm'
+import { uploadFile } from '../api/file'
+import ReportDialog from '../components/ReportDialog.vue'
 import { followUser, unfollowUser } from '../api/kb'
 
 const route = useRoute()
@@ -156,6 +171,50 @@ async function openPeer(peerId, info) {
     ElMessage.error(e?.response?.data?.error || '加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+const fileInput = ref(null)
+const reportOpen = ref(false)
+const uploading = ref(false)
+
+function pickImage() { fileInput.value?.click() }
+
+async function onPickImage(e) {
+  const f = e.target.files?.[0]
+  e.target.value = ''
+  if (!f) return
+  if (f.size > 8 * 1024 * 1024) { ElMessage.warning('图片请小于 8MB'); return }
+  uploading.value = true
+  try {
+    const { data } = await uploadFile(f)
+    const url = data?.data?.url || data?.url
+    if (!url) throw new Error('上传返回异常')
+    const { data: r } = await dmSend(peer.value.peerId, url, 'IMAGE')
+    msgs.value.push({ id: r.id, fromId: meId.value, kind: 'IMAGE', content: url, createdAt: new Date().toISOString(), read: false })
+    if (r.quota) Object.assign(quota, r.quota)
+    await scrollBottom()
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.error || '图片发送失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+/** 撤回窗口 2 分钟（与后端一致，前端只是隐藏按钮，最终由后端校验） */
+function canRecall(m) {
+  if (m.kind === 'RECALL') return false
+  return Date.now() - new Date(m.createdAt).getTime() < 2 * 60 * 1000
+}
+
+async function recall(m) {
+  try {
+    await ElMessageBox.confirm('撤回后对方也会消失，确定？', '撤回消息', { type: 'warning' })
+    await dmRecall(m.id)
+    const t = msgs.value.find((x) => x.id === m.id)
+    if (t) { t.kind = 'RECALL'; t.content = '' }
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e?.response?.data?.error || '撤回失败')
   }
 }
 
@@ -249,8 +308,15 @@ async function onDmEvent(ev) {
   loadConvs()
 }
 
+function onRecallEvent(ev) {
+  const d = ev.detail || {}
+  const t = msgs.value.find((x) => x.id === d.id)
+  if (t) { t.kind = 'RECALL'; t.content = '' }
+}
+
 onMounted(async () => {
   window.addEventListener('kb:dm', onDmEvent)
+  window.addEventListener('kb:dm-recall', onRecallEvent)
   await loadConvs()
   const p = Number(route.query.peer)
   if (p) await openPeer(p)
@@ -259,6 +325,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopPoll()
   window.removeEventListener('kb:dm', onDmEvent)
+  window.removeEventListener('kb:dm-recall', onRecallEvent)
 })
 watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 </script>
@@ -285,6 +352,7 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .dm-chat-hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #f0f0f0; }
 .dm-chat-hd .who { display: flex; align-items: center; gap: 8px; }
 .dm-chat-hd .nm { font-size: 14px; font-weight: 600; }
+.hd-acts { display: flex; gap: 4px; }
 .dm-msgs { flex: 1; overflow-y: auto; padding: 16px; background: #f7f8fa; }
 .dm-tip { text-align: center; color: #9ca3af; font-size: 12px; padding: 12px; }
 .dm-row { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 12px; }
@@ -302,4 +370,9 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .st-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .st-t { font-size: 13.5px; font-weight: 600; }
 .st-s { font-size: 12px; color: #6b7280; margin-top: 4px; line-height: 1.6; }
+
+.recalled { font-size: 12px; color: #9ca3af; padding: 4px 10px; background: #f3f4f6; border-radius: 8px; }
+.meta .recall { cursor: pointer; color: #9ca3af; }
+.meta .recall:hover { color: #ef4444; text-decoration: underline; }
+.hidden-file { display: none; }
 </style>

@@ -364,6 +364,7 @@ const menus = computed(() => {
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Postcard' })
   // 系统状态：Redis / 第三方登录连通性 + Redis 开关
+  if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/reports', title: '举报处理', icon: 'Warning' })
   if (auth.hasPerm('SYSTEM_STATUS_VIEW|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/system', title: '系统状态', icon: 'Monitor' })
   if (siteConfig.length) base.push({ index: 'g-site', title: '站点设置', icon: 'Tools', children: siteConfig })
 

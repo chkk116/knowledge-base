@@ -1,4 +1,5 @@
 <script setup>
+import ReportDialog from '../components/ReportDialog.vue'
 import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -358,6 +359,7 @@ const favorited = ref(false)
 const liked = ref(false)
 // 作者卡片
 const authorCard = ref(null)
+const reportOpen = ref(false)
 const authorArticles = ref([])
 // 作者等级（帖子王主题，由卡片返回的积分计算）
 const authorLevel = computed(() => authorCard.value ? getLevel(authorCard.value.points || 0) : null)
@@ -942,6 +944,7 @@ onBeforeUnmount(() => {
                         class="follow-btn dm-btn" @click.stop="$router.push({ path: '/messages', query: { peer: authorCard.id } })">
                   私信
                 </button>
+                <button v-if="auth.loggedIn" class="follow-btn rp-btn" @click.stop="reportOpen = true">举报</button>
               </div>
             </div>
           </div>
@@ -981,6 +984,8 @@ onBeforeUnmount(() => {
       <img :src="lightboxSrc" alt="" @click.stop />
       <button class="lb-close" type="button" @click="lightboxSrc = ''" title="关闭">×</button>
     </div>
+    <ReportDialog v-model="reportOpen" target-type="POST" :target-id="Number(route.params.id)"
+                  :target-label="'举报这篇内容：' + (post?.title || '')" />
   </div>
 </template>
 
@@ -1242,4 +1247,7 @@ html.dark .emoji-btn:hover { background: var(--el-fill-color-light); border-colo
 .author-acts { display: flex; gap: 8px; align-items: center; }
 .follow-btn.dm-btn { background: #fff; color: var(--accent, #1677ff); border: 1px solid var(--accent, #1677ff); }
 .follow-btn.dm-btn:hover { background: rgba(22, 119, 255, .08); }
+
+.follow-btn.rp-btn { background: #fff; color: #6b7280; border: 1px solid #e5e7eb; }
+.follow-btn.rp-btn:hover { color: #ef4444; border-color: #fecaca; }
 </style>

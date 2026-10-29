@@ -1,4 +1,5 @@
 <script setup>
+import ReportDialog from '../components/ReportDialog.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -16,6 +17,7 @@ const route = useRoute()
 const auth = useAuthStore()
 const ui = useUiStore()
 const q = ref('')
+const fbOpen = ref(false)
 const author = ref('')        // 按作者搜索（首页搜索框未展示作者输入时使用空值）
 const category = ref('')
 const categoryTree = ref([])
@@ -270,7 +272,10 @@ onMounted(async () => {
       <a class="qk" @click="$router.push('/my-quiz/run')"><b>刷题</b><span>抽 10 题立刻判分</span></a>
       <a class="qk" @click="$router.push('/exams/wrong')"><b>错题本</b><span>错题对应哪篇文档</span></a>
       <a class="qk" @click="$router.push('/m/cards')"><b>复习卡</b><span>间隔重复记牢</span></a>
+      <a class="qk" @click="fbOpen = true"><b>意见反馈</b><span>报问题 / 提需求</span></a>
     </section>
+
+    <ReportDialog v-model="fbOpen" target-type="FEEDBACK" target-label="" />
 
     <section class="search">
       <div class="bar">
@@ -501,7 +506,7 @@ html.dark .like { color: #8b8fa0; }
   .author-banner { padding: 8px 12px; }
 }
 
-.quick { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 0 0 16px; }
+.quick { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 0 0 16px; }
 .qk { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 12px;
       background: #fff; border: 1px solid #ebeef5; cursor: pointer; transition: .16s; }
 .qk:hover { border-color: var(--accent, #1677ff); transform: translateY(-1px); }

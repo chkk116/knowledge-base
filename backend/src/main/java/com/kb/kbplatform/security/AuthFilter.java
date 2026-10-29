@@ -243,6 +243,7 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/admin/features")) return "SITE_FEATURE_MANAGE|CORE_MAINTAIN";
         if (path.startsWith("/api/admin/settings")) return "SITE_SETTINGS_MANAGE|CORE_MAINTAIN";
         if (path.startsWith("/api/admin/sso")) return "SSO_MANAGE|CORE_MAINTAIN";
+        if (path.startsWith("/api/admin/reports")) return "CORE_MAINTAIN";
         if (path.startsWith("/api/admin/notify")) return "SITE_SETTINGS_MANAGE|CORE_MAINTAIN";
         if (path.startsWith("/api/admin/system")) return "SYSTEM_STATUS_VIEW|CORE_MAINTAIN";
         if (path.startsWith("/api/admin/banned-words")) return "BANNED_WORDS_MANAGE";

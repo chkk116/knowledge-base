@@ -103,6 +103,10 @@ export const useNotificationStore = defineStore('notification', () => {
       window.dispatchEvent(new CustomEvent('kb:dm', { detail: d }))
       return
     }
+    if (eventName === 'dm-recall' && d) {
+      window.dispatchEvent(new CustomEvent('kb:dm-recall', { detail: d }))
+      return
+    }
     if (d && typeof d.unread === 'number') {
       unread.value = d.unread
     } else {

@@ -85,7 +85,7 @@ import 'element-plus/es/components/loading/style/css'
 import 'element-plus/es/components/config-provider/style/css'
 import {
   House, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
-  CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound,
+  CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound, Picture,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
   Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush, Cpu, Search,
   Upload,   // 侧边栏「我的文件」图标（此前漏注册 → 菜单里图标空白）

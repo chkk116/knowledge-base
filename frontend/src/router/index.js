@@ -98,6 +98,7 @@ const routes = [
   { path: '/admin/maintain', component: () => import('../views/admin/CoreMaintain.vue'), meta: { admin: true, perm: 'SITE_FEATURE_MANAGE|CORE_MAINTAIN', title: '功能开关' } },
   { path: '/admin/watermark', component: () => import('../views/admin/WatermarkSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '水印设置' } },
   { path: '/admin/notify-webhook', component: () => import('../views/admin/NotifyWebhookSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '通知外发' } },
+  { path: '/admin/reports', component: () => import('../views/admin/Reports.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '举报处理' } },
   { path: '/admin/system', component: () => import('../views/admin/SystemStatus.vue'), meta: { admin: true, perm: 'SYSTEM_STATUS_VIEW|CORE_MAINTAIN', title: '系统状态' } },
   { path: '/my-quiz', component: () => import('../views/MyQuiz.vue'), meta: { title: '我的测验' } },
   { path: '/messages', component: () => import('../views/Messages.vue'), meta: { title: '私信' } },
