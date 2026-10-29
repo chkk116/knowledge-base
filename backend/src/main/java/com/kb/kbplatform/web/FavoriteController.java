@@ -26,9 +26,12 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 public class FavoriteController {
 
     private final FavoriteService svc;
+    private final com.kb.kbplatform.repository.DocumentRepository docRepo;
     private final UserRepository userRepo;
 
-    public FavoriteController(FavoriteService svc, UserRepository userRepo) {
+    public FavoriteController(FavoriteService svc, UserRepository userRepo,
+                              com.kb.kbplatform.repository.DocumentRepository docRepo) {
+        this.docRepo = docRepo;
         this.svc = svc;
         this.userRepo = userRepo;
     }
@@ -37,6 +40,11 @@ public class FavoriteController {
     @PostMapping("/{docId}")
     public Map<String, Object> toggle(@RequestAttribute("kbUser") TokenClaims c,
                                       @PathVariable Long docId) {
+        var d = docRepo.findById(docId).orElse(null);
+        if (d == null) throw new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "内容不存在");
+        if (!"PUBLISHED".equals(d.getStatus())) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "内容尚未发布（审核中），暂不可收藏");
+        }
         boolean favorited = svc.toggle(resolveUserId(c), docId);
         return Map.of("favorited", favorited);
     }

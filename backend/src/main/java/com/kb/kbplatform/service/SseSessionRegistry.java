@@ -95,6 +95,20 @@ public class SseSessionRegistry {
         }
     }
 
+
+    /** 私信相关事件（发送 / 撤回）：同一会话双方都要收到 */
+    public void pushDmEvent(Long userId, String eventName, Object payload) {
+        List<SseEmitter> list = clients.get(userId);
+        if (list == null || list.isEmpty()) return;
+        for (SseEmitter e : list) {
+            try {
+                e.send(SseEmitter.event().name(eventName).data(payload));
+            } catch (Exception ex) {
+                cleanup(userId, e);
+            }
+        }
+    }
+
     /** 推送未读数量（NotificationService 计算好再传，避免重复查库） */
     public void pushUnread(Long userId, long unread) {
         push(userId, unread);

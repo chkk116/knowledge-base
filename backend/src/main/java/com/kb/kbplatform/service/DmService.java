@@ -36,16 +36,18 @@ public class DmService {
     private final DmSettingRepository settings;
     private final FollowRepository follows;
     private final UserRepository users;
+    private final AuditService audit;
     private final SseSessionRegistry sse;
 
     public DmService(DmMessageRepository msgs, DmSettingRepository settings,
                      FollowRepository follows, UserRepository users,
-                     SseSessionRegistry sse) {
+                     SseSessionRegistry sse, AuditService audit) {
         this.msgs = msgs;
         this.settings = settings;
         this.follows = follows;
         this.users = users;
         this.sse = sse;
+        this.audit = audit;
     }
 
     public boolean allowDm(Long userId) {
@@ -239,6 +241,11 @@ public class DmService {
         m.setKind("RECALL");
         m.setContent("");
         msgs.save(m);
+        // 撤回属敏感动作（内容会从对方视野消失），进操作审计留痕
+        try {
+            audit.log(me, String.valueOf(me), "RECALL_DM", "DM", m.getId(), "消息 " + m.getId(), null);
+        } catch (Exception ignore) {
+        }
 
         Map<String, Object> ev = new LinkedHashMap<>();
         ev.put("type", "dm-recall");

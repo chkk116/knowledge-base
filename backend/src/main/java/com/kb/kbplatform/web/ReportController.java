@@ -9,6 +9,7 @@ import com.kb.kbplatform.repository.ReportRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
 import com.kb.kbplatform.security.TokenClaims;
+import com.kb.kbplatform.service.AuditService;
 import java.time.LocalDateTime;
 import java.util.*;
 import org.springframework.data.domain.PageRequest;
@@ -32,10 +33,12 @@ public class ReportController {
 
     private final ReportRepository repo;
     private final UserRepository users;
+    private final AuditService audit;
 
-    public ReportController(ReportRepository repo, UserRepository users) {
+    public ReportController(ReportRepository repo, UserRepository users, AuditService audit) {
         this.repo = repo;
         this.users = users;
+        this.audit = audit;
     }
 
     private Long uid(TokenClaims c) {
@@ -77,6 +80,8 @@ public class ReportController {
         r.setStatus("PENDING");
         r.setCreatedAt(LocalDateTime.now());
         repo.save(r);
+        audit.log(me, String.valueOf(c.username()), "SUBMIT_REPORT", r.getTargetType(), r.getTargetId(),
+                reason, detail.length() > 120 ? detail.substring(0, 120) : detail);
         return Map.of("id", r.getId(), "ok", true);
     }
 

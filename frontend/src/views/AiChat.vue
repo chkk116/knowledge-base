@@ -519,15 +519,27 @@ function mdToHtml(md) {
  * Agent 模式：ReAct 编排 + 本地工具（检索 / 读文档 / 写文档 / 改文档 / 跳转）。
  * 与移动端同一套引擎（utils/localAgent），走「通用」模式的无状态调用，不进后端会话。
  */
+/** 会话标题：取第一行有效文字，剥掉【】包装与思考残留，控制在 20 字内 */
+function cleanTitle(raw) {
+  let t = String(raw || '').split('\n').find((l) => l.trim()) || '新对话'
+  t = t.replace(/【[^】]*】/g, ' ').replace(/<[^>]+>/g, ' ')
+       .replace(/\bthink\b|思考过程|reasoning/gi, ' ').replace(/\s+/g, ' ').trim()
+  return (t || '新对话').slice(0, 20)
+}
+
 async function sendAgent(raw) {
   if (!raw) { ElMessage.warning('请输入任务描述'); return }
   if (loading.value) return
 
   let convId = currentId.value
+  // 当前会话还是空的就直接复用，避免「发一次任务多一个空壳会话」
+  if (!convId && conversations.value.length && !(convMessages.value[currentId.value] || []).length) {
+    convId = currentId.value = conversations.value[0].id
+  }
   if (!convId) {
     creating.value = true
     try {
-      const { data } = await createConversation(raw.slice(0, 20))
+      const { data } = await createConversation(cleanTitle(raw))
       convMessages.value[data.id] = []
       conversations.value.unshift(data)
       currentId.value = data.id

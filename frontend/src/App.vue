@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore, permLabel } from './store/auth'
 import { dmUnreadCount, refreshDmUnread } from './store/dm'
+import ReportDialog from './components/ReportDialog.vue'
 import { useWatermarkStore, buildContent } from './store/watermark'
 import { useSiteInfoStore } from './store/siteInfo'
 import { usePrefsStore, applyPrefs } from './store/prefs'
@@ -57,6 +58,8 @@ const wmContent = computed(() => {
 })
 const wmFont = computed(() => wm.font)
 const wmGap = computed(() => wm.gap)
+
+const fbOpen = ref(false)
 
 // 启动时用本地令牌恢复会话；登录态则建立 SSE 实时通知长连接（替代路由切换轮询未读）
 onMounted(async () => {
@@ -846,7 +849,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                       权限：{{ permText }}
                     </el-dropdown-item>
                     <el-dropdown-item disabled>积分：{{ auth.user?.points || 0 }}</el-dropdown-item>
-                    <el-dropdown-item divided @click="router.push('/preferences')">偏好设置</el-dropdown-item>
+                    <el-dropdown-item divided @click="fbOpen = true">意见反馈</el-dropdown-item>
+                    <el-dropdown-item @click="router.push('/preferences')">偏好设置</el-dropdown-item>
                     <el-dropdown-item @click="goProfile">个人资料</el-dropdown-item>
                     <el-dropdown-item @click="onLogout">退出登录</el-dropdown-item>
                   </el-dropdown-menu>

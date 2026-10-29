@@ -33,10 +33,13 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 public class LikeController {
 
     private final LikeService svc;
+    private final com.kb.kbplatform.repository.DocumentRepository docRepo;
     private final UserRepository userRepo;
     private final SharedDocumentRepository sharedDocRepo;
 
-    public LikeController(LikeService svc, UserRepository userRepo, SharedDocumentRepository sharedDocRepo) {
+    public LikeController(LikeService svc, UserRepository userRepo, SharedDocumentRepository sharedDocRepo,
+                          com.kb.kbplatform.repository.DocumentRepository docRepo) {
+        this.docRepo = docRepo;
         this.svc = svc;
         this.userRepo = userRepo;
         this.sharedDocRepo = sharedDocRepo;
@@ -51,6 +54,16 @@ public class LikeController {
     }
 
     /** 通用点赞（空间文档等）：返回 { liked, likes } */
+
+    /** 审核中/下架的内容不允许互动（点赞/收藏/评论）——2026-10-29 用户发现 Agent 审核中的文章能被点赞 */
+    private void assertInteractive(Long docId) {
+        var d = docRepo.findById(docId).orElse(null);
+        if (d == null) throw new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "内容不存在");
+        if (!"PUBLISHED".equals(d.getStatus())) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "内容尚未发布（审核中），暂不可互动");
+        }
+    }
+
     @PostMapping
     public Map<String, Object> toggleGeneric(@RequestAttribute("kbUser") TokenClaims c,
                                              @Valid @RequestBody LikeReq req) {
@@ -58,6 +71,7 @@ public class LikeController {
         boolean liked;
         switch (req.targetType) {
             case "DOC" -> {                       // 复用帖子点赞体系
+                assertInteractive(req.targetId);
                 liked = svc.toggle(uid, req.targetId);
                 return Map.of("liked", liked, "likes", svc.likeCount(req.targetId));
             }

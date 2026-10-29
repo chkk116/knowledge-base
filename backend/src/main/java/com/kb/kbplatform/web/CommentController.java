@@ -25,9 +25,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class CommentController {
 
     private final CommentService svc;
+    private final com.kb.kbplatform.repository.DocumentRepository docRepo;
     private final RateLimitService rateLimit;
 
-    public CommentController(CommentService svc, RateLimitService rateLimit) {
+    public CommentController(CommentService svc, RateLimitService rateLimit,
+                             com.kb.kbplatform.repository.DocumentRepository docRepo) {
+        this.docRepo = docRepo;
         this.svc = svc;
         this.rateLimit = rateLimit;
     }
@@ -78,6 +81,14 @@ public class CommentController {
         }
         if (tid == null || tid.toString().isBlank()) throw new IllegalArgumentException("缺少 targetId");
         Long targetId = Long.valueOf(tid.toString());
+        // 审核中/下架的文章不允许评论（DOC=帖子体系）
+        if ("DOC".equalsIgnoreCase(targetType)) {
+            var d = docRepo.findById(targetId).orElse(null);
+            if (d == null) throw new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "内容不存在");
+            if (!"PUBLISHED".equals(d.getStatus())) {
+                throw new ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "内容尚未发布（审核中），暂不可评论");
+            }
+        }
         Object pid = body.get("parentId");
         Long parentId = (pid == null || pid.toString().isBlank()) ? null : Long.valueOf(pid.toString());
         return svc.add(targetType, targetId, c, (String) body.get("content"), parentId);

@@ -34,6 +34,7 @@ public class AuthService {
 
     private final UserRepository userRepo;
     private final com.kb.kbplatform.repository.DocShareRepository docShareRepo;
+    private final AuditService audit;
     private final PointsLogRepository pointsLogRepo;
     private final OrgService orgService;
 
@@ -46,9 +47,11 @@ public class AuthService {
     public AuthService(UserRepository userRepo, PointsLogRepository pointsLogRepo, OrgService orgService,
                         com.kb.kbplatform.security.TokenSecretProvider secretProvider,
                         NotificationService notificationService,
-                        com.kb.kbplatform.repository.DocShareRepository docShareRepo) {
+                        com.kb.kbplatform.repository.DocShareRepository docShareRepo,
+                        AuditService audit) {
         this.userRepo = userRepo;
         this.docShareRepo = docShareRepo;
+        this.audit = audit;
         this.pointsLogRepo = pointsLogRepo;
         this.orgService = orgService;
         this.secretProvider = secretProvider;
@@ -259,6 +262,7 @@ public class AuthService {
         String dn = displayName == null || displayName.isBlank() ? name : displayName.trim();
         u.setDisplayName(HtmlSanitizer.toText(dn).trim());  // 昵称按纯文本存储，防 XSS
         userRepo.save(u);
+        audit.log(u.getId(), name, "REGISTER", "USER", u.getId(), name, "新用户注册");
         // 个人版：注册即给一个「我的空间」（type=PERSONAL），
         // 个人用户不需要建团队、配权限，进去就能写东西；企业用户可另建团队空间。
         try {

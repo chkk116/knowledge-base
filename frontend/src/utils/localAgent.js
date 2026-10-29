@@ -62,6 +62,14 @@ TOOL: {"tool":"工具名","args":{...}}
   把步数全耗在重复同一个调用上，用户只会看到一条报错。
 - 信息足够时直接给出最终答案（不要再输出 TOOL 行）。不要编造工具。`
 
+/** 剥掉模型回复里的思考块（<think>…</think> / reasoning 字段），只留正式回答 */
+function stripThink(t) {
+  return String(t || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/^思考过程[\s\S]*?(?=回答|答案|$)/, '')
+    .trim()
+}
+
 /**
  * 跑一个本地 Agent 任务。
  * @param {object} opts
