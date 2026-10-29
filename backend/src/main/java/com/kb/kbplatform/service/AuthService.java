@@ -33,6 +33,7 @@ public class AuthService {
     public static final int EXAM_PASS_POINTS = 30;      // 每次考试及格
 
     private final UserRepository userRepo;
+    private final com.kb.kbplatform.repository.DocShareRepository docShareRepo;
     private final PointsLogRepository pointsLogRepo;
     private final OrgService orgService;
 
@@ -44,8 +45,10 @@ public class AuthService {
 
     public AuthService(UserRepository userRepo, PointsLogRepository pointsLogRepo, OrgService orgService,
                         com.kb.kbplatform.security.TokenSecretProvider secretProvider,
-                        NotificationService notificationService) {
+                        NotificationService notificationService,
+                        com.kb.kbplatform.repository.DocShareRepository docShareRepo) {
         this.userRepo = userRepo;
+        this.docShareRepo = docShareRepo;
         this.pointsLogRepo = pointsLogRepo;
         this.orgService = orgService;
         this.secretProvider = secretProvider;
@@ -251,6 +254,21 @@ public class AuthService {
         String dn = displayName == null || displayName.isBlank() ? name : displayName.trim();
         u.setDisplayName(HtmlSanitizer.toText(dn).trim());  // 昵称按纯文本存储，防 XSS
         userRepo.save(u);
+        // 个人版：注册即给一个「我的空间」（type=PERSONAL），
+        // 个人用户不需要建团队、配权限，进去就能写东西；企业用户可另建团队空间。
+        try {
+            if (docShareRepo.findByOwnerIdAndTypeOrderByUpdatedAtDesc(u.getId(), "PERSONAL").isEmpty()) {
+                com.kb.kbplatform.domain.DocShare sp = new com.kb.kbplatform.domain.DocShare();
+                sp.setName("我的空间");
+                sp.setDescription("个人资料，仅自己可见");
+                sp.setOwnerId(u.getId());
+                sp.setType("PERSONAL");
+                sp.setStatus("ACTIVE");
+                docShareRepo.save(sp);
+            }
+        } catch (Exception ignore) {
+            // 建空间失败不能挡住注册（用户已创建成功），后续可补建
+        }
     }
 
     public User updateProfile(String username, String displayName, String avatar, String email, String bio,

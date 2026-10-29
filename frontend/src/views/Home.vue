@@ -263,6 +263,15 @@ onMounted(async () => {
 
 <template>
   <div class="page">
+    <!-- 个人快捷区：个人版用户（没有团队空间）进站第一眼就该看到「能干什么」 -->
+    <section class="quick">
+      <a class="qk" @click="$router.push('/ai')"><b>AI 问答</b><span>问它 / 让它出题</span></a>
+      <a class="qk" @click="$router.push('/my-quiz')"><b>我的测验</b><span>AI 出的题只属于我</span></a>
+      <a class="qk" @click="$router.push('/my-quiz/run')"><b>刷题</b><span>抽 10 题立刻判分</span></a>
+      <a class="qk" @click="$router.push('/exams/wrong')"><b>错题本</b><span>错题对应哪篇文档</span></a>
+      <a class="qk" @click="$router.push('/m/cards')"><b>复习卡</b><span>间隔重复记牢</span></a>
+    </section>
+
     <section class="search">
       <div class="bar">
         <input v-model="q" class="q" :class="{ shake: shakeBox }" placeholder="搜索知识库…" @keyup.enter="doSearch" />
@@ -491,4 +500,12 @@ html.dark .like { color: #8b8fa0; }
   .snippet { font-size: 13px; }
   .author-banner { padding: 8px 12px; }
 }
+
+.quick { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 0 0 16px; }
+.qk { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 12px;
+      background: #fff; border: 1px solid #ebeef5; cursor: pointer; transition: .16s; }
+.qk:hover { border-color: var(--accent, #1677ff); transform: translateY(-1px); }
+.qk b { font-size: 14px; color: #1f2937; }
+.qk span { font-size: 12px; color: #9ca3af; }
+@media (max-width: 900px) { .quick { grid-template-columns: repeat(2, 1fr); } }
 </style>
