@@ -237,6 +237,11 @@ public class AuthService {
         return orgService.departmentNameOf(deptId);
     }
 
+    /** 用户名是否已被占用（第三方登录自动建号时用来避免撞名） */
+    public boolean usernameExists(String username) {
+        return username != null && userRepo.findByUsername(username).isPresent();
+    }
+
     public void register(String username, String password, String role, String displayName) {
         if (password == null || password.length() < 6) {
             throw new RuntimeException("用户名/密码不合法（密码至少 6 位）");

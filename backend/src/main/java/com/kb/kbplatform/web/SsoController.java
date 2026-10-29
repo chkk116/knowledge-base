@@ -37,6 +37,7 @@ public class SsoController {
     private final com.kb.kbplatform.service.GiteeAuthService gitee;
     private final com.kb.kbplatform.repository.UserIdentityRepository identities;
     private final AuthService auth;
+    private final com.kb.kbplatform.service.LoginLogService loginLogService;
     private final RateLimitService rateLimit;
 
     public SsoController(LdapAuthService ldap, com.kb.kbplatform.service.OidcAuthService oidc,
@@ -45,7 +46,8 @@ public class SsoController {
                          com.kb.kbplatform.service.GithubAuthService github,
                          com.kb.kbplatform.service.GiteeAuthService gitee,
                          com.kb.kbplatform.repository.UserIdentityRepository identities,
-                         AuthService auth, RateLimitService rateLimit) {
+                         AuthService auth, RateLimitService rateLimit,
+                         com.kb.kbplatform.service.LoginLogService loginLogService) {
         this.ldap = ldap;
         this.oidc = oidc;
         this.wechat = wechat;
@@ -54,6 +56,7 @@ public class SsoController {
         this.gitee = gitee;
         this.identities = identities;
         this.auth = auth;
+        this.loginLogService = loginLogService;
         this.rateLimit = rateLimit;
     }
 
@@ -231,7 +234,7 @@ public class SsoController {
             return finish(b, "github", u.externalId(), u.login(), null, u.nickname(), u.avatar(),
                     u.bindUserId(), github.autoRegister(), "GitHub");
         } catch (Exception e) {
-            return fail(b, e.getMessage());
+            return failAndLog(b, "github", e.getMessage());
         }
     }
 
@@ -250,7 +253,7 @@ public class SsoController {
             return finish(b, "gitee", u.externalId(), u.login(), null, u.nickname(), u.avatar(),
                     u.bindUserId(), gitee.autoRegister(), "Gitee");
         } catch (Exception e) {
-            return fail(b, e.getMessage());
+            return failAndLog(b, "gitee", e.getMessage());
         }
     }
 
@@ -338,12 +341,21 @@ public class SsoController {
                 identities.save(id);
             }
         } else if (autoReg) {
-            // 只去非法字符会撞名（如 a.b 与 ab、超长截断后相同）→ 统一追加原值哈希，保证稳定且唯一
-            String raw = provider + "_" + extId;
-            String safe = raw.replaceAll("[^A-Za-z0-9_]", "");
-            String suffix = Integer.toHexString(raw.hashCode());
+            // 命名策略（2026-10-29 用户反馈：github_gh_108394897 太长）：
+            // GitHub / Gitee 的对外「登录名」本身就是可读的（chkk116），直接用它；
+            // 微信用 openid、QQ 用 openid，都不适合当用户名，仍用 provider_extId。
+            // 撞名时再追加短哈希，不要默认就加。
+            String preferred = ("github".equals(provider) || "gitee".equals(provider)) && notBlank(openId)
+                    ? openId : provider + "_" + extId;
+            String safe = preferred.replaceAll("[^A-Za-z0-9_]", "");
+            if (safe.isBlank()) safe = provider + "_" + Integer.toHexString(String.valueOf(extId).hashCode());
             if (safe.length() > 30) safe = safe.substring(0, 30);
-            String uname = safe + "_" + suffix;
+            String uname = safe;
+            int guard = 0;
+            while (auth.usernameExists(uname) && guard++ < 5) {
+                uname = safe + "_" + Integer.toHexString((String.valueOf(extId) + guard).hashCode());
+            }
+            if (guard >= 5) uname = safe + "_" + Integer.toHexString((int) (System.nanoTime() & 0xffff));
             session = auth.loginExternal(uname, nickname, "", avatar);
             var id = new com.kb.kbplatform.domain.UserIdentity();
             id.setUserId(((Number) session.get("id")).longValue());
@@ -360,6 +372,15 @@ public class SsoController {
         }
 
         String token = String.valueOf(session.get("token"));
+        // 三方登录同样要进登录日志：原来只有账号密码登录会记录，扫码登录在审计里完全看不到
+        try {
+            Object sid = session.get("id");
+            Object sname = session.get("username");
+            loginLogService.record(sid instanceof Number ? ((Number) sid).longValue() : null,
+                    sname == null ? "" : String.valueOf(sname), true, null, currentRequest());
+        } catch (Exception ignore) {
+            // 记日志失败不能影响登录
+        }
         return found(base + "/sso?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8));
     }
 
@@ -448,6 +469,21 @@ public class SsoController {
 
     private static org.springframework.http.ResponseEntity<Void> found(String url) {
         return org.springframework.http.ResponseEntity.status(HttpStatus.FOUND).header("Location", url).build();
+    }
+
+    /** 失败也进日志：审计里要能看出「有人试图用三方登录但失败了」 */
+    private org.springframework.http.ResponseEntity<Void> failAndLog(String base, String provider, String msg) {
+        try {
+            loginLogService.record(null, "sso:" + provider, false, msg, currentRequest());
+        } catch (Exception ignore) {
+        }
+        return fail(base, msg);
+    }
+
+    private static jakarta.servlet.http.HttpServletRequest currentRequest() {
+        var attrs = (org.springframework.web.context.request.ServletRequestAttributes)
+                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        return attrs == null ? null : attrs.getRequest();
     }
 
     private static org.springframework.http.ResponseEntity<Void> fail(String base, String msg) {
