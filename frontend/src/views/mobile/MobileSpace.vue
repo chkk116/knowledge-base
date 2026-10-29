@@ -129,7 +129,7 @@ onMounted(load)
     <header class="sp-head">
       <button class="m-header-act" @click="router.back()"><el-icon :size="20"><ArrowLeft /></el-icon></button>
       <div class="sp-title">
-        <div class="sp-name">{{ space?.name || '文档库' }}</div>
+        <div class="sp-name">{{ space?.name || '协作空间' }}</div>
         <div class="sp-sub">
           {{ space?.type === 'PERSONAL' ? '个人空间' : '团队空间' }}
           <template v-if="docs.length"> · {{ docs.length }} 篇</template>
@@ -141,7 +141,7 @@ onMounted(load)
     <div v-if="searchOpen" class="body">
       <div class="searchbox">
         <el-icon><Search /></el-icon>
-        <input v-model="keyword" placeholder="在本文档库中搜索" />
+        <input v-model="keyword" placeholder="在此空间搜索" />
         <button v-if="keyword" class="sb-clear" @click="keyword = ''"><el-icon><Close /></el-icon></button>
       </div>
     </div>

@@ -229,7 +229,11 @@ onMounted(load)
 <template>
   <div class="page">
     <div class="head">
-      <h2>通知</h2>
+      <!-- 消息中心统一入口：与 /messages 共用同一组 Tab，避免「通知」「私信」两个入口分散 -->
+      <div class="mc-switch">
+        <span @click="router.push('/messages')">私信</span>
+        <span class="on">通知</span>
+      </div>
       <div class="actions">
         <el-button size="small" :disabled="!unreadCount" @click="readAll">全部已读</el-button>
         <el-button size="small" type="danger" plain :disabled="!selected.length" @click="removeSelected">
@@ -308,6 +312,14 @@ onMounted(load)
 .page { max-width: 880px; margin: 0 auto; color: #0f172a; }
 .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .head h2 { margin: 0; font-size: 20px; }
+/* 消息中心 Tab 切换（私信 / 通知），与 Messages.vue 保持一致 */
+.mc-switch { display: inline-flex; gap: 2px; background: #eef2f7; border-radius: 8px; padding: 3px; }
+.mc-switch span { font-size: 13px; font-weight: 500; color: #64748b; padding: 5px 13px; border-radius: 6px; cursor: pointer; line-height: 1; }
+.mc-switch span:hover { color: #2563eb; }
+.mc-switch span.on { background: #fff; color: #2563eb; font-weight: 600; box-shadow: 0 1px 2px rgba(15, 23, 42, .1); }
+:deep(html.dark) .mc-switch { background: #23233a; }
+:deep(html.dark) .mc-switch span { color: #a5a7bd; }
+:deep(html.dark) .mc-switch span.on { background: #2f2f4a; color: #a9c2ff; box-shadow: none; }
 .actions { display: flex; align-items: center; gap: 10px; }
 .tabs { display: flex; gap: 8px; margin-bottom: 10px; }
 .tabs button {

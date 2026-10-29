@@ -5,8 +5,9 @@
         <h1>错题本</h1>
         <p class="sub">练习里答错的题自动收进来，答对一次就移出</p>
       </div>
-      <el-button text @click="$router.push('/exams')">返回考试列表</el-button>
     </div>
+
+    <ExamTabs active="wrong" />
 
     <div class="stats">
       <div class="st"><b>{{ stats.wrong ?? list.length }}</b><span>待复习</span></div>
@@ -72,6 +73,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { practiceWrongList, practiceWrongClear, practiceStats, relatedDocsForWrong, wrongToCards } from '../api/training'
+import ExamTabs from '../components/ExamTabs.vue'
 
 const TYPE_CN = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }
 const list = ref([])

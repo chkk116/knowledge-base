@@ -4,7 +4,7 @@
     <header class="exam-head">
       <div class="exam-head-inner">
         <div class="exam-title">
-          <el-icon class="back" @click="$router.push('/quiz')"><ArrowLeft /></el-icon>
+          <el-icon class="back" @click="$router.push('/exams')"><ArrowLeft /></el-icon>
           <div>
             <h1>{{ paper.paper.title }}</h1>
             <div class="exam-meta">
@@ -64,7 +64,7 @@
       </div>
 
       <div class="exam-foot">
-        <el-button @click="$router.push('/quiz')">退出</el-button>
+        <el-button @click="$router.push('/exams')">退出</el-button>
         <el-button type="primary" :loading="submitting" @click="submit">交卷</el-button>
       </div>
     </div>
@@ -131,7 +131,7 @@ const load = () => {
         if (remain.value <= 0) { clearInterval(timer); submit() }
       }, 1000)
     }
-  }).catch(e => { ElMessage.error(errMsg(e, '试卷加载失败')); router.push('/quiz') })
+  }).catch(e => { ElMessage.error(errMsg(e, '试卷加载失败')); router.push('/exams') })
 }
 // 防泄题：必须先 start 成功（拿到 recordId）才拉题目；start 被前置校验拦截时绝不加载试卷
 const begin = () => startExam(route.params.id)
@@ -144,7 +144,7 @@ const begin = () => startExam(route.params.id)
   })
   .catch(e => {
     ElMessage.error(errMsg(e, '开始考试失败'))
-    router.push('/quiz')
+    router.push('/exams')
   })
 
 const buildItems = () => paper.value.questions.map(q => {

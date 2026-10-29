@@ -5,11 +5,7 @@
       <p class="sub">检验学习成果，交卷即出成绩（客观题自动阅卷）</p>
     </div>
 
-    <div class="bar" v-if="loggedIn">
-      <el-button text type="primary" @click="goMine">我的成绩</el-button>
-      <el-button text type="primary" @click="router.push('/my-quiz')">我的测验</el-button>
-      <el-button text type="primary" @click="router.push('/exams/wrong')">错题本</el-button>
-    </div>
+    <ExamTabs active="exams" />
 
     <!-- 管理员设为「模拟卷」的那份试卷（试卷属性，在考试管理里拨开关） -->
     <div v-if="mock.paperId" class="mock">
@@ -46,14 +42,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { listPapers, getMockPaper } from '../api/training'
-import { useAuthStore } from '../store/auth'
+import ExamTabs from '../components/ExamTabs.vue'
 
 const router = useRouter()
-const auth = useAuthStore()
-const loggedIn = computed(() => auth.loggedIn)
 const papers = ref([])
 const loading = ref(false)
 const mock = ref({ paperId: null, title: '', questionCount: 0 })
@@ -67,7 +61,6 @@ onMounted(() => {
 const start = (p) => router.push('/exams/' + p.id + '/take')
 const practice = (p) => router.push({ path: '/exams/practice', query: { paperId: p.id } })
 const goMock = () => router.push({ path: '/exams/practice', query: { paperId: mock.value.paperId } })
-const goMine = () => router.push('/exams/mine')
 </script>
 
 <style scoped>

@@ -2,7 +2,7 @@
   <div class="page">
     <div class="hd">
       <div>
-        <h1>我的测验</h1>
+        <h1>我的题库</h1>
         <p class="sub">用 AI 从你的资料里出题，只属于你自己，不进公共题库</p>
       </div>
       <div class="hd-acts">
@@ -12,6 +12,8 @@
         <el-button plain @click="$router.push('/ai/chat?mode=agent')">让 AI 出题</el-button>
       </div>
     </div>
+
+    <ExamTabs active="myquiz" />
 
     <div class="stats">
       <div class="st"><b>{{ stats.questions ?? 0 }}</b><span>我的题目</span></div>
@@ -51,7 +53,7 @@
     <el-dialog v-model="gen.open" title="从文档生成题目" width="620px" :close-on-click-modal="false">
       <div class="gen">
         <el-alert type="info" :closable="false" show-icon
-          title="选一篇你自己的文档，AI 按它的内容出题，直接存进「我的测验」（不进公共题库）。生成需要联网，约 10~30 秒。" />
+          title="选一篇你自己的文档，AI 按它的内容出题，直接存进「我的题库」（不进公共题库）。生成需要联网，约 10~30 秒。" />
         <div class="gen-row">
           <el-select v-model="gen.docId" filterable placeholder="选择文档（只列你能看的）" class="gen-sel" :loading="gen.loadingDocs">
             <el-option v-for="d in gen.docs" :key="d.shareId + '-' + d.id"
@@ -129,6 +131,7 @@ import { selfExamStats, selfExamQuestions, selfExamDeleteQuestion, selfExamBatch
 import { parseQuestions } from '../utils/quizParser'
 import { listAllShareDocs } from '../api/docShare'
 import { agentCreateQuestions } from '../utils/questionGen'
+import ExamTabs from '../components/ExamTabs.vue'
 
 const TYPE_CN = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', SUBJECTIVE: '主观' }
 

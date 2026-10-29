@@ -28,15 +28,18 @@ public class AiConversationService {
     private final AiMessageRepository msgRepo;
     private final UserRepository userRepo;
     private final RagService ragService;
+    private final AiFeedbackService feedbackService;
 
     public AiConversationService(AiConversationRepository convRepo,
                                  AiMessageRepository msgRepo,
                                  UserRepository userRepo,
-                                 RagService ragService) {
+                                 RagService ragService,
+                                 AiFeedbackService feedbackService) {
         this.convRepo = convRepo;
         this.msgRepo = msgRepo;
         this.userRepo = userRepo;
         this.ragService = ragService;
+        this.feedbackService = feedbackService;
     }
 
     public List<AiConversation> list(Long userId) {
@@ -228,6 +231,9 @@ public class AiConversationService {
         }
         msgRepo.save(aiMsg);
 
+        // 反馈/知识缺口：每次回答落一行，前端用 qaId 回填赞/踩（写失败不影响回答）
+        Long qaId = feedbackService.record(userId, question, answer, mode, sources);
+
         // 更新会话时间
         c = convRepo.save(c);
 
@@ -235,6 +241,7 @@ public class AiConversationService {
         result.put("conversationId", c.getId());
         result.put("title", c.getTitle());
         result.put("answer", answer);
+        if (qaId != null) result.put("qaId", qaId);
         if (sources instanceof List) result.put("sources", sources);
         if (modelName != null) result.put("modelName", modelName);
         if (latencyMs != null) result.put("latencyMs", latencyMs);

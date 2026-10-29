@@ -5,11 +5,9 @@
         <h1>练习</h1>
         <p class="sub">{{ subtitle }}</p>
       </div>
-      <div class="hd-act">
-        <el-button text @click="$router.push('/exams/wrong')">错题本</el-button>
-        <el-button text @click="$router.push('/exams')">返回考试列表</el-button>
-      </div>
     </div>
+
+    <ExamTabs active="practice" />
 
     <div v-if="loading" class="tip">加载中…</div>
     <div v-else-if="errMsg" class="tip">
@@ -130,6 +128,7 @@ import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { usePracticeSession } from '../utils/practiceSession'
+import ExamTabs from '../components/ExamTabs.vue'
 
 const route = useRoute()
 const router = useRouter()

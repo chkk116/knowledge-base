@@ -9,7 +9,7 @@ import {
 import ProviderLogo from '../components/ProviderLogo.vue'
 import { useAuthStore } from '../store/auth'
 import {
-  aiAsk, aiAskStream, listAiModels, listConversations, createConversation, updateConversation,
+  aiAsk, aiAskStream, aiFeedback, listAiModels, listConversations, createConversation, updateConversation,
   deleteConversation, batchDeleteConversations, listMessages
 } from '../api/ai'
 import MarkdownIt from 'markdown-it'
@@ -138,6 +138,32 @@ function buildMeta(data) {
   if (!name && data.latencyMs == null) return null
   // reasoning：思考型模型（DeepSeek / GLM 思考版）的思考过程，前端折叠展示；不落历史，仅本次回答可见
   return { name, latencyMs: Number(data.latencyMs) || 0, usage: data.usage || null, reasoning: data.reasoning || null }
+}
+
+/* ---------- 回答反馈（赞/踩）：数据进 kb_ai_qa_log，管理端「AI 反馈」看板汇总 ---------- */
+const FB_REASONS = ['答非所问', '没有依据', '资料过时', '回答不完整']
+const fbBusy = reactive({})
+
+/** 赞直接提交；踩先展开原因面板，选一个原因再提交（也可直接点「就这些」提交空原因） */
+function rateMsg(m, rating) {
+  if (!m.qaId || fbBusy[m.qaId]) return
+  if (rating === -1) { m.fbOpen = !m.fbOpen; return }
+  submitRate(m, 1, '')
+}
+
+async function submitRate(m, rating, reason) {
+  if (!m.qaId || fbBusy[m.qaId]) return
+  fbBusy[m.qaId] = true
+  try {
+    await aiFeedback(m.qaId, rating, reason)
+    m.fbRating = rating
+    m.fbOpen = false
+    ElMessage.success(rating === 1 ? '感谢反馈' : '已记录，我们会据此补充文档')
+  } catch (e) {
+    ElMessage.error('反馈失败，请稍后重试')
+  } finally {
+    fbBusy[m.qaId] = false
+  }
 }
 function fmtMs(ms) {
   if (!ms) return ''
@@ -782,7 +808,7 @@ async function send(text) {
     // 先插一条空的 AI 消息，收到增量就往里追加 —— 首字到达即渲染，不用等整段生成完
     const startIdx = (convMessages.value[convId] || []).length
     convMessages.value[convId] = [...(convMessages.value[convId] || []), {
-      role: 'ai', content: '', sources: [], mode: mode.value, streaming: true, reasoning: ''
+      role: 'ai', content: '', sources: [], mode: mode.value, streaming: true, reasoning: '', qaId: null
     }]
     let lastScroll = 0
     const patch = (fn) => {
@@ -819,6 +845,7 @@ async function send(text) {
       m.content = data.answer || m.content || '（暂无返回内容）'
       m.sources = data.sources || []
       m.meta = buildMeta(data)
+      m.qaId = data.qaId || null
       m.streaming = false
     })
     if (currentId.value === convId) {
@@ -866,7 +893,7 @@ async function regenerate() {
     const newArr = [...arr]
     const aiMsg = {
       role: 'ai', content: data.answer || '（暂无返回内容）',
-      sources: data.sources || [], mode: mode.value, meta: buildMeta(data)
+      sources: data.sources || [], mode: mode.value, meta: buildMeta(data), qaId: data.qaId || null
     }
     if (newArr[ui + 1] && newArr[ui + 1].role === 'ai') newArr[ui + 1] = aiMsg
     else newArr.splice(ui + 1, 0, aiMsg)
@@ -1341,6 +1368,20 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                 <div v-else-if="m.mode !== 'general'" class="ai-no-source">
                   <el-icon><Search /></el-icon>
                   <span>已检索知识库，未命中相关内容</span>
+                </div>
+
+                <!-- 反馈：赞 / 踩。踩时展开原因面板；数据回流到管理端「AI 反馈」看板 -->
+                <div v-if="m.qaId && !m.streaming" class="ai-fb">
+                  <span v-if="m.fbRating" class="ai-fb-done">{{ m.fbRating === 1 ? '已赞' : '已反馈' }}</span>
+                  <template v-else>
+                    <button type="button" class="ai-fb-btn" title="有帮助" @click="rateMsg(m, 1)">👍</button>
+                    <button type="button" class="ai-fb-btn" :class="{ on: m.fbOpen }" title="没帮助" @click="rateMsg(m, -1)">👎</button>
+                  </template>
+                  <div v-if="m.fbOpen && !m.fbRating" class="ai-fb-reasons">
+                    <span class="ai-fb-tip">哪里不好？</span>
+                    <button v-for="r in FB_REASONS" :key="r" type="button" @click="submitRate(m, -1, r)">{{ r }}</button>
+                    <button type="button" class="ghost" @click="submitRate(m, -1, '')">就这些</button>
+                  </div>
                 </div>
 
                 <!-- 调用可视化：本次实际用的模型、耗时、token 用量 -->
@@ -1881,6 +1922,31 @@ html.dark .ai-sources { border-top-color: #2b2c4d; }
 .ai-no-source .el-icon { color: #cbd5e1; }
 html.dark .ai-no-source { color: #6d6f88; }
 html.dark .ai-no-source .el-icon { color: #4a4b6a; }
+
+/* ---- 回答反馈（赞/踩） ---- */
+.ai-fb { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ai-fb-btn {
+  border: 1px solid #e5e9f0; background: #fff; border-radius: 8px;
+  padding: 3px 8px; font-size: 13px; line-height: 1.3; cursor: pointer;
+  transition: border-color .15s, background .15s, transform .1s;
+}
+.ai-fb-btn:hover { border-color: #c7d2fe; background: #f5f7ff; }
+.ai-fb-btn:active { transform: scale(.94); }
+.ai-fb-btn.on { border-color: #fca5a5; background: #fef2f2; }
+.ai-fb-done { font-size: 12px; color: #94a3b8; }
+.ai-fb-reasons { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: 2px; }
+.ai-fb-tip { font-size: 12px; color: #94a3b8; }
+.ai-fb-reasons button {
+  border: 1px solid #e5e9f0; background: #f8fafc; color: #475569;
+  border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer;
+}
+.ai-fb-reasons button:hover { border-color: #c7d2fe; color: #4338ca; background: #eef2ff; }
+.ai-fb-reasons button.ghost { color: #94a3b8; background: transparent; }
+html.dark .ai-fb-btn { background: #23233a; border-color: #34345a; }
+html.dark .ai-fb-btn:hover { background: #2b2b48; border-color: #4a4a7a; }
+html.dark .ai-fb-btn.on { background: #3a2330; border-color: #7f3b4a; }
+html.dark .ai-fb-reasons button { background: #23233a; border-color: #34345a; color: #b7b8cd; }
+html.dark .ai-fb-reasons button:hover { background: #2b2b48; color: #c7d2fe; }
 .ai-sources-head { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px; }
 html.dark .ai-sources-head { color: #b7b8cd; }
 .ai-sources-head .el-icon { color: #6366f1; }

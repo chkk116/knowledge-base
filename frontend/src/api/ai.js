@@ -11,6 +11,13 @@ export const aiAsk = (question, conversationId, mode, { modelId = null, images =
   api.post('/ai/ask', { question, conversationId, mode, modelId, images }, { timeout: 120000, ...config })
 
 /**
+ * 对某条 AI 回答点赞/踩。qaId 来自 /ai/ask 或 /ai/ask/stream 的 done 事件返回值。
+ * rating：1=赞，-1=踩；reason 仅在踩时填（可选）。只能评价自己的记录。
+ */
+export const aiFeedback = (qaId, rating, reason = '') =>
+  api.post('/ai/feedback', { qaId, rating, reason })
+
+/**
  * 流式问答（SSE）：逐段回调 onDelta / onReasoning，结束后返回与 aiAsk 同结构的对象。
  * 用 fetch + ReadableStream 而不是 axios：axios 浏览器端拿不到逐块 body。
  * signal 直接交给 fetch —— abort 时连接断开，后端 sink 抛错退出并保留已生成内容。

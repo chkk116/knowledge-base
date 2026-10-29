@@ -5,6 +5,8 @@
       <p class="sub">你参加过的每一场考试与最终得分（客观题交卷即出成绩）</p>
     </div>
 
+    <ExamTabs active="mine" />
+
     <!-- 概览统计 -->
     <div class="stats">
       <div class="stat">
@@ -25,9 +27,7 @@
       </div>
     </div>
 
-    <div class="bar">
-      <el-button text type="primary" @click="goList">返回考试列表</el-button>
-    </div>
+    <!-- 导航已由顶部 ExamTabs 承担，不再单独放「返回考试列表」 -->
 
     <div v-if="loading" class="tip">加载中…</div>
     <div v-else-if="!rows.length" class="empty">
@@ -75,6 +75,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { myExams, listPapers } from '../api/training'
 import { fmtDateTime } from '../utils/time'
+import ExamTabs from '../components/ExamTabs.vue'
 
 const router = useRouter()
 const rows = ref([])

@@ -10,6 +10,7 @@ import com.kb.kbplatform.domain.AiMessage;
 import com.kb.kbplatform.security.RateLimitService;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AiConversationService;
+import com.kb.kbplatform.service.AiFeedbackService;
 import com.kb.kbplatform.service.AiModelClient;
 import com.kb.kbplatform.service.RagService;
 import org.slf4j.Logger;
@@ -33,15 +34,18 @@ public class AiController {
     private final RateLimitService rateLimit;
     private final AiConversationService convService;
     private final AiModelClient aiModelClient;
+    private final AiFeedbackService feedbackService;
 
     public AiController(ObjectProvider<RagService> ragProvider,
                         RateLimitService rateLimit,
                         AiConversationService convService,
-                        AiModelClient aiModelClient) {
+                        AiModelClient aiModelClient,
+                        AiFeedbackService feedbackService) {
         this.ragProvider = ragProvider;
         this.rateLimit = rateLimit;
         this.convService = convService;
         this.aiModelClient = aiModelClient;
+        this.feedbackService = feedbackService;
     }
 
     /** 当前可用模型列表（不含 API Key），普通登录用户即可查询，用于对话页的模型下拉 */
@@ -73,6 +77,16 @@ public class AiController {
         // 缺校验会导致内存/带宽放大与 token 费用被刷（外部复审 2026-10-07）。
         List<String> images = parseImages(body.get("images"));
         return convService.ask(claims.userId(), conversationId, question, mode, modelId, images);
+    }
+
+    /** 对某条回答点赞/踩（qaId 来自 /ask 或 /ask/stream 的 done 事件）；只能评价自己的记录。 */
+    @PostMapping("/feedback")
+    public Map<String, Object> feedback(@RequestAttribute("kbUser") TokenClaims claims,
+                                        @RequestBody Map<String, Object> body) {
+        Long qaId = parseLong(body.get("qaId"));
+        Integer rating = (body.get("rating") instanceof Number n) ? n.intValue() : null;
+        String reason = body.get("reason") == null ? "" : body.get("reason").toString();
+        return feedbackService.rate(claims.userId(), qaId, rating, reason);
     }
 
     /**

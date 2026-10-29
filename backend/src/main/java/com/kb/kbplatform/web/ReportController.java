@@ -8,8 +8,15 @@ import com.kb.kbplatform.domain.Report;
 import com.kb.kbplatform.repository.ReportRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
+import com.kb.kbplatform.repository.CommentRepository;
+import com.kb.kbplatform.repository.DocumentRepository;
+import com.kb.kbplatform.repository.SharedDocumentRepository;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.AuditService;
+import com.kb.kbplatform.service.NotificationService;
+import com.kb.kbplatform.domain.Comment;
+import com.kb.kbplatform.domain.Document;
+import com.kb.kbplatform.domain.SharedDocument;
 import java.time.LocalDateTime;
 import java.util.*;
 import org.springframework.data.domain.PageRequest;
@@ -34,11 +41,53 @@ public class ReportController {
     private final ReportRepository repo;
     private final UserRepository users;
     private final AuditService audit;
+    private final com.kb.kbplatform.repository.DmMessageRepository dmRepo;
+    private final DocumentRepository docRepo;
+    private final CommentRepository commentRepo;
+    private final SharedDocumentRepository sharedDocRepo;
+    private final NotificationService notify;
 
-    public ReportController(ReportRepository repo, UserRepository users, AuditService audit) {
+    public ReportController(ReportRepository repo, UserRepository users, AuditService audit,
+                            DocumentRepository docRepo, CommentRepository commentRepo,
+                            SharedDocumentRepository sharedDocRepo, NotificationService notify,
+                            com.kb.kbplatform.repository.DmMessageRepository dmRepo) {
         this.repo = repo;
         this.users = users;
         this.audit = audit;
+        this.docRepo = docRepo;
+        this.commentRepo = commentRepo;
+        this.sharedDocRepo = sharedDocRepo;
+        this.notify = notify;
+        this.dmRepo = dmRepo;
+    }
+
+    /** 被举报对象摘要：标题/作者/作者 id，供管理页直接定位与处理 */
+    private Map<String, Object> resolveTarget(Report r) {
+        Map<String, Object> m = new HashMap<>();
+        String type = r.getTargetType();
+        Long tid = r.getTargetId();
+        if ("POST".equals(type) && tid != null) {
+            var d = docRepo.findById(tid).orElse(null);
+            if (d != null) { m.put("targetTitle", d.getTitle()); m.put("authorId", d.getOwnerId());
+                users.findById(d.getOwnerId()).ifPresent(u -> m.put("authorName", u.getUsername()));
+                m.put("status", d.getStatus()); m.put("link", "/post/" + tid); }
+        } else if ("COMMENT".equals(type) && tid != null) {
+            var c = commentRepo.findById(tid).orElse(null);
+            if (c != null) { m.put("targetTitle", c.getContent()); m.put("authorId", c.getUserId());
+                m.put("authorName", c.getUsername()); m.put("link", c.getDocId() == null ? "" : "/post/" + c.getDocId()); }
+        } else if ("DM".equals(type) && tid != null) {
+            var dm = dmRepo.findById(tid).orElse(null);
+            if (dm != null) { m.put("targetTitle", dm.getContent()); m.put("authorId", dm.getFromId());
+                m.put("authorName", users.findById(dm.getFromId()).map(u -> u.getUsername()).orElse("")); }
+        } else if ("DOC".equals(type) && tid != null) {
+            var d = sharedDocRepo.findById(tid).orElse(null);
+            if (d != null) { m.put("targetTitle", d.getTitle()); m.put("authorId", d.getOwnerId()); }
+        } else if ("USER".equals(type) && tid != null) {
+            var u = users.findById(tid).orElse(null);
+            if (u != null) { m.put("targetTitle", u.getUsername()); m.put("authorId", u.getId());
+                m.put("authorName", u.getUsername()); m.put("status", u.isEnabled() ? "正常" : "已禁用"); }
+        }
+        return m;
     }
 
     private Long uid(TokenClaims c) {
@@ -120,11 +169,86 @@ public class ReportController {
         Report r = repo.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "记录不存在"));
         String st = String.valueOf(body.getOrDefault("status", "HANDLED")).toUpperCase(Locale.ROOT);
         if (!"HANDLED".equals(st) && !"REJECTED".equals(st)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "状态不合法");
+        String action = String.valueOf(body.getOrDefault("action", "NONE")).toUpperCase(Locale.ROOT);
+        String note = HtmlSanitizer.toText(String.valueOf(body.getOrDefault("note", ""))).trim();
+
+        // ---- 处置动作 ----
+        String resultDesc = "已记录，未采取处置";
+        Map<String, Object> target = resolveTarget(r);
+        Long authorId = target.get("authorId") instanceof Number n ? n.longValue() : null;
+        String type = r.getTargetType();
+
+        if ("DELETE_CONTENT".equals(action)) {
+            if (("POST".equals(type) || "DOC".equals(type)) && r.getTargetId() != null) {
+                docRepo.findById(r.getTargetId()).ifPresent(d -> {
+                    d.setStatus("BLOCKED");
+                    docRepo.save(d);
+                });
+                resultDesc = "已下架被举报的内容";
+            } else if ("COMMENT".equals(type) && r.getTargetId() != null) {
+                commentRepo.findById(r.getTargetId()).ifPresent(cm -> {
+                    cm.setContent("[该评论因违规已被管理员删除]");
+                    commentRepo.save(cm);
+                });
+                resultDesc = "已删除被举报的评论";
+            } else if ("DM".equals(type) && r.getTargetId() != null) {
+                dmRepo.findById(r.getTargetId()).ifPresent(dm -> {
+                    dm.setKind("RECALL");
+                    dm.setContent("");
+                    dmRepo.save(dm);
+                });
+                resultDesc = "已撤回被举报的私信";
+            }
+        } else if ("BLOCK_AUTHOR".equals(action)) {
+            if (authorId != null && !authorId.equals(c.userId())) {
+                users.findById(authorId).ifPresent(u -> {
+                    if (!"ADMIN".equals(u.getRole())) {
+                        u.setEnabled(false);
+                        users.save(u);
+                    }
+                });
+                resultDesc = "已禁用相关账号";
+            } else {
+                resultDesc = "该对象无可禁用的账号";
+            }
+        }
+
         r.setStatus(st);
-        r.setHandleNote(HtmlSanitizer.toText(String.valueOf(body.getOrDefault("note", ""))).trim());
+        String handleNote = ("DELETE_CONTENT".equals(action) ? "[删除内容] " : "BLOCK_AUTHOR".equals(action) ? "[禁用账号] " : "")
+                + note;
+        r.setHandleNote(handleNote);
         r.setHandlerId(c.userId());
         r.setHandledAt(LocalDateTime.now());
         repo.save(r);
+
+        // ---- 结果通知 ----
+        String label = switch (type) {
+            case "POST" -> "文章"; case "COMMENT" -> "评论"; case "DOC" -> "文档";
+            case "DM" -> "私信"; case "USER" -> "用户"; default -> "反馈";
+        };
+        String title = target.get("targetTitle") instanceof String t && !t.isBlank() ? "：" + (t.length() > 20 ? t.substring(0, 20) + "…" : t) : "";
+        try {
+            if ("REJECTED".equals(st)) {
+                notify.notifyUser(r.getReporterId(), "REPORT_RESULT",
+                        "你提交的举报（" + label + title + "）经核实不构成违规，已驳回。" + (note.isBlank() ? "" : "说明：" + note));
+            } else {
+                notify.notifyUser(r.getReporterId(), "REPORT_RESULT",
+                        "你提交的举报（" + label + title + "）已处理：" + resultDesc + (note.isBlank() ? "" : "，备注：" + note));
+                if ("WARN_AUTHOR".equals(action) && authorId != null) {
+                    notify.notifyUser(authorId, "REPORT_WARN",
+                            "你发布的内容（" + label + title + "）被举报且经核实，请注意遵守社区规范。");
+                } else if ("DELETE_CONTENT".equals(action) && authorId != null && !authorId.equals(r.getReporterId())) {
+                    notify.notifyUser(authorId, "REPORT_WARN",
+                            "你发布的" + label + title + "因违规已被管理员" + ("DM".equals(type) ? "撤回" : "删除/下架") + "。");
+                } else if ("BLOCK_AUTHOR".equals(action) && authorId != null) {
+                    notify.notifyUser(authorId, "REPORT_WARN", "你的账号因违规已被管理员禁用。");
+                }
+            }
+        } catch (Exception ignore) {
+        }
+
+        audit.log(c.userId(), String.valueOf(c.username()), "HANDLE_REPORT", type, r.getTargetId(),
+                String.valueOf(target.getOrDefault("targetTitle", "")), st + " / " + action + " / " + note);
         return Map.of("ok", true);
     }
 
@@ -138,6 +262,7 @@ public class ReportController {
         m.put("status", r.getStatus());
         m.put("createdAt", r.getCreatedAt());
         if (admin) {
+            m.putAll(resolveTarget(r));
             m.put("reporterId", r.getReporterId());
             users.findById(r.getReporterId()).ifPresent(u ->
                     m.put("reporterName", (u.getDisplayName() == null || u.getDisplayName().isBlank())

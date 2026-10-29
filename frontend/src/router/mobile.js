@@ -39,7 +39,8 @@ const routes = [
   { path: '/share-import', component: () => import('../views/mobile/MobileShareImport.vue'), meta: { title: '导入分享' } },
 
   // ---- 二级页 ----
-  { path: '/space/:id', component: () => import('../views/mobile/MobileSpace.vue'), meta: { title: '文档库' } },
+  // 单个协作空间详情：标题不能也叫「文档库」（与 /docs 的 Tab 重名，用户分不清）
+  { path: '/space/:id', component: () => import('../views/mobile/MobileSpace.vue'), meta: { title: '协作空间' } },
   { path: '/all-docs', component: () => import('../views/mobile/MobileAllDocs.vue'), meta: { title: '全部文档' } },
   { path: '/notes', component: () => import('../views/mobile/MobileNotes.vue'), meta: { title: '我的摘录' } },
   // 学习计划：清单 + 进度 + 复习提醒（仅本人可见）

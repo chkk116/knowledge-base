@@ -2,7 +2,7 @@
   <div class="page">
     <div class="hd">
       <div>
-        <h1>刷题 · 我的测验</h1>
+        <h1>刷题 · 我的题库</h1>
         <p class="sub" v-if="!done">第 {{ idx + 1 }} / {{ questions.length }} 题 · 答对 {{ right }} 题</p>
         <p class="sub" v-else>本轮结束 · 答对 {{ right }} / {{ questions.length }}</p>
       </div>
@@ -63,7 +63,7 @@
       <div class="sum-t">答对率 {{ rate }}%</div>
       <div class="acts">
         <el-button type="primary" @click="start">再刷一轮</el-button>
-        <el-button @click="$router.push('/my-quiz')">回我的测验</el-button>
+        <el-button @click="$router.push('/my-quiz')">回我的题库</el-button>
         <el-button text type="primary" @click="$router.push('/exams/wrong')">去错题本</el-button>
       </div>
     </div>

@@ -86,3 +86,7 @@ export const getUserDetail = (id) => api.get('/admin/users/' + id)
 // ---- 检索测试（仅管理员）----
 // 用与用户搜索完全相同的链路跑一次查询：searchTest({ q, category }) → { engine, meiliEnabled, tookMs, total, hits }
 export const searchTest = (params) => api.get('/admin/search/test', { params })
+
+// ---- AI 反馈与知识缺口（AI_MANAGE / 管理员）----
+// 返回 { days, total, kbTotal, hit, miss, hitRate, positive, negative, topMissed, recentMissed, recentNegative }
+export const aiFeedbackStats = (days = 7) => api.get('/admin/ai/feedback', { params: { days } })

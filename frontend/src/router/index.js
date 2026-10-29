@@ -57,8 +57,9 @@ const routes = [
   { path: '/exams/practice', component: () => import('../views/ExamPractice.vue'), meta: { title: '练习', maintenance: 'exams' } },
   // 错题本：练习流水派生（必须排在 /exams/:id 之类动态路由之前）
   { path: '/exams/wrong', component: () => import('../views/PracticeWrong.vue'), meta: { title: '错题本', maintenance: 'exams' } },
-  // 全新答题首页（蓝白风，参照 Farm2）：/quiz 入口
-  { path: '/quiz', component: () => import('../views/QuizHome.vue'), meta: { title: '答题闯关', maintenance: 'quiz' } },
+  // 答题闯关已并入「在线考试」（同一套试卷与答题流程，QuizHome 只是另一种列表皮肤），
+  // 旧链接统一重定向，避免收藏夹/通知里的 /quiz 变成死链（2026-10-29 入口收敛）
+  { path: '/quiz', redirect: '/exams' },
   { path: '/exams/:id/take', component: () => import('../views/ExamTake.vue'), meta: { title: '开始答题', maintenance: 'exams' } },
   { path: '/exams/records/:id', component: () => import('../views/ExamResult.vue'), meta: { title: '考试成绩', maintenance: 'exams' } },
   // 我的成绩：学员侧考试记录列表（/exams 列表页「我的成绩」按钮入口）
@@ -101,7 +102,7 @@ const routes = [
   { path: '/admin/notify-webhook', component: () => import('../views/admin/NotifyWebhookSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '通知外发' } },
   { path: '/admin/reports', component: () => import('../views/admin/Reports.vue'), meta: { admin: true, perm: 'CORE_MAINTAIN', title: '举报处理' } },
   { path: '/admin/system', component: () => import('../views/admin/SystemStatus.vue'), meta: { admin: true, perm: 'SYSTEM_STATUS_VIEW|CORE_MAINTAIN', title: '系统状态' } },
-  { path: '/my-quiz', component: () => import('../views/MyQuiz.vue'), meta: { title: '我的测验' } },
+  { path: '/my-quiz', component: () => import('../views/MyQuiz.vue'), meta: { title: '我的题库' } },
   { path: '/messages', component: () => import('../views/Messages.vue'), meta: { title: '私信' } },
   { path: '/my-quiz/run', component: () => import('../views/MyQuizRun.vue'), meta: { title: '刷题' } },
   { path: '/admin/sso-ldap', component: () => import('../views/admin/SsoSettings.vue'), meta: { admin: true, perm: 'SSO_MANAGE|CORE_MAINTAIN', title: '企业登录' } },
@@ -113,6 +114,8 @@ const routes = [
   // 与后端 AuthFilter 对 /api/admin/ai 前缀「仅 ADMIN 角色」的判定保持一致
   // AI 模型管理：细粒度权限 AI_MANAGE（可在角色管理里授予；演示号勾上后是「能看改不了」）
   { path: '/admin/ai-models', component: () => import('../views/admin/AiModelManage.vue'), meta: { admin: true, perm: 'AI_MANAGE', title: 'AI 模型管理' } },
+  // AI 反馈与知识缺口看板：赞/踩 + 检索未命中（只读，AI_MANAGE 可看）
+  { path: '/admin/ai-feedback', component: () => import('../views/admin/AiFeedback.vue'), meta: { admin: true, perm: 'AI_MANAGE', title: 'AI 反馈' } },
   // 检索测试：管理员验证搜索质量（引擎 / 耗时 / 命中明细），纯只读
   { path: '/admin/search-test', component: () => import('../views/admin/SearchTest.vue'), meta: { adminOnly: true, title: '检索测试' } },
   // 未开放 / 建设中功能统一提示页：?feature=功能名

@@ -13,7 +13,7 @@ import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import {
-  aiAsk, listAiModels, listConversations, createConversation,
+  aiAsk, aiFeedback, listAiModels, listConversations, createConversation,
   deleteConversation, batchDeleteConversations, listMessages, updateConversation
 } from '../../api/ai'
 import { search } from '../../api/kb'
@@ -136,6 +136,31 @@ function buildMeta(data) {
   const name = data.modelName || data.model || ''
   if (!name && data.latencyMs == null) return null
   return { name, latencyMs: Number(data.latencyMs) || 0, usage: data.usage || null }
+}
+
+/* ---------- 回答反馈（赞/踩）：与桌面端同一张 kb_ai_qa_log ---------- */
+const FB_REASONS = ['答非所问', '没有依据', '资料过时', '回答不完整']
+const fbBusy = reactive({})
+
+function rateMsg(m, rating) {
+  if (!m.qaId || fbBusy[m.qaId]) return
+  if (rating === -1) { m.fbOpen = !m.fbOpen; return }
+  submitRate(m, 1, '')
+}
+
+async function submitRate(m, rating, reason) {
+  if (!m.qaId || fbBusy[m.qaId]) return
+  fbBusy[m.qaId] = true
+  try {
+    await aiFeedback(m.qaId, rating, reason)
+    m.fbRating = rating
+    m.fbOpen = false
+    window.__kbMsg?.success?.(rating === 1 ? '感谢反馈' : '已记录，我们会补充文档')
+  } catch (e) {
+    window.__kbMsg?.error?.('反馈失败，请稍后重试')
+  } finally {
+    fbBusy[m.qaId] = false
+  }
 }
 
 function scrollToBottom() {
@@ -777,7 +802,7 @@ async function send(text) {
     const curAi = convMessages.value[convId] || []
     convMessages.value[convId] = [...curAi, {
       role: 'ai', content: data.answer || '（暂无返回内容）',
-      sources: data.sources || [], mode: mode.value, meta: buildMeta(data)
+      sources: data.sources || [], mode: mode.value, meta: buildMeta(data), qaId: data.qaId || null
     }]
     const c2 = conversations.value.find((c) => c.id === convId)
     if (c2 && data.title && data.title !== c2.title) c2.title = data.title
@@ -869,6 +894,18 @@ onMounted(async () => {
           <div v-if="m.sources && m.sources.length" class="aic-src">
             <div class="aic-src-h">引用来源（{{ m.sources.length }}）</div>
             <span v-for="(s, si) in m.sources" :key="si" class="aic-src-chip">{{ s.title || s.docTitle || '文档' }}</span>
+          </div>
+
+          <!-- 反馈：赞/踩（踩时展开原因），与桌面端共用 kb_ai_qa_log -->
+          <div v-if="m.qaId" class="aic-fb">
+            <span v-if="m.fbRating" class="aic-fb-done">{{ m.fbRating === 1 ? '已赞' : '已反馈' }}</span>
+            <template v-else>
+              <button type="button" class="aic-fb-btn" @click="rateMsg(m, 1)">👍 有帮助</button>
+              <button type="button" class="aic-fb-btn" :class="{ on: m.fbOpen }" @click="rateMsg(m, -1)">👎 没帮助</button>
+            </template>
+            <div v-if="m.fbOpen && !m.fbRating" class="aic-fb-reasons">
+              <button v-for="r in FB_REASONS" :key="r" type="button" @click="submitRate(m, -1, r)">{{ r }}</button>
+            </div>
           </div>
           <div v-if="m.steps && m.steps.length" class="aic-steps">
             <div v-for="(st, si) in m.steps" :key="si" class="aic-step-row">{{ st }}</div>
@@ -1116,6 +1153,22 @@ html.dark .aic-md :deep(pre) { background: rgba(255, 255, 255, .08); }
   font-size: 12px; color: var(--m-text-sub);
 }
 .aic-meta { margin-top: 7px; font-size: 11.5px; color: var(--m-text-dim); }
+
+/* ---- 回答反馈（赞/踩） ---- */
+.aic-fb { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.aic-fb-btn {
+  border: 1px solid var(--m-border); background: var(--m-card);
+  color: var(--m-text-sub); border-radius: 999px; padding: 4px 11px;
+  font-size: 12.5px; line-height: 1.3; cursor: pointer;
+}
+.aic-fb-btn.on { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+html.dark .aic-fb-btn.on { background: #3a2330; border-color: #7f3b4a; color: #fca5a5; }
+.aic-fb-done { font-size: 12px; color: var(--m-text-dim); }
+.aic-fb-reasons { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-top: 2px; }
+.aic-fb-reasons button {
+  border: 1px solid var(--m-border); background: var(--m-card-2);
+  color: var(--m-text-sub); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
 
 .aic-typing { display: inline-flex; gap: 5px; align-items: center; padding: 13px; }
 .aic-typing i {
