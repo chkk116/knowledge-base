@@ -464,16 +464,32 @@ public class SsoController {
         return out;
     }
 
-    // 回调落地站点白名单：origin 只允许本站域名，防止令牌被 302 带到外部域（审查 r20 critical）
-    private static final List<String> BASE_ALLOWLIST = List.of(
-            "https://你的域名", "https://www.你的域名",
-            "http://localhost:5173", "http://127.0.0.1:5173"
-    );
+    // 回调落地站点白名单：origin 只允许本站域名，防止令牌被 302 带到外部域（审查 r20 critical）。
+    // 可用 kb.sso.base-allowlist 覆盖（逗号分隔）；默认含本站域名与本地开发地址。
+    @org.springframework.beans.factory.annotation.Value(
+            "${kb.sso.base-allowlist:https://你的域名,https://www.你的域名,http://localhost:5173,http://127.0.0.1:5173}")
+    private List<String> baseAllowlist;
 
-    private static String base(String origin) {
+    private String base(String origin) {
         if (origin == null) return "";
         String o = origin.replaceAll("/+$", "");
-        return BASE_ALLOWLIST.contains(o) ? o : "";
+        // 1) 配置白名单
+        if (baseAllowlist != null && baseAllowlist.contains(o)) return o;
+        // 2) 同主机放行：origin 的 host:port 与本次请求的 Host 头一致，
+        //    说明就是「回到当前站点」——内网用 IP 访问的部署形态靠这条放行，不必把 IP 硬编码进白名单
+        try {
+            var req = currentRequest();
+            if (req != null) {
+                java.net.URI u = java.net.URI.create(o);
+                if (u.getHost() != null) {
+                    String hostPort = u.getHost() + (u.getPort() > 0 ? ":" + u.getPort() : "");
+                    String reqHost = firstNonBlank(req.getHeader("X-Forwarded-Host"), req.getHeader("Host"), "");
+                    if (reqHost != null && hostPort.equalsIgnoreCase(reqHost.trim())) return o;
+                }
+            }
+        } catch (Exception ignore) {
+        }
+        return "";   // 其余一律回落当前请求基址，不跳外部域
     }
 
     private static org.springframework.http.ResponseEntity<Void> found(String url) {
