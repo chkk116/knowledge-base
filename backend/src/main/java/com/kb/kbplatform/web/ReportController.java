@@ -228,20 +228,21 @@ public class ReportController {
         };
         String title = target.get("targetTitle") instanceof String t && !t.isBlank() ? "：" + (t.length() > 20 ? t.substring(0, 20) + "…" : t) : "";
         try {
+            Long docId = target.get("docId") instanceof Number dn ? dn.longValue() : null;
             if ("REJECTED".equals(st)) {
                 notify.notifyUser(r.getReporterId(), "REPORT_RESULT",
-                        "你提交的举报（" + label + title + "）经核实不构成违规，已驳回。" + (note.isBlank() ? "" : "说明：" + note));
+                        "你提交的举报（" + label + title + "）经核实不构成违规，已驳回。" + (note.isBlank() ? "" : "说明：" + note), docId);
             } else {
                 notify.notifyUser(r.getReporterId(), "REPORT_RESULT",
-                        "你提交的举报（" + label + title + "）已处理：" + resultDesc + (note.isBlank() ? "" : "，备注：" + note));
+                        "你提交的举报（" + label + title + "）已处理：" + resultDesc + (note.isBlank() ? "" : "，备注：" + note), docId);
                 if ("WARN_AUTHOR".equals(action) && authorId != null) {
                     notify.notifyUser(authorId, "REPORT_WARN",
-                            "你发布的内容（" + label + title + "）被举报且经核实，请注意遵守社区规范。");
+                            "你发布的内容（" + label + title + "）被举报且经核实，请注意遵守社区规范。", docId);
                 } else if ("DELETE_CONTENT".equals(action) && authorId != null && !authorId.equals(r.getReporterId())) {
                     notify.notifyUser(authorId, "REPORT_WARN",
-                            "你发布的" + label + title + "因违规已被管理员" + ("DM".equals(type) ? "撤回" : "删除/下架") + "。");
+                            "你发布的" + label + title + "因违规已被管理员" + ("DM".equals(type) ? "撤回" : "删除/下架") + "。", docId);
                 } else if ("BLOCK_AUTHOR".equals(action) && authorId != null) {
-                    notify.notifyUser(authorId, "REPORT_WARN", "你的账号因违规已被管理员禁用。");
+                    notify.notifyUser(authorId, "REPORT_WARN", "你的账号因违规已被管理员禁用。", docId);
                 }
             }
         } catch (Exception ignore) {

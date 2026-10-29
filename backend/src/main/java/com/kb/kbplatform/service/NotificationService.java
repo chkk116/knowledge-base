@@ -85,12 +85,18 @@ public class NotificationService {
 
     /** 通用单用户系统通知（举报处理结果等） */
     public void notifyUser(Long userId, String type, String summary) {
+        notifyUser(userId, type, summary, null);
+    }
+
+    /** 带关联文档：通知中心点击可跳原文 */
+    public void notifyUser(Long userId, String type, String summary, Long docId) {
         if (userId == null) return;
         Notification n = new Notification();
         n.setUserId(userId);
         n.setType(type);
         n.setActor("系统");
         n.setSummary(summary);
+        n.setDocId(docId);
         saveAndPush(n);
     }
 
