@@ -17,9 +17,32 @@ import { cachedCount, clearCache, pendingCount, syncOnReconnect } from '../../ut
 import { applyTheme } from '../../utils/theme'
 import { THEMES, FONTS, getMobileTheme, setMobileTheme, resetMobileTheme } from '../../utils/mobileTheme'
 import { hasUpdateBadge, UPDATE_BADGE_EVENT } from '../../utils/updateBadge'
+import { exportMyData } from '../../api/auth'
+import { saveBinaryFile } from '../../utils/shareOut'
 
 const router = useRouter()
 const auth = useAuthStore()
+
+/* 个人数据导出（隐私政策「你的权利」）：原生走系统分享面板保存，Web 走浏览器下载 */
+const exporting = ref(false)
+async function doExport() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const { data } = await exportMyData()
+    const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/json' })
+    await saveBinaryFile({
+      filename: `kb-导出-${auth.user?.username || 'me'}-${new Date().toISOString().slice(0, 10)}.json`,
+      blob,
+      mime: 'application/json',
+    })
+    window.__kbMsg?.success?.('已导出，可在系统分享面板保存')
+  } catch (e) {
+    window.__kbMsg?.error?.('导出失败，请稍后重试')
+  } finally {
+    exporting.value = false
+  }
+}
 
 const dark = ref(document.documentElement.classList.contains('dark'))
 const cur = ref(getMobileTheme())
@@ -260,6 +283,14 @@ onUnmounted(() => {
             <el-icon :size="17"><Document /></el-icon>
           </span>
           <span class="lb">隐私政策</span>
+          <el-icon class="chev"><Right /></el-icon>
+        </button>
+        <button class="row" type="button" :disabled="exporting" @click="doExport">
+          <span class="ic" style="background:linear-gradient(135deg,#4f86ff,#1677ff)">
+            <el-icon :size="17"><Download /></el-icon>
+          </span>
+          <span class="lb">导出我的数据</span>
+          <span v-if="exporting" class="val">导出中…</span>
           <el-icon class="chev"><Right /></el-icon>
         </button>
         <button class="row" type="button" @click="router.push('/disclaimer')">

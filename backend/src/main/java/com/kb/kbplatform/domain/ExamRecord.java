@@ -28,6 +28,10 @@ public class ExamRecord {
     @Transient
     private int questionCount = 0;
 
+    /** 待人工阅卷的主观题数量（@Transient，按作答明细实时统计）；>0 时成绩为「暂定」 */
+    @Transient
+    private int pendingCount = 0;
+
     private int score = 0;
 
     private boolean passed = false;
@@ -52,6 +56,8 @@ public class ExamRecord {
     public void setPaperTitle(String paperTitle) { this.paperTitle = paperTitle; }
     public int getQuestionCount() { return questionCount; }
     public void setQuestionCount(int questionCount) { this.questionCount = questionCount; }
+    public int getPendingCount() { return pendingCount; }
+    public void setPendingCount(int pendingCount) { this.pendingCount = pendingCount; }
     public int getScore() { return score; }
     public void setScore(int score) { this.score = score; }
     public boolean isPassed() { return passed; }

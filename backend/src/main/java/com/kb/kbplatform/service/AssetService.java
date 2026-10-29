@@ -37,15 +37,18 @@ public class AssetService {
     private final AssetCategoryRepository catRepo;
     private final AssetLogRepository logRepo;
     private final AssetBorrowRepository borrowRepo;
+    private final NotificationService notificationService;
     private final AssetService self;   // 自注入代理：createAsset 的重试落库必须走代理才能开 REQUIRES_NEW 新事务
 
     public AssetService(AssetRepository assetRepo, AssetCategoryRepository catRepo,
                         AssetLogRepository logRepo, AssetBorrowRepository borrowRepo,
+                        NotificationService notificationService,
                         @org.springframework.context.annotation.Lazy AssetService self) {
         this.assetRepo = assetRepo;
         this.catRepo = catRepo;
         this.logRepo = logRepo;
         this.borrowRepo = borrowRepo;
+        this.notificationService = notificationService;
         this.self = self;
     }
 
@@ -334,8 +337,77 @@ public class AssetService {
         m.put("total", assetRepo.count());
         m.put("byStatus", byStatus);
         m.put("borrowed", borrowRepo.countByStatus(AssetBorrow.STATUS_BORROWED));
+        m.put("overdue", borrowRepo.countByStatusAndExpectedReturnAtBefore(
+                AssetBorrow.STATUS_BORROWED, LocalDate.now()));
         m.put("totalValue", totalValue == null ? BigDecimal.ZERO : totalValue);
         return m;
+    }
+
+    // ---------- 逾期提醒 / 盘点 ----------
+
+    /** 逾期未归还清单（管理端看板）：附逾期天数，按应还日期升序（拖得最久的排前面） */
+    public List<Map<String, Object>> listOverdue() {
+        LocalDate today = LocalDate.now();
+        List<AssetBorrow> rows = borrowRepo.findByStatusAndExpectedReturnAtBeforeOrderByExpectedReturnAtAsc(
+                AssetBorrow.STATUS_BORROWED, today);
+        // assetCode / assetName 在实体上是 @Transient（不落库），这里按 assetId 批量回填，避免逐条查
+        Set<Long> aids = new LinkedHashSet<>();
+        for (AssetBorrow b : rows) if (b.getAssetId() != null) aids.add(b.getAssetId());
+        Map<Long, Asset> amap = new HashMap<>();
+        for (Asset a : assetRepo.findAllById(aids)) amap.put(a.getId(), a);
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (AssetBorrow b : rows) {
+            Asset a = amap.get(b.getAssetId());
+            long days = java.time.temporal.ChronoUnit.DAYS.between(b.getExpectedReturnAt(), today);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("borrowId", b.getId());
+            m.put("assetId", b.getAssetId());
+            m.put("assetCode", a == null ? "" : a.getCode());
+            m.put("assetName", a == null ? "" : a.getName());
+            m.put("borrower", b.getBorrower());
+            m.put("borrowerId", b.getBorrowerId());
+            m.put("borrowAt", b.getBorrowAt());
+            m.put("expectedReturnAt", b.getExpectedReturnAt());
+            m.put("daysOverdue", Math.max(0, days));
+            m.put("overdueNotifiedAt", b.getOverdueNotifiedAt());
+            out.add(m);
+        }
+        return out;
+    }
+
+    /**
+     * 每日逾期提醒：给借用人发一条站内通知，同一笔借用每天最多一次。
+     * 由 AssetOverdueTask 定时触发；返回本次实际发送的条数（便于日志/手动触发核对）。
+     */
+    public int notifyOverdue() {
+        LocalDate today = LocalDate.now();
+        List<AssetBorrow> rows = borrowRepo.findByStatusAndExpectedReturnAtBeforeOrderByExpectedReturnAtAsc(
+                AssetBorrow.STATUS_BORROWED, today);
+        Set<Long> aids = new LinkedHashSet<>();
+        for (AssetBorrow b : rows) if (b.getAssetId() != null) aids.add(b.getAssetId());
+        Map<Long, Asset> amap = new HashMap<>();
+        for (Asset a : assetRepo.findAllById(aids)) amap.put(a.getId(), a);
+
+        int sent = 0;
+        for (AssetBorrow b : rows) {
+            if (b.getBorrowerId() == null) continue;                 // 历史手填借用人，无账号可通知
+            if (today.equals(b.getOverdueNotifiedAt())) continue;     // 今天已提醒过
+            Asset a = amap.get(b.getAssetId());
+            String label = a == null ? ("资产#" + b.getAssetId())
+                    : (a.getName() == null || a.getName().isBlank() ? a.getCode() : a.getName());
+            long days = java.time.temporal.ChronoUnit.DAYS.between(b.getExpectedReturnAt(), today);
+            try {
+                notificationService.notifyUser(b.getBorrowerId(), "ASSET_OVERDUE",
+                        "你借用的「" + label + "」已逾期 " + Math.max(1, days) + " 天，请尽快归还");
+                b.setOverdueNotifiedAt(today);
+                borrowRepo.save(b);
+                sent++;
+            } catch (Exception ignore) {
+                // 单条通知失败不影响其它借用记录
+            }
+        }
+        return sent;
     }
 
     // ---------- 内部工具 ----------

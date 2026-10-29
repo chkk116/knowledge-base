@@ -2,6 +2,9 @@ import api from './request'
 
 // 资产台账（需 ASSET_MANAGE 权限）
 export const assetStats = () => api.get('/admin/assets/stats')
+// 逾期：清单 + 手动触发一次提醒
+export const assetOverdue = () => api.get('/admin/assets/overdue')
+export const assetOverdueNotify = () => api.post('/admin/assets/overdue/notify')
 export const nextAssetCode = () => api.get('/admin/assets/next-code')
 export const listAssets = (params = {}) => api.get('/admin/assets', { params })
 // 单条详情：详情抽屉用它拿最新数据（列表行可能是保存前的旧对象）

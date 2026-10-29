@@ -54,6 +54,8 @@ class ExamPointsRulesTest {
                 Mockito.mock(CourseService.class), Mockito.mock(NotificationService.class),
                 Mockito.mock(com.kb.kbplatform.repository.SysSettingRepository.class),
                 Mockito.mock(com.kb.kbplatform.repository.PracticeLogRepository.class),
+                // 阅卷列表要回填用户名，本测试不走阅卷，mock 即可
+                Mockito.mock(com.kb.kbplatform.repository.UserRepository.class),
                 // settleExpired 用到的 TransactionTemplate：本测试只走 submit()，给个 mock 即可
                 Mockito.mock(org.springframework.transaction.support.TransactionTemplate.class),
                 // 练习会话存 KvStore（Redis/内存），本测试不走会话逻辑，mock 即可

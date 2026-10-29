@@ -157,6 +157,9 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/public/shared/") && "POST".equals(method)) return true;
         if ("/api/auth/login".equals(path) && "POST".equals(method)) return true;
         if ("/api/auth/register".equals(path) && "POST".equals(method)) return true;
+        // 密码重置链接：用户未登录时打开链接，必须放行（精确匹配，禁止前缀放行）
+        if ("/api/auth/reset-password".equals(path) && "POST".equals(method)) return true;
+        if ("/api/auth/reset-password/check".equals(path) && "GET".equals(method)) return true;
         if ("/api/auth/captcha".equals(path) && "GET".equals(method)) return true;
         // 登录页靠它决定显示哪些企业登录入口（必须在未登录时就能读）
         if ("/api/auth/sso/options".equals(path) && "GET".equals(method)) return true;

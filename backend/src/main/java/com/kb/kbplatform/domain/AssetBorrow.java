@@ -45,6 +45,10 @@ public class AssetBorrow {
 
     private LocalDateTime returnAt;
 
+    /** 逾期提醒最后发送日期：同一笔借用每天最多提醒一次（null = 从未提醒） */
+    @Column(name = "overdue_notified_at")
+    private LocalDate overdueNotifiedAt;
+
     @Column(length = 20)
     private String status = STATUS_BORROWED;
 
@@ -101,4 +105,8 @@ public class AssetBorrow {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    /** 逾期提醒最后发送日期：同一笔借用每天最多提醒一次（null = 从未提醒） */
+    public LocalDate getOverdueNotifiedAt() { return overdueNotifiedAt; }
+    public void setOverdueNotifiedAt(LocalDate overdueNotifiedAt) { this.overdueNotifiedAt = overdueNotifiedAt; }
 }

@@ -28,6 +28,17 @@ public class ExamAnswer {
 
     private int score = 0;           // 本题得分；主观题默认 0（待人工阅卷）
 
+    /**
+     * 主观题待人工阅卷：true = 交卷时未判分（FILL/ESSAY），等管理员在「主观题阅卷」页给分。
+     * 客观题恒为 false。阅卷完成后置 false 并写入 score。
+     */
+    @Column(nullable = false)
+    private boolean pending = false;
+
+    /** 阅卷批注（可选）：管理员给主观题写扣分原因，学员在成绩详情可见 */
+    @Column(length = 500)
+    private String comment;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Long getRecordId() { return recordId; }
@@ -40,4 +51,8 @@ public class ExamAnswer {
     public void setCorrect(boolean correct) { this.correct = correct; }
     public int getScore() { return score; }
     public void setScore(int score) { this.score = score; }
+    public boolean isPending() { return pending; }
+    public void setPending(boolean pending) { this.pending = pending; }
+    public String getComment() { return comment; }
+    public void setComment(String comment) { this.comment = comment; }
 }

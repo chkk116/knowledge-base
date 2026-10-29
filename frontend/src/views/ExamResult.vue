@@ -1,22 +1,28 @@
 <template>
   <div class="page" v-if="data">
-    <div class="score-card" :class="{ pass: data.record.passed }">
+    <div class="score-card" :class="{ pass: data.record.passed, wait: data.record.pendingCount > 0 }">
       <div class="num">{{ data.record.score }}</div>
-      <div class="txt">{{ data.record.passed ? '及格' : '未及格' }}</div>
+      <div class="txt">
+        <template v-if="data.record.pendingCount > 0">待阅卷 · 当前为客观题得分</template>
+        <template v-else>{{ data.record.passed ? '及格' : '未及格' }}</template>
+      </div>
       <div class="time">用时 {{ Math.round(data.record.durationSec / 60) }} 分 {{ data.record.durationSec % 60 }} 秒</div>
     </div>
 
     <h2>逐题回顾</h2>
-    <div v-for="(it, i) in data.items" :key="it.questionId" class="q" :class="it.correct ? 'ok' : 'no'">
+    <div v-for="(it, i) in data.items" :key="it.questionId" class="q" :class="it.pending ? 'wait' : (it.correct ? 'ok' : 'no')">
       <div class="qt">
         <b>{{ i + 1 }}.</b>
         <span class="qt-html" v-html="it.content"></span>
-        <em>({{ typeText(it.type) }} · 得 {{ it.score }} 分)</em>
+        <em v-if="it.pending">({{ typeText(it.type) }} · 待阅卷 · 满分 {{ it.maxScore }})</em>
+        <em v-else>({{ typeText(it.type) }} · 得 {{ it.score }} 分<span v-if="it.maxScore"> / {{ it.maxScore }}</span>)</em>
       </div>
       <div class="ans">
         <span class="lab">你的答案：</span>
-        <span :class="it.correct ? 'good' : 'bad'">{{ showAnswer(it) }}</span>
+        <span :class="it.pending ? '' : (it.correct ? 'good' : 'bad')">{{ showAnswer(it) }}</span>
       </div>
+
+      <!-- 客观题：正确选项；主观题：参考答案（若题库配置了） -->
       <div v-if="it.type !== 'FILL' && it.type !== 'ESSAY'" class="correct">
         <span class="lab">正确答案：</span>
         <div class="opt-list">
@@ -26,6 +32,20 @@
           <div v-if="!correctOptions(it).length" class="opt-none">—</div>
         </div>
       </div>
+      <div v-else-if="(it.correctAnswer || []).length" class="correct">
+        <span class="lab">参考答案：</span>
+        <div class="opt-list">
+          <div v-for="o in it.correctAnswer" :key="o.label" class="opt-row">
+            <b v-if="o.label">{{ o.label }}</b><span v-html="o.content"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 阅卷批注：管理员给主观题写的扣分原因 -->
+      <div v-if="it.comment" class="cmt">
+        <span class="lab">阅卷批注：</span><span>{{ it.comment }}</span>
+      </div>
+
       <div v-if="it.analysis" class="ana">
         <span class="lab">解析：</span><span v-html="it.analysis"></span>
       </div>
@@ -64,14 +84,19 @@ onMounted(load)
 .page { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
 .score-card { text-align: center; padding: 22px; border-radius: 16px; background: #fef2f2; border: 1px solid #fecaca; margin-bottom: 22px; }
 .score-card.pass { background: #f0fdf4; border-color: #bbf7d0; }
+.score-card.wait { background: #fffbeb; border-color: #fde68a; }
 .num { font-size: 42px; font-weight: 800; color: #dc2626; }
 .score-card.pass .num { color: #16a34a; }
+.score-card.wait .num { color: #b45309; }
 .txt { color: #64748b; font-size: 14px; }
 .time { color: #94a3b8; font-size: 12px; margin-top: 4px; }
 h2 { font-size: 17px; margin: 8px 0 14px; }
 .q { background: #fff; border: 1px solid #eef2f7; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; border-left: 4px solid #cbd5e1; }
 .q.ok { border-left-color: #16a34a; }
 .q.no { border-left-color: #dc2626; }
+.q.wait { border-left-color: #f59e0b; }
+.cmt { font-size: 13px; margin: 6px 0; color: #b45309; background: #fffbeb; border-radius: 8px; padding: 6px 10px; }
+:deep(html.dark) .cmt { background: #3a2f1a; color: #fbbf24; }
 .qt { font-size: 15px; line-height: 1.6; margin-bottom: 10px; }
 .qt-html { display: inline; }
 .qt-html :deep(p) { margin: 2px 0; }

@@ -42,10 +42,10 @@
           <span class="spacer" />
           <el-button size="small" text type="danger" @click="remove(q)">删除</el-button>
         </div>
-        <div class="c-q" v-html="q.content"></div>
+        <div class="c-q pre">{{ q.content }}</div>
         <el-collapse v-if="q.analysis" class="c-an">
           <el-collapse-item title="看解析" :name="q.id">
-            <div v-html="q.analysis"></div>
+            <div class="pre">{{ q.analysis }}</div>
           </el-collapse-item>
         </el-collapse>
       </div>
@@ -105,7 +105,7 @@
             <div class="imp-body">
               <div class="imp-q">
                 <el-tag size="small" effect="plain">{{ TYPE_CN[p.question.type] || p.question.type }}</el-tag>
-                <span v-html="esc(p.question.content).slice(0, 120)"></span>
+                <span>{{ (p.question.content || '').slice(0, 120) }}</span>
               </div>
               <div class="imp-opts">
                 <span v-for="o in p.options" :key="o.label" :class="{ right: o.isCorrect }">
@@ -296,4 +296,6 @@ onMounted(load)
 .gen-sel { flex: 1; }
 .gen-cnt { width: 110px; }
 .gen-tip { margin-top: 10px; font-size: 12.5px; color: #6b7280; }
+
+.pre { white-space: pre-wrap; word-break: break-word; }
 </style>

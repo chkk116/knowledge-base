@@ -17,6 +17,8 @@ const routes = [
     { path: '/dev/vueflow-test', component: () => import('../views/DevVueFlowTest.vue'), meta: { public: true, title: 'Vue Flow 原型' } },
   ] : []),
   { path: '/login', component: () => import('../views/Login.vue'), meta: { public: true, title: '登录' } },
+  // 密码重置链接落地页（公开）：管理员生成一次性链接，用户自己设新密码
+  { path: '/reset-password', component: () => import('../views/ResetPassword.vue'), meta: { public: true, title: '重置密码' } },
   // 文档外部分享：免登录只读页（令牌换内容，服务端消毒 + 可选密码/有效期）
   { path: '/s/:token', component: () => import('../views/PublicDoc.vue'), meta: { public: true, title: '共享文档' } },
   // 单点登录回调落地：带 token 跳回本站，前端建立会话后跳首页
@@ -84,6 +86,8 @@ const routes = [
   { path: '/admin/users', component: () => import('../views/admin/UserManage.vue'), meta: { admin: true, perm: 'USER_MANAGE', title: '用户管理' } },
   { path: '/admin/roles', component: () => import('../views/admin/RoleManage.vue'), meta: { admin: true, perm: 'USER_MANAGE', title: '角色管理' } },
   { path: '/admin/departments', component: () => import('../views/admin/DepartmentManage.vue'), meta: { admin: true, perm: 'USER_MANAGE', title: '部门管理' } },
+  // 批量导入用户：CSV/XLSX → 前端解析 → 逐行创建（先校验后导入）
+  { path: '/admin/user-import', component: () => import('../views/admin/UserImport.vue'), meta: { admin: true, perm: 'USER_MANAGE', title: '批量导入用户' } },
   { path: '/admin/docs', component: () => import('../views/admin/DocManage.vue'), meta: { admin: true, perm: 'POST_MANAGE', title: '帖子管理' } },
   { path: '/admin/review', component: () => import('../views/admin/ReviewQueue.vue'), meta: { admin: true, perm: 'DOC_REVIEW', title: '文章审核' } },
   { path: '/admin/stats', component: () => import('../views/admin/Dashboard.vue'), meta: { admin: true, perm: 'STATS_VIEW', title: '数据看板' } },
@@ -95,6 +99,8 @@ const routes = [
   { path: '/admin/files', component: () => import('../views/admin/AttachmentManage.vue'), meta: { adminOnly: true, title: '附件管理' } },
   { path: '/admin/courses', component: () => import('../views/admin/CourseManage.vue'), meta: { admin: true, perm: 'COURSE_MANAGE', title: '培训管理' } },
   { path: '/admin/exams', component: () => import('../views/admin/ExamManage.vue'), meta: { admin: true, perm: 'EXAM_MANAGE', title: '考试管理' } },
+  // 主观题阅卷：填空/简答交卷时不判分，管理员在这里逐题给分
+  { path: '/admin/exam-grading', component: () => import('../views/admin/ExamGrading.vue'), meta: { admin: true, perm: 'EXAM_MANAGE', title: '主观题阅卷' } },
   { path: '/admin/doc-shares', component: () => import('../views/admin/DocShareManage.vue'), meta: { admin: true, perm: 'SHARE_VIEW', title: '共享文档管理' } },
   { path: '/admin/assets', component: () => import('../views/admin/AssetManage.vue'), meta: { admin: true, perm: 'ASSET_MANAGE', title: '资产管理' } },
   { path: '/admin/maintain', component: () => import('../views/admin/CoreMaintain.vue'), meta: { admin: true, perm: 'SITE_FEATURE_MANAGE|CORE_MAINTAIN', title: '功能开关' } },

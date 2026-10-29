@@ -36,12 +36,14 @@ public class AuthController {
     private final com.kb.kbplatform.service.LoginLogService loginLogService;
     private final NotificationService notificationService;
     private final com.kb.kbplatform.service.AccountDeletionService deletionService;
+    private final com.kb.kbplatform.service.PasswordResetService passwordResetService;
 
     public AuthController(AuthService authService, UserRepository userRepo,
                           CaptchaService captchaService, RateLimitService rateLimit,
                           com.kb.kbplatform.service.LoginLogService loginLogService,
                           NotificationService notificationService,
-                          com.kb.kbplatform.service.AccountDeletionService deletionService) {
+                          com.kb.kbplatform.service.AccountDeletionService deletionService,
+                          com.kb.kbplatform.service.PasswordResetService passwordResetService) {
         this.authService = authService;
         this.userRepo = userRepo;
         this.captchaService = captchaService;
@@ -49,11 +51,42 @@ public class AuthController {
         this.loginLogService = loginLogService;
         this.notificationService = notificationService;
         this.deletionService = deletionService;
+        this.passwordResetService = passwordResetService;
+    }
+
+    // ---------- 密码重置链接（公开，无需登录） ----------
+
+    /** 打开重置链接时校验 token 是否有效 */
+    @GetMapping("/reset-password/check")
+    public Map<String, Object> resetCheck(@RequestParam(required = false) String token,
+                                          jakarta.servlet.http.HttpServletRequest request) {
+        String ip = com.kb.kbplatform.security.ClientIp.resolve(request);
+        if (!rateLimit.allow("reset:check:" + ip, 30, 60_000L)) {
+            throw new BizException("请求过于频繁，请稍后再试");
+        }
+        return passwordResetService.check(token);
+    }
+
+    /** 用重置链接设置新密码 */
+    @PostMapping("/reset-password")
+    public Map<String, Object> resetPassword(@RequestBody ResetPwdReq r,
+                                             jakarta.servlet.http.HttpServletRequest request) {
+        String ip = com.kb.kbplatform.security.ClientIp.resolve(request);
+        // 防止拿链接暴力试探：同 IP 10 分钟最多 10 次
+        if (!rateLimit.allow("reset:pwd:" + ip, 10, 10L * 60 * 1000)) {
+            throw new BizException("尝试过于频繁，请稍后再试");
+        }
+        if (r == null) throw new BizException("参数不合法");
+        return passwordResetService.reset(r.token, r.password);
+    }
+
+    public static class ResetPwdReq {
+        public String token;
+        public String password;
     }
 
     public static class LoginRequest {
-        public String username;
-        public String password;
+        public String username;        public String password;
         public String captchaToken;   // 图形验证码令牌
         public String captcha;        // 用户输入的验证码
     }

@@ -206,11 +206,16 @@ async function onPickImage(e) {
   if (!f) return
   if (f.size > 8 * 1024 * 1024) { ElMessage.warning('图片请小于 8MB'); return }
   uploading.value = true
+  const targetPeer = peer.value?.peerId        // 上传前锁定收件人（审查 NH5）：上传期间切会话不再错发
   try {
     const { data } = await uploadFile(f)
     const url = data?.data?.url || data?.url
     if (!url) throw new Error('上传返回异常')
-    const { data: r } = await dmSend(peer.value.peerId, url, 'IMAGE', quoteRef.value?.id ?? null)
+    if (!peer.value || peer.value.peerId !== targetPeer) {
+      ElMessage.warning('已切换会话，图片未发送，请重新选择')
+      return
+    }
+    const { data: r } = await dmSend(targetPeer, url, 'IMAGE', quoteRef.value?.id ?? null)
     quoteRef.value = null
     msgs.value.push({ id: r.id, fromId: meId.value, kind: 'IMAGE', content: url, createdAt: new Date().toISOString(), read: false })
     if (r.quota) Object.assign(quota, r.quota)

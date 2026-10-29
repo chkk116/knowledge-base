@@ -1,9 +1,13 @@
 import api from './request'
 
-export const search = (q, category, author) => {
+export const search = (q, category, author, opts = {}) => {
   const params = { q: q || '' }
   if (category) params.category = category
   if (author) params.author = author
+  // 排序 / 时间范围 / 标签：不传即默认相关度 + 不限时间
+  if (opts.sort && opts.sort !== 'relevance') params.sort = opts.sort
+  if (opts.days) params.days = opts.days
+  if (opts.tags) params.tags = opts.tags
   return api.get('/search', { params })
 }
 

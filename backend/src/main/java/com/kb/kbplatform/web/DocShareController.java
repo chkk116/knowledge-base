@@ -64,8 +64,14 @@ public class DocShareController {
     public DocShare create(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
         Long uid = resolveUserId(c);
         String type = str(body.get("type"));
-        // 创建团队空间需要 SHARE_CREATE 权限（ADMIN 隐式拥有；个人空间自动创建不受限）
-        if (c != null && !c.hasPerm("SHARE_CREATE") && !"PERSONAL".equals(type)) {
+        // 个人空间由系统自动创建/补建（审查 NM1）：接口不允许用户自带 type=PERSONAL，
+        // 否则可借「个人空间不受限」分支绕过团队空间权限与数量限制
+        if ("PERSONAL".equals(type)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "个人空间由系统自动创建，无需申请");
+        }
+        // 创建团队空间需要 SHARE_CREATE 权限（ADMIN 隐式拥有）
+        if (c != null && !c.hasPerm("SHARE_CREATE")) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.FORBIDDEN, "无「创建团队空间」权限，请联系系统管理员开通");
         }

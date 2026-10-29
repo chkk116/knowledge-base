@@ -1158,6 +1158,9 @@ onMounted(async () => {
   // 支持 /ai/chat?mode=agent 直达对应模式（「我的测验 → 让 AI 出题」就用这个）
   const qm = String(route.query.mode || '').toLowerCase()
   if (['kb', 'general', 'agent'].includes(qm)) mode.value = qm
+  // 搜索无结果「去问 AI」：把原关键词带过来预填输入框，用户可直接回车发送
+  const qpre = String(route.query.q || '').trim()
+  if (qpre && !input.value) input.value = qpre
   loadAiGuard()
   // 窄屏判定：与 CSS 断点保持一致（≤1024 侧栏变抽屉）
   mqNarrow = window.matchMedia('(max-width: 1024px)')

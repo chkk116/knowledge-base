@@ -46,6 +46,17 @@
         </div>
         <div class="kpi-bottom"><span class="kpi-trend flat">购置金额合计</span></div>
       </div>
+      <!-- 逾期未还：点击查看清单（每日 09:30 自动提醒借用人，也可手动补发） -->
+      <div class="kpi-card" style="--accent: 248 113 113; cursor: pointer" @click="openOverdue">
+        <div class="kpi-top">
+          <div class="kpi-icon"><el-icon><Warning /></el-icon></div>
+          <div class="kpi-meta">
+            <div class="kpi-label">逾期未还</div>
+            <div class="kpi-value">{{ stats.overdue || 0 }}<span class="unit">件</span></div>
+          </div>
+        </div>
+        <div class="kpi-bottom"><span class="kpi-trend flat">点击查看逾期清单</span></div>
+      </div>
     </div>
 
     <!-- 工具条 -->
@@ -383,13 +394,40 @@
         <el-button type="primary" :loading="printing" @click="printLabels">生成并打印</el-button>
       </template>
     </el-dialog>
+
+    <!-- 逾期未归还：每日 09:30 自动提醒借用人，这里可手动补发 -->
+    <el-dialog v-model="overdueOpen" title="逾期未归还" width="760px">
+      <div class="ov-hd">
+        <span class="ov-count">共 <b>{{ overdueList.length }}</b> 笔逾期</span>
+        <el-button size="small" type="primary" plain :loading="notifying" :disabled="!overdueList.length" @click="notifyOverdueNow">
+          立即提醒借用人
+        </el-button>
+      </div>
+      <el-table :data="overdueList" size="small" border max-height="420" empty-text="没有逾期记录">
+        <el-table-column prop="assetCode" label="编号" width="120" />
+        <el-table-column prop="assetName" label="名称" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="borrower" label="借用人" width="110" show-overflow-tooltip />
+        <el-table-column prop="expectedReturnAt" label="应还日期" width="120" />
+        <el-table-column label="逾期" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" type="danger" effect="plain">{{ row.daysOverdue }} 天</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="今日已提醒" width="110">
+          <template #default="{ row }">{{ row.overdueNotifiedAt || '—' }}</template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="overdueOpen = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Files, CircleCheck, Clock, Coin } from '@element-plus/icons-vue'
+import { Files, CircleCheck, Clock, Coin, Warning } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
 import { uploadFile } from '../../api/file'
 import { escapeHtml } from '../../utils/text'
@@ -398,7 +436,8 @@ import {
   assetStats, nextAssetCode, listAssets, createAsset, updateAsset, deleteAsset,
   assetBorrows, borrowAsset, returnAsset, assetLogs, listAssetCategories,
   createAssetCategory, updateAssetCategory, deleteAssetCategory,
-  exportAssets, downloadAssetTemplate, importAssets, saveBlob, batchDeleteAssets, getAsset
+  exportAssets, downloadAssetTemplate, importAssets, saveBlob, batchDeleteAssets, getAsset,
+  assetOverdue, assetOverdueNotify
 } from '../../api/asset'
 
 const STATUS_META = {
@@ -414,6 +453,32 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(15)
 const stats = ref(null)
+
+/* ---------- 逾期未归还 ---------- */
+const overdueOpen = ref(false)
+const overdueList = ref([])
+const notifying = ref(false)
+async function openOverdue() {
+  overdueOpen.value = true
+  try {
+    const { data } = await assetOverdue()
+    overdueList.value = data || []
+  } catch (e) {
+    overdueList.value = []
+  }
+}
+async function notifyOverdueNow() {
+  notifying.value = true
+  try {
+    const { data } = await assetOverdueNotify()
+    ElMessage.success(`已发送 ${data.sent} 条逾期提醒`)
+    await openOverdue()
+  } catch (e) {
+    ElMessage.error(errMsg(e, '提醒发送失败'))
+  } finally {
+    notifying.value = false
+  }
+}
 const categories = ref([])
 const catTree = ref([])
 
@@ -819,6 +884,9 @@ onMounted(() => { load(); loadStats(); loadCategories() })
 }
 /* ===== KPI 统计卡（同导入页风格，细节差异化） ===== */
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.ov-hd { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.ov-count { font-size: 13.5px; color: #475569; }
+.ov-count b { color: #dc2626; }
 .kpi-card {
   --accent: 96 165 250;
   position: relative;

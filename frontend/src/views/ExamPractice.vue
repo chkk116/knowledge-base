@@ -33,7 +33,7 @@
           <button v-for="q in wrongList" :key="q.id" type="button" class="review-item"
                   @click="review(q)">
             <span class="ri-no">第 {{ questions.findIndex(x => x.id === q.id) + 1 }} 题</span>
-            <span class="ri-txt" v-html="q.content"></span>
+            <span class="ri-txt pre">{{ q.content }}</span>
           </button>
         </div>
       </div>
@@ -51,20 +51,20 @@
         </div>
 
         <div class="q-card">
-          <div class="q-con" v-html="cur.content"></div>
+          <div class="q-con pre">{{ cur.content }}</div>
 
           <div v-if="['SINGLE','JUDGE'].includes(cur.type)" class="opts">
             <button v-for="o in cur.options" :key="o.label" type="button" class="opt"
                     :class="optClass(o.label)"
                     :disabled="!!curResult" @click="pick(o.label)">
-              <span class="k">{{ o.label }}</span><span class="ot" v-html="o.content"></span>
+              <span class="k">{{ o.label }}</span><span class="ot pre">{{ o.content }}</span>
             </button>
           </div>
           <div v-else-if="cur.type === 'MULTI'" class="opts">
             <button v-for="o in cur.options" :key="o.label" type="button" class="opt"
                     :class="optClass(o.label)"
                     :disabled="!!curResult" @click="pick(o.label)">
-              <span class="k">{{ o.label }}</span><span class="ot" v-html="o.content"></span>
+              <span class="k">{{ o.label }}</span><span class="ot pre">{{ o.content }}</span>
             </button>
           </div>
           <template v-else>
@@ -252,4 +252,6 @@ onMounted(() => load({
 :deep(html.dark) .opt, :deep(html.dark) .cell, :deep(html.dark) .review-item { background: #1b1b2e; border-color: #2c2c44; }
 :deep(html.dark) .res { background: #20203a; }
 :deep(html.dark) .sheet-hd, :deep(html.dark) .done-num, :deep(html.dark) .review-hd { color: #e5e7eb; }
+
+.pre { white-space: pre-wrap; word-break: break-word; }
 </style>

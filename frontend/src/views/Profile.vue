@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import { useHistoryStore } from '../store/history'
-import { updateProfile, pointsLogPaged } from '../api/auth'
+import { updateProfile, pointsLogPaged, exportMyData } from '../api/auth'
 import { listMyDocs, myLikedDocs, myCommentedDocs, myFavorites, changePassword, userBadges } from '../api/kb'
 import { BADGE_ICONS, DEFAULT_BADGE_ICON, tierGradient } from '../utils/badgeIcons'
 const g0 = (b) => tierGradient(b.tier)[0]
@@ -13,6 +13,7 @@ import { uploadFile } from '../api/file'
 import { myCertificates } from '../api/training'
 import { getLevel } from '../utils/level'
 import { DEFAULT_AVATARS } from '../utils/defaultAvatars'
+import { saveBinaryFile } from '../utils/shareOut'
 import CertDialog from '../components/CertDialog.vue'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
 import { errMsg } from '../utils/errMsg'
@@ -286,6 +287,27 @@ async function changePwd() {
     changing.value = false
   }
 }
+
+/* ---------- 个人数据导出（隐私政策「你的权利」） ---------- */
+const exporting = ref(false)
+async function doExport() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const { data } = await exportMyData()
+    const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/json' })
+    await saveBinaryFile({
+      filename: `kb-导出-${auth.user?.username || 'me'}-${new Date().toISOString().slice(0, 10)}.json`,
+      blob,
+      mime: 'application/json',
+    })
+    ElMessage.success('已开始下载，请查看浏览器下载列表')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '导出失败，请稍后重试'))
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -503,6 +525,8 @@ async function changePwd() {
           <div class="footer">
             <el-button text type="info" @click="resetAvatar">重置头像</el-button>
             <el-button text type="warning" @click="pwdDialog = true">修改密码</el-button>
+            <!-- 隐私政策「你的权利」：自助导出个人数据（JSON） -->
+            <el-button text type="info" :loading="exporting" @click="doExport">导出我的数据</el-button>
             <span class="spacer" />
             <el-button @click="goBack">返回</el-button>
             <el-button type="primary" :loading="saving" @click="save">保存修改</el-button>

@@ -83,6 +83,9 @@ export const moveDepartment = (id, parentId, sortOrder) =>
 // 编辑表单预填时，先拉取该用户的角色 id 列表与部门 id（安全视图，不含密码）。
 export const getUserDetail = (id) => api.get('/admin/users/' + id)
 
+// 生成一次性密码重置链接（30 分钟有效）：管理员转交用户，用户自己设新密码
+export const userResetLink = (id) => api.post('/admin/users/' + id + '/reset-link')
+
 // ---- 检索测试（仅管理员）----
 // 用与用户搜索完全相同的链路跑一次查询：searchTest({ q, category }) → { engine, meiliEnabled, tookMs, total, hits }
 export const searchTest = (params) => api.get('/admin/search/test', { params })
@@ -90,3 +93,12 @@ export const searchTest = (params) => api.get('/admin/search/test', { params })
 // ---- AI 反馈与知识缺口（AI_MANAGE / 管理员）----
 // 返回 { days, total, kbTotal, hit, miss, hitRate, positive, negative, topMissed, recentMissed, recentNegative }
 export const aiFeedbackStats = (days = 7) => api.get('/admin/ai/feedback', { params: { days } })
+
+// ---- 批量导入用户（USER_MANAGE）----// payload: { rows: [{username,displayName,email,password,role}], defaultPassword?, dryRun? }
+// 返回 { dryRun,total,created,skipped,failed,results:[{line,username,status,message}] }
+export const importUsers = (payload) => api.post('/admin/users/import', payload, { timeout: 120000 })
+
+// ---- 主观题阅卷（EXAM_MANAGE）----
+export const gradingPending = () => api.get('/admin/exams/grading/pending')
+export const gradingDetail = (recordId) => api.get('/admin/exams/grading/' + recordId)
+export const submitGrading = (recordId, items) => api.post('/admin/exams/grading/' + recordId, { items })

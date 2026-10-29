@@ -248,6 +248,36 @@ public class AdminExamController {
         return svc.assemble(id, req.items);
     }
 
+    // ---- 主观题阅卷 ----
+    /** 待阅卷列表：有主观题尚未给分的考试记录 */
+    @GetMapping("/grading/pending")
+    public List<Map<String, Object>> pendingGrading(@RequestAttribute("kbUser") TokenClaims c) {
+        requirePerm(c, "EXAM_MANAGE");
+        return svc.adminPendingGrading();
+    }
+
+    /** 阅卷详情：一场考试的全部作答（含主观题参考答案与满分） */
+    @GetMapping("/grading/{recordId}")
+    public Map<String, Object> gradingDetail(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long recordId) {
+        requirePerm(c, "EXAM_MANAGE");
+        return svc.adminGradingDetail(recordId);
+    }
+
+    /** 提交阅卷：body { items: [{ questionId, score, comment? }] } */
+    @PostMapping("/grading/{recordId}")
+    public Map<String, Object> grade(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long recordId,
+                                     @RequestBody GradeReq req) {
+        requirePerm(c, "EXAM_MANAGE");
+        if (req == null || req.items == null || req.items.isEmpty())
+            throw new ResponseStatusException(BAD_REQUEST, "请至少给一道题打分");
+        return svc.adminGrade(recordId, req.items);
+    }
+
+    /** 阅卷入参 */
+    public static class GradeReq {
+        public List<ExamService.GradeItem> items;
+    }
+
     // ---- DTO ----
     public static class QuestionReq {
         public Question question;

@@ -31,3 +31,11 @@ export const pointsLogPaged = (page = 0, size = 20, type = '') =>
 // ---- 企业身份源（LDAP/AD）----
 export const ssoOptions = () => api.get('/auth/sso/options')
 export const ssoLdapLogin = (username, password) => api.post('/auth/sso/ldap/login', { username, password })
+
+// ---- 个人数据导出（隐私政策「你的权利」）----
+// 返回 JSON 附件（blob）；后端每用户每小时限 3 次
+export const exportMyData = () => api.get('/me/export', { responseType: 'blob', timeout: 120000 })
+
+// ---- 密码重置链接（公开，无需登录）----
+export const resetPwdCheck = (token) => api.get('/auth/reset-password/check', { params: { token } })
+export const resetPwd = (token, password) => api.post('/auth/reset-password', { token, password })

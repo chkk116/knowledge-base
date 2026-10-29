@@ -43,12 +43,13 @@
       </el-table-column>
       <el-table-column label="得分" width="110" align="center">
         <template #default="{ row }">
-          <span class="score" :class="row.passed ? 'ok' : 'no'">{{ row.score }}</span>
+          <span class="score" :class="row.pendingCount > 0 ? 'wait' : (row.passed ? 'ok' : 'no')">{{ row.score }}</span>
         </template>
       </el-table-column>
       <el-table-column label="结果" width="100" align="center">
         <template #default="{ row }">
-          <el-tag size="small" :type="row.passed ? 'success' : 'danger'" effect="plain">{{ row.passed ? '及格' : '未及格' }}</el-tag>
+          <el-tag v-if="row.pendingCount > 0" size="small" type="warning" effect="plain">待阅卷</el-tag>
+          <el-tag v-else size="small" :type="row.passed ? 'success' : 'danger'" effect="plain">{{ row.passed ? '及格' : '未及格' }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="题数" width="90" align="center" class-name="stack-hide">
@@ -155,6 +156,7 @@ const retake = (row) => router.push('/exams/' + row.paperId + '/take')
 .score { font-size: 18px; font-weight: 800; }
 .score.ok { color: #16a34a; }
 .score.no { color: #dc2626; }
+.score.wait { color: #b45309; }
 
 :deep(html.dark) .stat { background: #1b1b2e; border-color: #2c2c44; }
 :deep(html.dark) .stat .v { color: #818cf8; }

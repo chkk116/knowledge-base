@@ -104,12 +104,26 @@ public class AdminService {
         u.setPermissions(normalizePerms(r.permissions));
         u.setDisplayName(r.displayName == null || r.displayName.isBlank()
                 ? username : r.displayName.trim());
+        // 邮箱：可空；填了必须像个邮箱（不做 DNS 校验，内网域名也要允许）
+        if (r.email != null && !r.email.isBlank()) {
+            String mail = r.email.trim();
+            if (mail.length() > 200 || !mail.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                throw new IllegalArgumentException("邮箱格式不正确：" + mail);
+            }
+            u.setEmail(mail);
+        }
         u.setEnabled(r.enabled == null || r.enabled);
         User saved = userRepo.save(u);
         // 新用户尚未登录、无旧 token；分配角色/部门不触发 tokenVersion 自增
         if (r.roleIds != null) orgService.setUserRoles(saved.getId(), r.roleIds);
         if (r.departmentId != null) orgService.setUserDepartment(saved.getId(), r.departmentId);
         return saved;
+    }
+
+    /** 用户名是否已存在（批量导入的 dryRun 也要能查重，不能只看 createUser 的抛错） */
+    public boolean usernameExists(String username) {
+        if (username == null || username.isBlank()) return false;
+        return userRepo.findByUsername(username.trim()).isPresent();
     }
 
     /** 审计/控制器用：按 id 取用户（不存在抛异常） */
@@ -259,6 +273,7 @@ public class AdminService {
         public String password;
         public String role;
         public String displayName;
+        public String email;         // 邮箱（批量导入/新建用户可填）
         public Boolean enabled;
         public String permissions;   // 细粒度权限码（逗号分隔），仅 ADMIN 操作者可下发
         public Long storageQuota;    // 个人存储总容量（字节）；null = 系统默认 5GB

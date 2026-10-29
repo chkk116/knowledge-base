@@ -17,9 +17,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 
 @RestController
@@ -31,14 +36,17 @@ public class AdminUserController {
     private final AuditService audit;
     private final DocShareService docShareSvc;
     private final OrgService orgService;
+    private final com.kb.kbplatform.service.PasswordResetService passwordResetService;
 
     public AdminUserController(AdminService svc, AuthService authService, AuditService audit, DocShareService docShareSvc,
-                               OrgService orgService) {
+                               OrgService orgService,
+                               com.kb.kbplatform.service.PasswordResetService passwordResetService) {
         this.svc = svc;
         this.authService = authService;
         this.audit = audit;
         this.docShareSvc = docShareSvc;
         this.orgService = orgService;
+        this.passwordResetService = passwordResetService;
     }
 
     private void requirePerm(TokenClaims c, String code) {
@@ -80,6 +88,23 @@ public class AdminUserController {
             throw new ResponseStatusException(FORBIDDEN, "无权限分配管理员角色");
         }
         requirePerm(c, "USER_MANAGE");
+        // 防提权（审查 NC1）：create 与 update 同口径——非 ADMIN 分配的细粒度权限 / 角色
+        // 必须是自身权限的子集，否则子管理员可借新建账号一键提权
+        if (!"ADMIN".equals(c.role())) {
+            if (r.permissions != null && !r.permissions.isBlank()) {
+                List<String> codes = permCodes(r.permissions);
+                if (!codes.isEmpty() && !c.hasAllPerms(codes))
+                    throw new ResponseStatusException(FORBIDDEN, "不能授予自身未拥有的权限码");
+            }
+            if (r.roleIds != null) {
+                for (Long rid : r.roleIds) {
+                    Role role = orgService.getRole(rid);
+                    List<String> rcodes = permCodes(role.getPermissions());
+                    if (!rcodes.isEmpty() && !c.hasAllPerms(rcodes))
+                        throw new ResponseStatusException(FORBIDDEN, "不能授予自身未拥有的角色权限");
+                }
+            }
+        }
         User u = svc.createUser(r);
         audit.log(c.userId(), c.username(), "CREATE_USER", "USER", u.getId(), u.getUsername(), "创建用户 " + u.getUsername());
         return u;
@@ -220,6 +245,121 @@ public class AdminUserController {
         String raw = svc.resetPassword(id);
         audit.log(c.userId(), c.username(), "RESET_PWD", "USER", id, tname, "重置用户 " + (tname != null ? tname : "id=" + id) + " 的密码");
         return Map.of("ok", true, "newPassword", raw);
+    }
+
+    /** 生成一次性密码重置链接（30 分钟有效）；管理员不接触新密码，由用户自己设置 */
+    @PostMapping("/{id}/reset-link")
+    public Map<String, Object> resetLink(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        requirePerm(c, "USER_MANAGE");
+        User target = svc.requireUser(id);
+        if (!"ADMIN".equals(c.role()) && "ADMIN".equals(target.getRole())) {
+            throw new ResponseStatusException(FORBIDDEN, "无权限为管理员生成重置链接");
+        }
+        Map<String, Object> m = passwordResetService.createLink(id, c.userId());
+        audit.log(c.userId(), c.username(), "RESET_LINK", "USER", id, target.getUsername(),
+                "生成密码重置链接：" + target.getUsername());
+        return m;
+    }
+
+    /**
+     * 批量导入用户（企业部署第一步：导组织架构与账号）。
+     *
+     * 前端把 CSV/XLSX 解析成行数组再提交（后端不引 Excel 依赖）；逐行处理、互不影响，
+     * 返回每行结果。dryRun=true 只校验不落库，供导入前预览。
+     */
+    @PostMapping("/import")
+    public Map<String, Object> importUsers(@RequestAttribute("kbUser") TokenClaims c,
+                                           @RequestBody ImportReq req) {
+        requirePerm(c, "USER_MANAGE");
+        if (req == null || req.rows == null || req.rows.isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "没有可导入的数据");
+        }
+        if (req.rows.size() > 1000) {
+            throw new ResponseStatusException(BAD_REQUEST, "单次最多导入 1000 行，请拆分文件");
+        }
+        boolean dry = Boolean.TRUE.equals(req.dryRun);
+        String defaultPwd = req.defaultPassword == null ? "" : req.defaultPassword.trim();
+        boolean operatorAdmin = "ADMIN".equals(c.role());
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        int created = 0, skipped = 0, failed = 0;
+
+        for (int i = 0; i < req.rows.size(); i++) {
+            ImportRow r = req.rows.get(i);
+            int line = i + 2;   // 表头占第 1 行，便于用户对照 Excel 行号
+            Map<String, Object> res = new LinkedHashMap<>();
+            res.put("line", line);
+            String uname = r == null || r.username == null ? "" : r.username.trim();
+            res.put("username", uname);
+            try {
+                if (uname.isEmpty()) throw new IllegalArgumentException("用户名为空");
+                if (!seen.add(uname)) throw new IllegalArgumentException("文件内用户名重复：" + uname);
+                // 查重放在 dryRun 之前：否则「校验」会告诉用户可创建，实际导入却被跳过
+                if (svc.usernameExists(uname)) throw new IllegalArgumentException("用户名已存在：" + uname);
+                String pwd = (r.password == null || r.password.isBlank()) ? defaultPwd : r.password;
+                if (pwd.isEmpty()) throw new IllegalArgumentException("缺少密码（未填且未设置默认密码）");
+                String role = (r.role == null || r.role.isBlank()) ? "USER" : r.role.trim().toUpperCase();
+                if (!"ADMIN".equals(role) && !"USER".equals(role)) {
+                    throw new IllegalArgumentException("角色只能是 USER 或 ADMIN");
+                }
+                if (!operatorAdmin && "ADMIN".equals(role)) {
+                    throw new IllegalArgumentException("无权限创建管理员");
+                }
+
+                if (!dry) {
+                    AdminService.CreateReq cr = new AdminService.CreateReq();
+                    cr.username = uname;
+                    cr.password = pwd;
+                    cr.displayName = r.displayName;
+                    cr.email = r.email;
+                    cr.role = role;
+                    User u = svc.createUser(cr);
+                    res.put("userId", u.getId());
+                }
+                res.put("status", dry ? "ok" : "created");
+                created++;
+            } catch (IllegalArgumentException e) {
+                String msg = e.getMessage() == null ? "导入失败" : e.getMessage();
+                if (msg.contains("已存在")) { res.put("status", "skipped"); skipped++; }
+                else { res.put("status", "failed"); failed++; }
+                res.put("message", msg);
+            } catch (Exception e) {
+                res.put("status", "failed");
+                failed++;
+                res.put("message", "系统异常：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            }
+            results.add(res);
+        }
+
+        if (!dry) {
+            audit.log(c.userId(), c.username(), "IMPORT_USERS", "USER", null, null,
+                    "批量导入用户：成功 " + created + "，跳过 " + skipped + "，失败 " + failed);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("dryRun", dry);
+        out.put("total", req.rows.size());
+        out.put("created", created);
+        out.put("skipped", skipped);
+        out.put("failed", failed);
+        out.put("results", results);
+        return out;
+    }
+
+    /** 批量导入入参 */
+    public static class ImportReq {
+        public List<ImportRow> rows;
+        public String defaultPassword;
+        public Boolean dryRun;
+    }
+
+    /** 一行用户数据（前端已按表头映射好） */
+    public static class ImportRow {
+        public String username;
+        public String displayName;
+        public String email;
+        public String password;
+        public String role;
     }
 
     private static String formatQuota(Long bytes) {

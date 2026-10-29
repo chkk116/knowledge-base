@@ -491,7 +491,9 @@ public class SsoController {
             }
         } catch (Exception ignore) {
         }
-        return "";   // 其余一律回落当前请求基址，不跳外部域
+        // 白名单未命中：回落到当前请求的公网基址（返回空串会让 redirect_uri 变相对路径，
+        // OAuth 2.0 规范要求绝对 URI，第三方会直接拒绝——审查 NH2）
+        return publicBase();
     }
 
     private static org.springframework.http.ResponseEntity<Void> found(String url) {

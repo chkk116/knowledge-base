@@ -79,6 +79,21 @@ public class AdminAssetController {
         return svc.stats();
     }
 
+    /** 逾期未归还清单（附逾期天数，按应还日期升序） */
+    @GetMapping("/overdue")
+    public List<Map<String, Object>> overdue(@RequestAttribute("kbUser") TokenClaims c) {
+        requirePerm(c);
+        return svc.listOverdue();
+    }
+
+    /** 手动触发一次逾期提醒（便于管理员立即补发，不必等每日 09:30） */
+    @PostMapping("/overdue/notify")
+    public Map<String, Object> notifyOverdue(@RequestAttribute("kbUser") TokenClaims c) {
+        requirePerm(c);
+        int sent = svc.notifyOverdue();
+        return Map.of("ok", true, "sent", sent);
+    }
+
     @GetMapping("/next-code")
     public Map<String, String> nextCode(@RequestAttribute("kbUser") TokenClaims c) {
         requirePerm(c);

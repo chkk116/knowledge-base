@@ -107,15 +107,21 @@ public class ThumbController {
         }
 
         // 5. 命中缓存直接返回
-        Path cache = Paths.get(thumbDir).toAbsolutePath().normalize()
-                .resolve(String.valueOf(w)).resolve(rel);
+        // 缓存相对路径必须从已归一化的 file 反推（审查 NH1）：直接用入参 rel 拼接，
+        // "../" 可逃逸出缩略图目录覆盖上传目录里的原文件
+        Path thumbRoot = Paths.get(thumbDir).toAbsolutePath().normalize();
+        Path cacheRel = root.relativize(file);
+        Path cache = thumbRoot.resolve(String.valueOf(w)).resolve(cacheRel).normalize();
+        if (!cache.startsWith(thumbRoot)) {
+            return ResponseEntity.notFound().build();
+        }
         if (Files.isRegularFile(cache)) {
             return serveFromCache(cache);
         }
 
         // 6. 等比缩放并重编码
         boolean hasAlpha = original.getColorModel().hasAlpha();
-        int h = (int) Math.round(original.getHeight() * (w / (double) original.getWidth()));
+        int h = Math.max(1, (int) Math.round(original.getHeight() * (w / (double) original.getWidth())));
         BufferedImage out = new BufferedImage(w, h,
                 hasAlpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
         Graphics2D g = out.createGraphics();

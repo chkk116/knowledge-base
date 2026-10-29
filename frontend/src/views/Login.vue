@@ -19,6 +19,15 @@ const password = ref('')
 const captchaToken = ref('')
 const slidePassed = ref(false)
 const loading = ref(false)
+/** 忘记密码：无 SMTP 时由管理员生成一次性链接（30 分钟有效），用户自己设新密码 */
+function showForgot() {
+  ElMessageBox.alert(
+    '请联系管理员在「用户管理」中为你生成一次性重置链接（30 分钟内有效），打开链接即可自己设置新密码。',
+    '忘记密码',
+    { confirmButtonText: '知道了' }
+  ).catch(() => {})
+}
+
 const captchaOpen = ref(false)
 const captchaNonce = ref(0)
 
@@ -494,6 +503,7 @@ function startParticles() {
           <el-button type="primary" size="large" class="login-submit" :loading="loading" @click="submit">
             {{ ldapMode ? '域账号登录' : '立即登录' }}
           </el-button>
+          <div class="forgot-row"><span @click="showForgot">忘记密码？</span></div>
           <div v-if="ldapEnabled" class="ldap-switch">
             <span @click="ldapMode = !ldapMode">{{ ldapMode ? '← 返回普通登录' : '使用域账号（AD/LDAP）登录' }}</span>
           </div>
@@ -815,5 +825,8 @@ html.dark .footer-tip span { color: #8ea0c5; }
 }
 
 .ldap-switch { margin-top: 10px; text-align: center; font-size: 12.5px; color: var(--el-color-primary); cursor: pointer; }
+.forgot-row { margin-top: 8px; text-align: right; font-size: 12.5px; }
+.forgot-row span { color: #64748b; cursor: pointer; }
+.forgot-row span:hover { color: #2563eb; }
 .ldap-hint { margin-top: 6px; text-align: center; font-size: 12px; color: #9aa0ac; }
 </style>

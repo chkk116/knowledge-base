@@ -39,6 +39,7 @@ public class ExamService {
     private final NotificationService notificationService;
     private final SysSettingRepository settingRepo;
     private final PracticeLogRepository practiceLogRepo;
+    private final UserRepository userRepo;
 
     public ExamService(QuestionRepository questionRepo, QuestionOptionRepository optionRepo,
                        ExamPaperRepository paperRepo, ExamPaperQuestionRepository pqRepo,
@@ -48,6 +49,7 @@ public class ExamService {
                        CourseService courseService, NotificationService notificationService,
                        SysSettingRepository settingRepo,
                        PracticeLogRepository practiceLogRepo,
+                       UserRepository userRepo,
                        org.springframework.transaction.support.TransactionTemplate txTemplate,
                        com.kb.kbplatform.service.KvStore kvStore) {
         this.questionRepo = questionRepo;
@@ -64,6 +66,7 @@ public class ExamService {
         this.settingRepo = settingRepo;
         this.notificationService = notificationService;
         this.practiceLogRepo = practiceLogRepo;
+        this.userRepo = userRepo;
         this.txTemplate = txTemplate;
         this.kvStore = kvStore;
     }
@@ -228,16 +231,20 @@ public class ExamService {
         for (AnswerItem it : items) ansMap.put(it.questionId, it.answer == null ? List.of() : it.answer);
 
         int total = 0;
+        int pendingCount = 0;
         for (ExamPaperQuestion pq : pqs) {
             Question q = qMap.get(pq.getQuestionId());
             // 题目在组卷后被删除（管理员清理题库）时不能让整次交卷 500，该题按 0 分跳过
             if (q == null) continue;
+            // 主观题（填空/简答）交卷时不判分：标记 pending，等管理员在「主观题阅卷」给分
+            boolean manual = "FILL".equals(q.getType()) || "ESSAY".equals(q.getType());
             List<String> correct = new ArrayList<>();
             for (QuestionOption o : optMap.get(q.getId())) if (o.isCorrect()) correct.add(o.getLabel());
             List<String> userAns = ansMap.getOrDefault(q.getId(), List.of());
-            boolean ok = judge(q.getType(), userAns, correct);
+            boolean ok = !manual && judge(q.getType(), userAns, correct);
             int qScore = ok ? pq.getScore() : 0;
             total += qScore;
+            if (manual) pendingCount++;
 
             ExamAnswer ea = new ExamAnswer();
             ea.setRecordId(recordId);
@@ -245,10 +252,14 @@ public class ExamService {
             ea.setAnswer(String.join(",", userAns));
             ea.setCorrect(ok);
             ea.setScore(qScore);
+            ea.setPending(manual);
             answerRepo.save(ea);
         }
         rec.setScore(total);
-        boolean passed = total >= paperRepo.findById(rec.getPaperId()).map(ExamPaper::getPassScore).orElse(60);
+        rec.setPendingCount(pendingCount);
+        // 有待阅卷主观题时成绩为「暂定」：不判通过、不发积分/证书，等阅卷完成后重算
+        boolean passed = pendingCount == 0
+                && total >= paperRepo.findById(rec.getPaperId()).map(ExamPaper::getPassScore).orElse(60);
         rec.setPassed(passed);
         // 是否首次通过：用于结业证书通知去重（此时 rec 尚未持久化，exists 不含本次）
         boolean firstPass = passed && !recordRepo.existsByUserIdAndPaperIdAndPassedTrue(userId, rec.getPaperId());
@@ -280,7 +291,15 @@ public class ExamService {
         for (ExamRecord r : list) if (r.getPaperId() != null) pids.add(r.getPaperId());
         Map<Long, ExamPaper> papers = new LinkedHashMap<>();
         for (ExamPaper p : paperRepo.findAllById(pids)) papers.put(p.getId(), p);
+        // pendingCount 同样是 @Transient：一次性批量统计，避免逐条 count
+        Map<Long, Integer> pendingMap = new HashMap<>();
+        List<Long> rids = new ArrayList<>();
+        for (ExamRecord r : list) rids.add(r.getId());
+        for (Object[] row : answerRepo.countPendingByRecordIds(rids)) {
+            pendingMap.put(((Number) row[0]).longValue(), ((Number) row[1]).intValue());
+        }
         for (ExamRecord r : list) {
+            r.setPendingCount(pendingMap.getOrDefault(r.getId(), 0));
             ExamPaper p = papers.get(r.getPaperId());
             if (p == null) continue;
             if (r.getPaperTitle() == null || r.getPaperTitle().trim().isEmpty()) r.setPaperTitle(p.getTitle());
@@ -301,6 +320,12 @@ public class ExamService {
         for (Question q : qs) qMap.put(q.getId(), q);
         Map<Long, List<QuestionOption>> optMap = new LinkedHashMap<>();
         for (Question q : qs) optMap.put(q.getId(), optionRepo.findByQuestionIdOrderByLabelAsc(q.getId()));
+        // 每题满分：主观题要显示「得分 / 满分」，阅卷页也用同一份
+        Map<Long, Integer> maxScoreMap = new LinkedHashMap<>();
+        for (ExamPaperQuestion pq : pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(rec.getPaperId())) {
+            maxScoreMap.put(pq.getQuestionId(), pq.getScore());
+        }
+        rec.setPendingCount((int) answerRepo.countByRecordIdAndPendingTrue(recordId));
 
         // 成绩回顾的答案披露策略（外部审查 2026-10-11）：未交卷的进行中记录不下发
         // 正确答案/解析/判定，防止「边考边拉成绩接口对题」。
@@ -315,6 +340,8 @@ public class ExamService {
             m.put("type", q.getType());
             m.put("content", HtmlSanitizer.sanitize(q.getContent()));
             m.put("userAnswer", ea.getAnswer());
+            m.put("pending", ea.isPending());
+            m.put("maxScore", maxScoreMap.getOrDefault(q.getId(), 0));
             if (reveal) {
                 m.put("correct", ea.isCorrect());
                 m.put("score", ea.getScore());
@@ -335,6 +362,175 @@ public class ExamService {
         res.put("record", rec);
         res.put("items", items);
         return res;
+    }
+
+    // ===================== 主观题阅卷（管理员） =====================
+
+    /** 待阅卷列表：有 pending 作答的考试记录（按提交时间倒序） */
+    public List<Map<String, Object>> adminPendingGrading() {
+        List<Long> rids = answerRepo.findRecordIdsWithPending();
+        if (rids.isEmpty()) return List.of();
+        List<ExamRecord> recs = new ArrayList<>(recordRepo.findAllById(rids));
+        recs.sort(Comparator.comparing(
+                (ExamRecord r) -> r.getSubmittedAt() == null ? LocalDateTime.MIN : r.getSubmittedAt()).reversed());
+
+        Set<Long> pids = new LinkedHashSet<>();
+        for (ExamRecord r : recs) if (r.getPaperId() != null) pids.add(r.getPaperId());
+        Map<Long, ExamPaper> papers = new LinkedHashMap<>();
+        for (ExamPaper p : paperRepo.findAllById(pids)) papers.put(p.getId(), p);
+        Map<Long, String> names = userNameMap(recs);
+        Map<Long, Integer> pendingMap = new HashMap<>();
+        for (Object[] row : answerRepo.countPendingByRecordIds(rids)) {
+            pendingMap.put(((Number) row[0]).longValue(), ((Number) row[1]).intValue());
+        }
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (ExamRecord r : recs) {
+            ExamPaper p = papers.get(r.getPaperId());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("recordId", r.getId());
+            m.put("userId", r.getUserId());
+            m.put("user", names.getOrDefault(r.getUserId(), "用户#" + r.getUserId()));
+            m.put("paperId", r.getPaperId());
+            m.put("paperTitle", p == null ? ("试卷 #" + r.getPaperId()) : p.getTitle());
+            m.put("score", r.getScore());
+            m.put("pendingCount", pendingMap.getOrDefault(r.getId(), 0));
+            m.put("submittedAt", r.getSubmittedAt());
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** 阅卷详情：记录 + 全部作答（题干 / 学员答案 / 参考答案 / 解析 / 满分） */
+    public Map<String, Object> adminGradingDetail(Long recordId) {
+        ExamRecord rec = recordRepo.findById(recordId)
+                .orElseThrow(() -> new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "考试记录不存在"));
+        List<ExamAnswer> eas = answerRepo.findByRecordId(recordId);
+        List<Long> qids = new ArrayList<>();
+        for (ExamAnswer ea : eas) qids.add(ea.getQuestionId());
+        Map<Long, Question> qMap = new LinkedHashMap<>();
+        for (Question q : questionRepo.findByIdIn(qids)) qMap.put(q.getId(), q);
+        Map<Long, Integer> maxScoreMap = new LinkedHashMap<>();
+        for (ExamPaperQuestion pq : pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(rec.getPaperId())) {
+            maxScoreMap.put(pq.getQuestionId(), pq.getScore());
+        }
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (ExamAnswer ea : eas) {
+            Question q = qMap.get(ea.getQuestionId());
+            if (q == null) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("questionId", q.getId());
+            m.put("type", q.getType());
+            m.put("content", HtmlSanitizer.sanitize(q.getContent()));
+            m.put("userAnswer", ea.getAnswer());
+            m.put("pending", ea.isPending());
+            m.put("score", ea.getScore());
+            m.put("maxScore", maxScoreMap.getOrDefault(q.getId(), 0));
+            m.put("comment", ea.getComment());
+            m.put("analysis", HtmlSanitizer.sanitize(q.getAnalysis()));
+            List<Map<String, Object>> refs = new ArrayList<>();
+            for (QuestionOption o : optionRepo.findByQuestionIdOrderByLabelAsc(q.getId())) {
+                if (!o.isCorrect()) continue;
+                Map<String, Object> om = new LinkedHashMap<>();
+                om.put("label", o.getLabel());
+                om.put("content", HtmlSanitizer.sanitize(o.getContent()));
+                refs.add(om);
+            }
+            m.put("correctAnswer", refs);
+            items.add(m);
+        }
+        rec.setPendingCount((int) answerRepo.countByRecordIdAndPendingTrue(recordId));
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("record", rec);
+        res.put("user", userNameMap(List.of(rec)).getOrDefault(rec.getUserId(), "用户#" + rec.getUserId()));
+        res.put("items", items);
+        return res;
+    }
+
+    /** 提交阅卷：给主观题打分（0 ~ 该题满分），全部阅完后重算总分 / 通过状态 / 首次通过发分 */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> adminGrade(Long recordId, List<GradeItem> items) {
+        ExamRecord rec = recordRepo.findById(recordId)
+                .orElseThrow(() -> new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "考试记录不存在"));
+        if (rec.getSubmittedAt() == null)
+            throw new ResponseStatusException(BAD_REQUEST, "该考试尚未交卷，不能阅卷");
+        if (items == null || items.isEmpty())
+            throw new ResponseStatusException(BAD_REQUEST, "请至少给一道题打分");
+
+        Map<Long, ExamAnswer> byQ = new LinkedHashMap<>();
+        for (ExamAnswer ea : answerRepo.findByRecordId(recordId)) byQ.put(ea.getQuestionId(), ea);
+        Map<Long, Integer> maxScoreMap = new LinkedHashMap<>();
+        for (ExamPaperQuestion pq : pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(rec.getPaperId())) {
+            maxScoreMap.put(pq.getQuestionId(), pq.getScore());
+        }
+
+        int graded = 0;
+        for (GradeItem it : items) {
+            if (it == null || it.questionId == null) continue;
+            ExamAnswer ea = byQ.get(it.questionId);
+            if (ea == null) throw new ResponseStatusException(BAD_REQUEST, "题目不在本次考试中：" + it.questionId);
+            if (!ea.isPending()) continue;   // 已阅过：忽略重复提交，避免覆盖首次给分
+            int max = maxScoreMap.getOrDefault(it.questionId, 0);
+            int sc = Math.max(0, Math.min(it.score == null ? 0 : it.score, max));
+            ea.setScore(sc);
+            ea.setPending(false);
+            ea.setCorrect(sc > 0);
+            ea.setComment(it.comment == null || it.comment.isBlank() ? null
+                    : (it.comment.length() > 500 ? it.comment.substring(0, 500) : it.comment.trim()));
+            answerRepo.save(ea);
+            graded++;
+        }
+
+        // 重算：总分 = 所有作答得分之和；只有全部主观题都阅完才判定通过
+        int total = 0;
+        for (ExamAnswer ea : answerRepo.findByRecordId(recordId)) total += ea.getScore();
+        rec.setScore(total);
+        long pending = answerRepo.countByRecordIdAndPendingTrue(recordId);
+        rec.setPendingCount((int) pending);
+        ExamPaper paper = paperRepo.findById(rec.getPaperId()).orElse(null);
+        int passScore = paper == null ? 60 : paper.getPassScore();
+        boolean passed = pending == 0 && total >= passScore;
+        boolean firstPass = passed && !recordRepo.existsByUserIdAndPaperIdAndPassedTrue(rec.getUserId(), rec.getPaperId());
+        rec.setPassed(passed);
+        recordRepo.save(rec);
+
+        if (passed && firstPass) {
+            String title = paper != null ? paper.getTitle() : "试卷";
+            authService.awardPoints(rec.getUserId(), AuthService.EXAM_PASS_POINTS, "EXAM", "通过考试《" + title + "》");
+            Course course = courseRepo.findByExamPaperId(rec.getPaperId()).stream().findFirst().orElse(null);
+            if (course != null && courseService.certificateOf(rec.getUserId(), course.getId()) != null) {
+                notificationService.notifyCertificate(rec.getUserId(), "系统",
+                        "恭喜！您已完成课程《" + course.getTitle() + "》并获得结业证书，可在个人中心「学习档案 → 我的结业证书」中查看与下载");
+            }
+        }
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("ok", true);
+        res.put("recordId", recordId);
+        res.put("graded", graded);
+        res.put("score", total);
+        res.put("passed", passed);
+        res.put("pendingCount", (int) pending);
+        return res;
+    }
+
+    /** 阅卷提交项 */
+    public static class GradeItem {
+        public Long questionId;
+        public Integer score;
+        public String comment;
+    }
+
+    private Map<Long, String> userNameMap(Collection<ExamRecord> recs) {
+        Set<Long> ids = new LinkedHashSet<>();
+        for (ExamRecord r : recs) ids.add(r.getUserId());
+        Map<Long, String> out = new HashMap<>();
+        for (User u : userRepo.findAllById(ids)) {
+            String n = u.getDisplayName();
+            out.put(u.getId(), (n == null || n.isBlank()) ? u.getUsername() : n);
+        }
+        return out;
     }
 
     // ===================== 管理员侧 =====================

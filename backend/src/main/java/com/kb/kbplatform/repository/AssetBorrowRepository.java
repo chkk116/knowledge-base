@@ -25,6 +25,12 @@ public interface AssetBorrowRepository extends JpaRepository<AssetBorrow, Long> 
 
     List<AssetBorrow> findByStatus(String status);
 
+    /** 已逾期未归还：借出中且应归还日期早于今天 */
+    List<AssetBorrow> findByStatusAndExpectedReturnAtBeforeOrderByExpectedReturnAtAsc(String status, java.time.LocalDate date);
+
+    /** 逾期数量（统计看板红点用） */
+    long countByStatusAndExpectedReturnAtBefore(String status, java.time.LocalDate date);
+
     List<AssetBorrow> findByAssetIdAndStatus(Long assetId, String status);
 
     /** 当前借出数量（统计看板用，直接 COUNT，不拉记录） */

@@ -17,7 +17,7 @@
         <div class="q-hd">
           <el-tag size="small" effect="plain">{{ TYPE_CN[cur.type] || cur.type }}</el-tag>
         </div>
-        <div class="q-body" v-html="cur.content"></div>
+        <div class="q-body pre">{{ cur.content }}</div>
 
         <div class="opts">
           <label
@@ -37,7 +37,7 @@
               @change="pick(o.label)"
             />
             <span class="lab">{{ o.label }}</span>
-            <span class="txt" v-html="o.content"></span>
+            <span class="txt pre">{{ o.content }}</span>
           </label>
         </div>
 
@@ -46,7 +46,7 @@
             {{ result.manual ? '已提交（主观题需人工判分）' : (result.correct ? '✅ 答对了' : '❌ 答错了') }}
             <span class="ans">正确答案：{{ (result.correctAnswer || []).join('、') || '—' }}</span>
           </div>
-          <div v-if="result.analysis" class="res-a" v-html="result.analysis"></div>
+          <div v-if="result.analysis" class="res-a pre">{{ result.analysis }}</div>
         </div>
 
         <div class="acts">
@@ -177,4 +177,6 @@ onMounted(start)
 .sum-n { font-size: 34px; font-weight: 700; }
 .sum-t { color: #6b7280; margin-top: 4px; }
 .sum .acts { justify-content: center; }
+
+.pre { white-space: pre-wrap; word-break: break-word; }
 </style>

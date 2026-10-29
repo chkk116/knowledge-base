@@ -10,6 +10,9 @@ const router = useRouter()
 
 const q = ref(route.query.q || '')
 const category = ref(route.query.category || '')
+const sort = ref(route.query.sort || 'relevance')      // relevance | updated | hot
+const days = ref(route.query.days ? Number(route.query.days) : 0)
+const tags = ref(route.query.tags || '')
 const tab = ref('doc')            // 'doc' = 按文档搜（标题/正文/标签/分类）| 'author' = 按作者名搜其文档
 const docResults = ref([])        // 文档维度结果
 const authorResults = ref([])     // 作者维度结果（输入当作者名）
@@ -37,6 +40,9 @@ const doSearch = () => {
   const query = {}
   if (q.value.trim()) query.q = q.value.trim()
   if (category.value) query.category = category.value
+  if (sort.value && sort.value !== 'relevance') query.sort = sort.value
+  if (days.value) query.days = String(days.value)
+  if (tags.value.trim()) query.tags = tags.value.trim()
   router.push({ path: '/search', query })
 }
 
@@ -46,16 +52,22 @@ let loadSeq = 0
 const load = async () => {
   const kw = (route.query.q || '').trim()
   const cat = route.query.category || ''
+  const so = route.query.sort || 'relevance'
+  const dy = route.query.days ? Number(route.query.days) : 0
+  const tg = route.query.tags || ''
   q.value = kw
   category.value = cat
+  sort.value = so
+  days.value = dy
+  tags.value = tg
   if (!kw && !cat) { docResults.value = []; authorResults.value = []; hasSearched.value = false; return }
   const seq = ++loadSeq
   loading.value = true
   error.value = ''
   hasSearched.value = true
   try {
-    // 文档维度：关键词匹配标题/正文/标签/分类（现有 hybrid）
-    const p1 = search(kw, cat)
+    // 文档维度：关键词匹配标题/正文/标签/分类（hybrid + 排序/时间/标签）
+    const p1 = search(kw, cat, '', { sort: so, days: dy, tags: tg })
     // 作者维度：把输入当作者名，走 SearchService 的 author 路径（解析作者名 → 该作者已发布文档）
     const p2 = kw ? search('', cat, kw) : Promise.resolve({ data: [] })
     const [r1, r2] = await Promise.all([p1, p2])
@@ -73,6 +85,8 @@ const load = async () => {
 watch(() => route.query, load, { immediate: true })
 
 const openPost = (id) => router.push('/post/' + id)
+// 搜索无结果 → 带原关键词去 AI 问答（AiChat 会预填输入框）
+const askAi = () => router.push({ path: '/ai/chat', query: q.value ? { q: q.value } : {} })
 
 const docTotal = computed(() => docResults.value.length)
 const authorTotal = computed(() => authorResults.value.length)
@@ -92,6 +106,18 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
           <option value="">全部分类</option>
           <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
         </select>
+        <select v-model="sort" @change="doSearch" title="排序方式">
+          <option value="relevance">按相关度</option>
+          <option value="updated">最近更新</option>
+          <option value="hot">最热</option>
+        </select>
+        <select v-model="days" @change="doSearch" title="时间范围">
+          <option :value="0">不限时间</option>
+          <option :value="7">近 7 天</option>
+          <option :value="30">近 30 天</option>
+          <option :value="90">近 90 天</option>
+        </select>
+        <input v-model="tags" class="tags-input" placeholder="标签，逗号分隔" @keyup.enter="doSearch" />
         <span class="hint" v-if="hasSearched">共 <b>{{ list.length }}</b> 条结果</span>
       </div>
     </section>
@@ -127,6 +153,10 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
           没有与「<b>{{ q }}</b>」匹配的文档。试试更换关键词，或
           <a @click="router.push('/')">返回首页浏览全部内容</a>。
         </p>
+        <div v-if="tab === 'doc'" class="ai-hint">
+          <button type="button" class="ask-ai" @click="askAi">去问 AI</button>
+          <span>让 AI 基于知识库帮你找，并告诉你答案出自哪篇文档</span>
+        </div>
       </div>
 
       <ul class="grid" v-else-if="list.length">
@@ -142,6 +172,8 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
           <div class="meta">
             <span class="au" v-if="d.ownerName">👤 {{ d.ownerName }}</span>
             <span class="time" v-if="d.updatedAt">更新于 {{ fromNow(d.updatedAt) }}（{{ fmtDateTime(d.updatedAt) }}）</span>
+            <span class="stat" v-if="tab === 'doc' && d.views != null">👁 {{ d.views }}</span>
+            <span class="stat" v-if="tab === 'doc' && d.likes">♥ {{ d.likes }}</span>
             <span class="tag" v-if="d.category">{{ d.category }}</span>
             <span class="tag grey" v-for="t in (d.tags ? d.tags.split(',').map(x=>x.trim()).filter(Boolean) : [])" :key="t">{{ t }}</span>
           </div>
@@ -160,6 +192,8 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
 .go { padding: 12px 18px; border: none; border-radius: 10px; background: #4f46e5; color: #fff; font-size: 15px; cursor: pointer; }
 .filters { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
 .filters select { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.tags-input { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; min-width: 150px; outline: none; }
+.tags-input:focus { border-color: #4f46e5; }
 .back { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #475569; cursor: pointer; font-size: 14px; flex-shrink: 0; }
 .back:hover { border-color: #4f46e5; color: #4f46e5; }
 .hint { color: #64748b; font-size: 13px; }
@@ -180,6 +214,10 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
 .empty h3 { margin: 12px 0 6px; color: #334155; }
 .empty p { font-size: 14px; line-height: 1.7; }
 .empty a { color: #4f46e5; cursor: pointer; }
+.ai-hint { margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ask-ai { padding: 9px 20px; border: 0; border-radius: 999px; background: #4f46e5; color: #fff; font-size: 14px; cursor: pointer; }
+.ask-ai:hover { background: #4338ca; }
+.ai-hint span { font-size: 12.5px; color: #94a3b8; }
 .grid { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }
 .card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; cursor: pointer; transition: .15s; }
 .card:hover { border-color: #4f46e5; box-shadow: 0 4px 14px rgba(79, 70, 229,.12); }
@@ -192,6 +230,7 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
 .meta { margin: 6px 0; display: flex; gap: 6px; flex-wrap: wrap; }
 .au { color: #64748b; font-size: 12px; }
 .time { color: #94a3b8; font-size: 12px; }
+.stat { color: #94a3b8; font-size: 12px; }
 .tag { background: #eef2ff; color: #4f46e5; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
 .tag.grey { background: #f1f5f9; color: #64748b; }
 .snippet { margin: 6px 0 0; color: #475569; font-size: 14px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -202,6 +241,11 @@ html.dark .page { color: var(--el-text-color-primary); }
 html.dark .q { background: var(--el-fill-color-blank); border-color: var(--el-border-color); color: var(--el-text-color-primary); }
 html.dark .q:focus { border-color: #818cf8; }
 html.dark .filters select { background: var(--el-fill-color-blank); border-color: var(--el-border-color); color: var(--el-text-color-primary); }
+html.dark .tags-input { background: var(--el-fill-color-blank); border-color: var(--el-border-color); color: var(--el-text-color-primary); }
+html.dark .tags-input:focus { border-color: #818cf8; }
+html.dark .stat { color: var(--el-text-color-secondary); }
+html.dark .ask-ai { background: #6366f1; }
+html.dark .ai-hint span { color: var(--el-text-color-secondary); }
 html.dark .back { background: var(--el-fill-color); border-color: var(--el-border-color); color: var(--el-text-color-regular); }
 html.dark .back:hover { border-color: #818cf8; color: #a5b4fc; }
 html.dark .hint { color: var(--el-text-color-secondary); }
@@ -244,6 +288,7 @@ html.dark :deep(mark) { background: rgba(250,204,21,.24); color: #fde68a; }
   .go { flex: 1; padding: 10px 14px; font-size: 14px; }
   .filters { gap: 8px; }
   .filters select { flex: 1 1 100%; }
+  .tags-input { flex: 1 1 100%; min-width: 0; }
   .back { flex: 1 1 100%; }
   .grid { grid-template-columns: 1fr; gap: 10px; }
   .card { padding: 12px; }

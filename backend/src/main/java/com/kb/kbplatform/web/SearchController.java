@@ -22,7 +22,10 @@ public class SearchController {
     @GetMapping("/search")
     public List<Map<String, Object>> search(@RequestParam String q,
                                             @RequestParam(required = false) String category,
-                                            @RequestParam(required = false) String author) {
-        return svc.hybrid(q, category, author);
+                                            @RequestParam(required = false) String author,
+                                            @RequestParam(required = false) String sort,
+                                            @RequestParam(required = false) Integer days,
+                                            @RequestParam(required = false) String tags) {
+        return svc.hybrid(q, category, author, sort, days, tags);
     }
 }

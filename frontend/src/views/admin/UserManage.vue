@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Medal, User, UserFilled, Search, Lock, Message } from '@element-plus/icons-vue'
-import { listUsers, createUser, updateUser, deleteUser, toggleUser, adjustPoints, resetPassword, adminUserStorage, getUserDetail, listRoles, listDepartments } from '../../api/admin'
+import { listUsers, createUser, updateUser, deleteUser, toggleUser, adjustPoints, resetPassword, userResetLink, adminUserStorage, getUserDetail, listRoles, listDepartments } from '../../api/admin'
 import PageBar from '../../components/PageBar.vue'
 import { errMsg } from '../../utils/errMsg'
 import { isFullAdminPerms, unionRolePerms } from '../../utils/permCodes'
@@ -209,6 +209,24 @@ const onResetPwd = async (u) => {
   }
 }
 
+/** 生成一次性密码重置链接：管理员转交用户，用户自己设新密码（管理员不接触明文） */
+const onResetLink = async (u) => {
+  try {
+    const { data } = await userResetLink(u.id)
+    const url = `${location.origin}/reset-password?token=${encodeURIComponent(data.token)}`
+    const mins = data.ttlMinutes || 30
+    ElMessageBox.alert(
+      `已生成一次性重置链接（${mins} 分钟内有效，仅可使用一次）：\n\n${url}\n\n请通过安全渠道转交给该用户，由他自己设置新密码。`,
+      '密码重置链接',
+      { confirmButtonText: '复制链接', showCancelButton: true, cancelButtonText: '关闭' }
+    ).then(() => {
+      navigator.clipboard?.writeText(url).then(() => ElMessage.success('链接已复制')).catch(() => {})
+    }).catch(() => {})
+  } catch (e) {
+    ElMessage.error(errMsg(e, '生成失败'))
+  }
+}
+
 const savePoints = async () => {
   if (!pointsForm.value.delta) {
     ElMessage.warning('请输入增减积分')
@@ -231,6 +249,7 @@ const onCmd = (cmd, u) => {
   if (cmd === 'toggle') toggle(u)
   else if (cmd === 'points') openPoints(u)
   else if (cmd === 'reset') onResetPwd(u)
+  else if (cmd === 'reset-link') onResetLink(u)
   else if (cmd === 'delete') remove(u)
 }
 
@@ -339,6 +358,7 @@ const loadOrg = async () => {
                   </el-dropdown-item>
                   <el-dropdown-item command="points">调整积分</el-dropdown-item>
                   <el-dropdown-item command="reset">重置密码</el-dropdown-item>
+                  <el-dropdown-item command="reset-link">生成重置链接</el-dropdown-item>
                   <el-dropdown-item command="delete" divided style="color:#f56c6c">删除</el-dropdown-item>
                 </el-dropdown-menu>
               </template>

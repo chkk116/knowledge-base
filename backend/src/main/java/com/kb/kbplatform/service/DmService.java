@@ -94,7 +94,9 @@ public class DmService {
         return m;
     }
 
-    @Transactional
+    // 注意：send 不能包外层事务（审查 NH4）——事务在锁外开启时，锁释放后本线程的
+    // 写入尚未提交，并发线程在 READ COMMITTED 下看不到，3 条限制会被并发刷穿。
+    // 锁内仅做单条 save（自动提交），配额立即可见；多表一致性无需求。
     public Map<String, Object> send(Long me, Long to, String content, String kind, Long replyId) {
         if (to == null || to.equals(me)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能给自己发私信");
         User peer = users.findById(to).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "对方不存在"));

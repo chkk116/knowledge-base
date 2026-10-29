@@ -26,7 +26,7 @@ export async function normalizeNavPath(path, { mobile = false } = {}) {
   try {
     const { data } = await listAllShareDocs()
     const hit = (data || []).find((d) => Number(d.docId ?? d.id) === docId)
-    if (hit && hit.spaceId) return shareDocPath(hit.spaceId, docId, mobile)
+    if (hit && (hit.spaceId ?? hit.shareId)) return shareDocPath(hit.spaceId ?? hit.shareId, docId, mobile)
   } catch {
     // 查不到就落到列表页
   }
