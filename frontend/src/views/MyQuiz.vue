@@ -7,6 +7,7 @@
       </div>
       <div class="hd-acts">
         <el-button type="primary" :disabled="!list.length" @click="$router.push('/my-quiz/run')">开始刷题</el-button>
+        <el-button plain @click="openGen">从文档生成</el-button>
         <el-button plain @click="openImport">粘贴导入</el-button>
         <el-button plain @click="$router.push('/ai')">让 AI 出题</el-button>
       </div>
@@ -47,6 +48,36 @@
         </el-collapse>
       </div>
     </div>
+    <el-dialog v-model="gen.open" title="从文档生成题目" width="620px" :close-on-click-modal="false">
+      <div class="gen">
+        <el-alert type="info" :closable="false" show-icon
+          title="选一篇你自己的文档，AI 按它的内容出题，直接存进「我的测验」（不进公共题库）。生成需要联网，约 10~30 秒。" />
+        <div class="gen-row">
+          <el-select v-model="gen.docId" filterable placeholder="选择文档（只列你能看的）" class="gen-sel" :loading="gen.loadingDocs">
+            <el-option v-for="d in gen.docs" :key="d.shareId + '-' + d.id"
+                       :label="d.title" :value="d.shareId + ':' + d.id" />
+          </el-select>
+          <el-select v-model="gen.count" class="gen-cnt">
+            <el-option :value="5" label="5 题" />
+            <el-option :value="10" label="10 题" />
+            <el-option :value="15" label="15 题" />
+          </el-select>
+        </div>
+        <div class="gen-row">
+          <el-checkbox v-model="gen.types" label="SINGLE">单选</el-checkbox>
+          <el-checkbox v-model="gen.types" label="MULTI">多选</el-checkbox>
+          <el-checkbox v-model="gen.types" label="JUDGE">判断</el-checkbox>
+        </div>
+        <div v-if="gen.tip" class="gen-tip">{{ gen.tip }}</div>
+      </div>
+      <template #footer>
+        <el-button @click="gen.open = false">关闭</el-button>
+        <el-button type="primary" :loading="gen.running" :disabled="!gen.docId || !gen.types.length" @click="doGen">
+          {{ gen.running ? '生成中…' : '开始生成' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="imp.open" title="粘贴导入题目" width="760px" :close-on-click-modal="false">
       <div class="imp">
         <el-alert type="info" :closable="false" show-icon
@@ -96,11 +127,60 @@ import { onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { selfExamStats, selfExamQuestions, selfExamDeleteQuestion, selfExamBatchCreate } from '../api/training'
 import { parseQuestions } from '../utils/quizParser'
+import { listAllShareDocs } from '../api/docShare'
+import { agentCreateQuestions } from '../utils/questionGen'
 
 const TYPE_CN = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', SUBJECTIVE: '主观' }
 
 // 粘贴导入（纯本地解析，断网可用；只有最后入库需要联网）
 const imp = ref({ open: false, text: '', parsed: [], saving: false, okCount: 0, badCount: 0 })
+// 从文档生成：选文档 → agentCreateQuestions（DOC 源，强制进个人题库）
+const gen = ref({ open: false, docs: [], docId: '', count: 5, types: ['SINGLE', 'JUDGE'], running: false, tip: '', loadingDocs: false })
+
+async function openGen() {
+  gen.value = { ...gen.value, open: true, tip: '', running: false }
+  if (gen.value.docs.length) return
+  gen.value.loadingDocs = true
+  try {
+    const { data } = await listAllShareDocs(false)
+    gen.value.docs = (data || []).map((d) => ({ ...d, id: d.id || d.docId }))
+  } catch (e) {
+    ElMessage.error('文档列表加载失败')
+  } finally {
+    gen.value.loadingDocs = false
+  }
+}
+
+async function doGen() {
+  const [shareId, docId] = String(gen.value.docId).split(':')
+  const doc = gen.value.docs.find((d) => String(d.shareId) === shareId && String(d.id) === docId)
+  if (!doc) return
+  gen.value.running = true
+  gen.value.tip = '正在让 AI 按《' + doc.title + '》出题…'
+  try {
+    const askUser = async (msg, opts) => {
+      try {
+        await ElMessageBox.confirm(msg, '确认', { confirmButtonText: opts?.[0] || '继续', cancelButtonText: opts?.[1] || '取消' })
+        return opts?.[0] || '继续'
+      } catch (e) {
+        return opts?.[1] || '取消'
+      }
+    }
+    const result = await agentCreateQuestions(
+      { topic: doc.title, count: gen.value.count, types: gen.value.types, sourceType: 'DOC', shareId: Number(shareId), docId: Number(docId) },
+      { askUser, isDemo: false, session: {}, forcePersonal: true }
+    )
+    gen.value.tip = typeof result === 'string' ? result : '已生成'
+    ElMessage.success('生成完成，已存入我的题库')
+    gen.value.open = false
+    await load()
+  } catch (e) {
+    gen.value.tip = e?.response?.data?.error || e.message || '生成失败'
+  } finally {
+    gen.value.running = false
+  }
+}
+
 const esc = (s) => String(s || '').replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'))
 
 function openImport() {
@@ -208,4 +288,9 @@ onMounted(load)
 .imp-opts { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: #6b7280; }
 .imp-opts .right { color: #16a34a; font-weight: 600; }
 .imp-warn { margin-top: 4px; font-size: 12px; color: #d97706; }
+
+.gen-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.gen-sel { flex: 1; }
+.gen-cnt { width: 110px; }
+.gen-tip { margin-top: 10px; font-size: 12.5px; color: #6b7280; }
 </style>

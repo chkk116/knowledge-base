@@ -45,7 +45,7 @@ function normUrls(raw) {
  *   模型失败后常会用同样参数重试，若每次都重新弹确认，用户会被问 5、6 遍（2026-10-20 实际发生）。
  * @returns {Promise<string>} 回填进 agent 轨迹的文本
  */
-export async function agentCreateQuestions(args = {}, { askUser, isDemo, session } = {}) {
+export async function agentCreateQuestions(args = {}, { askUser, isDemo, session, forcePersonal = false } = {}) {
   if (isDemo) return '演示账号是只读的，不能出题（请用正式账号登录后再试）'
   if (typeof askUser !== 'function') return '当前环境不支持向用户确认，无法出题'
 
@@ -99,7 +99,8 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
   let data
   try {
     // 没有「考试管理」权限的用户（个人版）走个人自测接口：题库按 个人-{uid} 隔离
-    const isManager = useAuthStore().hasPerm('EXAM_MANAGE')
+    // forcePersonal：从「我的测验」发起的生成，一律进个人题库（哪怕账号是管理员）
+    const isManager = !forcePersonal && useAuthStore().hasPerm('EXAM_MANAGE')
     const genApi = isManager ? adminAiGenerateQuestions : selfExamGenerate
     const res = await genApi({
       topic,
@@ -155,7 +156,8 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
       },
       options: (q.options || []).map((o) => ({ label: o.label, content: o.content, isCorrect: !!o.isCorrect })),
     }))
-    const saveApi = useAuthStore().hasPerm('EXAM_MANAGE') ? adminBatchCreateQuestions : selfExamBatchCreate
+    const saveApi = (!forcePersonal && useAuthStore().hasPerm('EXAM_MANAGE'))
+      ? adminBatchCreateQuestions : selfExamBatchCreate
     const res = await saveApi(items)
     const saved = res.data || res || []
     return `已加入题库 ${saved.length} 道（${basis}）。可在「考试管理 → 题库」查看，或去 /admin/exams 直接组卷。${warn}\n\n${preview}`
