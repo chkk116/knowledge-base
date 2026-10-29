@@ -933,10 +933,16 @@ onBeforeUnmount(() => {
                   <span><b>{{ authorCard.fans }}</b> 粉丝</span>
                 </div>
               </div>
-              <button v-if="auth.loggedIn && auth.user && authorCard && authorCard.id !== auth.user.id"
-                      class="follow-btn" :class="{ on: authorCard.isFollowing }" @click.stop="toggleFollow">
-                {{ authorCard.isFollowing ? '已关注' : '+ 关注' }}
-              </button>
+              <div class="author-acts">
+                <button v-if="auth.loggedIn && auth.user && authorCard && authorCard.id !== auth.user.id"
+                        class="follow-btn" :class="{ on: authorCard.isFollowing }" @click.stop="toggleFollow">
+                  {{ authorCard.isFollowing ? '已关注' : '+ 关注' }}
+                </button>
+                <button v-if="auth.loggedIn && auth.user && authorCard && authorCard.id !== auth.user.id"
+                        class="follow-btn dm-btn" @click.stop="$router.push({ path: '/messages', query: { peer: authorCard.id } })">
+                  私信
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1232,4 +1238,8 @@ html.dark .emoji-btn:hover { background: var(--el-fill-color-light); border-colo
   .toc-list { max-height: 46vh; }
   .lightbox { padding: 12px; }
 }
+
+.author-acts { display: flex; gap: 8px; align-items: center; }
+.follow-btn.dm-btn { background: #fff; color: var(--accent, #1677ff); border: 1px solid var(--accent, #1677ff); }
+.follow-btn.dm-btn:hover { background: rgba(22, 119, 255, .08); }
 </style>

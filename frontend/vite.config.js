@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { gzipSync, brotliCompressSync, constants } from 'node:zlib'
-import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join, extname, relative, isAbsolute, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -45,6 +45,12 @@ function precompressPlugin() {
       outDirAbs = isAbsolute(o) ? o : resolve(config.root, o)
     },
       closeBundle() {
+        // 产物目录不存在时直接跳过：压缩只是给 nginx 用的优化，不该让整个构建失败
+        // （2026-10-29 遇到：rolldown 某些情况下没落盘，插件 scandir 抛 ENOENT 把 build 判失败）
+        if (!existsSync(outDirAbs)) {
+          console.warn('[vite-precompress] 产物目录不存在，跳过预压缩：', outDirAbs)
+          return
+        }
         let total = 0
       let saved = 0
       for (const file of walk(outDirAbs)) {

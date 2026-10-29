@@ -301,6 +301,7 @@ const menus = computed(() => {
     )
     if (featureOpen('ranking')) base.push({ index: '/ranking', title: '积分排行榜', icon: 'TrendCharts' })
     if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: 'AI 问答', icon: 'ChatDotRound' })
+    base.push({ index: '/messages', title: '私信', icon: 'ChatDotRound' })
     if (featureOpen('courses')) base.push({ index: '/study/courses', title: '培训', icon: 'Reading' })
     if (featureOpen('quiz')) base.push({ index: '/quiz', title: '答题', icon: 'Edit' })
     if (featureOpen('doc_shares')) base.push({ index: '/doc-shares', title: '共享文档', icon: 'DocumentCopy' })
