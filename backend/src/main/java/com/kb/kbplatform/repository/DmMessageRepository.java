@@ -10,6 +10,9 @@ public interface DmMessageRepository extends JpaRepository<DmMessage, Long> {
 
     List<DmMessage> findByConvKeyOrderByIdDesc(String convKey, Pageable page);
 
+    /** 向上翻页：取某条消息之前的 n 条（原来的 n*2 窗口在翻旧消息时会提前断页） */
+    List<DmMessage> findTop50ByConvKeyAndIdLessThanOrderByIdDesc(String convKey, Long id, Pageable page);
+
     /** 某人发给某人的总条数（用于「未互关最多 3 条」判定） */
     long countByFromIdAndToId(Long fromId, Long toId);
 

@@ -58,6 +58,12 @@ public class CommentController {
         if (!rateLimit.allow("comment:user:" + c.userId(), 10, 60L * 1000)) {
             throw new BizException("评论过于频繁，请稍后再试");
         }
+        // 与 addGeneric 对齐：审核中/下架的文章不允许评论（审查 r20 High）
+        var d = docRepo.findById(id).orElse(null);
+        if (d == null) throw new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "内容不存在");
+        if (!"PUBLISHED".equals(d.getStatus())) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "内容尚未发布（审核中），暂不可评论");
+        }
         Object pid = body.get("parentId");
         Long parentId = (pid == null || pid.toString().isBlank()) ? null : Long.valueOf(pid.toString());
         return svc.add(id, c, (String) body.get("content"), parentId);

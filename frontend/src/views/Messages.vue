@@ -135,6 +135,7 @@ const following = ref(false)
 const quota = reactive({ mutual: false, replied: false, sent: 0, remaining: -1, limited: false, peerAllowDm: true })
 const settings = reactive({ open: false, allowDm: true })
 const scroller = ref(null)
+let openSeq = 0
 
 const filtered = computed(() => {
   const k = kw.value.trim()
@@ -168,8 +169,12 @@ async function openPeer(peerId, info) {
   following.value = !!known?.isFollowing
   loading.value = true
   draft.value = ''
+  msgs.value = []          // 立刻清空，避免上一个会话的消息闪现（审查 r20 High）
+  quoteRef.value = null
+  const stamp = ++openSeq   // 请求序号：返回时若已切走则丢弃，防止串会话
   try {
     const [m, q] = await Promise.all([dmMessages(peerId), dmQuota(peerId)])
+    if (openSeq !== stamp || peer.value?.peerId !== peerId) return
     msgs.value = m.data || []
     Object.assign(quota, q.data || {})
     await dmRead(peerId)
@@ -178,9 +183,9 @@ async function openPeer(peerId, info) {
     if (c) c.unread = 0
     await scrollBottom()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.error || '加载失败')
+    if (openSeq === stamp) ElMessage.error(e?.response?.data?.error || '加载失败')
   } finally {
-    loading.value = false
+    if (openSeq === stamp) loading.value = false
   }
 }
 
@@ -288,8 +293,10 @@ function startPoll() {
   timer = setInterval(async () => {
     if (document.hidden) return
     if (peer.value) {
+      const pid = peer.value.peerId
       try {
-        const { data } = await dmMessages(peer.value.peerId)
+        const { data } = await dmMessages(pid)
+        if (!peer.value || peer.value.peerId !== pid) return   // 期间已切走，丢弃
         if ((data || []).length !== msgs.value.length) {
           const atBottom = scroller.value && (scroller.value.scrollHeight - scroller.value.scrollTop - scroller.value.clientHeight < 60)
           msgs.value = data || []

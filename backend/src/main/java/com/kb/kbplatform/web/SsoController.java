@@ -12,6 +12,7 @@ import com.kb.kbplatform.service.LdapAuthService;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
+import java.util.List;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -463,8 +464,16 @@ public class SsoController {
         return out;
     }
 
+    // 回调落地站点白名单：origin 只允许本站域名，防止令牌被 302 带到外部域（审查 r20 critical）
+    private static final List<String> BASE_ALLOWLIST = List.of(
+            "https://你的域名", "https://www.你的域名",
+            "http://localhost:5173", "http://127.0.0.1:5173"
+    );
+
     private static String base(String origin) {
-        return origin == null ? "" : origin.replaceAll("/+$", "");
+        if (origin == null) return "";
+        String o = origin.replaceAll("/+$", "");
+        return BASE_ALLOWLIST.contains(o) ? o : "";
     }
 
     private static org.springframework.http.ResponseEntity<Void> found(String url) {

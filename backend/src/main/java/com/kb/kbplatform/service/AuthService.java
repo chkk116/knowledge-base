@@ -128,6 +128,8 @@ public class AuthService {
             pointsNow = awardPoints(u.getId(), LOGIN_POINTS, "LOGIN", "每日登录");
             u.setLastLoginDate(today);
         }
+        // awardPoints 走原子 JPQL 增量，u 里还是旧余额：直接 save 会把刚加的分覆盖回去（审查 r20 critical）
+        u.setPoints(pointsNow);
         userRepo.save(u);
         return sessionMap(u, pointsNow);
     }

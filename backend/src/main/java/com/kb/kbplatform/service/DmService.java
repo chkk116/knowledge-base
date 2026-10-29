@@ -32,6 +32,12 @@ public class DmService {
     private static final int STRANGER_LIMIT = 3;
     private static final int MAX_LEN = 2000;
 
+    /**
+     * 会话级发送锁：配额是「检查后写入」，并发下可被绕过（审查 r20 High）。
+     * 单实例部署用 JVM 锁即可；上多实例时要换成数据库行锁或 Redis 锁。
+     */
+    private final Map<String, Object> convLocks = new java.util.concurrent.ConcurrentHashMap<>();
+
     private final DmMessageRepository msgs;
     private final DmSettingRepository settings;
     private final FollowRepository follows;
@@ -99,11 +105,14 @@ public class DmService {
         if (text.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "消息不能为空");
         if (text.length() > MAX_LEN) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "消息太长（上限 " + MAX_LEN + " 字）");
 
-        Map<String, Object> q = quota(me, to);
-        if (Boolean.TRUE.equals(q.get("limited")) && ((Number) q.get("remaining")).longValue() <= 0) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "你们还没有互相关注，最多先发 " + STRANGER_LIMIT + " 条；等对方回复后就可以继续聊");
-        }
+        // 会话级锁：让「查配额 → 落库」对同一会话串行，防止并发请求把 3 条限制刷穿
+        Object lock = convLocks.computeIfAbsent(DmMessage.convKey(me, to), k -> new Object());
+        synchronized (lock) {
+            Map<String, Object> q = quota(me, to);
+            if (Boolean.TRUE.equals(q.get("limited")) && ((Number) q.get("remaining")).longValue() <= 0) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "你们还没有互相关注，最多先发 " + STRANGER_LIMIT + " 条；等对方回复后就可以继续聊");
+            }
 
         DmMessage m = new DmMessage();
         m.setConvKey(DmMessage.convKey(me, to));
@@ -147,16 +156,20 @@ public class DmService {
         ret.put("id", m.getId());
         ret.put("quota", quota(me, to));
         return ret;
+        }   // 会话锁结束
     }
 
     /** 会话历史（升序返回，beforeId 用于向上翻页） */
     public List<Map<String, Object>> history(Long me, Long peer, Long beforeId, int size) {
         int n = Math.min(Math.max(size, 1), 50);
-        List<DmMessage> list = msgs.findByConvKeyOrderByIdDesc(DmMessage.convKey(me, peer), PageRequest.of(0, n * 2));
+        String key = DmMessage.convKey(me, peer);
+        // 游标分页：beforeId 有值时走 IdLessThan 查询，翻多老的历史都不会断页
+        List<DmMessage> list = beforeId == null
+                ? msgs.findByConvKeyOrderByIdDesc(key, PageRequest.of(0, n))
+                : msgs.findTop50ByConvKeyAndIdLessThanOrderByIdDesc(key, beforeId, PageRequest.of(0, n));
         List<Map<String, Object>> out = new ArrayList<>();
         for (int i = list.size() - 1; i >= 0; i--) {
             DmMessage m = list.get(i);
-            if (beforeId != null && m.getId() >= beforeId) continue;
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", m.getId());
             row.put("fromId", m.getFromId());

@@ -49,6 +49,7 @@ public class LikeController {
     @PostMapping("/{docId}")
     public Map<String, Object> toggle(@RequestAttribute("kbUser") TokenClaims c,
                                       @PathVariable Long docId) {
+        assertInteractive(docId);
         boolean liked = svc.toggle(resolveUserId(c), docId);
         return Map.of("liked", liked, "likes", svc.likeCount(docId));
     }
@@ -78,8 +79,10 @@ public class LikeController {
             case "SDOC" -> {                      // 空间文档：独立表
                 // 外部审查 2026-10-12：ownerId 一律由服务端按 targetId 反查真实属主，
                 // 不再采信客户端入参——否则可定向给任意 userId 触发点赞通知（骚扰面）。
-                Long realOwner = sharedDocRepo.findById(req.targetId)
-                        .map(SharedDocument::getOwnerId).orElse(null);
+                var sdoc = sharedDocRepo.findById(req.targetId).orElse(null);
+                if (sdoc == null) throw new ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "文档不存在");
+                Long realOwner = sdoc.getOwnerId();
                 liked = svc.toggleShared(uid, req.targetId, realOwner);
                 return Map.of("liked", liked, "likes", svc.sharedLikeCount(req.targetId));
             }

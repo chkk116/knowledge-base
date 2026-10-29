@@ -181,7 +181,7 @@ async function doGen() {
   }
 }
 
-const esc = (s) => String(s || '').replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'))
+const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 function openImport() {
   imp.value = { open: true, text: '', parsed: [], saving: false, okCount: 0, badCount: 0 }
