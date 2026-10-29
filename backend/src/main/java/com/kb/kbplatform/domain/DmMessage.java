@@ -47,6 +47,16 @@ public class DmMessage {
     @Column(name = "read_at")
     private LocalDateTime readAt;
 
+    /** 引用回复：reply_id=被引消息 id，reply_from=被引消息作者，reply_text=被引内容快照（截 200 字） */
+    @Column(name = "reply_id")
+    private Long replyId;
+
+    @Column(name = "reply_from")
+    private Long replyFrom;
+
+    @Column(name = "reply_text", length = 200)
+    private String replyText;
+
     public static String convKey(Long a, Long b) {
         long x = Math.min(a, b), y = Math.max(a, b);
         return x + "_" + y;
@@ -68,4 +78,10 @@ public class DmMessage {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getReadAt() { return readAt; }
     public void setReadAt(LocalDateTime readAt) { this.readAt = readAt; }
+    public Long getReplyId() { return replyId; }
+    public void setReplyId(Long replyId) { this.replyId = replyId; }
+    public Long getReplyFrom() { return replyFrom; }
+    public void setReplyFrom(Long replyFrom) { this.replyFrom = replyFrom; }
+    public String getReplyText() { return replyText; }
+    public void setReplyText(String replyText) { this.replyText = replyText; }
 }

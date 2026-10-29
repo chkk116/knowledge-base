@@ -87,7 +87,7 @@ public class DmService {
     }
 
     @Transactional
-    public Map<String, Object> send(Long me, Long to, String content, String kind) {
+    public Map<String, Object> send(Long me, Long to, String content, String kind, Long replyId) {
         if (to == null || to.equals(me)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能给自己发私信");
         User peer = users.findById(to).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "对方不存在"));
         if (!peer.isEnabled()) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "对方账号不可用");
@@ -109,6 +109,17 @@ public class DmService {
         m.setToId(to);
         m.setKind("IMAGE".equalsIgnoreCase(kind) ? "IMAGE" : "TEXT");
         m.setContent(text);
+        // 引用快照：只截 200 字存下来，避免前端渲染引用时再翻历史
+        if (replyId != null) {
+            DmMessage ref = msgs.findById(replyId).orElse(null);
+            if (ref != null && ref.getConvKey().equals(DmMessage.convKey(me, to))) {
+                m.setReplyId(ref.getId());
+                m.setReplyFrom(ref.getFromId());
+                String snap = ref.getContent() == null ? "" : ref.getContent();
+                if (snap.length() > 200) snap = snap.substring(0, 200);
+                m.setReplyText(snap);
+            }
+        }
         m.setCreatedAt(LocalDateTime.now());
         msgs.save(m);
 
@@ -120,6 +131,11 @@ public class DmService {
             ev.put("fromId", me);
             ev.put("content", text);
             ev.put("createdAt", m.getCreatedAt());
+            if (m.getReplyId() != null) {
+                ev.put("replyId", m.getReplyId());
+                ev.put("replyFrom", m.getReplyFrom());
+                ev.put("replyText", m.getReplyText());
+            }
             sse.pushDm(to, ev);
         } catch (Exception ignore) {
             // 推送失败不影响消息落库（离线用户靠下次拉取）
@@ -146,6 +162,11 @@ public class DmService {
             row.put("content", m.getContent());
             row.put("createdAt", m.getCreatedAt());
             row.put("read", m.getReadAt() != null);
+            if (m.getReplyId() != null) {
+                row.put("replyId", m.getReplyId());
+                row.put("replyFrom", m.getReplyFrom());
+                row.put("replyText", m.getReplyText());
+            }
             out.add(row);
             if (out.size() >= n) break;
         }
@@ -195,6 +216,41 @@ public class DmService {
             }
         }
         return n;
+    }
+
+    /** 撤回窗口：2 分钟内（与飞书/微信一致） */
+    private static final long RECALL_WINDOW_MS = 2 * 60 * 1000L;
+
+    /**
+     * 撤回消息：仅发送者本人、2 分钟内。
+     * 不物理删除（要留审计痕迹），改成 kind=RECALL + content 清空；
+     * 双方通过 SSE 收到 dm-recall 事件即时替换气泡，不必刷新。
+     */
+    @Transactional
+    public Map<String, Object> recall(Long me, Long messageId) {
+        DmMessage m = msgs.findById(messageId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "消息不存在"));
+        if (!m.getFromId().equals(me)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只能撤回自己发的消息");
+        if ("RECALL".equals(m.getKind())) return Map.of("recalled", true);
+        long age = java.time.Duration.between(m.getCreatedAt(), LocalDateTime.now()).toMillis();
+        if (age > RECALL_WINDOW_MS) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "超过 2 分钟，无法撤回");
+        }
+        m.setKind("RECALL");
+        m.setContent("");
+        msgs.save(m);
+
+        Map<String, Object> ev = new LinkedHashMap<>();
+        ev.put("type", "dm-recall");
+        ev.put("id", m.getId());
+        ev.put("fromId", m.getFromId());
+        ev.put("toId", m.getToId());
+        try {
+            sse.pushDmEvent(m.getToId(), "dm-recall", ev);
+            sse.pushDmEvent(m.getFromId(), "dm-recall", ev);   // 自己的其它标签页也要同步
+        } catch (Exception ignore) {
+        }
+        return Map.of("recalled", true);
     }
 
     public long unreadTotal(Long me) {

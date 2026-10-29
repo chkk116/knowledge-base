@@ -57,7 +57,14 @@ public class DmController {
         if (to == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少收件人");
         String content = body.get("content") == null ? "" : String.valueOf(body.get("content"));
         String kind = body.get("kind") == null ? "TEXT" : String.valueOf(body.get("kind"));
-        return svc.send(uid(c), to, content, kind);
+        Long replyId = body.get("replyId") instanceof Number n2 ? n2.longValue() : null;
+        return svc.send(uid(c), to, content, kind, replyId);
+    }
+
+    /** 撤回自己发的消息（2 分钟内） */
+    @DeleteMapping("/messages/{id}")
+    public Map<String, Object> recall(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+        return svc.recall(uid(c), id);
     }
 
     @PostMapping("/read")

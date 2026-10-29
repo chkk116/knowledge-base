@@ -51,6 +51,10 @@
           <div v-for="(m, i) in msgs" :key="m.id" class="dm-row" :class="{ mine: m.fromId === meId }">
             <div v-if="m.kind === 'RECALL'" class="recalled">对方撤回了一条消息</div>
             <div v-else class="bubble" :class="{ img: m.kind === 'IMAGE' }">
+              <div v-if="m.replyId" class="quote">
+                <span class="q-from">{{ m.replyFrom === meId ? '我' : (peer.name || '对方') }}</span>
+                <span class="q-txt">{{ m.replyText }}</span>
+              </div>
               <img v-if="m.kind === 'IMAGE'" :src="m.content" class="img" />
               <span v-else>{{ m.content }}</span>
             </div>
@@ -58,6 +62,7 @@
             <div class="meta">
               <span class="t">{{ clock(m.createdAt) }}</span>
               <span v-if="m.fromId === meId && m.read" class="read">已读</span>
+              <span v-if="m.kind !== 'RECALL'" class="recall" @click="quote(m)">引用</span>
               <span v-if="m.fromId === meId && canRecall(m)" class="recall" @click="recall(m)">撤回</span>
             </div>
           </div>
@@ -67,6 +72,10 @@
           你们还没有互相关注，最多先发 {{ 3 - quota.sent }} 条（对方回复后可继续）
         </div>
 
+        <div v-if="quoteRef" class="quote-bar">
+          <span class="q-body">{{ quoteRef.fromMe ? '我' : peer.name }}：{{ quoteRef.text.slice(0, 60) }}</span>
+          <el-button text size="small" @click="quoteRef = null">取消</el-button>
+        </div>
         <footer class="dm-input">
           <el-button text :disabled="!quota.peerAllowDm || sending" @click="pickImage" title="发送图片">
             <el-icon><Picture /></el-icon>
@@ -119,6 +128,7 @@ const kw = ref('')
 const peer = ref(null)
 const msgs = ref([])
 const draft = ref('')
+const quoteRef = ref(null)
 const loading = ref(false)
 const sending = ref(false)
 const following = ref(false)
@@ -190,7 +200,8 @@ async function onPickImage(e) {
     const { data } = await uploadFile(f)
     const url = data?.data?.url || data?.url
     if (!url) throw new Error('上传返回异常')
-    const { data: r } = await dmSend(peer.value.peerId, url, 'IMAGE')
+    const { data: r } = await dmSend(peer.value.peerId, url, 'IMAGE', quoteRef.value?.id ?? null)
+    quoteRef.value = null
     msgs.value.push({ id: r.id, fromId: meId.value, kind: 'IMAGE', content: url, createdAt: new Date().toISOString(), read: false })
     if (r.quota) Object.assign(quota, r.quota)
     await scrollBottom()
@@ -223,8 +234,9 @@ async function send() {
   sending.value = true
   const text = draft.value.trim()
   try {
-    const { data } = await dmSend(peer.value.peerId, text)
+    const { data } = await dmSend(peer.value.peerId, text, 'TEXT', quoteRef.value?.id ?? null)
     draft.value = ''
+    quoteRef.value = null
     msgs.value.push({
       id: data.id, fromId: meId.value, kind: 'TEXT', content: text,
       createdAt: new Date().toISOString(), read: false,
@@ -300,6 +312,7 @@ async function onDmEvent(ev) {
       msgs.value.push({
         id: d.id, fromId: d.fromId, kind: 'TEXT', content: d.content,
         createdAt: d.createdAt || new Date().toISOString(), read: true,
+        replyId: d.replyId, replyFrom: d.replyFrom, replyText: d.replyText,
       })
       try { await dmRead(peer.value.peerId); refreshDmUnread() } catch (e) { /* ignore */ }
       if (atBottom) await scrollBottom()
@@ -375,4 +388,13 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .meta .recall { cursor: pointer; color: #9ca3af; }
 .meta .recall:hover { color: #ef4444; text-decoration: underline; }
 .hidden-file { display: none; }
+
+.quote { border-left: 2px solid #b4c7ff; background: #f5f7ff; color: #6b7280;
+  font-size: 12px; padding: 4px 8px; border-radius: 6px; margin-bottom: 6px;
+  display: flex; flex-direction: column; gap: 2px; }
+.quote .q-from { font-weight: 600; color: #4b6bfb; }
+.quote .q-txt { max-height: 44px; overflow: hidden; }
+.quote-bar { display: flex; align-items: center; gap: 8px; padding: 6px 16px;
+  background: #f5f7ff; border-top: 1px solid #e6ecff; font-size: 12.5px; color: #4b5563; }
+.quote-bar .q-body { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
