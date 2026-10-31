@@ -522,6 +522,13 @@ async function newConversation() {
  * 只支持标题 / 列表 / 加粗 / 代码块 / 段落 —— 够 Agent 产出用，且零依赖。
  */
 function mdToHtml(md) {
+  const src0 = String(md || '')
+  // 正文本身是 HTML（Agent 读回原文再写回）：直接返回，避免二次转义成一堆 &lt;p&gt;。
+  // 安全性由后端 DocumentController 入库时的 HtmlSanitizer.sanitize 保证。
+  if (/<(h[1-6]|p|ul|ol|li|div|table|blockquote|video|img|figure)\b/i.test(src0)
+      && !/^#{1,6}\s/m.test(src0)) {
+    return src0
+  }
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')   // 引号必须转义：alt/src 属性位置可被注入 onerror（外部复审 2026-10-08）
   const out = []
   let inCode = false
