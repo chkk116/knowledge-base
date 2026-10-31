@@ -47,6 +47,29 @@ public class AiConversationService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    /** 标题清洗：剥掉 Agent 内部标记，防止「【任务】【最近的对话】…」进库 */
+    private static String sanitizeTitle(String raw) {
+        if (raw == null) return null;
+        String t = raw
+                .replaceAll("【(任务|最近的对话|本次任务|已执行的步骤与结果|要求|工具返回)】", " ")
+                .replaceAll("(?m)^\\s*(用户|助手)：", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (t.isEmpty()) return null;
+        return t.length() > 40 ? t.substring(0, 40) : t;
+    }
+
+    /** 消息清洗：模型复述内部指令时整段替换，避免把工具手册存进会话 */
+    private static String sanitizeMessage(String text) {
+        if (text == null) return null;
+        boolean leaked = text.length() > 400
+                && (text.contains("工作方式要求") || text.contains("工具列表")
+                    || text.contains("可用工具（需要时输出") || text.contains("禁止在回答中复述"))
+                && text.contains("TOOL:");
+        if (!leaked) return text;
+        return "这次模型把内部指令原样复述了，没给结论。\n\n再发一次通常就好；也可以把任务说小一点。";
+    }
+
     public AiConversation create(Long userId, String title) {
         long count = convRepo.countByUserId(userId);
         if (count >= MAX_CONVERSATIONS) {
@@ -59,7 +82,8 @@ public class AiConversationService {
         }
         AiConversation c = new AiConversation();
         c.setUserId(userId);
-        c.setTitle(title == null || title.isBlank() ? "新对话" : title.trim());
+        String st = sanitizeTitle(title);
+        c.setTitle(st == null ? "新对话" : st);
         return convRepo.save(c);
     }
 
@@ -70,7 +94,7 @@ public class AiConversationService {
         if (!c.getUserId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权操作该会话");
         }
-        if (title != null) c.setTitle(title.trim());
+        if (title != null) { String st2 = sanitizeTitle(title); if (st2 != null) c.setTitle(st2); }
         if (instructions != null) c.setInstructions(instructions.trim());
         return convRepo.save(c);
     }
@@ -180,7 +204,7 @@ public class AiConversationService {
         AiMessage userMsg = new AiMessage();
         userMsg.setConversationId(c.getId());
         userMsg.setRole("user");
-        userMsg.setContent(question);
+        userMsg.setContent(sanitizeMessage(question));
         userMsg.setMode(mode);
         msgRepo.save(userMsg);
 
@@ -222,7 +246,7 @@ public class AiConversationService {
         AiMessage aiMsg = new AiMessage();
         aiMsg.setConversationId(c.getId());
         aiMsg.setRole("ai");
-        aiMsg.setContent(answer);
+        aiMsg.setContent(sanitizeMessage(answer));
         aiMsg.setMode(mode);
         if (sources instanceof List && !((List<?>) sources).isEmpty()) {
             try {
