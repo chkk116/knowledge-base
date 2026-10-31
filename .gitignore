@@ -92,3 +92,8 @@ outputs/.deploykey
 
 # 构建残留（maven 备份目录）
 backend/.target_old_*/
+outputs/.bundle-signing-key.pem
+outputs/.bundle-signing-pub.pem
+outputs/.bundle-signing-pub.b64
+# filter-branch 临时目录
+.git-rewrite/
