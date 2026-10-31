@@ -671,7 +671,7 @@ async function sendAgent(raw) {
           const { data } = await api.post('/ai/video', { prompt })
           const taskId = data && data.taskId
           if (!taskId) return '视频提交失败：未返回任务 id'
-          const deadline = Date.now() + 4 * 60 * 1000
+          const deadline = Date.now() + 6 * 60 * 1000
           while (Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, 5000))
             try {
