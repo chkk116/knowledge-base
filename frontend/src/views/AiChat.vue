@@ -587,7 +587,7 @@ function sanitizeAnswer(t) {
     && /(工作方式要求|工具列表|可用工具（需要时输出|禁止在回答中复述)/.test(x)
     && x.includes('TOOL:')
   if (!looksLeaked) return x
-  return '这次模型把内部指令原样复述了，没给结论。\n\n再发一次通常就好；也可以把任务说小一点（例如「给《xxx》加一个 10 秒的仓储短视频」）。'
+  return '本次没有生成有效回答，请重试一次。'
 }
 
 /** 剥离 Agent 内部标记（防「重试/回填」把【任务】【最近的对话】当用户输入存库） */
@@ -611,9 +611,16 @@ async function sendAgent(raw) {
   if (loading.value) return
 
   let convId = currentId.value
-  // 当前会话还是空的就直接复用，避免「发一次任务多一个空壳会话」
-  if (!convId && conversations.value.length && !(convMessages.value[currentId.value] || []).length) {
-    convId = currentId.value = conversations.value[0].id
+  // 当前会话丢了（刷新/清理/多标签）时，优先复用最近 30 分钟内创建的会话，
+  // 避免「发一次任务就多一个会话」——会话列表被同名任务刷屏
+  if (!convId && conversations.value.length) {
+    const top = conversations.value[0]
+    const t = new Date(top.createdAt || top.updatedAt || 0).getTime()
+    if (!t || Date.now() - t < 30 * 60 * 1000) {
+      convId = currentId.value = top.id
+      localStorage.setItem(STORAGE_KEY, String(top.id))
+      if (!convMessages.value[top.id]) { try { await loadMessages(top.id) } catch (e) {} }
+    }
   }
   if (!convId) {
     creating.value = true
@@ -832,6 +839,15 @@ async function send(text) {
   const titleBase = raw || ('附件：' + fileNames.join('、'))
 
   let convId = currentId.value
+  if (!convId && conversations.value.length) {
+    const top = conversations.value[0]
+    const t = new Date(top.createdAt || top.updatedAt || 0).getTime()
+    if (!t || Date.now() - t < 30 * 60 * 1000) {
+      convId = currentId.value = top.id
+      localStorage.setItem(STORAGE_KEY, String(top.id))
+      if (!convMessages.value[top.id]) { try { await loadMessages(top.id) } catch (e) {} }
+    }
+  }
   if (!convId) {
     creating.value = true
     try {

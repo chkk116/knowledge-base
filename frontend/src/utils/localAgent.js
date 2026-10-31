@@ -130,7 +130,7 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
           && /(工作方式要求|工具列表|可用工具（需要时输出|禁止在回答中复述)/.test(out)
           && out.includes('TOOL:'))
     if (leaked) {
-      answer = '这次模型把任务描述原样复述了一遍，没给出结论。\n\n再发一次通常就好了；也可以把任务说小一点（例如「出 3 道关于 VLAN 的单选题，加进题库」）。'
+      answer = '本次没有生成有效回答，请重试一次。'
       break
     }
 
