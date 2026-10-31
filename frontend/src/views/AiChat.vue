@@ -55,6 +55,9 @@ const input = ref('')
 const loadingSet = ref(new Set())
 const loading = computed(() => (currentId.value ? loadingSet.value.has(currentId.value) : false))
 const abortCtrl = ref(null)   // 当前请求的中断控制器（停止生成按钮用）
+// video generation polls status async; timers are tracked here and cleared on unmount.
+// (previously referenced without declaration -> ReferenceError on opening AiChat)
+const videoTimers = new Set()
 function stopAi() { abortCtrl.value?.abort() }
 const bodyRef = ref(null)
 const messages = computed(() => (currentId.value ? (convMessages.value[currentId.value] || []) : []))
@@ -536,6 +539,23 @@ function mdToHtml(md) {
     // 图片：![说明](url) —— Agent 用 list_my_files 拿到 url 后这样插入
     const img = line.match(/^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/)
     if (img) { closeList(); out.push(`<img src="${esc(img[2])}" alt="${esc(img[1])}"/>`); continue }
+    // Agent 有时写 HTML 图片（<p align="center"><img src width></p> 或单行 <img>）：
+    // 只白名单提取 src/alt/width，源必须本站 /uploads 或 data:image，其余 HTML 仍按文本转义
+    const htmlImg = line.match(/^(?:<p[^>]*>\s*)?<img\b([^>]*)>(?:\s*<\/p>)?\s*$/i)
+    if (htmlImg) {
+      const attrs = htmlImg[1]
+      const srcM = attrs.match(/src\s*=\s*["']([^"']+)["']/i)
+      const src = srcM ? srcM[1] : ''
+      if (/^\/(uploads|emojis)\//i.test(src) || /^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(src)) {
+        const altM = attrs.match(/alt\s*=\s*["']([^"']*)["']/i)
+        const wM = attrs.match(/width\s*=\s*["']?(\d{1,3}%|\d{2,4})["']?/i)
+        closeList()
+        out.push(`<img class="ai-html-img" src="${esc(src)}" alt="${esc(altM ? altM[1] : '')}"`
+          + (wM ? ` style="max-width:${wM[1].endsWith('%') ? wM[1] : Math.min(Number(wM[1]), 900) + 'px'}"` : '')
+          + ' />')
+        continue
+      }
+    }
     // 视频 / 音频：@[video](url) / @[audio](url)（HTML 标签会被转义，故用专门语法）
     const media = line.match(/^@\[(video|audio)\]\(([^)\s]+)\)\s*$/)
     if (media) {
@@ -560,6 +580,14 @@ function mdToHtml(md) {
  * Agent 模式：ReAct 编排 + 本地工具（检索 / 读文档 / 写文档 / 改文档 / 跳转）。
  * 与移动端同一套引擎（utils/localAgent），走「通用」模式的无状态调用，不进后端会话。
  */
+/** 剥离 Agent 内部标记（防「重试/回填」把【任务】【最近的对话】当用户输入存库） */
+function sanitizeInput(t) {
+  let x = String(t || '')
+  x = x.replace(/【(任务|最近的对话|本次任务|已执行的步骤与结果|要求|工具返回)】/g, '')
+  x = x.replace(/^\s*(用户|助手)：/gm, '')
+  return x.replace(/\n{3,}/g, '\n\n').trim()
+}
+
 /** 会话标题：取第一行有效文字，剥掉【】包装与思考残留，控制在 20 字内 */
 function cleanTitle(raw) {
   let t = String(raw || '').split('\n').find((l) => l.trim()) || '新对话'
@@ -597,9 +625,10 @@ async function sendAgent(raw) {
   // 历史按模型窗口的 35% 取（其余留给工具手册、资料与回答），不再写死「6 条 × 400 字」
   const budget = Math.max(2000, Math.floor(ctxWindow.value * 0.35))
   const history = historyToText(pickHistory(convMessages.value[convId] || [], budget))
-  const task = thinkPrefix(think.value) + (history ? `【最近的对话】\n${history}\n\n【本次任务】${raw}` : raw)
+  const cleanTask = sanitizeInput(raw)
+  const task = thinkPrefix(think.value) + (history ? `【最近的对话】\n${history}\n\n【本次任务】${cleanTask}` : cleanTask)
 
-  convMessages.value[convId] = [...(convMessages.value[convId] || []), { role: 'user', content: raw }]
+  convMessages.value[convId] = [...(convMessages.value[convId] || []), { role: 'user', content: cleanTask }]
   input.value = ''
   attachments.value = []
   loadingSet.value.add(convId)
@@ -791,11 +820,12 @@ async function send(text) {
   }
 
   const curUser = convMessages.value[convId] || []
-  convMessages.value[convId] = [...curUser, { role: 'user', content: raw, files: fileNames.length ? fileNames : null }]
+  const cleanRaw = sanitizeInput(raw)
+  convMessages.value[convId] = [...curUser, { role: 'user', content: cleanRaw, files: fileNames.length ? fileNames : null }]
 
   const conv = conversations.value.find((c) => c.id === convId)
   if (conv && (conv.title === '新对话' || !conv.title)) {
-    const newTitle = titleBase.length > 20 ? titleBase.slice(0, 20) + '…' : titleBase
+    const newTitle = cleanTitle(sanitizeInput(titleBase))
     conv.title = newTitle
     updateConversation(convId, { title: newTitle }).catch(() => {})
   }

@@ -775,10 +775,11 @@ async function send(text) {
 
   const fileNames = attachments.value.map((a) => a.name)
   const cur = convMessages.value[convId] || []
-  convMessages.value[convId] = [...cur, { role: 'user', content: q, files: fileNames.length ? fileNames : null }]
+  const cleanQ = sanitizeInput(q)
+  convMessages.value[convId] = [...cur, { role: 'user', content: cleanQ, files: fileNames.length ? fileNames : null }]
   const conv = conversations.value.find((c) => c.id === convId)
   if (conv && (conv.title === '新对话' || !conv.title)) {
-    const t = q.length > 20 ? q.slice(0, 20) + '…' : q
+    const t = sanitizeInput(q).slice(0, 20) || '新对话'
     conv.title = t
     updateConversation(convId, { title: t }).catch(() => {})
   }
