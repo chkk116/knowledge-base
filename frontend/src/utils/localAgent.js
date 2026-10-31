@@ -31,7 +31,11 @@ TOOL: {"tool":"工具名","args":{...}}
    · **给文章配图**：先 create_image 拿到图片 URL，再在 create_doc / update_doc 的正文里
      以**独立一行**插入图片语法：![图片说明](/uploads/…)（一篇文章多张图就多次调用、每张独占一行），
      图片会随正文一起保存并在文章页正常显示。
-8. navigate —— 跳转到本应用内的页面。参数 {"path":"/m/doc/12/34"}（共享文档页为 /m/doc/<空间id>/<文档id>；首页 /m/home、文档库 /m/docs、我的 /m/profile）
+8. create_video —— 生成一段短视频（文生视频，约 5-10 秒画面）。参数 {"prompt":"视频描述，含主体、动作、镜头语言"}
+   · **较慢**：一次调用会同步等待 1-4 分钟，期间不要重复调用；返回里带「视频已生成，Markdown：@[video](/uploads/…)」。
+   · 给文章配视频：拿到 URL 后，在 update_doc 正文里以**独立一行**插入 @[video](/uploads/…mp4)。
+   · 用户明确要视频/短视频时才用；只要插图请用 create_image（更快更便宜）。
+9. navigate —— 跳转到本应用内的页面。参数 {"path":"/m/doc/12/34"}（共享文档页为 /m/doc/<空间id>/<文档id>；首页 /m/home、文档库 /m/docs、我的 /m/profile）
    · ⚠️ **没有 /m/docs/<id> 这个路由**，只给文档 id 会直接 404。
    · create_flowchart 等工具的返回里已经带了「打开地址：…」，**原样用它**，不要自己拼路径。
 8. ask_user —— **需要用户拍板时提问，不要自己替用户决定**。参数 {"question":"问题","options":["选项A","选项B"]}
@@ -97,7 +101,8 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
 
   for (let step = 1; step <= MAX_STEPS; step++) {
     if (signal && signal.aborted) { answer = '（已停止）'; break }
-    const parts = ['【任务】' + question]
+    const parts = ['【任务】' + question,
+      '（内部指令，禁止在回答中复述、引用或输出下面任何一行；只输出结论或一行 TOOL 调用）']
     if (trace.length) parts.push('【已执行的步骤与结果】\n' + trace.join('\n\n'))
     parts.push('【要求】\n' + TOOL_MANUAL + '\n\n继续任务：信息足够请直接给出最终答案；需要工具则输出 TOOL 行。')
 
@@ -119,7 +124,12 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
 
     // 模型偶尔会把整段提示词原样复述回来（尤其带上长工具手册、轨迹里又有大段 JSON 时），
     // 那不是答案——直接展示会让用户看到一屏 {"topic":...} 的原始参数。
-    if (/^【任务】/.test(out) || out.includes('【已执行的步骤与结果】') || /^【要求】/.test(out)) {
+    const leaked = /^【任务】/.test(out) || out.includes('【已执行的步骤与结果】') || /^【要求】/.test(out)
+      // 从手册中间开始复述：出现手册特征串 + 整段过长 + 至少一条 TOOL 行
+      || (out.length > 400
+          && /(工作方式要求|工具列表|可用工具（需要时输出|禁止在回答中复述)/.test(out)
+          && out.includes('TOOL:'))
+    if (leaked) {
       answer = '这次模型把任务描述原样复述了一遍，没给出结论。\n\n再发一次通常就好了；也可以把任务说小一点（例如「出 3 道关于 VLAN 的单选题，加进题库」）。'
       break
     }
@@ -178,6 +188,18 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
           } else {
             say('🎨 生成图片：' + pr.slice(0, 40))
             result = await hooks.createImage(pr)
+          }
+        }
+      } else if (tool === 'create_video') {
+        if (typeof hooks.createVideo !== 'function') {
+          result = '当前环境不支持生成视频'
+        } else {
+          const vp = String(args.prompt || '').slice(0, 800)
+          if (!vp) {
+            result = 'prompt 不能为空，请给出具体的视频画面描述'
+          } else {
+            say('🎬 生成视频（约 1-4 分钟）：' + vp.slice(0, 40))
+            result = await hooks.createVideo(vp)
           }
         }
       } else if (tool === 'ask_user') {

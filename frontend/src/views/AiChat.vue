@@ -580,6 +580,16 @@ function mdToHtml(md) {
  * Agent 模式：ReAct 编排 + 本地工具（检索 / 读文档 / 写文档 / 改文档 / 跳转）。
  * 与移动端同一套引擎（utils/localAgent），走「通用」模式的无状态调用，不进后端会话。
  */
+/** 回答里若混入 Agent 内部指令（模型复述 prompt），整段替换成提示，避免一屏手册 */
+function sanitizeAnswer(t) {
+  const x = String(t || '')
+  const looksLeaked = x.length > 400
+    && /(工作方式要求|工具列表|可用工具（需要时输出|禁止在回答中复述)/.test(x)
+    && x.includes('TOOL:')
+  if (!looksLeaked) return x
+  return '这次模型把内部指令原样复述了，没给结论。\n\n再发一次通常就好；也可以把任务说小一点（例如「给《xxx》加一个 10 秒的仓储短视频」）。'
+}
+
 /** 剥离 Agent 内部标记（防「重试/回填」把【任务】【最近的对话】当用户输入存库） */
 function sanitizeInput(t) {
   let x = String(t || '')
@@ -655,6 +665,14 @@ async function sendAgent(raw) {
         createImage: async (prompt) => {
           const { data } = await generateImage(prompt)
           return '图片已生成，把下面这行 Markdown 原样放进最终回答里：\n![生成的图片](' + (data.url || '') + ')'
+        },
+        createVideo: async (prompt) => {
+          // wait=true：后端同步轮询最多 4 分钟，完成后直接给成品 URL
+          const { data } = await api.post('/ai/video', { prompt, wait: true, maxWaitSec: 240 }, { timeout: 300000 })
+          if (data && data.url) {
+            return '视频已生成，把下面这行原样放进文章正文或回答里：\n@[video](' + data.url + ')'
+          }
+          return '视频已提交但仍在生成（taskId=' + (data && data.taskId) + '），稍后再让我插入文章即可'
         },
         listMyFiles: async () => {
           try {
@@ -741,7 +759,7 @@ async function sendAgent(raw) {
     })
     // steps 跟着消息存下来：否则执行过程只在 loading 里，回答一出来就再也看不到
     convMessages.value[convId] = [...convMessages.value[convId], {
-      role: 'assistant', content: r.answer, mode: 'agent', steps: r.steps || [],
+      role: 'assistant', content: sanitizeAnswer(r.answer), mode: 'agent', steps: r.steps || [],
     }]
   } catch (e) {
     const msg = String((e && e.message) || e || '')
