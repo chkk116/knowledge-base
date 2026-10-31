@@ -233,6 +233,18 @@ public class AdminUserController {
         public String reason;
     }
 
+    /** 非 ADMIN 操作者不得触碰「权限高于自己」的账号（改密/重置链接等，审查 r22 High） */
+    private void guardTargetNotHigher(TokenClaims c, User target) {
+        if ("ADMIN".equals(c.role())) return;
+        if ("ADMIN".equals(target.getRole())) {
+            throw new ResponseStatusException(FORBIDDEN, "无权限操作管理员账号");
+        }
+        List<String> tCodes = permCodes(target.getPermissions());
+        if (!tCodes.isEmpty() && !c.hasAllPerms(tCodes)) {
+            throw new ResponseStatusException(FORBIDDEN, "无权限操作权限更高的账号");
+        }
+    }
+
     /** 管理员重置用户密码：生成随机密码返回明文，供管理员转交（无 SMTP 故不发邮件） */
     @PostMapping("/{id}/reset-password")
     public Map<String, Object> resetPassword(@RequestAttribute("kbUser") TokenClaims c,
@@ -243,9 +255,7 @@ public class AdminUserController {
         }
         // 防权限提升：非 ADMIN 角色不得重置管理员密码（拿到明文即接管）
         User target = svc.requireUser(id);
-        if (!"ADMIN".equals(c.role()) && "ADMIN".equals(target.getRole())) {
-            throw new ResponseStatusException(FORBIDDEN, "无权限重置管理员密码");
-        }
+        guardTargetNotHigher(c, target);
         String tname = svc.usernameOf(id);
         String raw = svc.resetPassword(id);
         audit.log(c.userId(), c.username(), "RESET_PWD", "USER", id, tname, "重置用户 " + (tname != null ? tname : "id=" + id) + " 的密码");
@@ -257,9 +267,7 @@ public class AdminUserController {
     public Map<String, Object> resetLink(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
         requirePerm(c, "USER_MANAGE");
         User target = svc.requireUser(id);
-        if (!"ADMIN".equals(c.role()) && "ADMIN".equals(target.getRole())) {
-            throw new ResponseStatusException(FORBIDDEN, "无权限为管理员生成重置链接");
-        }
+        guardTargetNotHigher(c, target);
         Map<String, Object> m = passwordResetService.createLink(id, c.userId());
         audit.log(c.userId(), c.username(), "RESET_LINK", "USER", id, target.getUsername(),
                 "生成密码重置链接：" + target.getUsername());

@@ -50,7 +50,7 @@
           <template v-if="actOpen.r.authorName">（作者：{{ actOpen.r.authorName }}）</template>
         </p>
         <el-radio-group v-model="actOpen.action" class="act-radios">
-          <el-radio v-if="['POST','COMMENT','DM','DOC'].includes(actOpen.r.targetType)" value="DELETE_CONTENT">删除/下架内容</el-radio>
+          <el-radio v-if="['POST','COMMENT','DM'].includes(actOpen.r.targetType)" value="DELETE_CONTENT">删除/下架内容</el-radio>
           <el-radio v-if="actOpen.r.targetType !== 'FEEDBACK' && actOpen.r.authorId" value="BLOCK_AUTHOR">禁用作者账号</el-radio>
           <el-radio v-if="actOpen.r.targetType !== 'FEEDBACK' && actOpen.r.authorId" value="WARN_AUTHOR">仅警告作者</el-radio>
           <el-radio value="NONE">仅记录，不处置</el-radio>

@@ -46,7 +46,6 @@ public class AiConversationService {
         return convRepo.findByUserIdOrderByUpdatedAtDesc(userId);
     }
 
-    @Transactional(rollbackFor = Exception.class)
     /** 标题清洗：剥掉 Agent 内部标记，防止「【任务】【最近的对话】…」进库 */
     private static String sanitizeTitle(String raw) {
         if (raw == null) return null;
@@ -70,6 +69,7 @@ public class AiConversationService {
         return "这次模型把内部指令原样复述了，没给结论。\n\n再发一次通常就好；也可以把任务说小一点。";
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public AiConversation create(Long userId, String title) {
         long count = convRepo.countByUserId(userId);
         if (count >= MAX_CONVERSATIONS) {

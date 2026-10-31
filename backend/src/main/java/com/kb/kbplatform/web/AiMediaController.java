@@ -40,13 +40,19 @@ public class AiMediaController {
                                            @RequestBody Map<String, Object> body) {
         uid(c);
         Long modelId = body.get("modelId") instanceof Number n ? n.longValue() : null;
-        return svc.createVideo(modelId, String.valueOf(body.getOrDefault("prompt", "")));
+        String prompt = String.valueOf(body.getOrDefault("prompt", ""));
+        // wait=true：同步等结果（Agent 工具用，最多 240 秒）；默认只提交任务
+        if (Boolean.TRUE.equals(body.get("wait"))) {
+            int maxWait = body.get("maxWaitSec") instanceof Number wn ? wn.intValue() : 240;
+            return svc.createVideoAndWait(modelId, c.userId(), prompt, maxWait);
+        }
+        return svc.createVideo(modelId, c.userId(), prompt);
     }
 
     @GetMapping("/api/ai/video/{taskId}")
     public Map<String, Object> videoStatus(@RequestAttribute("kbUser") TokenClaims c,
                                            @PathVariable String taskId) {
         uid(c);
-        return svc.videoStatus(taskId);
+        return svc.videoStatus(taskId, c.userId());
     }
 }

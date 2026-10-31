@@ -45,8 +45,11 @@ public class AiMediaService {
     @Value("${kb.upload.dir:./uploads}")
     private String uploadDir;
 
-    /** 内存任务表：taskId -> modelId（重启丢失后轮询返回 FAIL，重新生成即可） */
-    private final Map<String, Long> videoTasks = new ConcurrentHashMap<>();
+    /** 任务元信息：属主 + 模型 + 创建时间（审查 r22：防止任意用户查他人任务，且完成即清理防泄漏） */
+    private record VideoTask(Long modelId, Long ownerId, long createdAt) {}
+
+    /** 内存任务表：taskId -> 任务元信息（重启丢失后轮询返回 404，重新生成即可） */
+    private final Map<String, VideoTask> videoTasks = new ConcurrentHashMap<>();
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -139,7 +142,7 @@ public class AiMediaService {
     }
 
     /** 文生视频：提交异步任务，返回 taskId */
-    public Map<String, Object> createVideo(Long modelId, String prompt) {
+    public Map<String, Object> createVideo(Long modelId, Long ownerId, String prompt) {
         AiModel m = pick("VIDEO", modelId);
         String clean = prompt == null ? "" : prompt.trim();
         if (clean.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请输入视频描述");
@@ -151,19 +154,47 @@ public class AiMediaService {
         if (taskId == null || taskId.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "上游未返回任务 id");
         }
-        videoTasks.put(taskId, m.getId());
+        // 顺手清理超过 2 小时的僵尸任务，避免长期运行内存只增不减
+        videoTasks.entrySet().removeIf(en -> System.currentTimeMillis() - en.getValue().createdAt() > 2 * 3600_000L);
+        videoTasks.put(taskId, new VideoTask(m.getId(), ownerId, System.currentTimeMillis()));
         Map<String, Object> ret = new LinkedHashMap<>();
         ret.put("taskId", taskId);
         return ret;
     }
 
+    /** 提交并同步等待（Agent 工具用）：每 5 秒轮询，最多等 maxWaitSec 秒 */
+    public Map<String, Object> createVideoAndWait(Long modelId, Long ownerId, String prompt, int maxWaitSec) {
+        Map<String, Object> created = createVideo(modelId, ownerId, prompt);
+        String taskId = String.valueOf(created.get("taskId"));
+        long deadline = System.currentTimeMillis() + Math.max(30, Math.min(maxWaitSec, 300)) * 1000L;
+        while (System.currentTimeMillis() < deadline) {
+            try { Thread.sleep(5000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+            Map<String, Object> st = videoStatus(taskId, ownerId);
+            String status = String.valueOf(st.get("status"));
+            if ("SUCCESS".equalsIgnoreCase(status)) return st;
+            if ("FAIL".equalsIgnoreCase(status)) {
+                Map<String, Object> fail = new LinkedHashMap<>(st);
+                fail.put("taskId", taskId);
+                return fail;
+            }
+        }
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("status", "PROCESSING");
+        ret.put("taskId", taskId);
+        return ret;
+    }
+
     /** 轮询视频任务；成功后下载产物存 uploads */
-    public Map<String, Object> videoStatus(String taskId) {
-        Long modelId = videoTasks.get(taskId);
-        if (modelId == null) {
+    public Map<String, Object> videoStatus(String taskId, Long ownerId) {
+        VideoTask task = videoTasks.get(taskId);
+        if (task == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "任务不存在或已过期（服务重启后会丢失）");
         }
-        AiModel m = repo.findById(modelId).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "模型配置已删除"));
+        // 属主校验（审查 r22 High IDOR）：token 猜不到别人的任务产物
+        if (ownerId != null && task.ownerId() != null && !task.ownerId().equals(ownerId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权查询该任务");
+        }
+        AiModel m = repo.findById(task.modelId()).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "模型配置已删除"));
         String resp = get(m, "/async-result/" + taskId);
         String status = extractJsonString(resp, "task_status");
         Map<String, Object> ret = new LinkedHashMap<>();
@@ -180,6 +211,7 @@ public class AiMediaService {
             byte[] bytes = download(videoUrl);
             String path = save(bytes, ext);
             ret.put("url", path);
+            videoTasks.remove(taskId);
             String cover = firstUrlAfter(resp, "cover_image_url");
             if (cover != null && !cover.isBlank()) {
                 try {
@@ -226,7 +258,22 @@ public class AiMediaService {
     }
 
     private static String esc(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        StringBuilder b = new StringBuilder(s.length() + 16);
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            switch (ch) {
+                case '\\' -> b.append("\\\\");
+                case '"' -> b.append("\\\"");
+                case '\n' -> b.append("\\n");
+                case '\r' -> b.append("\\r");
+                case '\t' -> b.append("\\t");
+                default -> {
+                    if (ch < 0x20) b.append(String.format("\\u%04x", (int) ch));
+                    else b.append(ch);
+                }
+            }
+        }
+        return b.toString();
     }
 
     private static String snippet(String s) {

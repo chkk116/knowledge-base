@@ -188,12 +188,15 @@ public class ReportController {
         String type = r.getTargetType();
 
         if ("DELETE_CONTENT".equals(action)) {
-            if (("POST".equals(type) || "DOC".equals(type)) && r.getTargetId() != null) {
+            if ("POST".equals(type) && r.getTargetId() != null) {
                 docRepo.findById(r.getTargetId()).ifPresent(d -> {
                     d.setStatus("BLOCKED");
                     docRepo.save(d);
                 });
                 resultDesc = "已下架被举报的内容";
+            } else if ("DOC".equals(type)) {
+                // 共享空间文档没有下架态，且其 id 与文章 id 可能撞号——绝不能落到 docRepo 误删文章（审查 r22）
+                resultDesc = "空间文档请在「共享文档管理」中处理，本条仅记录";
             } else if ("COMMENT".equals(type) && r.getTargetId() != null) {
                 commentRepo.findById(r.getTargetId()).ifPresent(cm -> {
                     cm.setContent("[该评论因违规已被管理员删除]");
