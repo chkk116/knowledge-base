@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, nextTick, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound, Plus, Delete, EditPen, ChatLineRound, Document,
@@ -60,6 +61,7 @@ const messages = computed(() => (currentId.value ? (convMessages.value[currentId
 const started = computed(() => messages.value.length > 0)
 
 const mode = ref('kb')
+const route = useRoute()
 const agentSteps = ref([])  // Agent 模式：步骤列表（累积展示，能看到它做了什么）
 const agentStepsOpen = ref(true)  // 步骤折叠状态：执行中展开，完成后自动收起
 // 一次 Agent 任务内的确认状态（WEB/AI 出题只问一遍，模型重试时不再弹）
