@@ -141,6 +141,25 @@ const form = reactive({
  * - 模型版本默认选推荐项，管理员可在下拉里换别的版本
  * - 显示名称没填过时，直接沿用模型名，省得再编一个
  */
+// 模型下拉按「用途」过滤：元素可能是 'id' 或 {id,label,kind}
+// 切换「用途」时：模型下拉按用途过滤，当前模型不匹配则自动换默认
+watch(() => form.kind, () => {
+  const list = modelOptionsFiltered.value
+  if (!list.length) { form.model = ''; return }
+  if (!list.some((o) => (typeof o === 'string' ? o : o.id) === form.model)) {
+    form.model = (typeof list[0] === 'string' ? list[0] : list[0].id) || ''
+    if (!form.name.trim()) form.name = form.model
+  }
+})
+
+const modelOptionsFiltered = computed(() => {
+  const kind = (form.kind || 'CHAT').toUpperCase()
+  return (modelOptions.value || []).filter((o) => {
+    const k = typeof o === 'string' ? 'CHAT' : (o.kind || 'CHAT')
+    return k === kind
+  })
+})
+
 const onProviderChange = () => {
   const p = currentPlatform.value
   if (!p) return
@@ -649,7 +668,7 @@ onUnmounted(() => {
         <el-form-item label="模型版本">
           <el-select v-model="form.model" filterable allow-create default-first-option
                      style="width: 100%" placeholder="选择该平台的模型版本，或直接输入">
-            <el-option v-for="m in modelOptions" :key="m.id" :label="m.label" :value="m.id" />
+            <el-option v-for="m in modelOptionsFiltered" :key="m.id" :label="m.label" :value="m.id" />
           </el-select>
           <div class="hint">
             <template v-if="modelOptions.length">

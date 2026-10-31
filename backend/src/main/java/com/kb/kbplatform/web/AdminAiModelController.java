@@ -45,6 +45,11 @@ public class AdminAiModelController {
         return Map.of("id", id, "label", label);
     }
 
+    /** 带用途标记的模型版本（kind: IMAGE/VIDEO），管理页按用途过滤下拉 */
+    private static Map<String, Object> mvk(String id, String label, String kind) {
+        return Map.of("id", id, "label", label, "kind", kind);
+    }
+
     /** GPT-5.6 起 naming 改为能力层级（sol 旗舰 / terra 均衡 / luna 快速经济），旧的 4o、4.1 已 deprecated */
     static final List<Map<String, Object>> OPENAI_MODELS = List.of(
             mv("gpt-5.6-sol", "GPT-5.6 Sol（最新旗舰）"),
@@ -92,7 +97,11 @@ public class AdminAiModelController {
             mv("glm-5", "GLM-5（5 系首代）"),
             mv("glm-5-turbo", "GLM-5 Turbo（快速经济）"),
             mv("glm-4.7", "GLM-4.7（通用主力）"),
-            mv("glm-4.6", "GLM-4.6（开源 / 多模态）"));
+            mv("glm-4.6", "GLM-4.6（开源 / 多模态）"),
+            // 媒体生成模型（同一把智谱 Key 即可调用，用途在「AI 模型管理」里选择）
+            mvk("cogview-3-flash", "CogView-3-Flash（文生图，免费）", "IMAGE"),
+            mvk("cogvideox-3", "CogVideoX-3（文生视频，按秒计费）", "VIDEO"),
+            mvk("cogvideox-flash", "CogVideoX-Flash（文生视频，快速）", "VIDEO"));
 
     /**
      * OpenCode 推理服务（OpenAI 兼容端点 https://opencode.ai/inference/openai/v1）。
