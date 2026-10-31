@@ -667,12 +667,24 @@ async function sendAgent(raw) {
           return '图片已生成，把下面这行 Markdown 原样放进最终回答里：\n![生成的图片](' + (data.url || '') + ')'
         },
         createVideo: async (prompt) => {
-          // wait=true：后端同步轮询最多 4 分钟，完成后直接给成品 URL
-          const { data } = await api.post('/ai/video', { prompt, wait: true, maxWaitSec: 240 }, { timeout: 300000 })
-          if (data && data.url) {
-            return '视频已生成，把下面这行原样放进文章正文或回答里：\n@[video](' + data.url + ')'
+          // 不在单个请求里等视频（nginx /api/ 超时 120s，会 504）：先提交拿 taskId，再前端轮询
+          const { data } = await api.post('/ai/video', { prompt })
+          const taskId = data && data.taskId
+          if (!taskId) return '视频提交失败：未返回任务 id'
+          const deadline = Date.now() + 4 * 60 * 1000
+          while (Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 5000))
+            try {
+              const { data: st } = await api.get('/ai/video/' + encodeURIComponent(taskId))
+              if (st && st.url) {
+                return '视频已生成，把下面这行原样放进文章正文（独立一行）：\n@[video](' + st.url + ')'
+              }
+              if (st && String(st.status).toUpperCase() === 'FAIL') {
+                return '视频生成失败：' + (st.message || '上游异常')
+              }
+            } catch (e) { /* 单次轮询失败忽略，继续等 */ }
           }
-          return '视频已提交但仍在生成（taskId=' + (data && data.taskId) + '），稍后再让我插入文章即可'
+          return '视频仍在生成（taskId=' + taskId + '），稍后再让我插入文章即可'
         },
         listMyFiles: async () => {
           try {
