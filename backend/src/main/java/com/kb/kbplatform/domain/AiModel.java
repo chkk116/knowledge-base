@@ -63,6 +63,10 @@ public class AiModel {
     @Column(name = "is_default", nullable = false)
     private boolean defaultModel = false;
 
+    /** 用途：CHAT（对话/出题，默认）/ IMAGE（文生图）/ VIDEO（文生视频） */
+    @Column(nullable = false, length = 16)
+    private String kind = "CHAT";
+
     private int sortOrder = 0;
 
     /**
@@ -118,6 +122,8 @@ public class AiModel {
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
     public boolean isDefaultModel() { return defaultModel; }
+    public String getKind() { return kind; }
+    public void setKind(String kind) { this.kind = kind == null || kind.isBlank() ? "CHAT" : kind; }
     public void setDefaultModel(boolean defaultModel) { this.defaultModel = defaultModel; }
 
     public int getSortOrder() { return sortOrder; }

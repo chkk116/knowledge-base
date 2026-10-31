@@ -141,3 +141,9 @@ export const adminTestModel = (id) =>
   api.post('/admin/ai/models/' + id + '/test', {}, { timeout: 60000 })
 // 用量统计：adminUsage({ days, modelId }) → { summary, daily[], models[] }（调用流水聚合）
 export const adminUsage = (params) => api.get('/admin/ai/models/usage', { params })
+// ---- AI 媒体生成（文生图 / 文生视频）----
+export const generateImage = (prompt, modelId = null) =>
+  api.post('/ai/image', { prompt, modelId }, { timeout: 180000 })
+export const createVideo = (prompt, modelId = null) =>
+  api.post('/ai/video', { prompt, modelId })
+export const videoStatus = (taskId) => api.get('/ai/video/' + encodeURIComponent(taskId))

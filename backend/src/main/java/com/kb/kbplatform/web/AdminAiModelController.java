@@ -302,6 +302,7 @@ public class AdminAiModelController {
             r.put("model", m.getModel());
             r.put("enabled", m.isEnabled());
             r.put("isDefault", m.isDefaultModel());
+            r.put("kind", m.getKind());
             // 列表是手拼 Map，实体新增字段必须在这里补 —— 漏了前端编辑弹窗就只能读到默认值
             r.put("contextWindow", m.getContextWindow());
             r.put("vision", m.isVision());
@@ -333,6 +334,10 @@ public class AdminAiModelController {
         if (body.get("name") != null) m.setName(String.valueOf(body.get("name")).trim());
         if (body.get("baseUrl") != null) m.setBaseUrl(String.valueOf(body.get("baseUrl")).trim());
         if (body.get("model") != null) m.setModel(String.valueOf(body.get("model")).trim());
+        if (body.get("kind") != null) {
+            String k = String.valueOf(body.get("kind")).trim().toUpperCase();
+            m.setKind(java.util.Set.of("CHAT", "IMAGE", "VIDEO").contains(k) ? k : "CHAT");
+        }
         if (body.get("contextWindow") != null) {
             // 兜底夹到合理区间：太小等于没有历史，太大会被上游直接拒绝
             try {

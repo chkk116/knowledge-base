@@ -130,6 +130,7 @@ watch(viewMode, () => { load() })
 const dialog = ref(false)
 const saving = ref(false)
 const form = reactive({
+  kind: 'CHAT',
   id: null, provider: 'DEEPSEEK', name: '', baseUrl: '', model: '', apiKey: '',
   enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000, vision: false,
 })
@@ -164,7 +165,7 @@ watch(() => form.model, (val, old) => {
 const openAddFor = (key) => {
   Object.assign(form, {
     id: null, provider: key || 'DEEPSEEK', name: '', baseUrl: '', model: '', apiKey: '',
-    enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000, vision: false
+    enabled: true, isDefault: false, keyMasked: '', contextWindow: 128000, vision: false, kind: 'CHAT'
   })
   onProviderChange()
   dialog.value = true
@@ -173,7 +174,7 @@ const openAdd = () => openAddFor('DEEPSEEK')
 const openEdit = (row) => {
   Object.assign(form, {
     id: row.id, provider: row.provider, name: row.name, baseUrl: row.baseUrl,
-    model: row.model, enabled: row.enabled, isDefault: row.isDefault,
+    model: row.model, enabled: row.enabled, isDefault: row.isDefault, kind: row.kind || 'CHAT',
     // 回显脱敏值：后端据此判断「Key 没改」，不会把原 Key 覆盖掉
     apiKey: row.keyMasked || '', keyMasked: row.keyMasked || '',
     contextWindow: Number(row.contextWindow) || 128000,
@@ -204,7 +205,7 @@ const submit = async () => {
       id: res?.id ?? form.id,
       provider: String(form.provider || '').toUpperCase(),
       name: form.name, baseUrl: form.baseUrl, model: form.model,
-      enabled: !!form.enabled, isDefault: !!form.isDefault,
+      enabled: !!form.enabled, isDefault: !!form.isDefault, kind: form.kind || 'CHAT',
       hasKey: true, keyMasked: form.keyMasked || '',
       contextWindow: Number(form.contextWindow) || 128000,
       vision: !!form.vision,
@@ -465,6 +466,10 @@ onUnmounted(() => {
             <span class="v mono" :title="m.model">{{ m.model }}</span>
           </div>
           <div class="row">
+            <span class="k">用途</span>
+            <span class="v">{{ m.kind === 'IMAGE' ? '文生图' : m.kind === 'VIDEO' ? '文生视频' : '对话 / 出题' }}</span>
+          </div>
+          <div class="row">
             <span class="k">Key</span>
             <span v-if="m.hasKey" class="v mono">{{ m.keyMasked }}</span>
             <span v-else class="v none">未配置</span>
@@ -616,6 +621,13 @@ onUnmounted(() => {
     <!-- 编辑弹窗：改 Key 只需重填一栏，其余字段不动即可 -->
     <el-dialog v-model="dialog" :title="form.id ? '编辑模型' : '新增模型'" width="560px">
       <el-form label-width="96px">
+        <el-form-item label="用途">
+          <el-radio-group v-model="form.kind">
+            <el-radio value="CHAT">对话 / 出题</el-radio>
+            <el-radio value="IMAGE">文生图</el-radio>
+            <el-radio value="VIDEO">文生视频</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="平台">
           <el-select v-model="form.provider" style="width: 100%" @change="onProviderChange" :disabled="!!form.id">
             <el-option v-for="p in platforms" :key="p.key" :label="p.label" :value="p.key" />

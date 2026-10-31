@@ -25,7 +25,10 @@ TOOL: {"tool":"工具名","args":{...}}
    · 重要：普通用户创建的文档**不会直接公开**——draft 进草稿箱，submit 进「待审核」等管理员通过；
      管理员账号才会直接发布。所以回答里要如实说明文档处于什么状态，别让用户以为已经公开了。
 6. update_doc —— 改写/优化一篇**已有文档**并保存。参数 {"id":文档id,"title":"可选新标题","content":"优化后的完整正文（Markdown）"}
-7. navigate —— 跳转到本应用内的页面。参数 {"path":"/m/doc/12/34"}（共享文档页为 /m/doc/<空间id>/<文档id>；首页 /m/home、文档库 /m/docs、我的 /m/profile）
+7. create_image —— 生成一张图片（文生图）。参数 {"prompt":"画面描述，中英文皆可，越具体越好"}
+   · 返回里带「图片已生成，Markdown：![生成的图片](/uploads/…)」，**把那行 Markdown 原样放进最终回答**。
+   · 用户想要插图/画图/生成图片时用这个；描述里写清主体、风格、构图。
+8. navigate —— 跳转到本应用内的页面。参数 {"path":"/m/doc/12/34"}（共享文档页为 /m/doc/<空间id>/<文档id>；首页 /m/home、文档库 /m/docs、我的 /m/profile）
    · ⚠️ **没有 /m/docs/<id> 这个路由**，只给文档 id 会直接 404。
    · create_flowchart 等工具的返回里已经带了「打开地址：…」，**原样用它**，不要自己拼路径。
 8. ask_user —— **需要用户拍板时提问，不要自己替用户决定**。参数 {"question":"问题","options":["选项A","选项B"]}
@@ -160,6 +163,18 @@ export async function runLocalAgent({ question, ask, onStep, signal, hooks = {} 
           } else {
             say('➡️ 跳转到 ' + path)
             result = await hooks.navigate(path)
+          }
+        }
+      } else if (tool === 'create_image') {
+        if (typeof hooks.createImage !== 'function') {
+          result = '当前环境不支持生成图片'
+        } else {
+          const pr = String(args.prompt || '').slice(0, 800)
+          if (!pr) {
+            result = 'prompt 不能为空，请给出具体的画面描述'
+          } else {
+            say('🎨 生成图片：' + pr.slice(0, 40))
+            result = await hooks.createImage(pr)
           }
         }
       } else if (tool === 'ask_user') {

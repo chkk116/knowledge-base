@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound, Plus, Delete, EditPen, ChatLineRound, Document,
-  Paperclip, Link, ArrowDown, CopyDocument, Refresh, Reading, Promotion,
+  Paperclip, Link, ArrowDown, CopyDocument, Refresh, Reading, Promotion, VideoCamera,
   Fold, Expand, VideoPause, Cpu, Search, Select
 } from '@element-plus/icons-vue'
 import ProviderLogo from '../components/ProviderLogo.vue'
@@ -12,7 +12,7 @@ import { useAuthStore } from '../store/auth'
 import {
   aiAsk, aiAskStream, aiFeedback, listAiModels, listConversations, createConversation, updateConversation,
   deleteConversation, batchDeleteConversations, listMessages
-} from '../api/ai'
+, generateImage, createVideo, videoStatus } from '../api/ai'
 import MarkdownIt from 'markdown-it'
 import { useRouter } from 'vue-router'
 import { runLocalAgent } from '../utils/localAgent'
@@ -623,6 +623,10 @@ async function sendAgent(raw) {
       signal: abortCtrl.value.signal,
       hooks: {
         askUser,
+        createImage: async (prompt) => {
+          const { data } = await generateImage(prompt)
+          return '图片已生成，把下面这行 Markdown 原样放进最终回答里：\n![生成的图片](' + (data.url || '') + ')'
+        },
         listMyFiles: async () => {
           try {
             const { data } = await listMyFiles()
@@ -1190,6 +1194,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  videoTimers.forEach((t) => clearInterval(t))
   if (mqNarrow) mqNarrow.removeEventListener('change', onNarrowChange)
   bodyRef.value?.removeEventListener('scroll', onBodyScroll)
   bodyRef.value?.removeEventListener('click', onBodyClick)
@@ -1479,6 +1484,9 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
             <div class="ai-input-right">
               <el-tooltip content="上传文件（图片 OCR / 文本类）" placement="top" :show-after="300">
                 <button type="button" class="ai-round-btn ghost" @click="pickFiles" :disabled="attBusy"><el-icon><Paperclip /></el-icon></button>
+              </el-tooltip>
+              <el-tooltip content="生成视频（需管理员配置文生视频模型）" placement="top" :show-after="300">
+                <button type="button" class="ai-round-btn ghost" @click="genVideo" :disabled="genBusy"><el-icon><VideoCamera /></el-icon></button>
               </el-tooltip>
               <div class="ai-input-tools">
               <!-- 上下文用量环：点开可以看明细、切思考强度、压缩历史 -->
