@@ -238,6 +238,8 @@ public class AuthController {
         m.put("avatar", avatar);
         m.put("avatarPending", u.map(x -> x.getAvatarPending()).orElse(null));   // 头像审核中标记（null=无待审）
         m.put("email", email);
+        m.put("emailVerified", u.isPresent() && u.get().isEmailVerified());
+        m.put("emailNotifyEnabled", u.isPresent() && u.get().isEmailNotifyEnabled());
         m.put("bio", bio);
         m.put("gender", gender);
         m.put("hideGender", hideGender);
@@ -259,6 +261,7 @@ public class AuthController {
         public String bio;
         public String gender;
         public Boolean hideGender;
+        public Boolean emailNotifyEnabled;
     }
 
     /** 当前登录用户修改个人资料（昵称 / 头像 / 邮箱 / 简介 / 性别 / 隐藏性别） */
@@ -266,7 +269,7 @@ public class AuthController {
     public Map<String, Object> profile(@RequestAttribute("kbUser") TokenClaims claims,
                                        @RequestBody ProfileRequest r) {
         User u = authService.updateProfile(claims.username(), r.displayName, r.avatar, r.email, r.bio,
-                r.gender, r.hideGender);
+                r.gender, r.hideGender, r.emailNotifyEnabled);
         String displayName = u.getDisplayName() == null || u.getDisplayName().isBlank()
                 ? u.getUsername() : u.getDisplayName();
         Map<String, Object> m = new LinkedHashMap<>();
@@ -281,6 +284,8 @@ public class AuthController {
         m.put("avatarPending", u.getAvatarPending());   // 头像审核中标记
         m.put("avatarStatus", u.getAvatarStatus() == null ? "APPROVED" : u.getAvatarStatus());
         m.put("email", u.getEmail() == null ? "" : u.getEmail());
+        m.put("emailVerified", u.isEmailVerified());
+        m.put("emailNotifyEnabled", u.isEmailNotifyEnabled());
         m.put("bio", u.getBio() == null ? "" : u.getBio());
         m.put("gender", u.getGender() == null ? "" : u.getGender());
         m.put("hideGender", u.isHideGender());

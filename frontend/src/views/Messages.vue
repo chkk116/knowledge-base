@@ -26,7 +26,7 @@
               <span class="tm">{{ shortTime(c.lastAt) }}</span>
             </div>
             <div class="dm-conv-bot">
-              <span class="msg">{{ c.lastFromMe ? '我：' : '' }}{{ c.lastMessage }}</span>
+              <span class="msg">{{ c.lastFromMe ? '我：' : '' }}{{ plainPreview(c.lastMessage) }}</span>
               <span v-if="c.unread" class="badge">{{ c.unread > 99 ? '99+' : c.unread }}</span>
             </div>
           </div>
@@ -52,24 +52,39 @@
 
         <div ref="scroller" class="dm-msgs">
           <div v-if="loading" class="dm-tip">加载中…</div>
-          <div v-for="(m, i) in msgs" :key="m.id" class="dm-row" :class="{ mine: m.fromId === meId }">
+          <template v-for="(m, i) in msgs" :key="m.id">
+            <div v-if="showDay(i)" class="day-sep"><span>{{ dayLabel(m.createdAt) }}</span></div>
             <div v-if="m.kind === 'RECALL'" class="recalled">对方撤回了一条消息</div>
-            <div v-else class="bubble" :class="{ img: m.kind === 'IMAGE' }">
-              <div v-if="m.replyId" class="quote">
-                <span class="q-from">{{ m.replyFrom === meId ? '我' : (peer.name || '对方') }}</span>
-                <span class="q-txt">{{ m.replyText }}</span>
+            <div v-else class="dm-row" :class="{ mine: m.fromId === meId }">
+              <el-avatar v-if="m.fromId !== meId" :size="32" :src="peer.avatar || undefined" class="row-av">
+                {{ (peer.name || '?').slice(0, 1) }}
+              </el-avatar>
+              <div class="row-main">
+                <div v-if="showName(i)" class="row-name">{{ peer.name }}</div>
+                <div class="bubble-wrap">
+                  <div class="bubble" :class="{ img: m.kind === 'IMAGE' }">
+                    <div v-if="m.replyId" class="quote">
+                      <span class="q-from">{{ m.replyFrom === meId ? '我' : (peer.name || '对方') }}</span>
+                      <span class="q-txt">{{ m.replyText }}</span>
+                    </div>
+                    <img v-if="m.kind === 'IMAGE'" :src="m.content" class="img" />
+                    <DmContent v-else :text="m.content" />
+                  </div>
+                  <div class="row-acts">
+                    <button v-if="m.kind !== 'RECALL'" type="button" @click="quote(m)">引用</button>
+                    <button v-if="m.fromId === meId && canRecall(m)" type="button" @click="recall(m)">撤回</button>
+                  </div>
+                </div>
+                <div class="row-meta">
+                  <span>{{ clock(m.createdAt) }}</span>
+                  <span v-if="m.fromId === meId && m.read" class="read">已读</span>
+                </div>
               </div>
-              <img v-if="m.kind === 'IMAGE'" :src="m.content" class="img" />
-              <span v-else>{{ m.content }}</span>
+              <el-avatar v-if="m.fromId === meId" :size="32" :src="auth.user?.avatar || undefined" class="row-av">
+                {{ (auth.user?.username || '我').slice(0, 1) }}
+              </el-avatar>
             </div>
-
-            <div class="meta">
-              <span class="t">{{ clock(m.createdAt) }}</span>
-              <span v-if="m.fromId === meId && m.read" class="read">已读</span>
-              <span v-if="m.kind !== 'RECALL'" class="recall" @click="quote(m)">引用</span>
-              <span v-if="m.fromId === meId && canRecall(m)" class="recall" @click="recall(m)">撤回</span>
-            </div>
-          </div>
+          </template>
         </div>
 
         <div v-if="quota.limited" class="dm-quota">
@@ -81,16 +96,23 @@
           <el-button text size="small" @click="quoteRef = null">取消</el-button>
         </div>
         <footer class="dm-input">
-          <el-button text :disabled="!quota.peerAllowDm || sending" @click="pickImage" title="发送图片">
-            <el-icon><Picture /></el-icon>
-          </el-button>
+          <div class="dm-tools">
+            <button type="button" class="tool" :class="{ on: emojiOpen }" title="表情" @click="emojiOpen = !emojiOpen">😊</button>
+            <button type="button" class="tool" title="发送图片" :disabled="!quota.peerAllowDm || sending" @click="pickImage">
+              <el-icon><Picture /></el-icon>
+            </button>
+            <span class="tool-hint">Enter 发送 · Shift+Enter 换行</span>
+          </div>
+          <div class="dm-editor">
+            <el-input
+              ref="inputRef" v-model="draft" type="textarea" :rows="2" resize="none"
+              :placeholder="quota.peerAllowDm ? '输入消息…' : '对方未开放私信'"
+              :disabled="!quota.peerAllowDm || (quota.limited && quota.sent >= 3)"
+              @keydown.enter.exact.prevent="send" />
+            <EmojiPanel v-if="emojiOpen" class="emoji-pop" @insert="insertEmoji" />
+          </div>
+          <el-button type="primary" class="send-btn" :disabled="!canSend" :loading="sending" @click="send">发送</el-button>
           <input ref="fileInput" type="file" accept="image/*" class="hidden-file" @change="onPickImage" />
-          <el-input
-            v-model="draft" type="textarea" :rows="2" resize="none"
-            :placeholder="quota.peerAllowDm ? '输入消息，Enter 发送，Shift+Enter 换行' : '对方未开放私信'"
-            :disabled="!quota.peerAllowDm || (quota.limited && quota.sent >= 3)"
-            @keydown.enter.exact.prevent="send" />
-          <el-button type="primary" :disabled="!canSend" :loading="sending" @click="send">发送</el-button>
         </footer>
       </template>
       <div v-else class="dm-blank">选择左侧会话开始聊天</div>
@@ -121,6 +143,8 @@ import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSav
 import { refreshDmUnread } from '../store/dm'
 import { uploadFile } from '../api/file'
 import ReportDialog from '../components/ReportDialog.vue'
+import EmojiPanel from '../components/EmojiPanel.vue'
+import DmContent from '../components/DmContent.vue'
 import { followUser, unfollowUser } from '../api/kb'
 
 const route = useRoute()
@@ -140,6 +164,8 @@ const following = ref(false)
 const quota = reactive({ mutual: false, replied: false, sent: 0, remaining: -1, limited: false, peerAllowDm: true })
 const settings = reactive({ open: false, allowDm: true })
 const scroller = ref(null)
+const emojiOpen = ref(false)
+const inputRef = ref(null)
 let openSeq = 0
 
 const filtered = computed(() => {
@@ -148,6 +174,63 @@ const filtered = computed(() => {
 })
 const canSend = computed(() => !!draft.value.trim() && !sending.value && quota.peerAllowDm
   && !(quota.limited && quota.sent >= 3))
+
+/* ---------- 消息分组 / 日期分隔（飞书式） ---------- */
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString()
+
+function showDay(i) {
+  if (i === 0) return true
+  const prev = msgs.value[i - 1]?.createdAt
+  const cur = msgs.value[i]?.createdAt
+  return !prev || !cur || !sameDay(prev, cur)
+}
+
+function dayLabel(t) {
+  if (!t) return ''
+  const d = new Date(t)
+  const today = new Date()
+  const y = new Date(); y.setDate(today.getDate() - 1)
+  if (d.toDateString() === today.toDateString()) return '今天'
+  if (d.toDateString() === y.toDateString()) return '昨天'
+  return `${d.getMonth() + 1}月${d.getDate()}日`
+}
+
+/** 同一人连续发言只显示一次昵称；间隔超过 5 分钟再显示一次 */
+function showName(i) {
+  const m = msgs.value[i]
+  if (!m || m.fromId === meId.value) return false
+  if (i === 0) return true
+  const prev = msgs.value[i - 1]
+  if (!prev || prev.fromId !== m.fromId) return true
+  return new Date(m.createdAt) - new Date(prev.createdAt) > 5 * 60 * 1000
+}
+
+/* ---------- 表情 ---------- */
+/** 把面板选中的表情插入输入框光标处：贴吧/emoji 用令牌，颜文字用文本 */
+function insertEmoji(p) {
+  let token = ''
+  if (p.kind === 'img') {
+    token = p.name && p.name.startsWith('tw:') ? `[[t:${p.name.slice(3)}]]` : `[[e:${p.name}]]`
+  } else {
+    token = p.text || ''
+  }
+  const el = inputRef.value?.textarea
+  if (el) {
+    const s = el.selectionStart ?? draft.value.length
+    const e = el.selectionEnd ?? s
+    draft.value = draft.value.slice(0, s) + token + draft.value.slice(e)
+    nextTick(() => {
+      el.focus()
+      const pos = s + token.length
+      try { el.setSelectionRange(pos, pos) } catch (_) { /* ignore */ }
+    })
+  } else {
+    draft.value += token
+  }
+}
+
+/** 会话列表预览：把表情令牌折叠成 [表情]，避免列表里出现一串方括号 */
+const plainPreview = (s) => String(s || '').replace(/\[\[(e|t):[A-Za-z0-9_-]+\]\]/g, '[表情]')
 
 const clock = (t) => {
   if (!t) return ''
@@ -224,6 +307,15 @@ async function onPickImage(e) {
     ElMessage.error(err?.response?.data?.error || '图片发送失败')
   } finally {
     uploading.value = false
+  }
+}
+
+/** 引用某条消息：记录 id + 摘要，发送时带上 replyId */
+function quote(m) {
+  quoteRef.value = {
+    id: m.id,
+    text: String(m.content || '').replace(/\[\[(e|t):[A-Za-z0-9_-]+\]\]/g, '[表情]'),
+    fromMe: m.fromId === meId.value,
   }
 }
 
@@ -393,25 +485,47 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .hd-acts { display: flex; gap: 4px; }
 .dm-msgs { flex: 1; overflow-y: auto; padding: 16px; background: #f7f8fa; }
 .dm-tip { text-align: center; color: #9ca3af; font-size: 12px; padding: 12px; }
-.dm-row { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 12px; }
-.dm-row.mine { align-items: flex-end; }
-.bubble { max-width: 62%; padding: 8px 12px; border-radius: 10px; background: #fff; border: 1px solid #eef0f3;
-  font-size: 13.5px; line-height: 1.65; color: #1f2937; white-space: pre-wrap; word-break: break-word; }
-.dm-row.mine .bubble { background: #1677ff; border-color: #1677ff; color: #fff; }
+/* ---------- 消息列表（飞书式：头像 + 分组 + 悬停操作） ---------- */
+.dm-row { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 14px; }
+.dm-row.mine { flex-direction: row-reverse; }
+.row-av { flex: 0 0 auto; margin-top: 2px; }
+.row-main { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 68%; }
+.dm-row.mine .row-main { align-items: flex-end; }
+.row-name { font-size: 12px; color: #8a94a6; margin: 0 0 4px 4px; }
+.bubble-wrap { display: flex; align-items: center; gap: 6px; max-width: 100%; }
+.dm-row.mine .bubble-wrap { flex-direction: row-reverse; }
+.bubble { padding: 9px 13px; border-radius: 12px; background: #fff; border: 1px solid #eceff4;
+  font-size: 13.5px; line-height: 1.65; color: #1f2937; white-space: pre-wrap; word-break: break-word;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+.dm-row.mine .bubble { background: #1677ff; border-color: #1677ff; color: #fff; box-shadow: 0 1px 2px rgba(22, 119, 255, .25); }
 .bubble.img { padding: 4px; background: #fff; }
 .bubble .img { max-width: 220px; border-radius: 8px; display: block; }
-.meta { display: flex; gap: 6px; margin-top: 3px; font-size: 11px; color: #9ca3af; }
-.meta .read { color: #9ca3af; }
+.row-acts { display: flex; gap: 4px; opacity: 0; transition: opacity .12s; flex: 0 0 auto; }
+.dm-row:hover .row-acts { opacity: 1; }
+.row-acts button { border: 0; background: #fff; color: #64748b; font-size: 12px; padding: 3px 8px;
+  border-radius: 6px; cursor: pointer; box-shadow: 0 1px 4px rgba(15, 23, 42, .12); }
+.row-acts button:hover { color: #2563eb; }
+.row-meta { display: flex; gap: 6px; margin-top: 4px; font-size: 11px; color: #9ca3af; }
+.row-meta .read { color: #9ca3af; }
+.day-sep { text-align: center; margin: 8px 0 14px; }
+.day-sep span { background: #e9edf3; color: #8a94a6; font-size: 11.5px; padding: 2px 10px; border-radius: 999px; }
 .dm-quota { padding: 6px 16px; background: #fffbeb; color: #b45309; font-size: 12px; border-top: 1px solid #fde68a; }
-.dm-input { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid #f0f0f0; align-items: flex-end; }
+.dm-input { display: flex; gap: 10px; padding: 10px 16px 12px; border-top: 1px solid #f0f0f0; align-items: flex-end; }
 .dm-input :deep(.el-textarea__inner) { border-radius: 10px; }
+.dm-tools { display: flex; align-items: center; gap: 2px; padding-bottom: 5px; }
+.tool { width: 30px; height: 30px; border: 0; background: transparent; border-radius: 8px; cursor: pointer;
+  font-size: 16px; color: #64748b; display: inline-flex; align-items: center; justify-content: center; }
+.tool:hover, .tool.on { background: #eef2ff; color: #2563eb; }
+.tool:disabled { opacity: .4; cursor: default; }
+.tool-hint { font-size: 11px; color: #b6bdc9; margin-left: 4px; white-space: nowrap; }
+.dm-editor { flex: 1; position: relative; min-width: 0; }
+.emoji-pop { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 30; }
+.send-btn { height: 38px; }
 .st-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .st-t { font-size: 13.5px; font-weight: 600; }
 .st-s { font-size: 12px; color: #6b7280; margin-top: 4px; line-height: 1.6; }
 
-.recalled { font-size: 12px; color: #9ca3af; padding: 4px 10px; background: #f3f4f6; border-radius: 8px; }
-.meta .recall { cursor: pointer; color: #9ca3af; }
-.meta .recall:hover { color: #ef4444; text-decoration: underline; }
+.recalled { font-size: 12px; color: #9ca3af; padding: 4px 10px; background: #f3f4f6; border-radius: 8px; align-self: center; }
 .hidden-file { display: none; }
 
 .quote { border-left: 2px solid #b4c7ff; background: #f5f7ff; color: #6b7280;
@@ -446,4 +560,12 @@ html.dark .quote .q-from { color: #7aa2ff; }
 html.dark .quote-bar { background: #1f2330; border-top-color: #2a2a35; color: #8b90a0; }
 html.dark .dm-quota { background: #33270f; color: #fbbf24; border-top-color: #4d3a12; }
 html.dark .dm-input { border-top-color: #2a2a35; }
+html.dark .day-sep span { background: #2a2a35; color: #7b8190; }
+html.dark .row-name { color: #7b8190; }
+html.dark .row-meta { color: #5b5f6b; }
+html.dark .row-acts button { background: #2a2a35; color: #a5a7bd; box-shadow: none; }
+html.dark .row-acts button:hover { color: #a9c2ff; }
+html.dark .tool { color: #9aa0ad; }
+html.dark .tool:hover, html.dark .tool.on { background: #2a2a46; color: #a9c2ff; }
+html.dark .tool-hint { color: #4b4f5c; }
 </style>

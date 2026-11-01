@@ -1,0 +1,8 @@
+Twemoji emoji artwork
+Source: https://github.com/twitter/twemoji (via jsDelivr)
+License: CC-BY 4.0 — https://creativecommons.org/licenses/by/4.0/
+Copyright 2020 Twitter, Inc and other contributors.
+
+本目录仅收录常用分类的 SVG 子集，用于站内表情面板。
+如需扩充：把 Twemoji 的 <codepoint>.svg 放入本目录，并在
+src/components/EmojiPanel.vue 的 TWEMOJI 分类里追加对应码点。

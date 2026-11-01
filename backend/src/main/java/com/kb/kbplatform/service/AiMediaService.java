@@ -41,6 +41,7 @@ public class AiMediaService {
 
     private final AiModelRepository repo;
     private final AiKeyCipher cipher;
+    private final AiCapabilityService capabilityService;
 
     @Value("${kb.upload.dir:./uploads}")
     private String uploadDir;
@@ -55,13 +56,19 @@ public class AiMediaService {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
-    public AiMediaService(AiModelRepository repo, AiKeyCipher cipher) {
+    public AiMediaService(AiModelRepository repo, AiKeyCipher cipher, AiCapabilityService capabilityService) {
         this.repo = repo;
         this.cipher = cipher;
+        this.capabilityService = capabilityService;
     }
 
     /** 选一个指定 kind 的可用模型；modelId 非空时优先校验其 kind 匹配 */
     private AiModel pick(String kind, Long modelId) {
+        // 未指定模型时，优先用「AI 能力配置」里独立配置的那一套（与对话模型池互不干扰）
+        if (modelId == null) {
+            AiModel cap = capabilityService.asModel("IMAGE".equals(kind) ? AiCapabilityService.IMAGE : AiCapabilityService.VIDEO);
+            if (cap != null) return cap;
+        }
         if (modelId != null) {
             AiModel m = repo.findById(modelId).orElse(null);
             if (m != null && m.isEnabled() && kind.equalsIgnoreCase(m.getKind())) return m;

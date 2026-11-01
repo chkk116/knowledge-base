@@ -43,7 +43,7 @@ esac
 case "$FORCE" in true|false) ;; *) echo "❌ force 只能是 true/false，实际: $FORCE"; exit 1 ;; esac
 
 # 知识库主域名是 你的域名；www.你的域名 已改作订餐系统，App 里不能再指向它
-DOMAIN="https://你的域名"
+DOMAIN="${KB_DOMAIN:-https://你的域名}"
 KEY="$(cd "$(dirname "$0")/.." && pwd)/outputs/.deploykey"
 [ -f "$KEY" ] || KEY="/c/chkk/知识库/outputs/.deploykey"
 : "${KB_DEPLOY_TARGET:?请先 export KB_DEPLOY_TARGET（如 root@你的服务器IP），并把服务器指纹加入本机 known_hosts}"

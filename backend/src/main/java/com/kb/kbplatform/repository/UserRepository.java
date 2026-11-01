@@ -19,6 +19,9 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsername(String username);
 
+    /** 按邮箱查询（邮箱绑定唯一性校验用） */
+    Optional<User> findByEmail(String email);
+
     /** 按角色查询用户（用于「通知全体管理员」等场景） */
     List<User> findByRole(String role);
 

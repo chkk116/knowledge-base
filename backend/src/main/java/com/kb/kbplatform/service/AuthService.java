@@ -283,7 +283,7 @@ public class AuthService {
     }
 
     public User updateProfile(String username, String displayName, String avatar, String email, String bio,
-                              String gender, Boolean hideGender) {
+                              String gender, Boolean hideGender, Boolean emailNotifyEnabled) {
         User u = userRepo.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("账号不存在"));
         // 昵称/简介按纯文本存储，去除一切 HTML 标签，防存储型 XSS
@@ -318,7 +318,13 @@ public class AuthService {
             }
         }
         if (email != null) {
-            u.setEmail(email.trim());
+            String e = email.trim();
+            // 邮箱发生变化（包括解绑置空）则视为未验证，需重新走绑定验证码流程
+            String cur = u.getEmail() == null ? "" : u.getEmail();
+            if (!e.equals(cur)) {
+                u.setEmail(e.isBlank() ? null : e);
+                u.setEmailVerified(false);
+            }
         }
         if (bio != null) {
             u.setBio(HtmlSanitizer.toText(bio));  // 纯文本存储，防 XSS
@@ -330,6 +336,9 @@ public class AuthService {
         }
         if (hideGender != null) {
             u.setHideGender(hideGender);
+        }
+        if (emailNotifyEnabled != null) {
+            u.setEmailNotifyEnabled(emailNotifyEnabled);
         }
         return userRepo.save(u);
     }

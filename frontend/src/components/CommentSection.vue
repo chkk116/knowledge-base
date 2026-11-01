@@ -92,7 +92,7 @@ const insertEmoji = (p) => {
     sel.addRange(r)
   }
   if (p.kind === 'img') {
-    document.execCommand('insertHTML', false, `<img class="kb-emoji" src="/emojis/${p.name}.png" alt="表情">`)
+    document.execCommand('insertHTML', false, `<img class="kb-emoji" src="${p.src || '/emojis/' + p.name + '.png'}" alt="表情">`)
   } else {
     document.execCommand('insertText', false, p.text)
   }

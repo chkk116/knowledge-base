@@ -35,6 +35,18 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- 邮件发送（SMTP）：后台配置 SMTP，用于密码重置链接与通知邮件下发 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
+        <!-- JSON 解析（显式声明，避免仅靠传递依赖导致个别模块编译期不可见） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- Redis 缓存：默认关闭，启用见 application.yml 的 kb.redis.enabled。
              客户端用 Lettuce（Spring Data Redis 默认），无需额外依赖。 -->
         <dependency>

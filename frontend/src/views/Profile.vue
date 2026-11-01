@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import { useHistoryStore } from '../store/history'
-import { updateProfile, pointsLogPaged, exportMyData } from '../api/auth'
+import { updateProfile, pointsLogPaged, exportMyData, emailStatus, sendEmailCode, verifyEmailCode, unbindEmailApi, me } from '../api/auth'
 import { listMyDocs, myLikedDocs, myCommentedDocs, myFavorites, changePassword, userBadges } from '../api/kb'
 import { BADGE_ICONS, DEFAULT_BADGE_ICON, tierGradient } from '../utils/badgeIcons'
 const g0 = (b) => tierGradient(b.tier)[0]
@@ -24,6 +24,14 @@ const history = useHistoryStore()
 
 const displayName = ref('')
 const email = ref('')
+const emailVerified = ref(false)
+const emailNotifyEnabled = ref(false)
+const mailConfigured = ref(false)
+const code = ref('')
+const codeSent = ref(false)
+const sendingCode = ref(false)
+const verifying = ref(false)
+const unbinding = ref(false)
 const bio = ref('')
 const gender = ref('')
 const avatar = ref('')
@@ -90,6 +98,7 @@ onMounted(() => {
   avatar.value = auth.user?.avatar || ''
   avatarPending.value = auth.user?.avatarPending || null
   loadAppearance()
+  loadEmailStatus()
   loadDocs()
   loadLog()
   loadMine()
@@ -196,9 +205,9 @@ async function save() {
     const { data } = await updateProfile({
       displayName: displayName.value.trim(),
       avatar: avatar.value,
-      email: email.value.trim(),
       bio: bio.value.trim(),
       gender: gender.value,
+      emailNotifyEnabled: emailNotifyEnabled.value,
     })
     auth.setProfile(data)
     avatarPending.value = data.avatarPending || null
@@ -212,6 +221,80 @@ async function save() {
     ElMessage.error(errMsg(e, '更新失败'))
   } finally {
     saving.value = false
+  }
+}
+
+// 加载邮箱绑定状态（验证/通知开关/邮件服务是否可用）
+async function loadEmailStatus() {
+  try {
+    const { data } = await emailStatus()
+    email.value = data.email || ''
+    emailVerified.value = !!data.verified
+    emailNotifyEnabled.value = !!data.notifyEnabled
+    mailConfigured.value = !!data.mailConfigured
+  } catch (e) { /* 忽略，默认未绑定 */ }
+}
+
+async function sendCode() {
+  if (!email.value.trim()) { ElMessage.warning('请先输入邮箱'); return }
+  sendingCode.value = true
+  try {
+    await sendEmailCode(email.value.trim())
+    codeSent.value = true
+    ElMessage.success('验证码已发送，请查收邮箱')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '发送失败'))
+  } finally {
+    sendingCode.value = false
+  }
+}
+
+async function verifyEmail() {
+  if (!code.value.trim()) { ElMessage.warning('请输入验证码'); return }
+  verifying.value = true
+  try {
+    const { data } = await verifyEmailCode(email.value.trim(), code.value.trim())
+    const { data: meData } = await me()
+    auth.setProfile(meData)
+    emailVerified.value = true
+    email.value = data.email || email.value
+    emailNotifyEnabled.value = !!meData.emailNotifyEnabled
+    codeSent.value = false
+    code.value = ''
+    ElMessage.success('邮箱绑定成功')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '验证失败'))
+  } finally {
+    verifying.value = false
+  }
+}
+
+async function unbindEmail() {
+  unbinding.value = true
+  try {
+    await unbindEmailApi()
+    const { data: meData } = await me()
+    auth.setProfile(meData)
+    emailVerified.value = false
+    emailNotifyEnabled.value = false
+    email.value = ''
+    codeSent.value = false
+    code.value = ''
+    ElMessage.success('已解绑邮箱')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '解绑失败'))
+  } finally {
+    unbinding.value = false
+  }
+}
+
+async function saveNotify() {
+  try {
+    const { data } = await updateProfile({ emailNotifyEnabled: emailNotifyEnabled.value })
+    auth.setProfile(data)
+  } catch (e) {
+    ElMessage.error(errMsg(e, '保存失败'))
+    emailNotifyEnabled.value = !emailNotifyEnabled.value   // 失败回滚
   }
 }
 
@@ -475,7 +558,33 @@ async function doExport() {
               <el-input v-model="displayName" placeholder="显示名称" />
             </el-form-item>
             <el-form-item label="邮箱">
-              <el-input v-model="email" placeholder="用于接收通知（可选）" />
+              <template v-if="emailVerified">
+                <div style="display:flex;gap:8px;align-items:center">
+                  <el-tag type="success" size="small" effect="light">已绑定</el-tag>
+                  <span>{{ email || auth.user?.email }}</span>
+                  <el-button text type="danger" size="small" :loading="unbinding" @click="unbindEmail">解绑</el-button>
+                </div>
+              </template>
+              <template v-else>
+                <div>
+                  <div style="display:flex;gap:8px;margin-bottom:8px">
+                    <el-input v-model="email" placeholder="输入邮箱后获取验证码" style="flex:1" :disabled="sendingCode" />
+                    <el-button :loading="sendingCode" :disabled="!email" @click="sendCode">{{ codeSent ? '重新发送' : '获取验证码' }}</el-button>
+                  </div>
+                  <div v-if="codeSent" style="display:flex;gap:8px;margin-bottom:8px">
+                    <el-input v-model="code" placeholder="请输入收到的 6 位验证码" style="flex:1" maxlength="6" />
+                    <el-button type="primary" :loading="verifying" :disabled="!code" @click="verifyEmail">绑定</el-button>
+                  </div>
+                  <p v-if="!mailConfigured" style="font-size:12px;color:#e37318;margin:2px 0 0">管理员尚未配置邮件服务，暂无法绑定</p>
+                  <p v-else style="font-size:12px;color:#86909c;margin:2px 0 0">绑定后可用于接收密码重置链接与通知邮件</p>
+                </div>
+              </template>
+            </el-form-item>
+            <el-form-item label="邮件通知">
+              <div style="display:flex;gap:8px;align-items:center">
+                <el-switch v-model="emailNotifyEnabled" :disabled="!emailVerified" @change="saveNotify" />
+                <span style="font-size:12px;color:#86909c">开启后站内通知同步发到邮箱（需先绑定邮箱）</span>
+              </div>
             </el-form-item>
             <el-form-item label="简介">
               <el-input v-model="bio" type="textarea" :rows="3" maxlength="200" show-word-limit

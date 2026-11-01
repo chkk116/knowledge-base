@@ -18,6 +18,16 @@ export const register = (data) =>
 export const updateProfile = (data) =>
   api.put('/auth/profile', data)
 
+// ---- 邮箱绑定（验证码验证所有权）----
+export const emailStatus = () =>
+  api.get('/account/email/status')
+export const sendEmailCode = (email) =>
+  api.post('/account/email/send-code', { email })
+export const verifyEmailCode = (email, code) =>
+  api.post('/account/email/verify', { email, code })
+export const unbindEmailApi = () =>
+  api.post('/account/email/unbind')
+
 export const ranking = () =>
   api.get('/points/ranking')
 

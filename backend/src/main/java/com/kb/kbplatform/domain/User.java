@@ -48,6 +48,12 @@ public class User {
     @Column(length = 120)
     private String email;    // 邮箱
 
+    /** 邮箱是否已通过验证码验证（即「已绑定」）；未验证的邮箱不可用于接收邮件 */
+    private boolean emailVerified = false;
+
+    /** 是否接收站内通知的邮件抄送（默认关闭，用户在个人资料页自行开启） */
+    private boolean emailNotifyEnabled = false;
+
     @Column(columnDefinition = "text")
     private String bio;      // 个人简介
 
@@ -110,6 +116,12 @@ public class User {
 
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
+
+    public boolean isEmailVerified() { return emailVerified; }
+    public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
+
+    public boolean isEmailNotifyEnabled() { return emailNotifyEnabled; }
+    public void setEmailNotifyEnabled(boolean emailNotifyEnabled) { this.emailNotifyEnabled = emailNotifyEnabled; }
 
     public String getBio() { return bio; }
     public void setBio(String bio) { this.bio = bio; }

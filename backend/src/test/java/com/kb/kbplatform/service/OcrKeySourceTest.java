@@ -52,7 +52,7 @@ class OcrKeySourceTest {
         when(repo.findByEnabledTrueOrderBySortOrderAscIdAsc())
                 .thenReturn(List.of(model(AiModel.PROVIDER_ZHIPU, "", "sk-real-key")));
 
-        assertTrue(new OcrService(true, repo, cipher).isEnabled());
+        assertTrue(new OcrService(true, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class)).isEnabled());
     }
 
     @Test
@@ -61,7 +61,7 @@ class OcrKeySourceTest {
         when(repo.findByEnabledTrueOrderBySortOrderAscIdAsc())
                 .thenReturn(List.of(model(AiModel.PROVIDER_DEEPSEEK, "https://api.deepseek.com/v1", "sk-ds-key")));
 
-        assertFalse(new OcrService(true, repo, cipher).isEnabled());
+        assertFalse(new OcrService(true, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class)).isEnabled());
     }
 
     @Test
@@ -69,21 +69,21 @@ class OcrKeySourceTest {
     void disabledCases() {
         when(repo.findByEnabledTrueOrderBySortOrderAscIdAsc())
                 .thenReturn(List.of(model(AiModel.PROVIDER_ZHIPU, "", "sk-real-key")));
-        assertFalse(new OcrService(false, repo, cipher).isEnabled(), "总开关关闭时应不可用");
+        assertFalse(new OcrService(false, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class)).isEnabled(), "总开关关闭时应不可用");
 
         when(repo.findByEnabledTrueOrderBySortOrderAscIdAsc()).thenReturn(List.of());
-        assertFalse(new OcrService(true, repo, cipher).isEnabled(), "无配置时应不可用");
+        assertFalse(new OcrService(true, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class)).isEnabled(), "无配置时应不可用");
 
         when(repo.findByEnabledTrueOrderBySortOrderAscIdAsc())
                 .thenReturn(List.of(model(AiModel.PROVIDER_ZHIPU, "", null)));
-        assertFalse(new OcrService(true, repo, cipher).isEnabled(), "Key 为空时应不可用");
+        assertFalse(new OcrService(true, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class)).isEnabled(), "Key 为空时应不可用");
     }
 
     @Test
     @DisplayName("不可用时 recognize 抛中文提示，指引管理员去管理页配置")
     void recognizeThrowsHelpfulMessage() {
         when(repo.findByEnabledTrueOrderBySortOrderAscIdAsc()).thenReturn(List.of());
-        OcrService svc = new OcrService(true, repo, cipher);
+        OcrService svc = new OcrService(true, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class));
 
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 () -> svc.recognize(new byte[]{1, 2, 3}, "image/png"));
@@ -93,7 +93,7 @@ class OcrKeySourceTest {
     @Test
     @DisplayName("总开关关闭时 recognize 的提示应指向 kb.ai.enabled，而非误导向管理页")
     void disabledSwitchMessageIsAccurate() {
-        OcrService svc = new OcrService(false, repo, cipher);
+        OcrService svc = new OcrService(false, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class));
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 () -> svc.recognize(new byte[]{1, 2, 3}, "image/png"));
         assertTrue(e.getMessage().contains("kb.ai.enabled"),
@@ -107,7 +107,7 @@ class OcrKeySourceTest {
         AiModel second = model(AiModel.PROVIDER_DEEPSEEK, "", "sk-ds");
         when(repo.findByEnabledTrueOrderBySortOrderAscIdAsc()).thenReturn(List.of(second, first));
 
-        OcrService svc = new OcrService(true, repo, cipher);
+        OcrService svc = new OcrService(true, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class));
         assertTrue(svc.isEnabled());
         // 能正确解出第一条智谱配置的明文 Key（端点留空时内部回落到智谱默认端点）
         assertEquals("sk-first-key", cipher.decrypt(first.getApiKey()));

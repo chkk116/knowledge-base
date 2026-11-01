@@ -87,7 +87,7 @@ import {
   House, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound, Picture, VideoCamera,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
-  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush, Cpu, Search,
+  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush, Cpu, SetUp, Search,
   Upload,   // 侧边栏「我的文件」图标（此前漏注册 → 菜单里图标空白）
   // 2026-10-26 菜单去重：这些原本多条目共用同一个图标，看着像「同一个功能」
   Monitor, Promotion, Connection, Postcard, FolderOpened, Tickets, List, TrendCharts, Operation,
@@ -132,7 +132,7 @@ const icons = {
   House, EditPen, Files, Star, Medal, Document, DocumentCopy, User,
   CircleClose, UserFilled, Expand, Fold, Sunny, Moon, Bell, Clock, Menu, DataLine, Collection, Notification,   ChatDotRound, VideoCamera, Picture,
   Reading, Notebook, Trophy, ArrowLeft, Close, Check, Folder, InfoFilled,
-  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush, Cpu, Search,
+  Setting, Tools, Edit, Warning, Switch, Delete, Key, Grid, Stamp, OfficeBuilding, Finished, Management, Suitcase, Box, Brush, Cpu, SetUp, Search,
   Upload   // 侧边栏「我的文件」图标
 }
 for (const [key, component] of Object.entries(icons)) {

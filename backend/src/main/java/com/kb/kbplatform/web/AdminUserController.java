@@ -12,7 +12,9 @@ import com.kb.kbplatform.service.AdminService;
 import com.kb.kbplatform.service.AuthService;
 import com.kb.kbplatform.service.AuditService;
 import com.kb.kbplatform.service.DocShareService;
+import com.kb.kbplatform.service.MailService;
 import com.kb.kbplatform.service.OrgService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -37,16 +39,22 @@ public class AdminUserController {
     private final DocShareService docShareSvc;
     private final OrgService orgService;
     private final com.kb.kbplatform.service.PasswordResetService passwordResetService;
+    private final MailService mailService;
+    private final String siteBaseUrl;
 
     public AdminUserController(AdminService svc, AuthService authService, AuditService audit, DocShareService docShareSvc,
                                OrgService orgService,
-                               com.kb.kbplatform.service.PasswordResetService passwordResetService) {
+                               com.kb.kbplatform.service.PasswordResetService passwordResetService,
+                               MailService mailService,
+                               @Value("${KB_PUBLIC_BASE_URL:https://chkk116.cn}") String siteBaseUrl) {
         this.svc = svc;
         this.authService = authService;
         this.audit = audit;
         this.docShareSvc = docShareSvc;
         this.orgService = orgService;
         this.passwordResetService = passwordResetService;
+        this.mailService = mailService;
+        this.siteBaseUrl = siteBaseUrl.endsWith("/") ? siteBaseUrl.substring(0, siteBaseUrl.length() - 1) : siteBaseUrl;
     }
 
     private void requirePerm(TokenClaims c, String code) {
@@ -269,8 +277,20 @@ public class AdminUserController {
         User target = svc.requireUser(id);
         guardTargetNotHigher(c, target);
         Map<String, Object> m = passwordResetService.createLink(id, c.userId());
+        // 已验证邮箱 + SMTP 已配置 → 自动把重置链接发到用户邮箱（不再只靠手动转交；token 仍返回供兜底）
+        boolean emailed = false;
+        if (target.getEmail() != null && target.isEmailVerified() && mailService.isConfigured()) {
+            try {
+                String link = siteBaseUrl + "/reset-password?token=" + m.get("token");
+                mailService.sendResetLink(target, link);
+                emailed = true;
+            } catch (Exception e) {
+                // 邮件失败不影响链接生成，token 仍返回供管理员手动转交
+            }
+        }
+        m.put("emailed", emailed);
         audit.log(c.userId(), c.username(), "RESET_LINK", "USER", id, target.getUsername(),
-                "生成密码重置链接：" + target.getUsername());
+                "生成密码重置链接：" + target.getUsername() + (emailed ? "（已邮件发送）" : "（未邮件发送）"));
         return m;
     }
 

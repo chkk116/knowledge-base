@@ -30,7 +30,7 @@ KEY="$ROOT/outputs/.deploykey"
 : "${KB_DEPLOY_TARGET:?请先 export KB_DEPLOY_TARGET（如 root@你的服务器IP），并把服务器指纹加入本机 known_hosts}"
 SSH="ssh -i $KEY -o StrictHostKeyChecking=yes $KB_DEPLOY_TARGET"
 # 知识库主域名是 你的域名；www.你的域名 已改作订餐系统，App 里不能再指向它
-DOMAIN="https://你的域名"
+DOMAIN="${KB_DOMAIN:-https://你的域名}"
 
 # JSON 字符串转义（含换行→删；引号/反斜杠转义），供嵌入 JSON 值
 json_str() { printf '%s' "$1" | tr -d '\r\n' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
@@ -52,8 +52,20 @@ $SSH "mv -f /opt/kb/app-bundles/${NAME}.part /opt/kb/app-bundles/${NAME}"
 $SSH "find /opt/kb/app-bundles -maxdepth 1 -name 'kb-app-*.zip' ! -name '$NAME' -delete"
 
 echo "== 3. 写 SysSetting.app_bundle =="
+# 热更包签名：私钥只在本机，服务器只存签名；App 内置公钥验签。
+# 签名覆盖 version + url + checksum，改任一字段都会验签失败。
+SIGN_KEY="$ROOT/outputs/.bundle-signing-key.pem"
+if [ ! -f "$SIGN_KEY" ]; then
+  echo "✗ 缺少签名私钥：$SIGN_KEY（热更必须签名，已中止）" >&2
+  exit 1
+fi
+CANON=$(printf '%s\n%s\n%s' "$BVER" "$URL" "$SHA")
+SIG=$(printf '%s' "$CANON" | openssl dgst -sha256 -sign "$SIGN_KEY" | base64 | tr -d '\n')
+[ -n "$SIG" ] || { echo "✗ 签名失败" >&2; exit 1; }
+echo "签名: ${SIG:0:24}… (${#SIG} chars)"
+
 # 本地构造 JSON（全部字段做 JSON 转义）→ base64 → 远端 psql 变量绑定，杜绝 SQL 注入
-JSON="{\"version\":\"$(json_str "$BVER")\",\"url\":\"$(json_str "$URL")\",\"checksum\":\"$(json_str "$SHA")\",\"notes\":\"$(json_str "$NOTES")\"}"
+JSON="{\"version\":\"$(json_str "$BVER")\",\"url\":\"$(json_str "$URL")\",\"checksum\":\"$(json_str "$SHA")\",\"signature\":\"$(json_str "$SIG")\",\"sigAlg\":\"RS256\",\"notes\":\"$(json_str "$NOTES")\"}"
 B64=$(printf '%s' "$JSON" | base64 | tr -d '\n')
 $SSH "KB_JSON_B64='$B64' bash -s" << 'REMOTE' 2>&1
 set -euo pipefail

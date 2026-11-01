@@ -10,6 +10,7 @@ import { useRouter } from 'vue-router'
 import { useNotificationStore } from '../../store/notification'
 import { notificationList, notificationRead, notificationReadAll } from '../../api/kb'
 import { dlActive, dlPercent, dlDone } from '../../utils/updateProgress'
+import { dmUnreadCount } from '../../store/dm'
 
 const router = useRouter()
 const n = useNotificationStore()
@@ -146,6 +147,21 @@ watch(() => n.version, load)
             <div class="m-skel" style="height:12px;width:80%;margin-top:8px"></div>
           </div>
         </div>
+      </div>
+
+      <!-- 私信入口：与通知分开，点进独立的会话列表 -->
+      <div class="m-card" style="margin-bottom:10px">
+        <button class="m-row msg" type="button" @click="router.push('/dm')">
+          <span class="m-ico blue"><el-icon><ChatDotRound /></el-icon></span>
+          <span class="m-row-body">
+            <span class="mr-top">
+              <span class="m-row-title">私信</span>
+              <span class="mr-time">{{ dmUnreadCount ? dmUnreadCount + ' 条未读' : '' }}</span>
+            </span>
+            <span class="m-row-desc">与作者、同事一对一聊天</span>
+          </span>
+          <el-icon class="m-row-extra"><Right /></el-icon>
+        </button>
       </div>
 
       <!-- 应用更新：置顶（本地状态，不走服务端通知） -->

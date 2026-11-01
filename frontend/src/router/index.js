@@ -120,6 +120,9 @@ const routes = [
   // 与后端 AuthFilter 对 /api/admin/ai 前缀「仅 ADMIN 角色」的判定保持一致
   // AI 模型管理：细粒度权限 AI_MANAGE（可在角色管理里授予；演示号勾上后是「能看改不了」）
   { path: '/admin/ai-models', component: () => import('../views/admin/AiModelManage.vue'), meta: { admin: true, perm: 'AI_MANAGE', title: 'AI 模型管理' } },
+  // 能力配置：文生图/文生视频/OCR 各用哪个模型（与模型池分开，避免"每条都能设用途"）
+  { path: '/admin/ai-capabilities', component: () => import('../views/admin/AiCapability.vue'), meta: { admin: true, perm: 'AI_MANAGE', title: 'AI 能力配置' } },
+  { path: '/admin/mail', component: () => import('../views/admin/MailSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '邮件设置' } },
   // AI 反馈与知识缺口看板：赞/踩 + 检索未命中（只读，AI_MANAGE 可看）
   { path: '/admin/ai-feedback', component: () => import('../views/admin/AiFeedback.vue'), meta: { admin: true, perm: 'AI_MANAGE', title: 'AI 反馈' } },
   // 检索测试：管理员验证搜索质量（引擎 / 耗时 / 命中明细），纯只读

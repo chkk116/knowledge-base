@@ -41,14 +41,16 @@ public class NotificationService {
     private final SseSessionRegistry sse;
     private final DocSubscriptionRepository subRepo;
     private final WebhookNotifier webhook;
+    private final MailService mailService;
 
     public NotificationService(NotificationRepository repo, UserRepository userRepo, SseSessionRegistry sse,
-                               DocSubscriptionRepository subRepo, WebhookNotifier webhook) {
+                               DocSubscriptionRepository subRepo, WebhookNotifier webhook, MailService mailService) {
         this.repo = repo;
         this.userRepo = userRepo;
         this.sse = sse;
         this.subRepo = subRepo;
         this.webhook = webhook;
+        this.mailService = mailService;
     }
 
     /** 保存通知后立即通过 SSE 向接收者推送最新未读数（实时刷新顶栏红点）；
@@ -60,6 +62,13 @@ public class NotificationService {
             webhook.pushAsync(n.getType(), "知识库通知 · " + (n.getType() == null ? "" : n.getType()),
                     (n.getActor() == null ? "" : n.getActor() + "：") + (n.getSummary() == null ? "" : n.getSummary()));
         } catch (Exception ignore) { /* 外发通道异常绝不影响站内通知 */ }
+        // 邮件抄送：接收者已验证邮箱 + 开启通知邮件 + SMTP 已配置 → 同步发送（异常绝不影响站内通知）
+        try {
+            User recv = userRepo.findById(n.getUserId()).orElse(null);
+            if (recv != null && recv.isEmailVerified() && recv.isEmailNotifyEnabled() && mailService.isConfigured()) {
+                mailService.sendNotification(recv, n);
+            }
+        } catch (Exception ignore) { /* 邮件失败不影响站内通知 */ }
     }
 
     /**

@@ -58,15 +58,18 @@ public class OcrService {
     private final boolean enabled;
     private final AiModelRepository modelRepo;
     private final AiKeyCipher cipher;
+    private final AiCapabilityService capabilityService;
     /** baseUrl|apiKey → RestClient：避免每次识别都新建连接池与 selector 线程（审查 r11 High） */
     private final Map<String, RestClient> clientCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public OcrService(@Value("${kb.ai.enabled:false}") boolean enabled,
                       AiModelRepository modelRepo,
-                      AiKeyCipher cipher) {
+                      AiKeyCipher cipher,
+                      AiCapabilityService capabilityService) {
         this.enabled = enabled;
         this.modelRepo = modelRepo;
         this.cipher = cipher;
+        this.capabilityService = capabilityService;
     }
 
     /** 是否可用：受总开关约束，且管理页至少配了一条可用的多模态模型（取不到 Key 时视为不可用） */
@@ -86,6 +89,15 @@ public class OcrService {
      */
     private VisionConfig visionConfig() {
         List<AiModel> all = modelRepo.findByEnabledTrueOrderBySortOrderAscIdAsc();
+
+        // 0) 最高优先级：「AI 能力配置」里为 OCR 单独配置的端点/Key/模型（与对话模型池独立）
+        AiCapabilityService.Resolved oc = capabilityService.resolve(AiCapabilityService.OCR);
+        if (oc != null) {
+            String base = oc.baseUrl() == null || oc.baseUrl().isBlank()
+                    ? ZHIPU_DEFAULT_BASE : oc.baseUrl().trim();
+            log.info("OCR 使用能力配置：{} ({})", oc.model(), oc.provider());
+            return new VisionConfig(base, oc.apiKey(), List.of(oc.model()));
+        }
 
         // 0) 最高优先级：管理页显式勾选「用于图片 OCR」的条目。
         //    端点 + Key + **模型名**全部取本行配置 —— 换视觉模型只改管理页，不用发版。

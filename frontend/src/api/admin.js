@@ -94,7 +94,12 @@ export const searchTest = (params) => api.get('/admin/search/test', { params })
 // 返回 { days, total, kbTotal, hit, miss, hitRate, positive, negative, topMissed, recentMissed, recentNegative }
 export const aiFeedbackStats = (days = 7) => api.get('/admin/ai/feedback', { params: { days } })
 
-// ---- 批量导入用户（USER_MANAGE）----// payload: { rows: [{username,displayName,email,password,role}], defaultPassword?, dryRun? }
+// ---- AI 能力配置（AI_MANAGE）：文生图 / 文生视频 / OCR 各用哪个模型 ----
+export const aiCapabilities = () => api.get('/admin/ai/capabilities')
+export const saveAiCapabilities = (d) => api.put('/admin/ai/capabilities', d)
+
+// ---- 批量导入用户（USER_MANAGE）----
+// payload: { rows: [{username,displayName,email,password,role}], defaultPassword?, dryRun? }
 // 返回 { dryRun,total,created,skipped,failed,results:[{line,username,status,message}] }
 export const importUsers = (payload) => api.post('/admin/users/import', payload, { timeout: 120000 })
 

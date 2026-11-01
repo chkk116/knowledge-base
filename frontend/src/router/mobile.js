@@ -25,6 +25,9 @@ const routes = [
   { path: '/home', component: () => import('../views/mobile/MobileHome.vue'), meta: { tab: 'home', title: '首页' } },
   { path: '/docs', component: () => import('../views/mobile/MobileDocs.vue'), meta: { tab: 'docs', title: '文档库' } },
   { path: '/messages', component: () => import('../views/mobile/MobileMessages.vue'), meta: { tab: 'messages', title: '消息' } },
+  // 私信：会话列表 → 全屏聊天页（不在 Tab 上，从消息页进入）
+  { path: '/dm', component: () => import('../views/mobile/MobileDm.vue'), meta: { title: '私信' } },
+  { path: '/dm/:peerId', component: () => import('../views/mobile/MobileDmChat.vue'), meta: { title: '私信' } },
   { path: '/profile', component: () => import('../views/mobile/MobileProfile.vue'), meta: { tab: 'profile', title: '我的' } },
 
   // ---- ＋号：拍照识别建文档（全屏，不占 Tab） ----
