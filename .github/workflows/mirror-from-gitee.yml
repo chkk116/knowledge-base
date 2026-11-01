@@ -1,33 +1,24 @@
-# 从 Gitee 定时镜像到 GitHub（GitHub 服务端执行，不依赖本地网络）
-# 首次使用：GitHub → New repository → Import a repository，填 Gitee 地址导入一次，
-# 之后本 workflow 会自动按计划把 Gitee 的 master 与 tags 同步过来。
 name: Mirror from Gitee
-
 on:
   schedule:
-    - cron: '0 */6 * * *'      # 每 6 小时同步一次（UTC）
-  workflow_dispatch: {}         # 也支持在 Actions 页手动点一次
-
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 permissions:
   contents: write
-
 jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Pull from Gitee and push to GitHub
+      - name: Sync master and tags from Gitee
         run: |
           set -e
           git config user.name "mirror-bot"
-          git config user.email "mirror@users.noreply.github.com"
+          git config user.email "mirror-bot@users.noreply.github.com"
           git remote add gitee https://gitee.com/chkk116/knowledge-base.git
-          git fetch gitee --tags --prune
-          # 主分支直推（Gitee 是源，冲突时以 Gitee 为准）
+          # --force：允许覆盖本地同名 tag（重写历史后 tag 指向会变）
+          git fetch gitee --prune --force --tags
           git push origin refs/remotes/gitee/master:refs/heads/master --force
-          # tags 一并同步
           git push origin --tags --force
