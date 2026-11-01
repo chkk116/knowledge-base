@@ -586,6 +586,10 @@ async function doExport() {
                 <span style="font-size:12px;color:#86909c">开启后站内通知同步发到邮箱（需先绑定邮箱）</span>
               </div>
             </el-form-item>
+            <el-form-item label="AI 模型">
+              <el-button text type="primary" @click="router.push('/my-ai-models')">管理我的 AI 模型</el-button>
+              <span style="font-size:12px;color:#86909c;margin-left:8px">配置自己的模型，与管理员模型互不影响</span>
+            </el-form-item>
             <el-form-item label="简介">
               <el-input v-model="bio" type="textarea" :rows="3" maxlength="200" show-word-limit
                         placeholder="一句话介绍自己…" />

@@ -169,8 +169,14 @@ public class AiConversationService {
     /** 多模态版本：images 为图片 dataURL 列表（可空；模型原生多模态直接看图，无需 OCR） */
     public Map<String, Object> ask(Long userId, Long conversationId, String question, String mode, Long modelId,
                                    List<String> images) {
+        return ask(userId, conversationId, question, mode, modelId, null, images);
+    }
+
+    /** 带用户私有模型：userModelId 非空时优先用该用户自己的模型 */
+    public Map<String, Object> ask(Long userId, Long conversationId, String question, String mode, Long modelId,
+                                   Long userModelId, List<String> images) {
         try {
-            return askInternal(userId, conversationId, question, mode, modelId, images, null, false);
+            return askInternal(userId, conversationId, question, mode, modelId, userModelId, images, null, false);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -181,11 +187,18 @@ public class AiConversationService {
     /** 流式版本：每段增量已通过 sink 发给前端，这里负责在结束后落库并返回汇总结果 */
     public Map<String, Object> askStream(Long userId, Long conversationId, String question, String mode, Long modelId,
                                          List<String> images, AiModelClient.StreamSink sink) throws Exception {
-        return askInternal(userId, conversationId, question, mode, modelId, images, sink, true);
+        return askStream(userId, conversationId, question, mode, modelId, null, images, sink);
+    }
+
+    /** 带用户私有模型的流式版本 */
+    public Map<String, Object> askStream(Long userId, Long conversationId, String question, String mode, Long modelId,
+                                         Long userModelId, List<String> images, AiModelClient.StreamSink sink) throws Exception {
+        return askInternal(userId, conversationId, question, mode, modelId, userModelId, images, sink, true);
     }
 
     private Map<String, Object> askInternal(Long userId, Long conversationId, String question, String mode, Long modelId,
-                                            List<String> images, AiModelClient.StreamSink sink, boolean stream) throws Exception {
+                                            Long userModelId, List<String> images, AiModelClient.StreamSink sink,
+                                            boolean stream) throws Exception {
         AiConversation c;
         if (conversationId == null) {
             c = create(userId, autoTitle(question));
@@ -232,8 +245,8 @@ public class AiConversationService {
         String personaText = persona == null ? "" : persona;
         String modeText = mode == null ? "kb" : mode;
         Map<String, Object> rag = stream
-                ? ragService.askStream(question, history, instr, personaText, modeText, modelId, images, sink)
-                : ragService.ask(question, history, instr, personaText, modeText, modelId, images);
+                ? ragService.askStream(question, history, instr, personaText, modeText, modelId, userModelId, userId, images, sink)
+                : ragService.ask(question, history, instr, personaText, modeText, modelId, userModelId, userId, images);
         String answer = rag.get("answer") == null ? "" : rag.get("answer").toString();
         Object sources = rag.get("sources");
         // 调用可视化字段透传：模型名 / 耗时 / token 用量 / 思考过程，前端在回答旁展示

@@ -1,6 +1,11 @@
 import api from './request'
 
 export const dmConversations = () => api.get('/dm/conversations')
+// 归档 / 删除会话（本用户视角）
+export const dmArchiveConv = (peerId, archived = true) =>
+  api.post(`/dm/conversations/${peerId}/archive`, { archived })
+export const dmDeleteConv = (peerId) => api.delete(`/dm/conversations/${peerId}`)
+export const dmArchivedConversations = () => api.get('/dm/conversations', { params: { archived: true } })
 export const dmMessages = (peerId, beforeId) =>
   api.get('/dm/messages', { params: { peerId, ...(beforeId ? { beforeId } : {}) } })
 export const dmSend = (toId, content, kind = 'TEXT', replyId = null) =>

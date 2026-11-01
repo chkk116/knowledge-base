@@ -7,8 +7,8 @@ import api from './request'
 // timeout 单独放宽：全局 15s，但 RAG 检索 + 大模型生成实测常超 15s，会被 axios 掐断
 // config 可传 { modelId } 与 { signal }（AbortController，用于「停止生成」按钮中断请求）
 // images: 图片 dataURL 数组（模型原生多模态，直接看图；不传则退化为纯文本）
-export const aiAsk = (question, conversationId, mode, { modelId = null, images = null, ...config } = {}) =>
-  api.post('/ai/ask', { question, conversationId, mode, modelId, images }, { timeout: 120000, ...config })
+export const aiAsk = (question, conversationId, mode, { modelId = null, userModelId = null, images = null, ...config } = {}) =>
+  api.post('/ai/ask', { question, conversationId, mode, modelId, userModelId, images }, { timeout: 120000, ...config })
 
 /**
  * 对某条 AI 回答点赞/踩。qaId 来自 /ai/ask 或 /ai/ask/stream 的 done 事件返回值。
@@ -23,13 +23,13 @@ export const aiFeedback = (qaId, rating, reason = '') =>
  * signal 直接交给 fetch —— abort 时连接断开，后端 sink 抛错退出并保留已生成内容。
  */
 export async function aiAskStream(question, conversationId, mode, opts = {}) {
-  const { modelId = null, images = null, signal, onDelta, onReasoning } = opts
+  const { modelId = null, userModelId = null, images = null, signal, onDelta, onReasoning } = opts
   const token = localStorage.getItem('kb_token') || ''
   const url = (api.defaults.baseURL || '') + '/ai/ask/stream'
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-    body: JSON.stringify({ question, conversationId, mode, modelId, images }),
+    body: JSON.stringify({ question, conversationId, mode, modelId, userModelId, images }),
     signal
   })
   if (!resp.ok || !resp.body) {
@@ -122,9 +122,15 @@ export const getPreference = () =>
 export const savePreference = (preference) =>
   api.put('/ai/preferences', preference)
 
-// ---- 当前可用模型（不含 API Key，用于对话页下拉选择）----
+// ---- 当前可用模型（不含 API Key，用于对话页下拉选择）：系统模型 + 自己的模型 ----
 export const listAiModels = () =>
   api.get('/ai/models')
+
+// ---- 我的自定义模型（与管理员系统模型隔离，仅本人可见/可改）----
+export const listMyAiModels = () => api.get('/ai/my-models')
+export const createMyAiModel = (d) => api.post('/ai/my-models', d)
+export const updateMyAiModel = (id, d) => api.put('/ai/my-models/' + id, d)
+export const deleteMyAiModel = (id) => api.delete('/ai/my-models/' + id)
 
 // ---- AI 模型管理（仅完全管理员：AuthFilter 对 /api/admin/ai 前缀返回 null，只认 ADMIN 角色）----
 // 列表一律脱敏：keyMasked 形如 ****abcd，hasKey 表示是否已填 Key

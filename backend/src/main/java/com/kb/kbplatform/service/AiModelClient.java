@@ -7,8 +7,10 @@ package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.AiModel;
 import com.kb.kbplatform.domain.AiUsageLog;
+import com.kb.kbplatform.domain.UserAiModel;
 import com.kb.kbplatform.repository.AiModelRepository;
 import com.kb.kbplatform.repository.AiUsageLogRepository;
+import com.kb.kbplatform.repository.UserAiModelRepository;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -39,6 +41,7 @@ public class AiModelClient {
     private static final Logger log = LoggerFactory.getLogger(AiModelClient.class);
 
     private final AiModelRepository repo;
+    private final UserAiModelRepository userModelRepo;
     private final AiKeyCipher cipher;
     private final AiUsageLogRepository usageRepo;
     private final Map<Long, RestClient> clients = new ConcurrentHashMap<>();
@@ -48,8 +51,10 @@ public class AiModelClient {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    public AiModelClient(AiModelRepository repo, AiKeyCipher cipher, AiUsageLogRepository usageRepo) {
+    public AiModelClient(AiModelRepository repo, UserAiModelRepository userModelRepo,
+                         AiKeyCipher cipher, AiUsageLogRepository usageRepo) {
         this.repo = repo;
+        this.userModelRepo = userModelRepo;
         this.cipher = cipher;
         this.usageRepo = usageRepo;
     }
@@ -59,7 +64,7 @@ public class AiModelClient {
         void accept(String delta, String reasoning) throws Exception;
     }
 
-    /** 用户端可选模型（不含 Key，供对话页下拉使用） */
+    /** 用户端可选模型（不含 Key，供对话页下拉使用）：系统模型 + 当前用户自己的模型 */
     public List<Map<String, Object>> publicModels() {
         List<Map<String, Object>> out = new ArrayList<>();
         for (AiModel m : repo.findByEnabledTrueOrderBySortOrderAscIdAsc()) {
@@ -71,7 +76,27 @@ public class AiModelClient {
             r.put("isDefault", m.isDefaultModel());
             // 前端要按窗口大小决定带多少历史、画用量环
             r.put("contextWindow", m.getContextWindow());
+            r.put("scope", "system");
             out.add(r);
+        }
+        return out;
+    }
+
+    /** 系统模型 + 当前用户私有模型（scope=user），供对话页下拉区分来源 */
+    public List<Map<String, Object>> publicModels(Long userId) {
+        List<Map<String, Object>> out = publicModels();
+        if (userId != null) {
+            for (UserAiModel um : userModelRepo.findByUserIdAndEnabledTrueOrderBySortOrderAscIdAsc(userId)) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("id", um.getId());
+                r.put("provider", um.getProvider());
+                r.put("name", um.getName());
+                r.put("model", um.getModel());
+                r.put("isDefault", false);
+                r.put("contextWindow", um.getContextWindow());
+                r.put("scope", "user");
+                out.add(r);
+            }
         }
         return out;
     }
@@ -102,12 +127,23 @@ public class AiModelClient {
      * @param modelId 本次要用的模型配置 id；null = 用默认
      */
     public AiChatResult chat(Long modelId, List<Map<String, Object>> messages) {
-        return chatChain(candidates(modelId), messages, "chat");
+        return chat(modelId, null, null, messages);
+    }
+
+    /** 带用户私有模型：userModelId 命中时优先使用该用户模型，失败再降级到系统模型 */
+    public AiChatResult chat(Long modelId, Long userModelId, Long userId, List<Map<String, Object>> messages) {
+        return chatChain(candidates(modelId, userModelId, userId), messages, "chat");
     }
 
     /** 流式版 chat：同样沿降级链尝试，但把增量实时回调给 sink */
     public AiChatResult chatStream(Long modelId, List<Map<String, Object>> messages, StreamSink sink) {
-        List<AiModel> chain = candidates(modelId);
+        return chatStream(modelId, null, null, messages, sink);
+    }
+
+    /** 带用户私有模型的流式版：userModelId 命中时优先使用该用户模型，失败再降级到系统模型 */
+    public AiChatResult chatStream(Long modelId, Long userModelId, Long userId,
+                                   List<Map<String, Object>> messages, StreamSink sink) {
+        List<AiModel> chain = candidates(modelId, userModelId, userId);
         if (chain.isEmpty()) {
             return AiChatResult.fail("尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。");
         }
@@ -298,10 +334,20 @@ public class AiModelClient {
         return chatChain(List.of(m), msgs, "test");
     }
 
-    /** 候选链：指定模型 → 默认模型 → 其余启用模型（去重） */
     private List<AiModel> candidates(Long modelId) {
+        return candidates(modelId, null, null);
+    }
+
+    /** 候选链：用户私有模型（若指定）→ 指定系统模型 → 默认模型 → 其余启用模型（去重） */
+    private List<AiModel> candidates(Long modelId, Long userModelId, Long userId) {
         List<AiModel> all = repo.findByEnabledTrueOrderBySortOrderAscIdAsc();
         List<AiModel> chain = new ArrayList<>();
+        // 用户私有模型优先（只认自己的、已启用的）
+        if (userModelId != null && userId != null) {
+            userModelRepo.findByIdAndUserId(userModelId, userId)
+                    .filter(UserAiModel::isEnabled)
+                    .ifPresent(um -> chain.add(toAiModel(um)));
+        }
         if (modelId != null) {
             for (AiModel m : all) if (m.getId().equals(modelId)) chain.add(m);
         }
@@ -316,6 +362,22 @@ public class AiModelClient {
             if (!dup) chain.add(m);
         }
         return chain;
+    }
+
+    /** 用户私有模型 → 临时 AiModel（id 取负数，避免与系统模型 id 冲突，也保证 RestClient 缓存 key 唯一） */
+    private AiModel toAiModel(UserAiModel um) {
+        AiModel m = new AiModel();
+        long raw = um.getId() == null ? System.nanoTime() : um.getId();
+        m.setId(-Math.abs(raw));
+        m.setProvider(um.getProvider());
+        m.setName(um.getName());
+        m.setBaseUrl(um.getBaseUrl());
+        m.setApiKey(um.getApiKey());
+        m.setModel(um.getModel());
+        m.setEnabled(um.isEnabled());
+        m.setKind("CHAT");
+        m.setContextWindow(um.getContextWindow());
+        return m;
     }
 
     private String baseUrlOf(AiModel m) {

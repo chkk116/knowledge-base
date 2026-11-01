@@ -116,12 +116,21 @@ function answerAgentAsk(val) {
 // selectedModelId 为 '' 时不指定，走后端「默认模型」；选了具体 id 则本次请求强制用它
 const modelList = ref([])
 const selectedModelId = ref('')
+// 模型 key：系统模型 s:<id>、自己的模型 u:<id>（两类 id 各自自增可能重复，必须带前缀区分）
+function mkey(m) { return (m.scope === 'user' ? 'u:' : 's:') + m.id }
+function modelPayload() {
+  const v = String(selectedModelId.value || '')
+  if (!v) return { modelId: null }
+  if (v.startsWith('u:')) return { modelId: null, userModelId: Number(v.slice(2)) }
+  if (v.startsWith('s:')) return { modelId: Number(v.slice(2)) }
+  return { modelId: Number(v) }
+}
 async function loadModels() {
   try {
     const { data } = await listAiModels()
     modelList.value = data || []
     // 下拉里选过、但管理员把该模型停用了 → 回到默认模型
-    if (selectedModelId.value && !modelList.value.some((m) => String(m.id) === String(selectedModelId.value))) {
+    if (selectedModelId.value && !modelList.value.some((m) => mkey(m) === selectedModelId.value)) {
       selectedModelId.value = ''
     }
   } catch {
@@ -181,7 +190,7 @@ function onModelChange() {
 
 // 顶部模型选择器（WorkBuddy 风格）：触发器显示当前模型 + 品牌图标，弹层列表带勾选
 const currentModel = computed(() =>
-  modelList.value.find((m) => String(m.id) === String(selectedModelId.value)) || null)
+  modelList.value.find((m) => mkey(m) === selectedModelId.value) || null)
 const currentModelLabel = computed(() => currentModel.value?.name || '默认模型')
 
 // ---------- 上下文预算 / 用量环 / 思考强度 / 压缩 ----------
@@ -272,7 +281,7 @@ async function compactContext(auto = false) {
   try {
     const text = msgs.map((m) => (m.role === 'user' ? '用户：' : '助手：') + String(m.content)).join('\n\n')
     const { data } = await aiAsk(COMPACT_INSTRUCTION + text, null, 'general', {
-      modelId: selectedModelId.value || null,
+      ...modelPayload(),
     })
     const summary = String((data && data.answer) || '').trim()
     if (!summary) { ElMessage.warning('压缩失败：模型没有返回内容'); return }
@@ -293,7 +302,7 @@ async function compactContext(auto = false) {
 }
 const currentModelProvider = computed(() => currentModel.value?.provider || '')
 function pickModel(id) {
-  if (String(selectedModelId.value) === String(id)) return
+  if (selectedModelId.value === id) return
   selectedModelId.value = id
   onModelChange()
 }
@@ -668,7 +677,7 @@ async function sendAgent(raw) {
       question: task,
       ask: async (t, sig) => {
         const { data } = await aiAsk(t, null, 'general', {
-          modelId: selectedModelId.value || null, signal: sig || abortCtrl.value.signal
+          ...modelPayload(), signal: sig || abortCtrl.value.signal
         })
         return (data && data.answer) || ''
       },
@@ -912,7 +921,7 @@ async function send(text) {
     let data
     try {
       data = await aiAskStream(question, convId, mode.value, {
-        modelId: selectedModelId.value || null,
+        ...modelPayload(),
         images: images.length ? images : null,
         signal: abortCtrl.value.signal,
         onDelta: (d) => patch((m) => { m.content += d }),
@@ -922,7 +931,7 @@ async function send(text) {
       // 旧后端没有 /ai/ask/stream：404 时回退到一次性接口，保证兼容
       if (err && err.status === 404) {
         const { data: fallback } = await aiAsk(question, convId, mode.value, {
-          modelId: selectedModelId.value || null, signal: abortCtrl.value.signal,
+          ...modelPayload(), signal: abortCtrl.value.signal,
           images: images.length ? images : null
         })
         data = fallback
@@ -977,7 +986,7 @@ async function regenerate() {
   try {
     abortCtrl.value = new AbortController()
     const { data } = await aiAsk(lastQ, convId, mode.value, {
-      modelId: selectedModelId.value || null, signal: abortCtrl.value.signal
+      ...modelPayload(), signal: abortCtrl.value.signal
     })
     const newArr = [...arr]
     const aiMsg = {
@@ -1652,15 +1661,15 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                     <el-icon v-if="!selectedModelId" class="aimp-check"><Select /></el-icon>
                   </button>
                   <button
-                    v-for="m in modelList" :key="m.id" type="button"
-                    class="aimp-row" :class="{ on: String(selectedModelId) === String(m.id) }"
-                    @click="pickModel(String(m.id))">
+                    v-for="m in modelList" :key="m.scope + ':' + m.id" type="button"
+                    class="aimp-row" :class="{ on: selectedModelId === mkey(m) }"
+                    @click="pickModel(mkey(m))">
                     <span class="aimp-ico"><ProviderLogo :provider="m.provider" :size="18" /></span>
                     <span class="aimp-main">
-                      <span class="aimp-name">{{ m.name }}</span>
+                      <span class="aimp-name">{{ m.name }}<span v-if="m.scope === 'user'" style="margin-left:6px;font-size:10px;color:#1677ff;border:1px solid #bcd3ff;border-radius:4px;padding:0 4px">我的</span></span>
                       <span class="aimp-sub">{{ m.model }}<template v-if="m.isDefault"> · 默认</template></span>
                     </span>
-                    <el-icon v-if="String(selectedModelId) === String(m.id)" class="aimp-check"><Select /></el-icon>
+                    <el-icon v-if="selectedModelId === mkey(m)" class="aimp-check"><Select /></el-icon>
                   </button>
                 </div>
               </el-popover>

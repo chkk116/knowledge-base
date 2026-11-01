@@ -15,10 +15,31 @@
       <div class="dm-search">
         <el-input v-model="kw" size="small" placeholder="搜索会话" clearable />
       </div>
+      <div v-if="showArchived" class="dm-archived-bar">
+        <el-button text size="small" @click="showArchived = false">← 已归档</el-button>
+      </div>
+      <div v-else-if="archivedCount" class="dm-archived-entry" @click="showArchived = true">
+        <el-icon><Box /></el-icon>
+        <span class="t">已归档</span>
+        <span class="n">{{ archivedCount }}</span>
+      </div>
       <div class="dm-convs">
-        <div v-if="!filtered.length" class="dm-empty-s">还没有会话</div>
-        <div v-for="c in filtered" :key="c.peerId" class="dm-conv" :class="{ on: peer && peer.peerId === c.peerId }"
-             @click="openPeer(c.peerId, c)">
+        <div v-if="!currentList.length" class="dm-empty-s">{{ showArchived ? '没有归档的会话' : '还没有会话' }}</div>
+        <div v-for="c in currentList" :key="c.peerId" class="dm-conv-wrap">
+          <div class="dm-swipe-act act-archive" :style="{ '--p': Math.min(1, Math.max(0, (swipe[c.peerId]?.x || 0) / 60)) }">
+            <span class="sa"><el-icon><Box /></el-icon><span>{{ showArchived ? '取消归档' : '归档' }}</span></span>
+          </div>
+          <div class="dm-swipe-act act-delete" :style="{ '--p': Math.min(1, Math.max(0, -(swipe[c.peerId]?.x || 0) / 60)) }">
+            <span class="sa"><el-icon><Delete /></el-icon><span>删除</span></span>
+          </div>
+          <div class="dm-conv"
+               :class="{ on: peer && peer.peerId === c.peerId, dragging: swipe[c.peerId]?.dragging }"
+               :style="{ transform: 'translateX(' + (swipe[c.peerId]?.x || 0) + 'px)' }"
+               @pointerdown="onSwipeStart($event, c)"
+               @pointermove="onSwipeMove($event, c)"
+               @pointerup="onSwipeEnd($event, c)"
+               @pointercancel="onSwipeEnd($event, c)"
+               @click="onConvClick(c)">
           <el-avatar :size="34" :src="c.avatar || undefined">{{ (c.name || '?').slice(0, 1) }}</el-avatar>
           <div class="dm-conv-body">
             <div class="dm-conv-top">
@@ -29,6 +50,7 @@
               <span class="msg">{{ c.lastFromMe ? '我：' : '' }}{{ plainPreview(c.lastMessage) }}</span>
               <span v-if="c.unread" class="badge">{{ c.unread > 99 ? '99+' : c.unread }}</span>
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -96,22 +118,24 @@
           <el-button text size="small" @click="quoteRef = null">取消</el-button>
         </div>
         <footer class="dm-input">
-          <div class="dm-tools">
-            <button type="button" class="tool" :class="{ on: emojiOpen }" title="表情" @click="emojiOpen = !emojiOpen">😊</button>
-            <button type="button" class="tool" title="发送图片" :disabled="!quota.peerAllowDm || sending" @click="pickImage">
-              <el-icon><Picture /></el-icon>
-            </button>
-            <span class="tool-hint">Enter 发送 · Shift+Enter 换行</span>
-          </div>
           <div class="dm-editor">
             <el-input
-              ref="inputRef" v-model="draft" type="textarea" :rows="2" resize="none"
+              ref="inputRef" v-model="draft" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" resize="none"
               :placeholder="quota.peerAllowDm ? '输入消息…' : '对方未开放私信'"
               :disabled="!quota.peerAllowDm || (quota.limited && quota.sent >= 3)"
               @keydown.enter.exact.prevent="send" />
             <EmojiPanel v-if="emojiOpen" class="emoji-pop" @insert="insertEmoji" />
           </div>
-          <el-button type="primary" class="send-btn" :disabled="!canSend" :loading="sending" @click="send">发送</el-button>
+          <div class="dm-input-bot">
+            <div class="dm-tools">
+              <button type="button" class="tool" :class="{ on: emojiOpen }" title="表情" @click="emojiOpen = !emojiOpen">😊</button>
+              <button type="button" class="tool" title="发送图片" :disabled="!quota.peerAllowDm || sending" @click="pickImage">
+                <el-icon><Picture /></el-icon>
+              </button>
+              <span class="tool-hint">Enter 发送 · Shift+Enter 换行</span>
+            </div>
+            <el-button type="primary" class="send-btn" :disabled="!canSend" :loading="sending" @click="send">发送</el-button>
+          </div>
           <input ref="fileInput" type="file" accept="image/*" class="hidden-file" @change="onPickImage" />
         </footer>
       </template>
@@ -139,7 +163,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
-import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings, dmRecall } from '../api/dm'
+import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings, dmRecall, dmArchiveConv, dmDeleteConv, dmArchivedConversations } from '../api/dm'
 import { refreshDmUnread } from '../store/dm'
 import { uploadFile } from '../api/file'
 import ReportDialog from '../components/ReportDialog.vue'
@@ -153,6 +177,9 @@ const auth = useAuthStore()
 const meId = computed(() => auth.user?.id)
 
 const convs = ref([])
+const archivedConvs = ref([])
+const archivedCount = ref(0)
+const showArchived = ref(false)
 const kw = ref('')
 const peer = ref(null)
 const msgs = ref([])
@@ -172,6 +199,7 @@ const filtered = computed(() => {
   const k = kw.value.trim()
   return k ? convs.value.filter((c) => (c.name || '').includes(k) || (c.lastMessage || '').includes(k)) : convs.value
 })
+const currentList = computed(() => (showArchived.value ? archivedConvs.value : filtered.value))
 const canSend = computed(() => !!draft.value.trim() && !sending.value && quota.peerAllowDm
   && !(quota.limited && quota.sent >= 3))
 
@@ -248,6 +276,9 @@ async function loadConvs() {
   try {
     const { data } = await dmConversations()
     convs.value = data || []
+    const { data: arch } = await dmArchivedConversations()
+    archivedConvs.value = arch || []
+    archivedCount.value = (arch || []).length
   } catch (e) { /* 未登录等情况静默 */ }
 }
 
@@ -275,6 +306,80 @@ async function openPeer(peerId, info) {
   } finally {
     if (openSeq === stamp) loading.value = false
   }
+}
+
+/* ---------- 会话项滑动：左滑删除 / 右滑归档 ---------- */
+const swipe = reactive({})          // peerId -> { x, dragging }
+let sw = null                        // 当前拖拽：{ peerId, startX, startY, moved }
+let suppressClick = false            // 拖拽结束后的 click 不当作「打开会话」
+
+function onSwipeStart(e, c) {
+  if (e.button !== undefined && e.button !== 0) return
+  sw = { peerId: c.peerId, startX: e.clientX, startY: e.clientY, moved: false }
+  swipe[c.peerId] = { x: 0, dragging: false }
+}
+
+function onSwipeMove(e, c) {
+  if (!sw || sw.peerId !== c.peerId) return
+  const dx = e.clientX - sw.startX
+  const dy = e.clientY - sw.startY
+  if (!sw.moved) {
+    // 横向位移明显大于纵向才进入滑动，避免影响列表纵向滚动
+    if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return
+    sw.moved = true
+    swipe[c.peerId].dragging = true
+  }
+  swipe[c.peerId].x = Math.max(-90, Math.min(90, dx))
+}
+
+function onSwipeEnd(e, c) {
+  if (!sw || sw.peerId !== c.peerId) return
+  const x = swipe[c.peerId]?.x || 0
+  const moved = sw.moved
+  sw = null
+  const st = swipe[c.peerId]
+  if (st) { st.dragging = false; st.x = 0 }
+  if (!moved) return
+  suppressClick = true
+  setTimeout(() => { suppressClick = false }, 350)
+  if (x < -60) doDeleteConv(c)
+  else if (x > 60) doArchiveConv(c)
+}
+
+function onConvClick(c) {
+  if (suppressClick) return
+  openPeer(c.peerId, c)
+}
+
+async function doArchiveConv(c) {
+  try {
+    if (showArchived.value) {
+      // 归档列表里右滑 = 取消归档
+      await dmArchiveConv(c.peerId, false)
+      archivedConvs.value = archivedConvs.value.filter((x) => x.peerId !== c.peerId)
+      archivedCount.value = archivedConvs.value.length
+      ElMessage.success('已取消归档')
+    } else {
+      await dmArchiveConv(c.peerId, true)
+      convs.value = convs.value.filter((x) => x.peerId !== c.peerId)
+      if (peer.value?.peerId === c.peerId) peer.value = null
+      ElMessage.success('已归档')
+    }
+  } catch (e) {
+    ElMessage.error('操作失败')
+  }
+}
+
+async function doDeleteConv(c) {
+  try {
+    await ElMessageBox.confirm(`删除与「${c.name}」的会话？（仅自己可见，不影响对方）`, '删除会话', { type: 'warning' })
+    await dmDeleteConv(c.peerId)
+    convs.value = convs.value.filter((x) => x.peerId !== c.peerId)
+    archivedConvs.value = archivedConvs.value.filter((x) => x.peerId !== c.peerId)
+    archivedCount.value = archivedConvs.value.length
+    if (peer.value?.peerId === c.peerId) peer.value = null
+    ElMessage.success('已删除')
+  } catch (e) { /* 取消 */ }
 }
 
 const fileInput = ref(null)
@@ -466,8 +571,28 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 :deep(html.dark) .mc-switch span.on { background: #2f2f4a; color: #a9c2ff; box-shadow: none; }
 .dm-search { padding: 0 12px 8px; }
 .dm-convs { flex: 1; overflow-y: auto; }
+.dm-archived-entry { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 13px; color: #1f2937; }
+.dm-archived-entry:hover { background: #f2f4f7; }
+.dm-archived-entry .t { flex: 1; }
+.dm-archived-entry .n { color: #9ca3af; font-size: 12px; }
+.dm-archived-bar { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; }
 .dm-empty-s { padding: 24px 14px; color: #9ca3af; font-size: 13px; text-align: center; }
-.dm-conv { display: flex; gap: 10px; padding: 10px 12px; cursor: pointer; }
+.dm-conv-wrap { position: relative; overflow: hidden; }
+/* 滑动露出的操作层：右滑=归档（蓝），左滑=删除（红） */
+.dm-swipe-act { position: absolute; top: 6px; bottom: 6px; display: flex; align-items: center; gap: 6px;
+  padding: 0 18px; color: #fff; font-size: 13px; font-weight: 500; pointer-events: none;
+  border-radius: 12px; opacity: var(--p, 0); }
+.dm-swipe-act .sa { display: flex; align-items: center; gap: 6px;
+  transform: scale(calc(.82 + .18 * var(--p, 0))); transition: transform .12s ease; }
+.dm-swipe-act .el-icon { font-size: 18px; }
+.act-archive { left: 8px; background: linear-gradient(135deg, #4c9aff, #1677ff); box-shadow: 0 2px 8px rgba(22, 119, 255, .25); }
+.act-delete { right: 8px; background: linear-gradient(135deg, #ff8a8a, #ef4444); box-shadow: 0 2px 8px rgba(239, 68, 68, .25); }
+.dm-conv { position: relative; z-index: 1; background: #fafbfc; display: flex; gap: 10px; padding: 10px 12px; cursor: pointer;
+  transition: transform .22s cubic-bezier(.22, .61, .36, 1), box-shadow .2s; touch-action: pan-y; will-change: transform;
+  user-select: none; -webkit-user-select: none; }
+/* 头像图片默认可拖拽，会吞掉右滑手势 —— 关掉 */
+.dm-conv :deep(img) { -webkit-user-drag: none; }
+.dm-conv.dragging { transition: none; box-shadow: 0 6px 18px rgba(15, 23, 42, .12); }
 .dm-conv:hover { background: #f2f4f7; }
 .dm-conv.on { background: #eaf2ff; }
 .dm-conv-body { flex: 1; min-width: 0; }
@@ -479,25 +604,30 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .badge { background: #ef4444; color: #fff; font-size: 11px; border-radius: 9px; padding: 0 6px; line-height: 17px; }
 .dm-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .dm-blank { flex: 1; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 13px; }
-.dm-chat-hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #f0f0f0; }
+.dm-chat-hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #f0f0f0; background: #fff; }
 .dm-chat-hd .who { display: flex; align-items: center; gap: 8px; }
 .dm-chat-hd .nm { font-size: 14px; font-weight: 600; }
 .hd-acts { display: flex; gap: 4px; }
-.dm-msgs { flex: 1; overflow-y: auto; padding: 16px; background: #f7f8fa; }
+/* 消息贴底（大厂 IM 惯例）：内容少时贴着输入框，留白在上方；内容多时正常滚动 */
+.dm-msgs { flex: 1; overflow-y: auto; padding: 20px 24px; background: #f5f6f7; display: flex; flex-direction: column; }
+.dm-msgs::before { content: ''; margin-top: auto; }
 .dm-tip { text-align: center; color: #9ca3af; font-size: 12px; padding: 12px; }
 /* ---------- 消息列表（飞书式：头像 + 分组 + 悬停操作） ---------- */
-.dm-row { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 14px; }
-.dm-row.mine { flex-direction: row-reverse; }
+.dm-row { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; animation: msgIn .2s ease-out; }
+@keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* 自己发的消息：气泡在左、头像在右（标准 IM，头像贴右边缘）。
+   DOM 顺序是 [气泡][头像]，所以用 row + 靠右对齐即可，不能用 row-reverse（会把头像翻到左边）。 */
+.dm-row.mine { flex-direction: row; justify-content: flex-end; }
 .row-av { flex: 0 0 auto; margin-top: 2px; }
 .row-main { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 68%; }
 .dm-row.mine .row-main { align-items: flex-end; }
 .row-name { font-size: 12px; color: #8a94a6; margin: 0 0 4px 4px; }
 .bubble-wrap { display: flex; align-items: center; gap: 6px; max-width: 100%; }
 .dm-row.mine .bubble-wrap { flex-direction: row-reverse; }
-.bubble { padding: 9px 13px; border-radius: 12px; background: #fff; border: 1px solid #eceff4;
+.bubble { padding: 9px 13px; border-radius: 12px; background: #fff; border: 1px solid #e5e6eb;
   font-size: 13.5px; line-height: 1.65; color: #1f2937; white-space: pre-wrap; word-break: break-word;
   box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
-.dm-row.mine .bubble { background: #1677ff; border-color: #1677ff; color: #fff; box-shadow: 0 1px 2px rgba(22, 119, 255, .25); }
+.dm-row.mine .bubble { background: #1677ff; border-color: #1677ff; color: #fff; box-shadow: 0 1px 2px rgba(22, 119, 255, .2); }
 .bubble.img { padding: 4px; background: #fff; }
 .bubble .img { max-width: 220px; border-radius: 8px; display: block; }
 .row-acts { display: flex; gap: 4px; opacity: 0; transition: opacity .12s; flex: 0 0 auto; }
@@ -505,22 +635,25 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .row-acts button { border: 0; background: #fff; color: #64748b; font-size: 12px; padding: 3px 8px;
   border-radius: 6px; cursor: pointer; box-shadow: 0 1px 4px rgba(15, 23, 42, .12); }
 .row-acts button:hover { color: #2563eb; }
-.row-meta { display: flex; gap: 6px; margin-top: 4px; font-size: 11px; color: #9ca3af; }
+.row-meta { display: flex; gap: 6px; margin-top: 4px; font-size: 10.5px; color: #b6bdc9; opacity: .55; transition: opacity .15s; }
+.dm-row:hover .row-meta { opacity: 1; }
 .row-meta .read { color: #9ca3af; }
 .day-sep { text-align: center; margin: 8px 0 14px; }
-.day-sep span { background: #e9edf3; color: #8a94a6; font-size: 11.5px; padding: 2px 10px; border-radius: 999px; }
+.day-sep span { background: #eef0f3; color: #a8b0bd; font-size: 11.5px; padding: 2px 10px; border-radius: 999px; }
 .dm-quota { padding: 6px 16px; background: #fffbeb; color: #b45309; font-size: 12px; border-top: 1px solid #fde68a; }
-.dm-input { display: flex; gap: 10px; padding: 10px 16px 12px; border-top: 1px solid #f0f0f0; align-items: flex-end; }
-.dm-input :deep(.el-textarea__inner) { border-radius: 10px; }
-.dm-tools { display: flex; align-items: center; gap: 2px; padding-bottom: 5px; }
+.dm-input { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid #f0f0f0; }
+.dm-input-bot { display: flex; align-items: center; justify-content: space-between; }
+.dm-input :deep(.el-textarea__inner) { border-radius: 10px; background: #fff; border: 1px solid #e5e6eb; transition: all .15s; }
+.dm-input :deep(.el-textarea__inner:focus) { background: #fff; border-color: #1677ff; box-shadow: 0 0 0 3px rgba(22, 119, 255, .1); }
+.dm-tools { display: flex; align-items: center; gap: 2px; }
 .tool { width: 30px; height: 30px; border: 0; background: transparent; border-radius: 8px; cursor: pointer;
   font-size: 16px; color: #64748b; display: inline-flex; align-items: center; justify-content: center; }
 .tool:hover, .tool.on { background: #eef2ff; color: #2563eb; }
 .tool:disabled { opacity: .4; cursor: default; }
 .tool-hint { font-size: 11px; color: #b6bdc9; margin-left: 4px; white-space: nowrap; }
-.dm-editor { flex: 1; position: relative; min-width: 0; }
+.dm-editor { position: relative; width: 100%; }
 .emoji-pop { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 30; }
-.send-btn { height: 38px; }
+.send-btn { height: 38px; border-radius: 8px; background: #1677ff; border: none; box-shadow: none; }
 .st-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .st-t { font-size: 13.5px; font-weight: 600; }
 .st-s { font-size: 12px; color: #6b7280; margin-top: 4px; line-height: 1.6; }

@@ -50,8 +50,8 @@ public class AiController {
 
     /** 当前可用模型列表（不含 API Key），普通登录用户即可查询，用于对话页的模型下拉 */
     @GetMapping("/models")
-    public List<Map<String, Object>> models() {
-        return aiModelClient.publicModels();
+    public List<Map<String, Object>> models(@RequestAttribute("kbUser") TokenClaims claims) {
+        return aiModelClient.publicModels(claims.userId());
     }
 
     @PostMapping("/ask")
@@ -69,14 +69,15 @@ public class AiController {
         String question = body.get("question") == null ? "" : body.get("question").toString();
         Long conversationId = parseLong(body.get("conversationId"));
         String mode = body.get("mode") == null ? "kb" : body.get("mode").toString();
-        // modelId 省略时用管理员配置的默认模型
+        // modelId 省略时用管理员配置的默认模型；userModelId 非空时优先用用户自己的模型
         Long modelId = parseLong(body.get("modelId"));
+        Long userModelId = parseLong(body.get("userModelId"));
         // 图片（dataURL 列表）：模型原生多模态，直接随消息下发。
         // 服务端必须兜底校验（前端压缩可绕过）：数量 ≤4、必须 data:image/*;base64、
         // 单张解码后 ≤2MB（base64 长度 ≈ 4/3 原始字节，用 3_000_000 字符近似）。
         // 缺校验会导致内存/带宽放大与 token 费用被刷（外部复审 2026-10-07）。
         List<String> images = parseImages(body.get("images"));
-        return convService.ask(claims.userId(), conversationId, question, mode, modelId, images);
+        return convService.ask(claims.userId(), conversationId, question, mode, modelId, userModelId, images);
     }
 
     /** 对某条回答点赞/踩（qaId 来自 /ask 或 /ask/stream 的 done 事件）；只能评价自己的记录。 */
@@ -105,13 +106,14 @@ public class AiController {
         Long conversationId = parseLong(body.get("conversationId"));
         String mode = body.get("mode") == null ? "kb" : body.get("mode").toString();
         Long modelId = parseLong(body.get("modelId"));
+        Long userModelId = parseLong(body.get("userModelId"));
         List<String> images = parseImages(body.get("images"));
 
         try {
         SSE_POOL.execute(() -> {
             try {
                 Map<String, Object> result = convService.askStream(claims.userId(), conversationId, question, mode,
-                        modelId, images, (delta, reasoning) -> {
+                        modelId, userModelId, images, (delta, reasoning) -> {
                             Map<String, Object> ev = new java.util.LinkedHashMap<>();
                             if (delta != null && !delta.isEmpty()) ev.put("delta", delta);
                             if (reasoning != null && !reasoning.isEmpty()) ev.put("reasoning", reasoning);

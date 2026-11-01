@@ -215,9 +215,16 @@ public class RagService {
     public Map<String, Object> ask(String question, List<Map<String, String>> history,
                                    String instructions, String persona, String mode, Long modelId,
                                    List<String> imageUrls) {
+        return ask(question, history, instructions, persona, mode, modelId, null, null, imageUrls);
+    }
+
+    /** 带用户私有模型的一次性问答：userModelId 命中时优先用该用户模型 */
+    public Map<String, Object> ask(String question, List<Map<String, String>> history,
+                                   String instructions, String persona, String mode, Long modelId,
+                                   Long userModelId, Long userId, List<String> imageUrls) {
         Prepared p = prepare(question, history, instructions, persona, mode, modelId, imageUrls);
         if (p.error() != null) return Map.of("answer", p.error(), "sources", List.of());
-        AiModelClient.AiChatResult call = callModel(modelId, p.messages());
+        AiModelClient.AiChatResult call = callModel(modelId, userModelId, userId, p.messages());
         return assemble(call, p.sources());
     }
 
@@ -228,12 +235,20 @@ public class RagService {
     public Map<String, Object> askStream(String question, List<Map<String, String>> history,
                                          String instructions, String persona, String mode, Long modelId,
                                          List<String> imageUrls, AiModelClient.StreamSink sink) throws Exception {
+        return askStream(question, history, instructions, persona, mode, modelId, null, null, imageUrls, sink);
+    }
+
+    /** 带用户私有模型的流式问答 */
+    public Map<String, Object> askStream(String question, List<Map<String, String>> history,
+                                         String instructions, String persona, String mode, Long modelId,
+                                         Long userModelId, Long userId, List<String> imageUrls,
+                                         AiModelClient.StreamSink sink) throws Exception {
         Prepared p = prepare(question, history, instructions, persona, mode, modelId, imageUrls);
         if (p.error() != null) {
             sink.accept(p.error(), null);
             return Map.of("answer", p.error(), "sources", List.of());
         }
-        AiModelClient.AiChatResult call = aiModelClient.chatStream(modelId, p.messages(), sink);
+        AiModelClient.AiChatResult call = aiModelClient.chatStream(modelId, userModelId, userId, p.messages(), sink);
         return assemble(call, p.sources());
     }
 
@@ -278,8 +293,9 @@ public class RagService {
     }
 
     /** 交给统一模型层：该层负责按配置选模型，并在限流/报错时自动降级到下一个可用模型 */
-    private AiModelClient.AiChatResult callModel(Long modelId, List<Map<String, Object>> messages) {
-        return aiModelClient.chat(modelId, messages);
+    private AiModelClient.AiChatResult callModel(Long modelId, Long userModelId, Long userId,
+                                                 List<Map<String, Object>> messages) {
+        return aiModelClient.chat(modelId, userModelId, userId, messages);
     }
 
     /** 检索 top-K 片段：优先 Meili，失败/未启用回退 MySQL；返回引用来源（id/title/snippet） */

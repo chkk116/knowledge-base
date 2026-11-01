@@ -39,8 +39,26 @@ public class DmController {
     }
 
     @GetMapping("/conversations")
-    public List<Map<String, Object>> conversations(@RequestAttribute("kbUser") TokenClaims c) {
-        return svc.conversations(uid(c));
+    public List<Map<String, Object>> conversations(@RequestAttribute("kbUser") TokenClaims c,
+                                                   @RequestParam(defaultValue = "false") boolean archived) {
+        return svc.conversations(uid(c), archived);
+    }
+
+    /** 归档 / 取消归档（右滑） */
+    @PostMapping("/conversations/{peerId}/archive")
+    public Map<String, Object> archive(@RequestAttribute("kbUser") TokenClaims c,
+                                       @PathVariable Long peerId,
+                                       @RequestBody(required = false) Map<String, Object> body) {
+        boolean archived = body == null || !Boolean.FALSE.equals(body.get("archived"));
+        svc.setArchived(uid(c), peerId, archived);
+        return Map.of("ok", true, "archived", archived);
+    }
+
+    /** 删除会话（左滑；本用户视角软删，不影响对方） */
+    @DeleteMapping("/conversations/{peerId}")
+    public Map<String, Object> deleteConv(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long peerId) {
+        svc.deleteConv(uid(c), peerId);
+        return Map.of("ok", true);
     }
 
     @GetMapping("/messages")

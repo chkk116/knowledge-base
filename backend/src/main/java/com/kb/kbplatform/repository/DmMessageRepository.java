@@ -27,7 +27,7 @@ public interface DmMessageRepository extends JpaRepository<DmMessage, Long> {
     java.util.List<Object[]> countUnreadByPeer(@org.springframework.data.repository.query.Param("me") Long me);
 
     /** 会话列表：我参与的会话里最新一条（按 id desc 取，再在内存里按会话去重） */
-    List<DmMessage> findTop200ByFromIdOrToIdOrderByIdDesc(Long fromId, Long toId);
+    List<DmMessage> findTop500ByFromIdOrToIdOrderByIdDesc(Long fromId, Long toId);
 
     long deleteByCreatedAtBefore(LocalDateTime time);
 }

@@ -4,6 +4,7 @@
  */
 package com.kb.kbplatform.service;
 
+import com.kb.kbplatform.domain.DmConvState;
 import com.kb.kbplatform.domain.DmMessage;
 import com.kb.kbplatform.domain.DmSetting;
 import com.kb.kbplatform.domain.User;
@@ -40,16 +41,18 @@ public class DmService {
 
     private final DmMessageRepository msgs;
     private final DmSettingRepository settings;
+    private final DmConvStateRepository convStates;
     private final FollowRepository follows;
     private final UserRepository users;
     private final AuditService audit;
     private final SseSessionRegistry sse;
 
-    public DmService(DmMessageRepository msgs, DmSettingRepository settings,
+    public DmService(DmMessageRepository msgs, DmSettingRepository settings, DmConvStateRepository convStates,
                      FollowRepository follows, UserRepository users,
                      SseSessionRegistry sse, AuditService audit) {
         this.msgs = msgs;
         this.settings = settings;
+        this.convStates = convStates;
         this.follows = follows;
         this.users = users;
         this.sse = sse;
@@ -136,6 +139,14 @@ public class DmService {
         m.setCreatedAt(LocalDateTime.now());
         msgs.save(m);
 
+        // 收件人曾把该会话删掉：新消息到达即恢复显示，否则红点在、会话却永久消失
+        convStates.findByUserIdAndPeerId(to, me).filter(DmConvState::isDeleted).ifPresent(st -> {
+            st.setDeleted(false);
+            st.setArchived(false);
+            st.setUpdatedAt(LocalDateTime.now());
+            convStates.save(st);
+        });
+
         // 实时推给收件人（多标签页都能收到）；发送方自己靠接口返回当场渲染，不用回推
         try {
             Map<String, Object> ev = new LinkedHashMap<>();
@@ -190,9 +201,10 @@ public class DmService {
         return out;
     }
 
-    /** 会话列表：每个对端取最新一条 + 未读数 */
-    public List<Map<String, Object>> conversations(Long me) {
-        List<DmMessage> recent = msgs.findTop200ByFromIdOrToIdOrderByIdDesc(me, me);
+    /** 会话列表；archived=true 只看归档。已删除（本用户视角）不返回。 */
+    public List<Map<String, Object>> conversations(Long me, boolean archived) {
+        // 窗口取 500 条：过滤归档/删除后仍要有足够候选，避免极端流量把主列表挤空
+        List<DmMessage> recent = msgs.findTop500ByFromIdOrToIdOrderByIdDesc(me, me);
         Map<Long, Map<String, Object>> byPeer = new LinkedHashMap<>();
         for (DmMessage m : recent) {
             Long peerId = m.getFromId().equals(me) ? m.getToId() : m.getFromId();
@@ -217,7 +229,46 @@ public class DmService {
             Map<String, Object> row2 = byPeer.get(((Number) row[0]).longValue());
             if (row2 != null) row2.put("unread", ((Number) row[1]).intValue());
         }
+        // 归档/删除过滤（按当前用户视角）
+        Map<Long, DmConvState> states = new HashMap<>();
+        for (DmConvState st : convStates.findByUserId(me)) states.put(st.getPeerId(), st);
+        byPeer.entrySet().removeIf(e -> {
+            DmConvState st = states.get(e.getKey());
+            if (st == null) return archived;              // 无状态：主列表显示，归档区不显示
+            if (st.isDeleted()) return true;               // 已删除：两边都不显示
+            return st.isArchived() != archived;            // 归档区只看归档，主列表排除归档
+        });
         return new ArrayList<>(byPeer.values());
+    }
+
+    /** 归档 / 取消归档（右滑） */
+    @Transactional
+    public void setArchived(Long me, Long peer, boolean archived) {
+        DmConvState st = convStates.findByUserIdAndPeerId(me, peer).orElseGet(() -> {
+            DmConvState n = new DmConvState();
+            n.setUserId(me);
+            n.setPeerId(peer);
+            return n;
+        });
+        st.setArchived(archived);
+        st.setDeleted(false);
+        st.setUpdatedAt(LocalDateTime.now());
+        convStates.save(st);
+    }
+
+    /** 删除会话（左滑；本用户视角软删，不影响对方） */
+    @Transactional
+    public void deleteConv(Long me, Long peer) {
+        DmConvState st = convStates.findByUserIdAndPeerId(me, peer).orElseGet(() -> {
+            DmConvState n = new DmConvState();
+            n.setUserId(me);
+            n.setPeerId(peer);
+            return n;
+        });
+        st.setDeleted(true);
+        st.setArchived(false);
+        st.setUpdatedAt(LocalDateTime.now());
+        convStates.save(st);
     }
 
     @Transactional
