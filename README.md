@@ -366,6 +366,11 @@ cd mobile/mobile-native
   未提供时只出未签名包
 - WebView 令牌桥接依赖「内联 script 注入」，若后端将来给 `/m/` 文档加 CSP，需在 `script-src` 放行 `'unsafe-inline'`
   或改为 `evaluateJavascript` 下发（否则桥接会静默失效）
+- 系统级「随手问」：任意 App 长按选中文字 → 系统菜单出现「问知识库」→ `ProcessTextActivity`
+  （`ACTION_PROCESS_TEXT` + `text/plain`）拉起独立轻量页，可 AI 解释 / 总结 / 翻译或继续追问，结果一键复制；
+  不初始化 WebView、不加载完整 AppRoot，冷启动更快。未登录时引导打开 App 登录
+- 版本对齐：Android 原生壳与 Web/Capacitor 共用 `versionName`；`versionCode` 取 `1.03.14 → 10316` 的编码，
+  需高于历史所有 code，否则服务端会误判「已是最新」而不推送更新
 
 ## 移动端（Capacitor / Android）
 

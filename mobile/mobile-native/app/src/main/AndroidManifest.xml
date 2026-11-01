@@ -48,6 +48,21 @@
             </intent-filter>
         </activity>
 
+        <!-- 系统级「随手问」：任意 App 选中文字 → 菜单「问知识库」→ AI 解释/总结/翻译 -->
+        <activity
+            android:name=".ProcessTextActivity"
+            android:label="问知识库"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.KbShell"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- WebView 文件选择桥：capture 拍照落盘到 cache，供相机应用写入 -->
         <provider
             android:name="androidx.core.content.FileProvider"

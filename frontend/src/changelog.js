@@ -10,6 +10,16 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.14-native',
+    date: '2026-11-01',
+    title: '系统级随手问',
+    items: [
+      '任意 App 里长按选中文字 → 系统菜单出现「问知识库」，直接 AI 解释 / 总结 / 翻译或继续追问，结果一键复制',
+      '独立轻量页面，不加载完整 App，启动快、不打断当前操作',
+      '未登录时引导登录，登录后即可在任意应用里随手问',
+    ],
+  },
+  {
     version: '1.3.17',
     date: '2026-10-31',
     title: 'AI 生图与生视频',
@@ -231,7 +241,8 @@ export const CHANGELOG = [
   },
 ]
 
-export const CURRENT_VERSION = CHANGELOG[0]
+/** 最新一条「Web 正式版」说明：跳过 `-native` 后缀的原生壳专属条目，避免 Web 端把原生功能当成本版更新 */
+export const CURRENT_VERSION = CHANGELOG.find((c) => !/-native$/.test(c.version)) || CHANGELOG[0]
 
 /** 按 versionName 取该版本的更新说明（取不到返回 null） */
 export function changelogOf(versionName) {
