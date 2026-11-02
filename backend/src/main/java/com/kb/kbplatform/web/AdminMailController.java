@@ -5,8 +5,12 @@
 
 package com.kb.kbplatform.web;
 
+import com.kb.kbplatform.domain.User;
+import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.MailService;
+import com.kb.kbplatform.service.PasswordResetService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 管理员邮件（SMTP）配置：读写与测试发送。
+ * 管理员邮件（SMTP）配置：读写、测试、手动发送、邮件模板、密码重置邮件。
  * 权限与「通知外发」一致（SITE_SETTINGS_MANAGE 或 CORE_MAINTAIN）。
  */
 @RestController
@@ -29,9 +33,18 @@ import java.util.Map;
 public class AdminMailController {
 
     private final MailService mailService;
+    private final PasswordResetService passwordResetService;
+    private final UserRepository userRepository;
+    private final String siteBaseUrl;
 
-    public AdminMailController(MailService mailService) {
+    public AdminMailController(MailService mailService,
+                               PasswordResetService passwordResetService,
+                               UserRepository userRepository,
+                               @Value("${KB_PUBLIC_BASE_URL:https://chkk116.cn}") String siteBaseUrl) {
         this.mailService = mailService;
+        this.passwordResetService = passwordResetService;
+        this.userRepository = userRepository;
+        this.siteBaseUrl = siteBaseUrl.endsWith("/") ? siteBaseUrl.substring(0, siteBaseUrl.length() - 1) : siteBaseUrl;
     }
 
     private void requirePerm(TokenClaims c) {
@@ -78,6 +91,80 @@ public class AdminMailController {
         }
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("ok", true);
+        return m;
+    }
+
+    /** 管理员手动发送一封邮件（收件人 / 主题 / 正文） */
+    @PostMapping("/send")
+    public Map<String, Object> send(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, String> body) {
+        requirePerm(c);
+        String to = body == null ? null : body.get("to");
+        String subject = body == null ? null : body.get("subject");
+        String text = body == null ? null : body.get("body");
+        try {
+            mailService.sendCustom(to, subject, text);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "发送失败：" + e.getMessage());
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("ok", true);
+        return m;
+    }
+
+    /** 邮件模板：当前值 + 默认值 + 变量说明 */
+    @GetMapping("/templates")
+    public Map<String, Object> templates(@RequestAttribute("kbUser") TokenClaims c) {
+        requirePerm(c);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("templates", mailService.templates());
+        m.put("defaults", mailService.defaultTemplates());
+        m.put("vars", MailService.TPL_VARS);
+        return m;
+    }
+
+    @PutMapping("/templates")
+    public Map<String, Object> saveTemplates(@RequestAttribute("kbUser") TokenClaims c,
+                                             @RequestBody Map<String, Map<String, String>> body) {
+        requirePerm(c);
+        mailService.saveTemplates(body);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("ok", true);
+        return m;
+    }
+
+    /** 给指定用户发送密码重置邮件（按用户名或邮箱匹配） */
+    @PostMapping("/reset-mail")
+    public Map<String, Object> resetMail(@RequestAttribute("kbUser") TokenClaims c,
+                                         @RequestBody Map<String, String> body) {
+        requirePerm(c);
+        String account = body == null ? null : body.get("account");
+        if (account == null || account.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请填写用户名或邮箱");
+        }
+        String a = account.trim();
+        User u = userRepository.findByUsername(a)
+                .or(() -> userRepository.findByEmail(a))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在"));
+        if (!u.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "账号已禁用，不能发送重置邮件");
+        }
+        if (u.getEmail() == null || u.getEmail().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该用户未绑定邮箱");
+        }
+        Map<String, Object> link = passwordResetService.createLink(u.getId(), c.userId());
+        String url = siteBaseUrl + "/reset-password?token=" + link.get("token");
+        try {
+            mailService.sendResetLink(u, url);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "发送失败：" + e.getMessage());
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("ok", true);
+        m.put("email", u.getEmail());
+        m.put("link", url);
+        m.put("expiresAt", link.get("expiresAt"));
         return m;
     }
 

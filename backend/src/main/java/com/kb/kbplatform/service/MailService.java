@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
@@ -47,6 +48,7 @@ public class MailService {
 
     private static final Logger log = LoggerFactory.getLogger(MailService.class);
     private static final String KEY = "mail_smtp";
+    private static final String TPL_KEY = "mail_templates";
 
     private final SysSettingRepository settingRepo;
     private final AiKeyCipher cipher;
@@ -201,43 +203,158 @@ public class MailService {
         }
     }
 
+    // ---------------- 可配置模板 ----------------
+
+    /** 模板变量说明（前端展示） */
+    public static final Map<String, String> TPL_VARS = new LinkedHashMap<>();
+
+    static {
+        TPL_VARS.put("username", "收件人显示名");
+        TPL_VARS.put("title", "通知类型标题");
+        TPL_VARS.put("summary", "通知摘要");
+        TPL_VARS.put("link", "操作链接（重置/查看）");
+        TPL_VARS.put("code", "验证码");
+        TPL_VARS.put("site", "站点地址");
+    }
+
+    /** 默认模板：首次使用或「恢复默认」时返回 */
+    public Map<String, Map<String, String>> defaultTemplates() {
+        Map<String, Map<String, String>> m = new LinkedHashMap<>();
+        m.put("reset", tplDef(
+                "【知识库】密码重置链接",
+                "<p>您好 {username}：</p>"
+                        + "<p>我们收到了您的密码重置请求。请点击下面的按钮设置新密码（链接 30 分钟内有效，且仅可使用一次）：</p>"
+                        + "<p style=\"text-align:center;margin:20px 0;\"><a href=\"{link}\" style=\"display:inline-block;background:#1677ff;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;\">重置密码</a></p>"
+                        + "<p>若按钮无法点击，请复制链接到浏览器打开：{link}</p>"
+                        + "<p>若非本人操作，请忽略此邮件，您的密码不会变更。</p>"));
+        m.put("verify", tplDef(
+                "【知识库】邮箱绑定验证码",
+                "<p>您好：</p><p>您正在绑定邮箱，验证码为：</p>"
+                        + "<p style=\"font-size:32px;font-weight:700;letter-spacing:6px;color:#1677ff;background:#f0f6ff;padding:16px 0;text-align:center;border-radius:8px;margin:14px 0;\">{code}</p>"
+                        + "<p>验证码 10 分钟内有效。若非本人操作，请忽略此邮件。</p>"));
+        m.put("notify", tplDef(
+                "【知识库】{title}",
+                "<p>您好 {username}：</p><p>【{title}】{summary}</p>"
+                        + "<p style=\"text-align:center;margin:20px 0;\"><a href=\"{link}\" style=\"display:inline-block;background:#1677ff;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;\">查看通知</a></p>"
+                        + "<p>您可以在个人资料页关闭「接收通知邮件」。</p>"));
+        return m;
+    }
+
+    private static Map<String, String> tplDef(String subject, String body) {
+        Map<String, String> t = new LinkedHashMap<>();
+        t.put("subject", subject);
+        t.put("body", body);
+        return t;
+    }
+
+    /** 读取模板：库里没有的项用默认值补全 */
+    public Map<String, Map<String, String>> templates() {
+        Map<String, Map<String, String>> out = defaultTemplates();
+        SysSetting s = settingRepo.findByKey(TPL_KEY).orElse(null);
+        if (s == null || s.getValue() == null || s.getValue().isBlank()) return out;
+        try {
+            JsonNode n = objectMapper.readTree(s.getValue());
+            for (String key : out.keySet()) {
+                JsonNode t = n.get(key);
+                if (t == null) continue;
+                String subj = str(t, "subject");
+                String body = str(t, "body");
+                if (subj != null && !subj.isBlank()) out.get(key).put("subject", subj);
+                if (body != null && !body.isBlank()) out.get(key).put("body", body);
+            }
+        } catch (Exception e) {
+            log.warn("邮件模板解析失败：{}", e.getMessage());
+        }
+        return out;
+    }
+
+    /** 保存模板（只落 reset / verify / notify 三项） */
+    @Transactional
+    public void saveTemplates(Map<String, Map<String, String>> in) {
+        ObjectNode n = objectMapper.createObjectNode();
+        for (String key : List.of("reset", "verify", "notify")) {
+            Map<String, String> t = in == null ? null : in.get(key);
+            if (t == null) continue;
+            ObjectNode o = objectMapper.createObjectNode();
+            o.put("subject", t.getOrDefault("subject", ""));
+            o.put("body", t.getOrDefault("body", ""));
+            n.set(key, o);
+        }
+        SysSetting s = settingRepo.findByKey(TPL_KEY).orElseGet(() -> {
+            SysSetting x = new SysSetting();
+            x.setKey(TPL_KEY);
+            return x;
+        });
+        s.setValue(n.toString());
+        s.setUpdatedAt(java.time.LocalDateTime.now());
+        settingRepo.save(s);
+    }
+
+    private String render(String tpl, Map<String, String> vars) {
+        String s = tpl == null ? "" : tpl;
+        if (vars != null) {
+            for (Map.Entry<String, String> e : vars.entrySet()) {
+                s = s.replace("{" + e.getKey() + "}", e.getValue() == null ? "" : e.getValue());
+            }
+        }
+        return s;
+    }
+
+    /** 模板正文外套统一外壳（页脚） */
+    private String wrapTpl(String inner) {
+        return "<div style=\"max-width:480px;margin:0 auto;font-family:-apple-system,Segoe UI,"
+                + "PingFang SC,Microsoft YaHei,sans-serif;color:#1d2129;font-size:14px;line-height:1.7;\">"
+                + inner
+                + "<hr style=\"border:none;border-top:1px solid #e5e6eb;margin:18px 0;\"/>"
+                + "<p style=\"font-size:12px;color:#c9cdd4;margin:0;\">本邮件由知识库系统自动发送，请勿直接回复。</p>"
+                + "</div>";
+    }
+
+    /** 管理员手动发送：正文按纯文本处理（转义 HTML、保留换行） */
+    public void sendCustom(String to, String subject, String text) {
+        if (to == null || to.isBlank()) throw new IllegalArgumentException("请填写收件人");
+        if (subject == null || subject.isBlank()) throw new IllegalArgumentException("请填写主题");
+        String safe = escapeHtml(text == null ? "" : text)
+                .replace("\r\n", "\n").replace("\n", "<br/>");
+        send(to.trim(), subject.trim(), wrapTpl("<p>" + safe + "</p>"));
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
+
     // ---------------- 业务模板 ----------------
 
-    /** 密码重置链接邮件 */
+    /** 密码重置链接邮件（主题/正文可在「邮件设置 → 邮件模板」里改） */
     public void sendResetLink(User u, String link) {
-        String html = wrapHtml("密码重置",
-                "您好 " + display(u) + "：",
-                "我们收到了您的密码重置请求。请点击下面的按钮设置新密码（链接 30 分钟内有效，且仅可使用一次）：",
-                link, "重置密码",
-                "若非本人操作，请忽略此邮件，您的密码不会变更。");
-        send(u.getEmail(), "【知识库】密码重置链接", html);
+        Map<String, String> t = templates().get("reset");
+        Map<String, String> vars = new LinkedHashMap<>();
+        vars.put("username", display(u));
+        vars.put("link", link);
+        vars.put("site", siteBaseUrl);
+        send(u.getEmail(), render(t.get("subject"), vars), wrapTpl(render(t.get("body"), vars)));
     }
 
-    /** 邮箱绑定验证码邮件 */
+    /** 邮箱绑定验证码邮件（主题/正文可配置） */
     public void sendVerifyCode(String to, String code) {
-        // 把验证码以醒目大字呈现
-        String body = "<div style=\"font-size:32px;font-weight:700;letter-spacing:6px;color:#1677ff;"
-                + "background:#f0f6ff;padding:16px 0;text-align:center;border-radius:8px;margin:14px 0;\">"
-                + code + "</div>";
-        String html = wrapHtml("邮箱绑定验证",
-                "您好：",
-                "您正在绑定邮箱，验证码为：",
-                null, null,
-                "验证码 10 分钟内有效。若非本人操作，请忽略此邮件。",
-                body);
-        send(to, "【知识库】邮箱绑定验证码", html);
+        Map<String, String> t = templates().get("verify");
+        Map<String, String> vars = new LinkedHashMap<>();
+        vars.put("code", code);
+        vars.put("site", siteBaseUrl);
+        send(to, render(t.get("subject"), vars), wrapTpl(render(t.get("body"), vars)));
     }
 
-    /** 站内通知邮件抄送 */
+    /** 站内通知邮件抄送（主题/正文可配置） */
     public void sendNotification(User u, Notification n) {
         String typeLabel = notificationLabel(n.getType());
-        String link = siteBaseUrl + "/notifications";
-        String html = wrapHtml("您有一条新通知",
-                "您好 " + display(u) + "：",
-                "【" + typeLabel + "】" + (n.getSummary() == null ? "" : n.getSummary()),
-                link, "查看通知",
-                "您可以在个人资料页关闭「接收通知邮件」。");
-        send(u.getEmail(), "【知识库】" + typeLabel, html);
+        Map<String, String> t = templates().get("notify");
+        Map<String, String> vars = new LinkedHashMap<>();
+        vars.put("username", display(u));
+        vars.put("title", typeLabel);
+        vars.put("summary", n.getSummary() == null ? "" : n.getSummary());
+        vars.put("link", siteBaseUrl + "/notifications");
+        vars.put("site", siteBaseUrl);
+        send(u.getEmail(), render(t.get("subject"), vars), wrapTpl(render(t.get("body"), vars)));
     }
 
     /** 测试邮件 */
