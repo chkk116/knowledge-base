@@ -475,6 +475,7 @@ const settleKey = ref('')
 let press = null
 let ghostEl = null
 let slotEl = null
+let slotInit = false   // 本次拖拽是否已定位过占位槽（首次定位要冻结过渡，避免从上一次终点滑入）
 
 /** 一级分组如果展开着，li 的高度会把整段子菜单算进来；排序只按标题行量 */
 function rowEl(el) {
@@ -610,14 +611,17 @@ function removeGhost() {
 /** 落点占位槽：跟着目标位置走，而不是在目标项上画死线 */
 function showSlot(rect, step) {
   if (!rect) return
-  let fresh = false
   if (!slotEl) {
-    fresh = true
     slotEl = document.createElement('div')
     slotEl.className = 'kb-drop-slot'
     slotEl.innerHTML = '<i></i>'
-    slotEl.style.transition = 'none'   // 首次出现直接定位，避免从屏幕左上角滑入
     document.body.appendChild(slotEl)
+  }
+  // 每次拖拽的首次定位都冻结过渡直接落位：否则会带着上一次拖拽的终点位置滑过来
+  const fresh = !slotInit
+  if (fresh) {
+    slotInit = true
+    slotEl.style.transition = 'none'
   }
   slotEl.style.top = (rect.top + 2) + 'px'
   slotEl.style.left = (rect.left + 6) + 'px'
@@ -636,16 +640,19 @@ function onPressStart(kind, group, i, e) {
   const box = el && el.parentElement
   const sel = kind === 'primary' ? ':scope > li' : ':scope > .ms-item, :scope > .el-menu-item'
   const items = box ? [...box.querySelectorAll(sel)] : [el]
+  slotInit = false
   press = {
     kind,
     group,
     i,
     el,
+    items,
     x: e.clientX,
     y: e.clientY,
     active: false,
     rects: rectsOf(items),
     step: measureStep(el, kind === 'sub' && el.classList.contains('ms-item') ? 4 : 0),
+    measuredAt: 0,
   }
   window.addEventListener('pointermove', onPressMove)
   window.addEventListener('pointerup', onPressUp, { once: true })
@@ -666,9 +673,17 @@ function onPressMove(e) {
       subDrag.value = { group: press.group, from: press.i }
       subOver.value = { group: press.group, index: press.i }
     }
+    removeGhost()   // 多指/异常重入时上一个浮层可能还挂着，先淡出避免孤儿浮层
     ghostEl = makeGhost(press.el)
     showSlot(press.rects[press.i], press.step)
     document.body.classList.add('kb-dragging')
+  }
+  // 拖拽中布局可能变化（hoverExpand 收起、窗口缩放、aside 卸载）：节流重测，避免槽位/命中错位
+  const now = performance.now()
+  if (!press.measuredAt || now - press.measuredAt > 100) {
+    press.measuredAt = now
+    press.rects = rectsOf(press.items)
+    press.step = measureStep(press.el, press.kind === 'sub' && press.el.classList.contains('ms-item') ? 4 : 0)
   }
   moveGhost(e.clientX - press.x, e.clientY - press.y)
   const i = indexAtY(press.rects, e.clientY)
@@ -701,11 +716,24 @@ function onPressUp() {
   subOver.value = { group: '', index: -1 }
   requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('kb-drop-commit')))
   if (to !== i && to >= 0) {
-    settleKey.value = kind === 'primary' ? 'p:' + to : 's:' + group + ':' + to
-    setTimeout(() => { settleKey.value = '' }, 380)
+    const key = kind === 'primary' ? 'p:' + to : 's:' + group + ':' + to
+    settleKey.value = key
+    setTimeout(() => { if (settleKey.value === key) settleKey.value = '' }, 380)
   }
   removeGhost()
 }
+
+// 拖拽进行中被卸载（HMR / 应用级拆卸）时兜底收尾，避免浮层与 body 状态残留
+onUnmounted(() => {
+  press = null
+  document.body.classList.remove('kb-dragging', 'kb-drop-commit')
+  removeGhost()
+  if (slotEl) { slotEl.remove(); slotEl = null }
+  slotInit = false
+  window.removeEventListener('pointermove', onPressMove)
+  window.removeEventListener('pointerup', onPressUp)
+  window.removeEventListener('pointercancel', onPressUp)
+})
 
 function commitMenuOrder(from, to) {
   if (from < 0 || to < 0 || from === to) return
@@ -885,7 +913,6 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
         <button v-for="(it, ii) in secondaryItems" :key="it.index" type="button"
                 class="ms-item"
                 :class="{ on: route.path === it.index,
-                          'drag-over': subOver.group === activePrimaryIndex && subOver.index === ii,
                           'is-dragging': subDrag.group === activePrimaryIndex && subDrag.from === ii,
                           'just-dropped': settleKey === 's:' + activePrimaryIndex + ':' + ii }"
                 :style="subStyle(ii)" :title="it.title"
@@ -901,7 +928,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                :collapse="menuCollapsed" :collapse-transition="false">
         <template v-for="(m, i) in orderedMenus" :key="m.index">
           <el-sub-menu v-if="m.children" :index="m.index" class="drag-item"
-                       :class="{ 'drag-over': dragOver === i, 'is-dragging': dragFrom === i,
+                       :class="{ 'is-dragging': dragFrom === i,
                                  'just-dropped': settleKey === 'p:' + i }"
                        :style="menuStyle(i)"
                        @pointerdown="onPressStart('primary', '', i, $event)">
@@ -911,8 +938,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
             </template>
             <el-menu-item v-for="(c, ci) in orderedChildren(m)" :key="c.index" :index="c.index"
                           class="sub-item drag-item"
-                          :class="{ 'drag-over': subOver.group === m.index && subOver.index === ci,
-                                    'is-dragging': subDrag.group === m.index && subDrag.from === ci,
+                          :class="{ 'is-dragging': subDrag.group === m.index && subDrag.from === ci,
                                     'just-dropped': settleKey === 's:' + m.index + ':' + ci }"
                           :style="subStyle(ci)"
                           @pointerdown.stop="onPressStart('sub', m.index, ci, $event)">
@@ -922,7 +948,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
             </el-menu-item>
           </el-sub-menu>
           <el-menu-item v-else :index="m.index" class="drag-item"
-                        :class="{ 'drag-over': dragOver === i, 'is-dragging': dragFrom === i,
+                        :class="{ 'is-dragging': dragFrom === i,
                                   'just-dropped': settleKey === 'p:' + i }"
                         :style="menuStyle(i)"
                         @pointerdown="onPressStart('primary', '', i, $event)">

@@ -12,7 +12,8 @@
  *    光不会正好从中间劈开一个物体，对半切会看出「两块拼起来」的接缝，
  *    非常不自然（2026-10-13 用户指出）。层次只能来自「真实部件的叠放」。
  *
- * 用法：<MenuIcon name="House" />，name 沿用 Element Plus 图标名，菜单数据结构无需改动。
+ * 用法：<MenuIcon name="House" />，name 优先沿用 Element Plus 图标名；本文件自绘的名字
+ * （如 AiSpark）由 ICONS 兜底，菜单数据结构无需改动。
  * 未收录的名字回退为一枚中性圆点，保证不出现空白。
  */
 import { computed } from 'vue'
@@ -75,7 +76,7 @@ const ICONS = {
   // 我的文件：云朵描边 + 箭头
   Upload: `<path d="M7.4 18.6a4.2 4.2 0 0 1-.6-8.4A5.4 5.4 0 0 1 17 9.4a3.8 3.8 0 0 1 .4 7.6" fill="none" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 20.6v-7.4" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 12.6 15 15.6H9l3-3Z" fill="${X}"/>`,
 
-  // AI 问答：整个气泡 + 三点
+  // 消息中心：整个气泡 + 三点
   ChatDotRound: `<path d="M7.4 4.4h9.2a3 3 0 0 1 3 3v5.6a3 3 0 0 1-3 3H10l-4.2 3.1c-.5.4-1.2 0-1.2-.6V7.4a3 3 0 0 1 3-3Z" fill="url(#gd-B)"/><circle cx="9" cy="10.4" r="1.15" fill="#fff"/><circle cx="12.4" cy="10.4" r="1.15" fill="#fff"/><circle cx="15.8" cy="10.4" r="1.15" fill="${X}"/>`,
 
   // AI 问答：四角星芒（主形）+ 右上小星（琥珀点缀）
