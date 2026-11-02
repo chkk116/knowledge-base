@@ -64,7 +64,8 @@ public class AiModel {
     private boolean defaultModel = false;
 
     /** 用途：CHAT（对话/出题，默认）/ IMAGE（文生图）/ VIDEO（文生视频） */
-    @Column(nullable = false, length = 16)
+    // 显式带 DEFAULT：否则 Hibernate update 给存量表加 NOT NULL 列会被 PG 拒绝并静默跳过
+    @Column(nullable = false, length = 16, columnDefinition = "varchar(16) not null default 'CHAT'")
     private String kind = "CHAT";
 
     private int sortOrder = 0;

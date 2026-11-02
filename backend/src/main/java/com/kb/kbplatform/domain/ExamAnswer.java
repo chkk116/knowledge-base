@@ -32,7 +32,7 @@ public class ExamAnswer {
      * 主观题待人工阅卷：true = 交卷时未判分（FILL/ESSAY），等管理员在「主观题阅卷」页给分。
      * 客观题恒为 false。阅卷完成后置 false 并写入 score。
      */
-    @Column(nullable = false)
+    @Column(columnDefinition = "boolean not null default false")
     private boolean pending = false;
 
     /** 阅卷批注（可选）：管理员给主观题写扣分原因，学员在成绩详情可见 */
