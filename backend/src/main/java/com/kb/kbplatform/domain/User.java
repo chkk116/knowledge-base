@@ -49,9 +49,12 @@ public class User {
     private String email;    // 邮箱
 
     /** 邮箱是否已通过验证码验证（即「已绑定」）；未验证的邮箱不可用于接收邮件 */
+    // 显式带 DEFAULT：否则 Hibernate update 给存量表加 NOT NULL 列会被 PG 拒绝并静默跳过
+    @Column(columnDefinition = "boolean not null default false")
     private boolean emailVerified = false;
 
     /** 是否接收站内通知的邮件抄送（默认关闭，用户在个人资料页自行开启） */
+    @Column(columnDefinition = "boolean not null default false")
     private boolean emailNotifyEnabled = false;
 
     @Column(columnDefinition = "text")
