@@ -160,7 +160,11 @@ public class AuthService {
             u.setRole("USER");
             u.setEnabled(true);
             if (displayName != null && !displayName.isBlank()) u.setDisplayName(displayName);
-            if (email != null && !email.isBlank()) u.setEmail(email);
+            // 第三方（GitHub/Gitee）返回的邮箱视为已验证；若该邮箱已被别的账号占用则不写入，避免两个账号共用同一邮箱
+            if (email != null && !email.isBlank() && !emailTakenByOther(email, null)) {
+                u.setEmail(email);
+                u.setEmailVerified(true);
+            }
             if (avatar != null && !avatar.isBlank()) u.setAvatar(avatar);
             userRepo.save(u);
         } else {
@@ -169,7 +173,11 @@ public class AuthService {
             if ((u.getDisplayName() == null || u.getDisplayName().isBlank())
                     && displayName != null && !displayName.isBlank()) { u.setDisplayName(displayName); dirty = true; }
             if ((u.getEmail() == null || u.getEmail().isBlank())
-                    && email != null && !email.isBlank()) { u.setEmail(email); dirty = true; }
+                    && email != null && !email.isBlank() && !emailTakenByOther(email, u.getId())) {
+                u.setEmail(email);
+                u.setEmailVerified(true);
+                dirty = true;
+            }
             if ((u.getAvatar() == null || u.getAvatar().isBlank())
                     && avatar != null && !avatar.isBlank()) { u.setAvatar(avatar); dirty = true; }
             if (dirty) userRepo.save(u);
@@ -189,6 +197,30 @@ public class AuthService {
                 userRepo.save(u);
             }
         });
+    }
+
+    /**
+     * 补邮箱（第三方扫码登录的老用户用）：只在当前没有邮箱时写入，并标记为已验证。
+     * 该邮箱已被其它账号占用时跳过，避免两个账号共用同一邮箱。
+     */
+    public void fillEmailIfEmpty(Long userId, String email) {
+        if (userId == null || email == null || email.isBlank()) return;
+        userRepo.findById(userId).ifPresent(u -> {
+            if (u.getEmail() == null || u.getEmail().isBlank()) {
+                if (emailTakenByOther(email, userId)) return;
+                u.setEmail(email);
+                u.setEmailVerified(true);
+                userRepo.save(u);
+            }
+        });
+    }
+
+    /** 邮箱是否已被其它账号占用（selfId 为空表示新账号，任何命中都算占用） */
+    private boolean emailTakenByOther(String email, Long selfId) {
+        if (email == null || email.isBlank()) return false;
+        return userRepo.findByEmail(email)
+                .filter(x -> selfId == null || !x.getId().equals(selfId))
+                .isPresent();
     }
 
     /**

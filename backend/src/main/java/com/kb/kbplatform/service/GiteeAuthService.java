@@ -55,7 +55,7 @@ public class GiteeAuthService {
     /** state 前缀：多家登录共用一个 Redis，互不干扰 */
     private static final String STATE_PREFIX = "sso:state:gitee:";
 
-    public record GiteeUser(String externalId, String login, String nickname, String avatar, Long bindUserId) {}
+    public record GiteeUser(String externalId, String login, String nickname, String avatar, String email, Long bindUserId) {}
 
     public boolean enabled() {
         return "true".equals(get(K_ENABLED)) && notBlank(get(K_CLIENT_ID)) && notBlank(get(K_CLIENT_SECRET));
@@ -103,7 +103,7 @@ public class GiteeAuthService {
                 + "?client_id=" + enc(get(K_CLIENT_ID))
                 + "&redirect_uri=" + enc(redirect)
                 + "&response_type=code"
-                + "&scope=user_info"
+                + "&scope=" + enc("user_info emails")
                 + "&state=" + enc(state);
     }
 
@@ -138,11 +138,15 @@ public class GiteeAuthService {
             String login = str(u.get("login"));
             if (id == null || id.isBlank()) throw new IllegalStateException("Gitee 未返回用户 id");
             Long bindUserId = st[2] == null || st[2].isBlank() ? null : Long.valueOf(st[2]);
+            // user_info 只在用户公开邮箱时返回 email；没公开就用 emails 权限取第一个
+            String email = str(u.get("email"));
+            if (email == null || email.isBlank()) email = fetchFirstEmail(access);
             return new GiteeUser(
                     "gitee_" + id,
                     nvl(login),
                     firstNonBlank(str(u.get("name")), nvl(login)),
                     firstNonBlank(str(u.get("avatar_url")), ""),
+                    email == null || email.isBlank() ? null : email.trim(),
                     bindUserId
             );
         } catch (IllegalArgumentException e) {
@@ -158,6 +162,25 @@ public class GiteeAuthService {
         if (!cfg.isEmpty()) return cfg;
         String base = loginBase == null ? "" : loginBase.replaceAll("/+$", "");
         return base + "/api/auth/sso/gitee/callback";
+    }
+
+    /** 取 Gitee 邮箱列表的第一个（需要 emails 权限；用户没公开邮箱时兜底） */
+    private String fetchFirstEmail(String access) {
+        try {
+            HttpFetch.Resp r = HttpFetch.get("https://gitee.com/api/v5/emails?access_token=" + enc(access), null);
+            if (r.status() >= 300) return null;
+            java.util.List<?> list = tools.jackson.databind.json.JsonMapper.builder()
+                    .build().readValue(r.body(), java.util.List.class);
+            for (Object o : list) {
+                if (!(o instanceof Map<?, ?> e)) continue;
+                Object addr = e.get("email");
+                if (addr != null && !String.valueOf(addr).isBlank()) return String.valueOf(addr);
+            }
+            return null;
+        } catch (Exception ex) {
+            log.debug("取 Gitee 邮箱失败：{}", ex.getMessage());
+            return null;
+        }
     }
 
     private String[] takeState(String state) {

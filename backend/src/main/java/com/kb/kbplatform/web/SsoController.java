@@ -194,7 +194,7 @@ public class SsoController {
         try {
             var u = wechat.callback(code, state);
             String ext = notBlank(u.unionId()) ? u.unionId() : u.openId();
-            return finish(b, "wechat", ext, u.openId(), u.unionId(), u.nickname(), u.avatar(),
+            return finish(b, "wechat", ext, u.openId(), u.unionId(), u.nickname(), u.avatar(), null,
                     u.bindUserId(), wechat.autoRegister(), "微信");
         } catch (Exception e) {
             return fail(b, e.getMessage());
@@ -213,7 +213,7 @@ public class SsoController {
         String b = base(origin);
         try {
             var u = qq.callback(code, state);
-            return finish(b, "qq", u.openId(), u.openId(), null, u.nickname(), u.avatar(),
+            return finish(b, "qq", u.openId(), u.openId(), null, u.nickname(), u.avatar(), null,
                     u.bindUserId(), qq.autoRegister(), "QQ");
         } catch (Exception e) {
             return fail(b, e.getMessage());
@@ -232,7 +232,7 @@ public class SsoController {
         String b = base(origin);
         try {
             var u = github.callback(code, state);
-            return finish(b, "github", u.externalId(), u.login(), null, u.nickname(), u.avatar(),
+            return finish(b, "github", u.externalId(), u.login(), null, u.nickname(), u.avatar(), u.email(),
                     u.bindUserId(), github.autoRegister(), "GitHub");
         } catch (Exception e) {
             return failAndLog(b, "github", e.getMessage());
@@ -251,7 +251,7 @@ public class SsoController {
         String b = base(origin);
         try {
             var u = gitee.callback(code, state);
-            return finish(b, "gitee", u.externalId(), u.login(), null, u.nickname(), u.avatar(),
+            return finish(b, "gitee", u.externalId(), u.login(), null, u.nickname(), u.avatar(), u.email(),
                     u.bindUserId(), gitee.autoRegister(), "Gitee");
         } catch (Exception e) {
             return failAndLog(b, "gitee", e.getMessage());
@@ -305,7 +305,7 @@ public class SsoController {
      */
     private org.springframework.http.ResponseEntity<Void> finish(String base, String provider, String extId,
                                                                 String openId, String unionId,
-                                                                String nickname, String avatar,
+                                                                String nickname, String avatar, String email,
                                                                 Long bindUserId, boolean autoReg, String label) {
         // —— 绑定流程 ——
         if (bindUserId != null) {
@@ -333,6 +333,7 @@ public class SsoController {
             session = auth.sessionForUser(bound.get().getUserId());
             // 老用户第一次扫码：把第三方头像补上（用户自己设过的不会被覆盖）
             auth.fillAvatarIfEmpty(bound.get().getUserId(), avatar);
+            auth.fillEmailIfEmpty(bound.get().getUserId(), email);   // 老用户本地没邮箱时补齐（第三方返回的邮箱已验证）
             // 昵称/头像跟着身份源更新（用户改了微信昵称这里能同步上）
             var id = bound.get();
             if (notBlank(nickname) && !nickname.equals(id.getNickname())) {
@@ -357,7 +358,7 @@ public class SsoController {
                 uname = safe + "_" + Integer.toHexString((String.valueOf(extId) + guard).hashCode());
             }
             if (guard >= 5) uname = safe + "_" + Integer.toHexString((int) (System.nanoTime() & 0xffff));
-            session = auth.loginExternal(uname, nickname, "", avatar);
+            session = auth.loginExternal(uname, nickname, email, avatar);
             var id = new com.kb.kbplatform.domain.UserIdentity();
             id.setUserId(((Number) session.get("id")).longValue());
             id.setProvider(provider);

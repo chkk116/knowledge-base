@@ -62,7 +62,7 @@ public class GithubAuthService {
         this.kv = kv;
     }
 
-    public record GithubUser(String externalId, String login, String nickname, String avatar, Long bindUserId) {}
+    public record GithubUser(String externalId, String login, String nickname, String avatar, String email, Long bindUserId) {}
 
     public boolean enabled() {
         return "true".equals(get(K_ENABLED)) && notBlank(get(K_CLIENT_ID)) && notBlank(get(K_CLIENT_SECRET));
@@ -110,7 +110,7 @@ public class GithubAuthService {
         return AUTHORIZE
                 + "?client_id=" + enc(get(K_CLIENT_ID))
                 + "&redirect_uri=" + enc(redirect)
-                + "&scope=" + enc("read:user")
+                + "&scope=" + enc("read:user user:email")
                 + "&state=" + enc(state);
     }
 
@@ -149,11 +149,15 @@ public class GithubAuthService {
             String login = str(u.get("login"));
             if (id == null || id.isBlank()) throw new IllegalStateException("GitHub 未返回用户 id");
             Long bindUserId = st[2] == null || st[2].isBlank() ? null : Long.valueOf(st[2]);
+            // /user 只在用户公开邮箱时才有 email；没公开就用 user:email 权限取主邮箱
+            String email = str(u.get("email"));
+            if (email == null || email.isBlank()) email = fetchPrimaryEmail(access);
             return new GithubUser(
                     "gh_" + id,
                     nvl(login),
                     firstNonBlank(str(u.get("name")), nvl(login)),
                     firstNonBlank(str(u.get("avatar_url")), ""),
+                    email == null || email.isBlank() ? null : email.trim(),
                     bindUserId
             );
         } catch (IllegalArgumentException e) {
@@ -169,6 +173,34 @@ public class GithubAuthService {
         if (!cfg.isEmpty()) return cfg;
         String base = loginBase == null ? "" : loginBase.replaceAll("/+$", "");
         return base + "/api/auth/sso/github/callback";
+    }
+
+    /**
+     * 取 GitHub 主邮箱：/user/emails 需要 user:email 权限，
+     * 优先返回 primary + verified，其次任意 verified；都拿不到返回 null。
+     */
+    private String fetchPrimaryEmail(String access) {
+        try {
+            HttpFetch.Resp r = HttpFetch.get("https://api.github.com/user/emails", Map.of(
+                    "Authorization", "Bearer " + access,
+                    "Accept", "application/vnd.github+json"));
+            if (r.status() >= 300) return null;
+            java.util.List<?> list = tools.jackson.databind.json.JsonMapper.builder()
+                    .build().readValue(r.body(), java.util.List.class);
+            String fallback = null;
+            for (Object o : list) {
+                if (!(o instanceof Map<?, ?> e)) continue;
+                Object addr = e.get("email");
+                if (addr == null || String.valueOf(addr).isBlank()) continue;
+                boolean verified = Boolean.TRUE.equals(e.get("verified"));
+                if (verified && Boolean.TRUE.equals(e.get("primary"))) return String.valueOf(addr);
+                if (verified && fallback == null) fallback = String.valueOf(addr);
+            }
+            return fallback;
+        } catch (Exception ex) {
+            log.debug("取 GitHub 主邮箱失败：{}", ex.getMessage());
+            return null;
+        }
     }
 
 
