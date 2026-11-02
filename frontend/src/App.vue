@@ -471,25 +471,37 @@ const subDrag = ref({ group: '', from: -1 })
 const subOver = ref({ group: '', index: -1 })
 const subStep = ref(60)
 const justDragged = ref(false)
+const settleKey = ref('')
 let press = null
+let ghostEl = null
+let slotEl = null
 
+/** 一级分组如果展开着，li 的高度会把整段子菜单算进来；排序只按标题行量 */
+function rowEl(el) {
+  return el && el.classList.contains('el-sub-menu')
+    ? (el.querySelector('.el-sub-menu__title') || el)
+    : el
+}
 function measureStep(el, gap) {
   if (!el) return 48
-  const cs = getComputedStyle(el)
+  const row = rowEl(el)
+  const cs = getComputedStyle(row)
   const mt = parseFloat(cs.marginTop) || 0
   const mb = parseFloat(cs.marginBottom) || 0
-  return Math.round((el.offsetHeight || 42) + mt + mb + (gap || 0))
+  return Math.round((row.offsetHeight || 42) + mt + mb + (gap || 0))
 }
 function rectsOf(items) {
   return items.map((el) => {
-    const r = el.getBoundingClientRect()
-    return { top: r.top, bottom: r.bottom }
+    const r = rowEl(el).getBoundingClientRect()
+    return { top: r.top, bottom: r.bottom, left: r.left, width: r.width }
   })
 }
 function indexAtY(rects, y) {
-  for (let i = 0; i < rects.length; i++) if (y >= rects[i].top && y <= rects[i].bottom) return i
   if (!rects.length) return -1
-  return y < rects[0].top ? 0 : rects.length - 1
+  if (y <= rects[0].top) return 0
+  // 行间有 3px margin，落在缝里时归到下一行，避免指针抖一下就被甩到列表末尾
+  for (let i = 0; i < rects.length; i++) if (y < rects[i].bottom) return i
+  return rects.length - 1
 }
 /** 让位位移：from<over 时区间内整体上移一格，from>over 时下移一格 */
 function menuShift(i) {
@@ -516,6 +528,108 @@ function subStyle(i) {
   return y ? { transform: 'translateY(' + y + 'px)' } : null
 }
 
+/** 拖拽浮层：把当前项的内容抬到 pointer 上方，源项留在原位当占位 */
+function makeGhost(el) {
+  const src = rowEl(el)
+  const r = src.getBoundingClientRect()
+  const cs = getComputedStyle(src)
+  const dark = !!el.closest('.dark-menu') || document.documentElement.classList.contains('dark')
+  const transparent = !cs.backgroundColor || cs.backgroundColor === 'transparent' || cs.backgroundColor === 'rgba(0, 0, 0, 0)'
+  const aside = el.closest('.aside')
+  const asideBg = aside ? getComputedStyle(aside).backgroundColor : ''
+  const fallbackBg = asideBg && asideBg !== 'rgba(0, 0, 0, 0)' ? asideBg : (dark ? '#1f2430' : '#ffffff')
+  const isColumn = cs.flexDirection === 'column'
+  const g = document.createElement('div')
+  g.className = 'kb-drag-ghost'
+  // 外层只负责跟手位移（不加过渡，避免拖影）；内层负责「拿起」缩放，互不干扰
+  const inner = document.createElement('div')
+  inner.className = 'kbg-inner'
+  inner.innerHTML = src.innerHTML
+  Object.assign(g.style, {
+    position: 'fixed',
+    left: r.left + 'px',
+    top: r.top + 'px',
+    width: r.width + 'px',
+    height: r.height + 'px',
+    margin: '0',
+    borderRadius: '10px',
+    background: transparent ? fallbackBg : cs.backgroundColor,
+    overflow: 'hidden',
+    boxShadow: '0 14px 30px rgba(15, 23, 42, .20), 0 3px 8px rgba(15, 23, 42, .10), 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 22%, transparent)',
+    pointerEvents: 'none',
+    zIndex: '4000',
+    opacity: '0',
+    transform: 'translate3d(0, 0, 0)',
+    willChange: 'transform, opacity',
+    transition: 'opacity .12s ease',
+  })
+  Object.assign(inner.style, {
+    width: '100%',
+    height: '100%',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: isColumn ? 'column' : 'row',
+    alignItems: 'center',
+    justifyContent: isColumn ? 'center' : 'flex-start',
+    gap: cs.gap === 'normal' || !cs.gap ? '10px' : cs.gap,
+    padding: cs.padding,
+    color: cs.color,
+    fontSize: cs.fontSize,
+    fontWeight: cs.fontWeight,
+    fontFamily: cs.fontFamily,
+    lineHeight: cs.lineHeight,
+    letterSpacing: cs.letterSpacing,
+    transform: 'scale(1)',
+    transformOrigin: 'center',
+    transition: 'transform .16s cubic-bezier(.2, .8, .2, 1)',
+  })
+  g.appendChild(inner)
+  document.body.appendChild(g)
+  // 下一帧再放大，形成「拿起」的过渡
+  requestAnimationFrame(() => {
+    if (!g.isConnected || g.dataset.closing) return
+    g.style.opacity = '1'
+    inner.style.transform = 'scale(1.03)'
+  })
+  return g
+}
+function moveGhost(dx, dy) {
+  if (ghostEl) ghostEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`
+}
+function removeGhost() {
+  const g = ghostEl
+  ghostEl = null
+  if (!g) return
+  const inner = g.querySelector('.kbg-inner')
+  g.dataset.closing = '1'
+  g.style.transition = 'opacity .14s ease'
+  g.style.opacity = '0'
+  if (inner) inner.style.transform = 'scale(.985)'
+  setTimeout(() => g.remove(), 160)
+}
+/** 落点占位槽：跟着目标位置走，而不是在目标项上画死线 */
+function showSlot(rect, step) {
+  if (!rect) return
+  let fresh = false
+  if (!slotEl) {
+    fresh = true
+    slotEl = document.createElement('div')
+    slotEl.className = 'kb-drop-slot'
+    slotEl.innerHTML = '<i></i>'
+    slotEl.style.transition = 'none'   // 首次出现直接定位，避免从屏幕左上角滑入
+    document.body.appendChild(slotEl)
+  }
+  slotEl.style.top = (rect.top + 2) + 'px'
+  slotEl.style.left = (rect.left + 6) + 'px'
+  slotEl.style.width = Math.max(0, rect.width - 12) + 'px'
+  slotEl.style.height = Math.max(26, step - 6) + 'px'
+  slotEl.classList.add('on')
+  if (fresh) requestAnimationFrame(() => { if (slotEl) slotEl.style.transition = '' })
+}
+function hideSlot() {
+  if (slotEl) slotEl.classList.remove('on')
+}
+
 function onPressStart(kind, group, i, e) {
   if (e.pointerType === 'mouse' && e.button !== 0) return
   const el = e.currentTarget
@@ -526,6 +640,8 @@ function onPressStart(kind, group, i, e) {
     kind,
     group,
     i,
+    el,
+    x: e.clientX,
     y: e.clientY,
     active: false,
     rects: rectsOf(items),
@@ -550,29 +666,45 @@ function onPressMove(e) {
       subDrag.value = { group: press.group, from: press.i }
       subOver.value = { group: press.group, index: press.i }
     }
+    ghostEl = makeGhost(press.el)
+    showSlot(press.rects[press.i], press.step)
     document.body.classList.add('kb-dragging')
   }
+  moveGhost(e.clientX - press.x, e.clientY - press.y)
   const i = indexAtY(press.rects, e.clientY)
   if (i < 0) return
   if (press.kind === 'primary') dragOver.value = i
   else subOver.value = { group: press.group, index: i }
+  showSlot(press.rects[i], press.step)
 }
 
 function onPressUp() {
   window.removeEventListener('pointermove', onPressMove)
+  window.removeEventListener('pointerup', onPressUp)
+  window.removeEventListener('pointercancel', onPressUp)
   if (!press) return
   const { kind, group, i, active } = press
+  const to = kind === 'primary' ? dragOver.value : subOver.value.index
   press = null
   document.body.classList.remove('kb-dragging')
-  if (!active) return
+  hideSlot()
+  if (!active) { removeGhost(); return }
   justDragged.value = true
   setTimeout(() => { justDragged.value = false }, 0)
-  if (kind === 'primary') commitMenuOrder(i, dragOver.value)
-  else commitSubOrder(group, i, subOver.value.index)
+  // 重排和让位复位在同一帧完成；先禁掉过渡，避免「先回弹再重排」的闪动
+  document.body.classList.add('kb-drop-commit')
+  if (kind === 'primary') commitMenuOrder(i, to)
+  else commitSubOrder(group, i, to)
   dragFrom.value = -1
   dragOver.value = -1
   subDrag.value = { group: '', from: -1 }
   subOver.value = { group: '', index: -1 }
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('kb-drop-commit')))
+  if (to !== i && to >= 0) {
+    settleKey.value = kind === 'primary' ? 'p:' + to : 's:' + group + ':' + to
+    setTimeout(() => { settleKey.value = '' }, 380)
+  }
+  removeGhost()
 }
 
 function commitMenuOrder(from, to) {
@@ -754,7 +886,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                 class="ms-item"
                 :class="{ on: route.path === it.index,
                           'drag-over': subOver.group === activePrimaryIndex && subOver.index === ii,
-                          'is-dragging': subDrag.group === activePrimaryIndex && subDrag.from === ii }"
+                          'is-dragging': subDrag.group === activePrimaryIndex && subDrag.from === ii,
+                          'just-dropped': settleKey === 's:' + activePrimaryIndex + ':' + ii }"
                 :style="subStyle(ii)" :title="it.title"
                 @pointerdown="onPressStart('sub', activePrimaryIndex, ii, $event)"
                 @click="onMixedItemClick(it)">
@@ -768,7 +901,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                :collapse="menuCollapsed" :collapse-transition="false">
         <template v-for="(m, i) in orderedMenus" :key="m.index">
           <el-sub-menu v-if="m.children" :index="m.index" class="drag-item"
-                       :class="{ 'drag-over': dragOver === i, 'is-dragging': dragFrom === i }"
+                       :class="{ 'drag-over': dragOver === i, 'is-dragging': dragFrom === i,
+                                 'just-dropped': settleKey === 'p:' + i }"
                        :style="menuStyle(i)"
                        @pointerdown="onPressStart('primary', '', i, $event)">
             <template #title>
@@ -778,7 +912,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
             <el-menu-item v-for="(c, ci) in orderedChildren(m)" :key="c.index" :index="c.index"
                           class="sub-item drag-item"
                           :class="{ 'drag-over': subOver.group === m.index && subOver.index === ci,
-                                    'is-dragging': subDrag.group === m.index && subDrag.from === ci }"
+                                    'is-dragging': subDrag.group === m.index && subDrag.from === ci,
+                                    'just-dropped': settleKey === 's:' + m.index + ':' + ci }"
                           :style="subStyle(ci)"
                           @pointerdown.stop="onPressStart('sub', m.index, ci, $event)">
               <MenuIcon :name="c.icon" :size="18" />
@@ -787,7 +922,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
             </el-menu-item>
           </el-sub-menu>
           <el-menu-item v-else :index="m.index" class="drag-item"
-                        :class="{ 'drag-over': dragOver === i, 'is-dragging': dragFrom === i }"
+                        :class="{ 'drag-over': dragOver === i, 'is-dragging': dragFrom === i,
+                                  'just-dropped': settleKey === 'p:' + i }"
                         :style="menuStyle(i)"
                         @pointerdown="onPressStart('primary', '', i, $event)">
             <MenuIcon :name="m.icon" :size="20" />
@@ -1043,18 +1179,50 @@ html.dark .ms-item.on { background: var(--el-color-primary); color: #fff; }
 .aside.dark-menu .ms-item:hover { background: rgba(255, 255, 255, .08); color: #fff; }
 .aside.dark-menu .ms-item.on { background: var(--el-color-primary); color: #fff; }
 
-/* 拖拽排序（偏好设置 · 布局 → 菜单排序）：落点处画一条主色线 */
+/* 拖拽排序：浮层跟手 + 让位弹性滑动 + 落点占位槽（偏好设置 · 布局 → 菜单排序） */
 .drag-item { cursor: grab; }
-.drag-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
 body.kb-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
-/* 拖起项淡一点，让位的项用 transform 平移（合成层，无重排） */
 /* 拖拽项必须禁用浏览器默认手势：否则触屏按住拖动会被当成滚动，pointermove 直接中断（审查 r13） */
 .drag-item, .ms-item { touch-action: none; }
-.drag-item.is-dragging, .ms-item.is-dragging { opacity: .45; }
-@media (prefers-reduced-motion: reduce) {
-  .drag-item, .ms-item { transition: none !important; }
+/* 让位位移用 260ms 大厂常用缓出曲线，比原来的瞬间跳格自然；拖起项隐藏，源位由让位项补上 */
+body .menu .drag-item,
+body .ms-item {
+  transition: transform .26s cubic-bezier(.22, 1, .36, 1), background-color .15s ease, color .15s ease;
 }
-.ms-item.drag-over { box-shadow: inset 0 2px 0 var(--el-color-primary); }
+body.kb-dragging .drag-item, body.kb-dragging .ms-item { cursor: grabbing; will-change: transform; }
+/* 重排与让位复位同一帧完成，这一帧不要过渡，否则会先回弹再重排 */
+body.kb-drop-commit .drag-item, body.kb-drop-commit .ms-item { transition: none !important; }
+.drag-item.is-dragging:not(.el-sub-menu), .ms-item.is-dragging { opacity: 0; }
+/* 展开的分组只藏标题行，子项保持可见（整组 opacity:0 会把子菜单一起抹掉） */
+.el-sub-menu.drag-item.is-dragging > .el-sub-menu__title { opacity: 0; }
+/* 落地回弹：只放大到 1.012，克制一点 */
+@keyframes kb-menu-settle {
+  0% { transform: scale(.975); }
+  55% { transform: scale(1.012); }
+  100% { transform: scale(1); }
+}
+.drag-item.just-dropped, .ms-item.just-dropped { animation: kb-menu-settle .32s cubic-bezier(.22, 1, .36, 1); }
+/* 拖拽浮层（挂在 body 下，不在 Vue 模板里） */
+.kb-drag-ghost { position: fixed; z-index: 4000; pointer-events: none; }
+/* 落点占位槽：主色淡底 + 顶部引导线，位置变化带过渡 */
+.kb-drop-slot {
+  position: fixed; z-index: 3990; pointer-events: none; border-radius: 9px;
+  background: color-mix(in srgb, var(--el-color-primary) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 30%, transparent);
+  opacity: 0;
+  transition: top .22s cubic-bezier(.22, 1, .36, 1), left .22s cubic-bezier(.22, 1, .36, 1),
+              width .22s cubic-bezier(.22, 1, .36, 1), height .22s cubic-bezier(.22, 1, .36, 1),
+              opacity .12s ease;
+}
+.kb-drop-slot.on { opacity: 1; }
+.kb-drop-slot i {
+  position: absolute; left: 10px; right: 10px; top: -1px; height: 2px; border-radius: 2px;
+  background: var(--el-color-primary); box-shadow: 0 0 8px var(--el-color-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .drag-item, .ms-item, .kb-drop-slot { transition: none !important; }
+  .drag-item.just-dropped, .ms-item.just-dropped { animation: none; }
+}
 .brand {
   flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
   padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;
