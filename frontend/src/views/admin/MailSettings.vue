@@ -104,7 +104,7 @@
                     <el-button @click="resetTpl(t.key)">恢复默认</el-button>
                   </el-form-item>
                 </el-form>
-                <p class="tpl-tip">正文支持 HTML 与上面的变量；外层会自动套统一页脚。</p>
+                <p class="tpl-tip">正文直接写文字即可，换行会自动保留；只有想自定义排版时才需要写 HTML。外层会自动套统一页脚。</p>
               </el-tab-pane>
             </el-tabs>
           </div>

@@ -222,21 +222,13 @@ public class MailService {
         Map<String, Map<String, String>> m = new LinkedHashMap<>();
         m.put("reset", tplDef(
                 "【知识库】密码重置链接",
-                "<p>您好 {username}：</p>"
-                        + "<p>我们收到了您的密码重置请求。请点击下面的按钮设置新密码（链接 30 分钟内有效，且仅可使用一次）：</p>"
-                        + "<p style=\"text-align:center;margin:20px 0;\"><a href=\"{link}\" style=\"display:inline-block;background:#1677ff;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;\">重置密码</a></p>"
-                        + "<p>若按钮无法点击，请复制链接到浏览器打开：{link}</p>"
-                        + "<p>若非本人操作，请忽略此邮件，您的密码不会变更。</p>"));
+                "您好 {username}：\n\n我们收到了您的密码重置请求，请打开下面的链接设置新密码（30 分钟内有效，仅可使用一次）：\n\n{link}\n\n若非本人操作，请忽略此邮件，您的密码不会变更。"));
         m.put("verify", tplDef(
                 "【知识库】邮箱绑定验证码",
-                "<p>您好：</p><p>您正在绑定邮箱，验证码为：</p>"
-                        + "<p style=\"font-size:32px;font-weight:700;letter-spacing:6px;color:#1677ff;background:#f0f6ff;padding:16px 0;text-align:center;border-radius:8px;margin:14px 0;\">{code}</p>"
-                        + "<p>验证码 10 分钟内有效。若非本人操作，请忽略此邮件。</p>"));
+                "您好：\n\n您正在绑定邮箱，验证码为：\n\n{code}\n\n验证码 10 分钟内有效。若非本人操作，请忽略此邮件。"));
         m.put("notify", tplDef(
                 "【知识库】{title}",
-                "<p>您好 {username}：</p><p>【{title}】{summary}</p>"
-                        + "<p style=\"text-align:center;margin:20px 0;\"><a href=\"{link}\" style=\"display:inline-block;background:#1677ff;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;\">查看通知</a></p>"
-                        + "<p>您可以在个人资料页关闭「接收通知邮件」。</p>"));
+                "您好 {username}：\n\n【{title}】{summary}\n\n查看通知：{link}\n\n您可以在个人资料页关闭「接收通知邮件」。"));
         return m;
     }
 
@@ -300,6 +292,15 @@ public class MailService {
         return s;
     }
 
+    /** 正文渲染：普通文字自动转义并保留换行；只有主动写了 HTML 标签才按 HTML 原样输出 */
+    private String renderBody(String tpl, Map<String, String> vars) {
+        String s = render(tpl, vars);
+        String t = s.trim();
+        boolean hasHtml = t.startsWith("<") || t.contains("<p>") || t.contains("<div") || t.contains("<br") || t.contains("<a ");
+        if (hasHtml) return s;
+        return "<p>" + escapeHtml(s).replace("\r\n", "\n").replace("\n", "<br/>") + "</p>";
+    }
+
     /** 模板正文外套统一外壳（页脚） */
     private String wrapTpl(String inner) {
         return "<div style=\"max-width:480px;margin:0 auto;font-family:-apple-system,Segoe UI,"
@@ -332,7 +333,7 @@ public class MailService {
         vars.put("username", display(u));
         vars.put("link", link);
         vars.put("site", siteBaseUrl);
-        send(u.getEmail(), render(t.get("subject"), vars), wrapTpl(render(t.get("body"), vars)));
+        send(u.getEmail(), render(t.get("subject"), vars), wrapTpl(renderBody(t.get("body"), vars)));
     }
 
     /** 邮箱绑定验证码邮件（主题/正文可配置） */
@@ -341,7 +342,7 @@ public class MailService {
         Map<String, String> vars = new LinkedHashMap<>();
         vars.put("code", code);
         vars.put("site", siteBaseUrl);
-        send(to, render(t.get("subject"), vars), wrapTpl(render(t.get("body"), vars)));
+        send(to, render(t.get("subject"), vars), wrapTpl(renderBody(t.get("body"), vars)));
     }
 
     /** 站内通知邮件抄送（主题/正文可配置） */
@@ -354,7 +355,7 @@ public class MailService {
         vars.put("summary", n.getSummary() == null ? "" : n.getSummary());
         vars.put("link", siteBaseUrl + "/notifications");
         vars.put("site", siteBaseUrl);
-        send(u.getEmail(), render(t.get("subject"), vars), wrapTpl(render(t.get("body"), vars)));
+        send(u.getEmail(), render(t.get("subject"), vars), wrapTpl(renderBody(t.get("body"), vars)));
     }
 
     /** 测试邮件 */
