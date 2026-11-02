@@ -18,6 +18,7 @@ export const CHANGELOG = [
       '新增「邮件模板」：密码重置 / 邮箱验证码 / 通知抄送的主题与正文都可在线编辑，支持 {username} {link} {code} 等变量，可一键恢复默认',
       '新增「密码重置」：输入用户名或邮箱即可发送重置邮件（30 分钟有效、仅可使用一次），并给出备用链接便于兜底转交',
       '密码重置、邮箱验证、通知抄送三类邮件均改为读取模板，改完即时生效',
+      '升级 axios / vue / markdown-it / prosemirror-view 等依赖，修复 7 个可自动修复的高危漏洞（npm audit；xlsx、x-data-spreadsheet 无官方补丁，仅影响解析不可信文件）',
     ],
   },
   {
