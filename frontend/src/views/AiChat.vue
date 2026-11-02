@@ -1671,6 +1671,14 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                     </span>
                     <el-icon v-if="selectedModelId === mkey(m)" class="aimp-check"><Select /></el-icon>
                   </button>
+                  <button type="button" class="aimp-row aimp-add" style="border-top:1px solid #f0f0f0;margin-top:4px"
+                          @click="router.push('/my-ai-models')">
+                    <span class="aimp-ico" style="font-size:18px;color:#1677ff">＋</span>
+                    <span class="aimp-main">
+                      <span class="aimp-name" style="color:#1677ff">自定义模型</span>
+                      <span class="aimp-sub">添加自己的模型，与管理员模型互不影响</span>
+                    </span>
+                  </button>
                 </div>
               </el-popover>
               <el-tooltip v-else content="管理员尚未配置可用模型，AI 暂不可用" placement="top" :show-after="200">
