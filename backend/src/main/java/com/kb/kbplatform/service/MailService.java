@@ -165,12 +165,14 @@ public class MailService {
         Properties props = new Properties();
         props.put("mail.smtp.host", c.host);
         props.put("mail.smtp.port", String.valueOf(c.port));
+        props.put("mail.smtp.auth", "true");   // 必须：否则不走 AUTH，QQ 邮箱报 503 need EHLO and AUTH first
         props.put("mail.smtp.connectiontimeout", "10000");
         props.put("mail.smtp.timeout", "15000");
         props.put("mail.smtp.writetimeout", "15000");
         String enc = c.encryption == null ? "SSL" : c.encryption;
         if ("SSL".equals(enc)) {
             props.put("mail.smtp.ssl.enable", "true");
+            props.put("mail.smtp.ssl.trust", c.host);
             props.put("mail.smtp.socketFactory.port", String.valueOf(c.port));
             props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
         } else if ("TLS".equals(enc)) {
