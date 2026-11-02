@@ -308,7 +308,7 @@ const menus = computed(() => {
       { index: '/files', title: '我的文件', icon: 'Upload' },
     )
     if (featureOpen('ranking')) base.push({ index: '/ranking', title: '积分排行榜', icon: 'TrendCharts' })
-    if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: 'AI 问答', icon: 'ChatDotRound' })
+    if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: 'AI 问答', icon: 'AiSpark' })
     base.push({ index: '/messages', title: '消息中心', icon: 'ChatDotRound' })
     if (featureOpen('courses')) base.push({ index: '/study/courses', title: '培训', icon: 'Reading' })
     // 考试与练习：原 7 个入口收敛为「在线考试」「练习」两个主入口（原「答题闯关」/quiz 并入在线考试），
