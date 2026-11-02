@@ -8,7 +8,7 @@
       <el-button type="primary" round @click="openCreate">添加模型</el-button>
     </header>
 
-    <div v-if="!list.length" class="empty">
+    <div v-if="!loading && !list.length" class="empty">
       <div class="empty-mark">＋</div>
       <p class="empty-t">还没有自定义模型</p>
       <el-button text type="primary" @click="openCreate">添加第一个</el-button>
@@ -19,7 +19,8 @@
         <ProviderLogo :provider="m.provider" :size="34" />
         <div class="meta">
           <div class="name">{{ m.name }}</div>
-          <div class="model">{{ m.model }}</div>
+          <div class="model">{{ m.model }} · {{ m.baseUrl }}</div>
+          <div class="model" v-if="m.keySet">Key：{{ m.keyMasked }}</div>
         </div>
         <el-switch :model-value="m.enabled" @change="(v) => toggle(m, v)" />
         <el-dropdown trigger="click" @command="(c) => onCmd(c, m)">
@@ -82,6 +83,7 @@ const PROVIDERS = [
 ]
 
 const list = ref([])
+const loading = ref(true)
 const dlg = ref(false)
 const saving = ref(false)
 const form = ref(blank())
@@ -91,10 +93,15 @@ function blank() {
 }
 
 async function load() {
+  loading.value = true
   try {
     const { data } = await listMyAiModels()
     list.value = Array.isArray(data) ? data : []
-  } catch (e) { /* 未登录等静默 */ }
+  } catch (e) {
+    ElMessage.error('加载失败，请稍后重试')
+  } finally {
+    loading.value = false
+  }
 }
 
 function openCreate() {

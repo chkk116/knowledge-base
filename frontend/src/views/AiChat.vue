@@ -1671,18 +1671,19 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                     </span>
                     <el-icon v-if="selectedModelId === mkey(m)" class="aimp-check"><Select /></el-icon>
                   </button>
-                  <button type="button" class="aimp-row aimp-add" style="border-top:1px solid #f0f0f0;margin-top:4px"
-                          @click="router.push('/my-ai-models')">
-                    <span class="aimp-ico" style="font-size:18px;color:#1677ff">＋</span>
+                  <button type="button" class="aimp-row aimp-add" @click="router.push('/my-ai-models')">
+                    <span class="aimp-ico aimp-add-ico">＋</span>
                     <span class="aimp-main">
-                      <span class="aimp-name" style="color:#1677ff">自定义模型</span>
+                      <span class="aimp-name aimp-add-name">自定义模型</span>
                       <span class="aimp-sub">添加自己的模型，与管理员模型互不影响</span>
                     </span>
                   </button>
                 </div>
               </el-popover>
-              <el-tooltip v-else content="管理员尚未配置可用模型，AI 暂不可用" placement="top" :show-after="200">
-                <span class="ai-model-tag is-empty"><span class="ai-dot"></span>未配置模型</span>
+              <el-tooltip v-else content="管理员尚未配置可用模型，可先添加自己的模型" placement="top" :show-after="200">
+                <span class="ai-model-tag is-empty" style="cursor:pointer" @click="router.push('/my-ai-models')">
+                  <span class="ai-dot"></span>添加自定义模型
+                </span>
               </el-tooltip>
               </div>
               <button v-if="!loading" type="button" class="ai-send" @click="send()">
@@ -2364,6 +2365,9 @@ html.dark .aimp-popover.el-popover.el-popper { box-shadow: 0 12px 32px rgba(0, 0
 .aimp-ico { width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .aimp-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .aimp-name { font-size: 13.5px; color: var(--el-text-color-primary); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aimp-add { border-top: 1px solid var(--el-border-color-lighter); margin-top: 4px; }
+.aimp-add .aimp-add-ico { font-size: 18px; color: var(--el-color-primary); }
+.aimp-add .aimp-add-name { color: var(--el-color-primary); }
 .aimp-sub { font-size: 11.5px; color: var(--el-text-color-secondary); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .aimp-check { color: var(--el-color-primary); flex: none; font-size: 15px; }
 .aimp-row .aimp-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--el-color-primary-light-5); }
