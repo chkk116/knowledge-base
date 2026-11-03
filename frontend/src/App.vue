@@ -1139,6 +1139,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
   </el-watermark>
   <!-- 全局命令面板（Ctrl/⌘ + K）：只在带菜单的主界面挂载，登录页/独立阅读窗不掺和 -->
   <CommandPalette v-if="!barePage" />
+  <!-- 意见反馈弹窗（顶部头像菜单 → 意见反馈）；此前只改了 fbOpen，没有渲染组件，点了没反应 -->
+  <ReportDialog v-model="fbOpen" target-type="FEEDBACK" />
   </el-config-provider>
 </template>
 

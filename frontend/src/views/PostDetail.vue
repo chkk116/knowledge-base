@@ -928,24 +928,24 @@ onBeforeUnmount(() => {
                   <WornBadgeStrip v-if="authorWornIds.length" :badge-ids="authorWornIds" :size="20" />
                 </div>
                 <span class="lv-tag" v-if="authorLevel">Lv{{ authorLevel.level }} · {{ authorLevel.title }}</span>
-                <div class="astats">
-                  <span><b>{{ authorCard.original }}</b> 原创</span>
-                  <span><b>{{ authorCard.likes }}</b> 点赞</span>
-                  <span><b>{{ authorCard.favorites }}</b> 收藏</span>
-                  <span><b>{{ authorCard.fans }}</b> 粉丝</span>
-                </div>
               </div>
-              <div class="author-acts">
-                <button v-if="auth.loggedIn && auth.user && authorCard && authorCard.id !== auth.user.id"
-                        class="follow-btn" :class="{ on: authorCard.isFollowing }" @click.stop="toggleFollow">
-                  {{ authorCard.isFollowing ? '已关注' : '+ 关注' }}
-                </button>
-                <button v-if="auth.loggedIn && auth.user && authorCard && authorCard.id !== auth.user.id"
-                        class="follow-btn dm-btn" @click.stop="$router.push({ path: '/messages', query: { peer: authorCard.id } })">
-                  私信
-                </button>
-                <button v-if="auth.loggedIn" class="follow-btn rp-btn" @click.stop="reportOpen = true">举报</button>
-              </div>
+            </div>
+            <div class="astats" @click="goUser(authorCard.id)">
+              <span><b>{{ authorCard.original }}</b> 原创</span>
+              <span><b>{{ authorCard.likes }}</b> 点赞</span>
+              <span><b>{{ authorCard.favorites }}</b> 收藏</span>
+              <span><b>{{ authorCard.fans }}</b> 粉丝</span>
+            </div>
+            <div class="author-acts">
+              <button v-if="auth.loggedIn && auth.user && authorCard && authorCard.id !== auth.user.id"
+                      class="follow-btn" :class="{ on: authorCard.isFollowing }" @click.stop="toggleFollow">
+                {{ authorCard.isFollowing ? '已关注' : '+ 关注' }}
+              </button>
+              <button v-if="auth.loggedIn && auth.user && authorCard && authorCard.id !== auth.user.id"
+                      class="follow-btn dm-btn" @click.stop="$router.push({ path: '/messages', query: { peer: authorCard.id } })">
+                私信
+              </button>
+              <button v-if="auth.loggedIn" class="follow-btn rp-btn" @click.stop="reportOpen = true">举报</button>
             </div>
           </div>
 
@@ -1023,7 +1023,7 @@ html.dark .cmt-flash { animation: cmtFlashDark 2s ease-out; }
 .post-side { flex: none; width: 300px; position: sticky; top: 104px; align-self: flex-start; max-height: calc(100vh - 124px); overflow-y: auto; }
 /* 作者小卡片：右侧边栏 */
 .author-card { background: #fff; border: 1px solid #eef2f7; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-.author-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.author-top { display: flex; align-items: center; gap: 12px; }
 .author-card .ava-wrap { position: relative; flex: none; display: inline-flex; overflow: visible; }
 .author-card .ava { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; flex: none; background: #e2e8f0; }
 .author-card .ava.none { display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 20px; font-weight: 700; }
@@ -1031,7 +1031,7 @@ html.dark .cmt-flash { animation: cmtFlashDark 2s ease-out; }
 .author-card .nm-row { white-space: nowrap; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .author-card .nm { font-weight: 700; color: #1e293b; font-size: 15px; }
 .author-card .lv-tag { white-space: nowrap; display: inline-block; margin-top: 4px; padding: 1px 8px; border-radius: 10px; background: linear-gradient(120deg, #f59e0b, #ef4444); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; }
-.author-card .astats { white-space: nowrap; flex-wrap: wrap; display: flex; gap: 12px; margin-top: 6px; color: #64748b; font-size: 12px; }
+.author-card .astats { white-space: nowrap; display: flex; gap: 12px; margin-top: 10px; color: #64748b; font-size: 12px; }
 .author-card .astats b { color: #0f172a; }
 .author-card .follow-btn { flex: none; border: 1px solid #6366f1; background: #6366f1; color: #fff; border-radius: 16px; padding: 6px 14px; cursor: pointer; font-size: 13px; transition: all .15s; }
 .author-card .follow-btn:hover { background: #4f46e5; }
@@ -1244,7 +1244,7 @@ html.dark .emoji-btn:hover { background: var(--el-fill-color-light); border-colo
   .lightbox { padding: 12px; }
 }
 
-.author-acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; flex: none; margin-left: auto; }
+.author-acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-top: 10px; }
 .follow-btn.dm-btn { background: #fff; color: var(--accent, #1677ff); border: 1px solid var(--accent, #1677ff); }
 .follow-btn.dm-btn:hover { background: rgba(22, 119, 255, .08); }
 
