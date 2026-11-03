@@ -79,7 +79,6 @@ onMounted(load)
       <div class="head-left">
         <div class="head-icon"><el-icon :size="22"><Key /></el-icon></div>
         <h2>登录日志</h2>
-      <span class="tip">记录每次登录尝试（成功 / 失败及原因），用于安全审计与异常登录排查</span>
       </div>
     </div>
 
@@ -148,7 +147,6 @@ onMounted(load)
 .ll { padding: 20px; max-width: 1200px; margin: 0 auto; }
 .ll-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
 .ll-header h2 { margin: 0; font-size: 20px; color: #111827; }
-.tip { color: #94a3b8; font-size: 13px; }
 .search-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
 .search-bar .s-name { width: 180px; }
 .search-bar .s-result { width: 120px; }
@@ -184,7 +182,6 @@ html.dark .expand { color: var(--el-text-color-regular); }
 @media (max-width: 640px) {
   .ll { padding: 12px; }
   .ll-header h2 { font-size: 18px; }
-  .tip { font-size: 12px; }
   .search-bar .s-name,
   .search-bar .s-result,
   .search-bar .s-date { width: 100%; }
