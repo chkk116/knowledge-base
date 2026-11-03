@@ -38,16 +38,19 @@ public class RagService {
     private final DocumentRepository repository;
     // 统一多模型调用层：模型与 API Key 由管理员在「AI 模型管理」页维护，保存后即时生效、无需重启后端
     private final AiModelClient aiModelClient;
+    private final RagIndexService ragIndex;
     private final boolean enabled;   // kb.ai.enabled：总开关，false 时强制关闭 AI（默认 true）
 
     public RagService(MeiliSearchClient meili,
                       DocumentRepository repository,
                       @Value("${kb.ai.enabled:false}") boolean enabled,
-                      AiModelClient aiModelClient) {
+                      AiModelClient aiModelClient,
+                      RagIndexService ragIndex) {
         this.meili = meili;
         this.repository = repository;
         this.enabled = enabled;
         this.aiModelClient = aiModelClient;
+        this.ragIndex = ragIndex;
     }
 
     public String ask(String question) {
@@ -363,6 +366,15 @@ public class RagService {
     }
 
     private List<Map<String, Object>> retrieve(String q) {
+        // 语义检索优先（真·向量 RAG）：未启用 / 无索引 / 失败时自动落回 Meili / MySQL 全文检索
+        if (ragIndex != null && ragIndex.isEnabled()) {
+            try {
+                List<Map<String, Object>> v = ragIndex.search(q, TOP_K);
+                if (!v.isEmpty()) return v;
+            } catch (Exception e) {
+                log.warn("向量检索失败，回退全文检索: {}", e.getMessage());
+            }
+        }
         List<Map<String, Object>> out = new ArrayList<>();
         if (meili != null && meili.isEnabled()) {
             try {

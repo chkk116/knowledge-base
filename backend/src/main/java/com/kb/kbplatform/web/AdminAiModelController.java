@@ -11,6 +11,7 @@ import com.kb.kbplatform.repository.AiModelRepository;
 import com.kb.kbplatform.repository.AiUsageLogRepository;
 import com.kb.kbplatform.service.AiKeyCipher;
 import com.kb.kbplatform.service.AiModelClient;
+import com.kb.kbplatform.service.RagIndexService;
 import com.kb.kbplatform.security.TokenClaims;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -181,19 +182,37 @@ public class AdminAiModelController {
     private final AiKeyCipher cipher;
     private final AiModelClient client;
     private final AiUsageLogRepository usageRepo;
+    private final RagIndexService ragIndex;
 
     public AdminAiModelController(AiModelRepository repo, AiKeyCipher cipher, AiModelClient client,
-                                  AiUsageLogRepository usageRepo) {
+                                  AiUsageLogRepository usageRepo, RagIndexService ragIndex) {
         this.repo = repo;
         this.cipher = cipher;
         this.client = client;
         this.usageRepo = usageRepo;
+        this.ragIndex = ragIndex;
     }
 
     /** 可选平台（前端下拉据此自动填 baseUrl） */
     @GetMapping("/platforms")
     public List<Map<String, Object>> platforms() {
         return PLATFORMS;
+    }
+
+    /**
+     * 全量重建向量索引（语义检索语料）。向量 RAG（kb.ai.embedding.enabled=true）开启后调用一次，
+     * 之后文档保存/下架/删除会经 Meili 钩子自动增量同步。同步执行，文档多时耗时较久（每篇 1 次 embedding 调用）。
+     */
+    @PostMapping("/reindex")
+    public Map<String, Object> reindex(@RequestAttribute("kbUser") TokenClaims c) {
+        if (c == null || (!c.isAdmin() && !c.hasPerm("AI_MANAGE"))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要 AI 模型管理权限");
+        }
+        if (!ragIndex.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "向量检索未启用（kb.ai.embedding.enabled=false）");
+        }
+        long n = ragIndex.reindexAll();
+        return Map.of("ok", true, "indexed", n);
     }
 
     /**

@@ -38,16 +38,19 @@ public class MeiliSearchClient {
     private final String indexUid;
     private final boolean enabled;
     private final com.kb.kbplatform.repository.DocumentRepository docRepo;
+    private final RagIndexService ragIndex;
 
     public MeiliSearchClient(@Value("${kb.search.meili.host:}") String host,
                              @Value("${kb.search.meili.api-key:}") String apiKey,
                              @Value("${kb.search.meili.index:documents}") String indexUid,
-                             com.kb.kbplatform.repository.DocumentRepository docRepo) {
+                             com.kb.kbplatform.repository.DocumentRepository docRepo,
+                             @org.springframework.context.annotation.Lazy RagIndexService ragIndex) {
         this.host = host == null ? "" : host.trim();
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.indexUid = (indexUid == null || indexUid.isBlank()) ? "documents" : indexUid.trim();
         this.enabled = !this.host.isEmpty();
         this.docRepo = docRepo;
+        this.ragIndex = ragIndex;
         if (enabled) {
             // 用静态工厂构建，不依赖 Spring 自动配置的 RestClient.Builder bean（SB 4.1.0 下该 bean 未注入）
             RestClient.Builder b = RestClient.builder().baseUrl(this.host);
@@ -66,12 +69,18 @@ public class MeiliSearchClient {
 
     /** 同步单篇文档：已发布则写入索引，否则从索引移除（草稿/待审核/封禁不可被搜到） */
     public void sync(Document d) {
+        // 向量索引独立于 Meili 开关：内容变更即入队（发布→索引，其余→移除）
+        if (ragIndex != null && d != null && d.getId() != null) {
+            if ("PUBLISHED".equals(d.getStatus())) ragIndex.indexDocumentAsync(d);
+            else ragIndex.removeDocumentAsync(d.getId());
+        }
         if (!enabled || d == null || d.getId() == null) return;
         if ("PUBLISHED".equals(d.getStatus())) upsert(d);
         else delete(d.getId());
     }
 
     public void delete(Long id) {
+        if (ragIndex != null && id != null) ragIndex.removeDocumentAsync(id);
         if (!enabled || id == null) return;
         try {
             client.delete()
