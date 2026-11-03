@@ -1031,7 +1031,7 @@ html.dark .cmt-flash { animation: cmtFlashDark 2s ease-out; }
 .author-card .nm-row { white-space: nowrap; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .author-card .nm { font-weight: 700; color: #1e293b; font-size: 15px; }
 .author-card .lv-tag { white-space: nowrap; display: inline-block; margin-top: 4px; padding: 1px 8px; border-radius: 10px; background: linear-gradient(120deg, #f59e0b, #ef4444); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; }
-.author-card .astats { white-space: nowrap; display: flex; gap: 12px; margin-top: 10px; color: #64748b; font-size: 12px; }
+.author-card .astats { white-space: nowrap; display: flex; gap: 8px; justify-content: space-between; margin-top: 10px; color: #64748b; font-size: 12px; }
 .author-card .astats b { color: #0f172a; }
 .author-card .follow-btn { flex: none; border: 1px solid #6366f1; background: #6366f1; color: #fff; border-radius: 16px; padding: 6px 14px; cursor: pointer; font-size: 13px; transition: all .15s; }
 .author-card .follow-btn:hover { background: #4f46e5; }
@@ -1244,7 +1244,8 @@ html.dark .emoji-btn:hover { background: var(--el-fill-color-light); border-colo
   .lightbox { padding: 12px; }
 }
 
-.author-acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-top: 10px; }
+.author-acts { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
+.author-acts .follow-btn { flex: 1; text-align: center; padding-left: 0; padding-right: 0; }
 .follow-btn.dm-btn { background: #fff; color: var(--accent, #1677ff); border: 1px solid var(--accent, #1677ff); }
 .follow-btn.dm-btn:hover { background: rgba(22, 119, 255, .08); }
 
