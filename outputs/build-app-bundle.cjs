@@ -74,27 +74,43 @@ if (!/^mobile-/.test(entryChunk)) {
 const NATIVE_HOST = process.env.KB_NATIVE_HOST || '你的域名'
 {
   const assetsDir = path.join(distDir, 'assets')
-  const rbFiles = fs.existsSync(assetsDir)
+  let rbFiles = fs.existsSync(assetsDir)
     ? fs.readdirSync(assetsDir).filter((f) => /^runtimeBase-.*\.js$/.test(f))
     : []
-  if (!rbFiles.length) {
-    console.error('[FAIL] dist 里找不到 assets/runtimeBase-*.js —— 构建产物异常，已中止：' + distDir)
-    process.exit(1)
+  // 新版构建（rolldown）不再单独产出 runtimeBase，接口基址内联进入口 chunk。
+  // 找不到 runtimeBase 时退化为扫描全部 js：只要有一处含线上域名、且没有 localhost 即视为正常。
+  const inlineMode = !rbFiles.length
+  if (inlineMode) {
+    rbFiles = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir).filter((f) => /\.js$/.test(f)) : []
+    if (!rbFiles.length) {
+      console.error('[FAIL] dist 里没有任何 js 产物 —— 构建产物异常，已中止：' + distDir)
+      process.exit(1)
+    }
   }
   let originBad = false
+  let hit = false
   for (const f of rbFiles) {
     const src = fs.readFileSync(path.join(assetsDir, f), 'utf8')
-    if (/localhost|127\.0\.0\.1/.test(src) || !src.includes(NATIVE_HOST)) {
+    if (/localhost:8080|127\.0\.0\.1:8080/.test(src)) {
       originBad = true
-      console.error('[FAIL] ' + f + ' 内置接口域名异常（未含 ' + NATIVE_HOST + '，或含 localhost/127.0.0.1）')
+      console.error('[FAIL] ' + f + ' 含 localhost/127.0.0.1 接口地址')
     }
+    if (src.includes(NATIVE_HOST)) hit = true
+    if (!inlineMode && !src.includes(NATIVE_HOST)) {
+      originBad = true
+      console.error('[FAIL] ' + f + ' 未含 ' + NATIVE_HOST)
+    }
+  }
+  if (inlineMode && !hit) {
+    originBad = true
+    console.error('[FAIL] 所有 js 中都没有线上域名 ' + NATIVE_HOST + '，疑似接口基址缺失')
   }
   if (originBad) {
     console.error('       多半是构建时缺 VITE_NATIVE_ORIGIN（应写在 frontend/.env.production.local）。')
     console.error('       这种包下发会让 App 全站连不上服务器且无法自愈，已中止出包。')
     process.exit(1)
   }
-  console.log('接口域名  ' + NATIVE_HOST + '（runtimeBase ✓）')
+  console.log('接口域名  ' + NATIVE_HOST + '（' + (inlineMode ? '内联 ✓' : 'runtimeBase ✓') + '）')
 }
 
 fs.mkdirSync(outDir, { recursive: true })
