@@ -42,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -219,8 +218,10 @@ fun SlideCaptcha(
                         Modifier
                             .align(Alignment.TopStart)
                             .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
-                            .size(pw, ph)
-                            .shadow(2.dp),
+                            .size(pw, ph),
+                        // ⚠️ 不能加 Modifier.shadow()：那是矩形阴影，而拼块是不规则透明 PNG，
+                        // 矩形阴影会把整个透明区衬成一块「背景抠图」（Web 端用 drop-shadow 跟随轮廓，
+                        // Compose 等效实现要 RenderEffect，API 31+ 才有）。拼块自带白色描边，轮廓已够清晰。
                         contentScale = ContentScale.FillBounds
                     )
                 }
