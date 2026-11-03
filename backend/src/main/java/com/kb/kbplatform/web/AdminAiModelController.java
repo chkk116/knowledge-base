@@ -87,6 +87,7 @@ public class AdminAiModelController {
      * 其余为按量付费的旗舰/主力模型。注册即送额度，见 https://open.bigmodel.cn/usercenter/apikeys
      */
     static final List<Map<String, Object>> ZHIPU_MODELS = List.of(
+            mvk("embedding-3", "Embedding-3（语义检索 / 向量化，向量 RAG 用）", "EMBEDDING"),
             mv("glm-4.7-flash", "GLM-4.7-Flash（免费，200K 上下文，编程强）"),
             mv("glm-4.5-flash", "GLM-4.5-Flash（免费）"),
             mv("glm-4-flash", "GLM-4-Flash（免费，128K 上下文 / 30 并发）"),
@@ -364,7 +365,7 @@ public class AdminAiModelController {
         if (body.get("model") != null) m.setModel(String.valueOf(body.get("model")).trim());
         if (body.get("kind") != null) {
             String k = String.valueOf(body.get("kind")).trim().toUpperCase();
-            m.setKind(java.util.Set.of("CHAT", "IMAGE", "VIDEO").contains(k) ? k : "CHAT");
+            m.setKind(java.util.Set.of("CHAT", "IMAGE", "VIDEO", "EMBEDDING").contains(k) ? k : "CHAT");
         }
         if (body.get("contextWindow") != null) {
             // 兜底夹到合理区间：太小等于没有历史，太大会被上游直接拒绝

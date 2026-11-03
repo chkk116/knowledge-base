@@ -68,7 +68,7 @@ const CAPS = {
   OPENAI: ['对话', '视觉'],
   DASHSCOPE: ['对话'],
   DEEPSEEK: ['对话', '视觉'],
-  ZHIPU: ['对话', '视觉'],
+  ZHIPU: ['对话', '视觉', '语义检索'],
   OPENCODE: ['对话'],
   MIMO: ['对话', '视觉'],
   CUSTOM: ['对话'],
@@ -486,7 +486,7 @@ onUnmounted(() => {
           </div>
           <div class="row">
             <span class="k">用途</span>
-            <span class="v">{{ m.kind === 'IMAGE' ? '文生图' : m.kind === 'VIDEO' ? '文生视频' : '对话 / 出题' }}</span>
+            <span class="v">{{ m.kind === 'IMAGE' ? '文生图' : m.kind === 'VIDEO' ? '文生视频' : m.kind === 'EMBEDDING' ? '语义检索 / 向量化' : '对话 / 出题' }}</span>
           </div>
           <div class="row">
             <span class="k">Key</span>
@@ -645,6 +645,7 @@ onUnmounted(() => {
             <el-radio value="CHAT">对话 / 出题</el-radio>
             <el-radio value="IMAGE">文生图</el-radio>
             <el-radio value="VIDEO">文生视频</el-radio>
+            <el-radio value="EMBEDDING">语义检索（向量）</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="平台">
