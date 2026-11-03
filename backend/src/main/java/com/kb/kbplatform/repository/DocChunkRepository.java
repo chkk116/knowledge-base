@@ -12,8 +12,6 @@ import java.util.List;
 
 public interface DocChunkRepository extends JpaRepository<DocChunk, Long> {
 
-    List<DocChunk> findByDocIdOrderByIdAsc(Long docId);
-
     @Transactional
     void deleteByDocId(Long docId);
 }

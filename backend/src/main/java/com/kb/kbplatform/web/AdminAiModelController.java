@@ -206,11 +206,12 @@ public class AdminAiModelController {
      */
     @PostMapping("/reindex")
     public Map<String, Object> reindex(@RequestAttribute("kbUser") TokenClaims c) {
-        if (c == null || (!c.isAdmin() && !c.hasPerm("AI_MANAGE"))) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要 AI 模型管理权限");
-        }
+        // 全量重建会逐篇触发付费 embedding 调用且耗时较长，比照其他写操作收紧为仅完全管理员
+        requireAdmin(c);
+        ragIndex.invalidate();   // 刚保存/启用的 EMBEDDING 模型立即可用（绕过 60s 配置缓存）
         if (!ragIndex.isEnabled()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "向量检索未启用（kb.ai.embedding.enabled=false）");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "向量检索未启用：请先在「AI 模型管理」添加并启用「语义检索（向量）」模型");
         }
         long n = ragIndex.reindexAll();
         return Map.of("ok", true, "indexed", n);
@@ -398,7 +399,8 @@ public class AdminAiModelController {
         }
         m.setDefaultModel(wantDefault);
         AiModel saved = repo.save(m);
-        client.invalidate();   // 丢弃带旧 Key 的 RestClient 缓存
+        client.invalidate();
+        ragIndex.invalidate();   // 向量配置同样立即生效   // 丢弃带旧 Key 的 RestClient 缓存
         log.info("AI 模型配置已保存：id={}, model={}", saved.getId(), saved.getModel());
         return Map.of("ok", true, "id", saved.getId());
     }
@@ -412,6 +414,7 @@ public class AdminAiModelController {
         }
         repo.deleteById(id);
         client.invalidate();
+        ragIndex.invalidate();   // 向量配置同样立即生效
         return Map.of("ok", true);
     }
 
@@ -428,6 +431,7 @@ public class AdminAiModelController {
         m.setEnabled(v);
         repo.save(m);
         client.invalidate();
+        ragIndex.invalidate();   // 向量配置同样立即生效
         return Map.of("ok", true, "enabled", v);
     }
 
@@ -443,6 +447,7 @@ public class AdminAiModelController {
         m.setDefaultModel(true);
         repo.save(m);
         client.invalidate();
+        ragIndex.invalidate();   // 向量配置同样立即生效
         return Map.of("ok", true);
     }
 

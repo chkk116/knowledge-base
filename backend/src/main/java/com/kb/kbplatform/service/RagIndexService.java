@@ -12,6 +12,7 @@ import com.kb.kbplatform.security.HtmlSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -20,6 +21,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -44,6 +47,11 @@ public class RagIndexService {
     private final DocChunkRepository chunkRepo;
     private final DocumentRepository documentRepo;
     private final EmbeddingClient embedding;
+    /** 编程式事务：分块「删旧+写新」必须在同一事务，中途失败才不会留下半索引 */
+    private final TransactionTemplate tx;
+
+    /** 按 docId 去重的在途索引任务：Meili 钩子在每次内容变更都会触发，快速连存同一篇不能重复嵌入 */
+    private final Set<Long> pending = ConcurrentHashMap.newKeySet();
 
     /** 单线程异步索引：串行天然避免同文档并发写；守护线程不阻塞 JVM 退出 */
     private final ExecutorService indexer = Executors.newSingleThreadExecutor(r -> {
@@ -54,23 +62,31 @@ public class RagIndexService {
 
     public RagIndexService(DocChunkRepository chunkRepo,
                            DocumentRepository documentRepo,
-                           EmbeddingClient embedding) {
+                           EmbeddingClient embedding,
+                           TransactionTemplate tx) {
         this.chunkRepo = chunkRepo;
         this.documentRepo = documentRepo;
         this.embedding = embedding;
+        this.tx = tx;
     }
 
     public boolean isEnabled() { return embedding.isEnabled(); }
 
-    /** 文档保存/状态变更后调用：异步重建该文档的向量块 */
+    /** 管理页保存/启停/删除模型后调用：立即刷新向量配置缓存（与 AiModelClient.invalidate 同语义） */
+    public void invalidate() { embedding.invalidate(); }
+
+    /** 文档保存/状态变更后调用：异步重建该文档的向量块（按 docId 去重，连存只索引一次） */
     public void indexDocumentAsync(Document d) {
         if (!isEnabled() || d == null || d.getId() == null) return;
         Long id = d.getId();
+        if (!pending.add(id)) return;
         indexer.submit(() -> {
             try {
                 indexDocumentNow(id);
             } catch (Exception e) {
                 log.warn("向量索引失败 doc={}: {}", id, e.getMessage());
+            } finally {
+                pending.remove(id);
             }
         });
     }
@@ -103,6 +119,12 @@ public class RagIndexService {
         List<String> chunks = splitChunks(text);
         List<float[]> vecs = embedding.embedBatch(chunks);
         if (vecs.size() != chunks.size()) throw new IllegalStateException("embedding 返回数量不符");
+        // 同一事务内删旧+写新：中途失败整体回滚，不会出现旧向量已删、新向量只写一半的永久半索引
+        String title = abbrev(d.getTitle(), 200);
+        tx.executeWithoutResult(s -> replaceChunks(docId, chunks, vecs, title));
+    }
+
+    private void replaceChunks(Long docId, List<String> chunks, List<float[]> vecs, String title) {
         chunkRepo.deleteByDocId(docId);
         for (int i = 0; i < chunks.size(); i++) {
             DocChunk c = new DocChunk();
@@ -110,7 +132,7 @@ public class RagIndexService {
             c.setChunkIdx(i);
             c.setContent(chunks.get(i));
             c.setEmbedding(toJson(vecs.get(i)));
-            c.setDocTitle(abbrev(d.getTitle(), 200));
+            c.setDocTitle(title);
             c.setUpdatedAt(LocalDateTime.now());
             chunkRepo.save(c);
         }
@@ -118,7 +140,9 @@ public class RagIndexService {
 
     /** 管理端全量重建：返回成功索引的文档数 */
     public long reindexAll() {
-        if (!isEnabled()) throw new IllegalStateException("向量检索未启用（kb.ai.embedding.enabled=false）");
+        if (!isEnabled()) {
+            throw new IllegalStateException("向量检索未启用：请先在「AI 模型管理」添加并启用「语义检索（向量）」模型");
+        }
         List<Document> docs = documentRepo.findByStatusOrderByUpdatedAtDesc("PUBLISHED");
         long ok = 0;
         for (Document d : docs) {
@@ -141,6 +165,9 @@ public class RagIndexService {
         if (query == null || query.isBlank()) return List.of();
         float[] qv = embedding.embed(query);
         List<DocChunk> all = chunkRepo.findAll();
+        // 规模护栏：本方案按几千块设计，涨到数万级时每次问答的全量余弦会线性变慢，
+        // 到那时应迁移 pgvector（RagIndexService/RagService 接口不变），先给出可观测信号
+        if (all.size() > 50_000) log.warn("kb_doc_chunk 已达 {} 行，建议迁移 pgvector", all.size());
         Map<Long, DocChunk> best = new LinkedHashMap<>();
         Map<Long, Double> bestScore = new HashMap<>();
         for (DocChunk c : all) {

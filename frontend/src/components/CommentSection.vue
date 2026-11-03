@@ -236,7 +236,7 @@ onMounted(async () => {
     <ul class="clist" v-if="sortedComments.length" v-loading="loading">
       <li v-for="c in sortedComments" :key="c.id" class="citem" :id="'c' + c.id" :class="{ 'cmt-flash': flashId === c.id }">
         <div class="cmain">
-        <img v-if="c.avatar" class="cava" :src="c.avatar" alt="" />
+        <img v-if="c.avatar" class="cava" :src="c.avatar" alt="" @error="c.avatar = null" />
         <span v-else class="cava cava-none">{{ (c.displayName || c.username || "?").slice(0, 1) }}</span>
         <div class="cwrap">
         <div class="chead">
@@ -252,7 +252,7 @@ onMounted(async () => {
         <ul class="replies" v-if="c.replies && c.replies.length">
           <li v-for="r in (expandedReplies[c.id] ? c.replies : c.replies.slice(0, 3))" :key="r.id" class="ritem" :id="'c' + r.id" :class="{ 'cmt-flash': flashId === r.id }">
             <div class="cmain">
-            <img v-if="r.avatar" class="cava cava-sm" :src="r.avatar" alt="" />
+            <img v-if="r.avatar" class="cava cava-sm" :src="r.avatar" alt="" @error="r.avatar = null" />
             <span v-else class="cava cava-none cava-sm">{{ (r.displayName || r.username || "?").slice(0, 1) }}</span>
             <div class="cwrap">
             <div class="chead">

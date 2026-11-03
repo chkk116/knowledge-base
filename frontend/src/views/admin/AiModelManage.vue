@@ -144,6 +144,8 @@ const form = reactive({
 // 模型下拉按「用途」过滤：元素可能是 'id' 或 {id,label,kind}
 // 切换「用途」时：模型下拉按用途过滤，当前模型不匹配则自动换默认
 watch(() => form.kind, () => {
+  // EMBEDDING 只做向量化，绝不能成为全局对话默认模型（否则聊天/OCR 流量会被路由到 embedding 端点）
+  if (form.kind === 'EMBEDDING') form.isDefault = false
   const list = modelOptionsFiltered.value
   if (!list.length) { form.model = ''; return }
   if (!list.some((o) => (typeof o === 'string' ? o : o.id) === form.model)) {
@@ -224,7 +226,7 @@ const submit = async () => {
       id: res?.id ?? form.id,
       provider: String(form.provider || '').toUpperCase(),
       name: form.name, baseUrl: form.baseUrl, model: form.model,
-      enabled: !!form.enabled, isDefault: !!form.isDefault, kind: form.kind || 'CHAT',
+      enabled: !!form.enabled, isDefault: form.kind === 'EMBEDDING' ? false : !!form.isDefault, kind: form.kind || 'CHAT',
       hasKey: true, keyMasked: form.keyMasked || '',
       contextWindow: Number(form.contextWindow) || 128000,
       vision: !!form.vision,
@@ -303,7 +305,8 @@ const reindexing = ref(false)
 async function reindexVector() {
   reindexing.value = true
   try {
-    const { data } = await api.post('/admin/ai/models/reindex')
+    // 全量重建逐篇调用 embedding，文档多时远超默认 15s 超时：显式关闭超时，交给后端同步完成
+    const { data } = await api.post('/admin/ai/models/reindex', {}, { timeout: 0 })
     ElMessage.success(`语义索引重建完成：已索引 ${data.indexed} 篇文档`)
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || '重建失败，请确认已配置并启用「语义检索（向量）」模型')
@@ -516,7 +519,7 @@ onUnmounted(() => {
         <div class="mc-actions">
           <el-button size="small" @click="onTest(m)" :loading="testing === m.id">测试</el-button>
           <el-button size="small" @click="openEdit(m)">编辑</el-button>
-          <el-button size="small" @click="onDefault(m)" :disabled="m.isDefault">设默认</el-button>
+          <el-button size="small" @click="onDefault(m)" :disabled="m.isDefault || m.kind === 'EMBEDDING'">设默认</el-button>
           <el-button size="small" type="danger" plain @click="onDelete(m)">删除</el-button>
         </div>
       </div>
@@ -718,7 +721,7 @@ onUnmounted(() => {
           <span class="hint inline">停用后用户端不再出现该模型</span>
         </el-form-item>
         <el-form-item label="设为默认">
-          <el-switch v-model="form.isDefault" />
+          <el-switch v-model="form.isDefault" :disabled="form.kind === 'EMBEDDING'" />
           <span class="hint inline">用户提问未指定模型时使用它</span>
         </el-form-item>
       </el-form>
