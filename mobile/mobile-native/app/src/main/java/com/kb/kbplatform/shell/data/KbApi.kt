@@ -7,11 +7,14 @@ package com.kb.kbplatform.shell.data
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import com.kb.kbplatform.shell.AppConfig
+import com.kb.kbplatform.shell.TokenStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -319,6 +322,69 @@ object KbApi {
 
     /** GET /ai/models → [{ id, provider, name, model, isDefault }]（仅启用的） */
     suspend fun aiModels(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/ai/models") }
+
+    /**
+     * POST /ai/ask/stream（SSE 流式问答，与 Web 端 aiAskStream 同协议）。
+     * 事件：data {"delta"} / {"reasoning"} 逐段；event:done → 与 /ai/ask 同结构结果；
+     * event:error → {error}。手动按行解析而非 okhttp-sse（POST 请求手动解析最可控）。
+     * 走长读超时通道：段与段之间间隔超 15s 的情况真实存在（长思考模型）。
+     */
+    suspend fun aiAskStream(
+        question: String,
+        conversationId: Long? = null,
+        mode: String = "kb",
+        modelId: Long? = null,
+        userModelId: Long? = null,
+        onDelta: (String) -> Unit,
+        onReasoning: (String) -> Unit
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("question", question).put("mode", mode)
+        conversationId?.let { body.put("conversationId", it) }
+        modelId?.let { body.put("modelId", it) }
+        userModelId?.let { body.put("userModelId", it) }
+        val builder = okhttp3.Request.Builder()
+            .url(AppConfig.effectiveBaseUrl + "/api/ai/ask/stream")
+            .header("User-Agent", ApiClient.USER_AGENT)
+            .header("Accept", "text/event-stream")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+        TokenStore.token.value?.let { builder.header("Authorization", "Bearer $it") }
+
+        val resp = ApiClient.httpLong.newCall(builder.build()).execute()
+        resp.use { r ->
+            if (r.code == 401) { TokenStore.set(null); throw ApiError(401, "登录已过期，请重新登录") }
+            if (!r.isSuccessful) throw ApiError(r.code, "请求失败(${r.code})")
+            val text = r.body?.string() ?: ""
+
+            var event = "message"
+            val data = StringBuilder()
+            var result: JSONObject? = null
+            fun flush() {
+                if (data.isEmpty()) return
+                val payload = try { JSONObject(data.toString()) } catch (e: Exception) { null }
+                data.setLength(0)
+                if (payload == null) return
+                when (event) {
+                    "done" -> result = payload
+                    "error" -> throw ApiError(0, payload.optString("error", "AI 生成中断"))
+                    else -> {
+                        payload.optString("delta").takeIf { it.isNotEmpty() }?.let(onDelta)
+                        payload.optString("reasoning").takeIf { it.isNotEmpty() }?.let(onReasoning)
+                    }
+                }
+                event = "message"
+            }
+            for (rawLine in text.split("\n")) {
+                val line = rawLine.trimEnd('\r')
+                when {
+                    line.isEmpty() -> flush()   // 空行 = 事件边界（SSE 规范）
+                    line.startsWith("event:") -> event = line.substring(6).trim()
+                    line.startsWith("data:") -> data.append(line.substring(5).trim())
+                }
+            }
+            flush()
+            result ?: JSONObject()
+        }
+    }
 
     /**
      * POST /ai/ask → { conversationId, title, answer, sources?, modelName?, latencyMs? }（一次性完整回答，非流式）。

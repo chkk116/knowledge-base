@@ -21,8 +21,8 @@ android {
         // 服务端只认 Capacitor 的 code（30），于是「50 > 30」被判定为已是最新，永远收不到更新。
         // versionCode 规则：起步 10305（=1.03.05），此后每次发版 +2（10314→10316），
         // 只保证单调递增且高于历史所有 code；不再与 versionName 严格一一对应。
-        versionCode 10322
-        versionName '1.3.17-native'
+        versionCode 10323
+        versionName '1.3.18-native'
 
         // 只打真机 ABI：ML Kit 的 OCR 原生库单个 6~11MB，四套全打会有 39MB，
         // 其中 x86/x86_64 只有模拟器用得到（纯浪费 22MB）。arm64 覆盖现在的手机，
