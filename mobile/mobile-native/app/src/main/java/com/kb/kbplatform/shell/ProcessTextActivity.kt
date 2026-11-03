@@ -8,17 +8,28 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +37,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -79,6 +92,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -121,6 +136,12 @@ class ProcessTextActivity : ComponentActivity() {
             return
         }
         enableEdgeToEdge()
+        // 灵动岛 / 打孔屏：允许内容延伸进 cutout 区，具体避让交给 WindowInsets.displayCutout
+        // （不设置 shortEdges 时，横屏会在刘海两侧留黑边，视觉上像坏了）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         // ACTION_PROCESS_TEXT 携带的选中文字（Android 6.0+）
         val selected = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()?.trim().orEmpty()
         setContent {
@@ -265,12 +286,20 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
             )
         },
     ) { pad ->
+        // 外层：滚动 + cutout 避让（横屏刘海不压内容）+ 宽屏居中；内层限宽 640dp 防平板上拉伸
         Column(
             Modifier
                 .padding(pad)
                 .fillMaxSize()
                 .imePadding()
-                .verticalScroll(scroll)
+                .windowInsetsPadding(WindowInsets.displayCutout)
+                .verticalScroll(scroll),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+        Column(
+            Modifier
+                .widthIn(max = 640.dp)
+                .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -293,8 +322,12 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
                 textStyle = MaterialTheme.typography.bodyMedium,
             )
 
-            // 快捷动作（带图标，图标主色）
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 快捷动作（带图标，图标主色；窄屏自动换行不溢出）
+            @OptIn(ExperimentalLayoutApi::class)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 ACTIONS.forEach { a ->
                     AssistChip(
                         onClick = { ask(a.prompt(text), a.label) },
@@ -367,33 +400,35 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
                 }
             }
 
-            // 模型选择：与 AI 对话页同源（系统模型 + 我的私有模型）
-            Box {
-                AssistChip(
-                    onClick = { modelMenuOpen = true },
-                    label = {
-                        Text(
-                            "模型：" + (selectedModel?.name ?: "默认模型") +
-                                (selectedModel?.let { if (it.scope == "user") " · 我的" else "" } ?: "")
-                        )
-                    },
-                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        trailingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    enabled = !loading && loggedIn,
-                )
-                DropdownMenu(expanded = modelMenuOpen, onDismissRequest = { modelMenuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("默认模型") },
-                        onClick = { selectedModel = null; modelMenuOpen = false },
+            // 模型选择：与 AI 对话页同源（系统模型 + 我的私有模型）；只有一个选项时不显示
+            if (loggedIn && models.isNotEmpty()) {
+                Box {
+                    AssistChip(
+                        onClick = { modelMenuOpen = true },
+                        label = {
+                            Text(
+                                "模型：" + (selectedModel?.name ?: "默认模型") +
+                                    (selectedModel?.let { if (it.scope == "user") " · 我的" else "" } ?: "")
+                            )
+                        },
+                        trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            trailingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        enabled = !loading,
                     )
-                    models.forEach { m ->
+                    DropdownMenu(expanded = modelMenuOpen, onDismissRequest = { modelMenuOpen = false }) {
                         DropdownMenuItem(
-                            text = { Text("${m.name}（${if (m.scope == "user") "我的" else "系统"}）") },
-                            onClick = { selectedModel = m; modelMenuOpen = false },
+                            text = { Text("默认模型") },
+                            onClick = { selectedModel = null; modelMenuOpen = false },
                         )
+                        models.forEach { m ->
+                            DropdownMenuItem(
+                                text = { Text("${m.name}（${if (m.scope == "user") "我的" else "系统"}）") },
+                                onClick = { selectedModel = m; modelMenuOpen = false },
+                            )
+                        }
                     }
                 }
             }
@@ -444,8 +479,13 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
                 }
             }
 
-            // 问答历史（最近在底部，承接 conversationId 的多轮上下文）
+            // 问答历史（最近在底部，承接 conversationId 的多轮上下文；新卡淡入上滑）
             rounds.forEachIndexed { i, r ->
+                val enter = remember { MutableTransitionState(false).apply { targetState = true } }
+                AnimatedVisibility(
+                    visibleState = enter,
+                    enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 6 },
+                ) {
                 Card(
                     shape = MaterialTheme.shapes.medium,
                     colors = CardDefaults.cardColors(
@@ -497,7 +537,9 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                val haptic = LocalHapticFeedback.current
                                 TextButton(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     copyToClipboard(ctx, r.answer)
                                     Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
                                 }) {
@@ -523,9 +565,11 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
                         }
                     }
                 }
+                }
             }
         }
     }
+}
 }
 
 private fun copyToClipboard(ctx: Context, s: String) {
