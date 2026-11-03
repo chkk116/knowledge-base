@@ -177,29 +177,34 @@ fun MessagesScreen() {
                         enableDismissFromStartToEnd = true,
                         enableDismissFromEndToStart = !read,
                         backgroundContent = {
-                            val del = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-                            Row(
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        if (del) MaterialTheme.colorScheme.error else KbBlue,
-                                        RoundedCornerShape(14.dp)
+                            // ⚠️ SwipeToDismissBox 的 backgroundContent 是常驻合成的（不是滑了才画）。
+                            // 已读条目整卡 alpha(0.6)，静止时背后那行「标已读/删除」会透过半透明卡片
+                            // 与正文叠加 —— 表现为「通知的文字覆盖标记按钮」。静止态（Settled）不画背景。
+                            if (dismissState.dismissDirection != SwipeToDismissBoxValue.Settled) {
+                                val del = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+                                Row(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            if (del) MaterialTheme.colorScheme.error else KbBlue,
+                                            RoundedCornerShape(14.dp)
+                                        )
+                                        .padding(horizontal = 18.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = if (del) Arrangement.Start else Arrangement.End
+                                ) {
+                                    Icon(
+                                        if (del) Icons.Filled.Delete else Icons.Filled.MarkEmailRead,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
                                     )
-                                    .padding(horizontal = 18.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = if (del) Arrangement.Start else Arrangement.End
-                            ) {
-                                Icon(
-                                    if (del) Icons.Filled.Delete else Icons.Filled.MarkEmailRead,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.size(6.dp))
-                                Text(
-                                    if (del) "删除" else "标已读",
-                                    color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium
-                                )
+                                    Spacer(Modifier.size(6.dp))
+                                    Text(
+                                        if (del) "删除" else "标已读",
+                                        color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     ) {
