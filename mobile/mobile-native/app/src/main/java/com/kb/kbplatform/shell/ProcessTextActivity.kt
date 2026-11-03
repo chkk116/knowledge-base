@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,17 +22,27 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Subject
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,13 +51,16 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -60,13 +74,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kb.kbplatform.shell.data.ApiError
 import com.kb.kbplatform.shell.data.AppLock
 import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.ui.theme.KbTheme
+import com.kb.kbplatform.shell.ui.theme.KbToneKind
+import com.kb.kbplatform.shell.ui.theme.kbIconGradient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -81,6 +102,10 @@ import org.json.JSONObject
  *
  * 模型选择与对话页同源：GET /api/ai/models 返回「系统模型 + 当前用户私有模型（scope=user）」，
  * 提问时系统模型走 modelId、私有模型走 userModelId，后端候选链逻辑完全一致。
+ *
+ * UI 适配（2026-11-03）：
+ * - manifest 补 adjustResize + Column.imePadding()：键盘弹出不遮挡输入区（edge-to-edge 下两者都要）
+ * - 颜色全部走 MaterialTheme 令牌，深色模式自动成立；渐变瓦片复用 kbIconGradient（.m-ico 同款）
  */
 class ProcessTextActivity : ComponentActivity() {
 
@@ -106,11 +131,19 @@ class ProcessTextActivity : ComponentActivity() {
     }
 }
 
-/** 快捷动作：标签 → 提示词模板 */
-private val ACTIONS: List<Pair<String, (String) -> String>> = listOf(
-    "解释" to { t -> "请用通俗易懂的语言解释下面这段内容，必要时举例说明：\n\n$t" },
-    "总结" to { t -> "请用 3-5 个要点总结下面这段内容，只输出要点：\n\n$t" },
-    "翻译" to { t -> "请把下面这段内容翻译成中文（若已是中文则翻译成英文），只输出译文：\n\n$t" },
+/** 快捷动作：图标 + 标签 → 提示词模板 */
+private data class QuickAction(val icon: ImageVector, val label: String, val prompt: (String) -> String)
+
+private val ACTIONS: List<QuickAction> = listOf(
+    QuickAction(Icons.Filled.Lightbulb, "解释") { t ->
+        "请用通俗易懂的语言解释下面这段内容，必要时举例说明：\n\n$t"
+    },
+    QuickAction(Icons.Filled.Subject, "总结") { t ->
+        "请用 3-5 个要点总结下面这段内容，只输出要点：\n\n$t"
+    },
+    QuickAction(Icons.Filled.Translate, "翻译") { t ->
+        "请把下面这段内容翻译成中文（若已是中文则翻译成英文），只输出译文：\n\n$t"
+    },
 )
 
 /** 模型下拉项（id + 展示名 + 来源，scope: system|user） */
@@ -217,6 +250,7 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("问知识库", fontWeight = FontWeight.SemiBold) },
@@ -225,6 +259,9 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                ),
             )
         },
     ) { pad ->
@@ -232,38 +269,103 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
             Modifier
                 .padding(pad)
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(scroll)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            // 选中的原文（可直接改）
+            // 选中的原文（可直接改）：填充式圆角卡，弱化「表单感」
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
                 label = { Text("选中的内容") },
                 modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                ),
                 minLines = 3,
                 maxLines = 8,
+                textStyle = MaterialTheme.typography.bodyMedium,
             )
 
-            // 快捷动作
+            // 快捷动作（带图标，图标主色）
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ACTIONS.forEach { (label, promptFn) ->
+                ACTIONS.forEach { a ->
                     AssistChip(
-                        onClick = { ask(promptFn(text), label) },
-                        label = { Text(label) },
+                        onClick = { ask(a.prompt(text), a.label) },
+                        label = { Text(a.label) },
+                        leadingIcon = {
+                            Icon(a.icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            leadingIconContentColor = MaterialTheme.colorScheme.primary,
+                        ),
+                        border = AssistChipDefaults.assistChipBorder(
+                            enabled = true,
+                            borderColor = MaterialTheme.colorScheme.outline,
+                        ),
                         enabled = !loading && loggedIn && text.isNotBlank(),
                     )
                 }
             }
 
-            OutlinedTextField(
-                value = question,
-                onValueChange = { question = it },
-                label = { Text("想进一步问什么（可选）") },
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 3,
-            )
+            // 追问 + 发送同行，省纵向空间；窄屏由 weight 自适应
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it },
+                    label = { Text("继续问…") },
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                    ),
+                    minLines = 1,
+                    maxLines = 3,
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                )
+                Button(
+                    onClick = {
+                        val p = when {
+                            question.isNotBlank() && text.isNotBlank() -> "$question\n\n背景内容：\n\n$text"
+                            question.isNotBlank() -> question
+                            else -> "请解释下面内容：\n\n$text"
+                        }
+                        ask(p, question.ifBlank { "解释选中内容" })
+                    },
+                    enabled = !loading && loggedIn && (text.isNotBlank() || question.isNotBlank()),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    modifier = Modifier.height(52.dp),
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = LocalContentColor.current,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("思考中", style = MaterialTheme.typography.labelLarge)
+                    } else {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("问 AI", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
 
             // 模型选择：与 AI 对话页同源（系统模型 + 我的私有模型）
             Box {
@@ -272,10 +374,14 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
                     label = {
                         Text(
                             "模型：" + (selectedModel?.name ?: "默认模型") +
-                                (selectedModel?.let { if (it.scope == "user") "（我的）" else "" } ?: "")
+                                (selectedModel?.let { if (it.scope == "user") " · 我的" else "" } ?: "")
                         )
                     },
                     trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        trailingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
                     enabled = !loading && loggedIn,
                 )
                 DropdownMenu(expanded = modelMenuOpen, onDismissRequest = { modelMenuOpen = false }) {
@@ -292,81 +398,124 @@ fun ProcessTextScreen(initialText: String, onClose: () -> Unit) {
                 }
             }
 
-            Button(
-                onClick = {
-                    val p = when {
-                        question.isNotBlank() && text.isNotBlank() -> "$question\n\n背景内容：\n\n$text"
-                        question.isNotBlank() -> question
-                        else -> "请解释下面内容：\n\n$text"
-                    }
-                    ask(p, question.ifBlank { "解释选中内容" })
-                },
-                enabled = !loading && loggedIn && (text.isNotBlank() || question.isNotBlank()),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (loading) "思考中…" else "问 AI")
-            }
-
             if (!loggedIn) {
-                Text("请先登录知识库 App 后再使用", color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = {
-                    ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    onClose()
-                }) { Text("打开知识库登录") }
-            }
-
-            if (loading) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Text("AI 正在思考…", style = MaterialTheme.typography.bodySmall)
+                Card(
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "登录后即可向 AI 提问",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = {
+                            ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            onClose()
+                        }) { Text("打开知识库登录") }
+                    }
                 }
             }
 
             if (error.isNotBlank()) {
-                Text(error, color = MaterialTheme.colorScheme.error)
+                Card(
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.ErrorOutline, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            error, color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
 
             // 问答历史（最近在底部，承接 conversationId 的多轮上下文）
             rounds.forEachIndexed { i, r ->
                 Card(
-                    colors = if (r.failed) {
-                        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-                    } else {
-                        CardDefaults.cardColors()
-                    },
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (r.failed) MaterialTheme.colorScheme.errorContainer
+                        else MaterialTheme.colorScheme.surface
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(
-                            r.display,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.height(6.dp))
+                    Column(
+                        Modifier.fillMaxWidth().padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // 问句 + 渐变小瓦片（.m-ico 同款视觉）
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(26.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .background(Brush.linearGradient(kbIconGradient(KbToneKind.Primary))),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Filled.AutoAwesome, contentDescription = null,
+                                    tint = Color.White, modifier = Modifier.size(15.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                r.display,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (r.failed) MaterialTheme.colorScheme.onErrorContainer
+                                else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
                         if (r.failed) {
-                            Text(r.errorMsg, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Text(
+                                r.errorMsg,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
                         } else {
-                            Text(r.answer, style = MaterialTheme.typography.bodyMedium)
-                            Spacer(Modifier.height(8.dp))
+                            // 可长按划选部分文本；整条复制走下方按钮
+                            SelectionContainer {
+                                Text(
+                                    r.answer,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = {
                                     copyToClipboard(ctx, r.answer)
                                     Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
                                 }) {
-                                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("复制")
+                                    Text("复制", style = MaterialTheme.typography.labelMedium)
                                 }
                                 if (r.modelName.isNotBlank()) {
-                                    Spacer(Modifier.width(8.dp))
+                                    Spacer(Modifier.width(4.dp))
                                     Surface(
-                                        shape = MaterialTheme.shapes.small,
+                                        shape = MaterialTheme.shapes.extraSmall,
                                         color = MaterialTheme.colorScheme.surfaceVariant,
                                     ) {
                                         Text(
                                             r.modelName,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                                         )
                                     }
                                 }
