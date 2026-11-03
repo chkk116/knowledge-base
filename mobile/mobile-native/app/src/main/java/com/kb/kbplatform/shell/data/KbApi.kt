@@ -320,14 +320,24 @@ object KbApi {
     /** GET /ai/models → [{ id, provider, name, model, isDefault }]（仅启用的） */
     suspend fun aiModels(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/ai/models") }
 
-    /** POST /ai/ask → { conversationId, title, answer, sources?, modelName?, latencyMs? }（一次性完整回答，非流式） */
-    suspend fun aiAsk(question: String, conversationId: Long?, modelId: Long?, mode: String = "kb"): JSONObject =
-        withContext(Dispatchers.IO) {
-            val body = JSONObject().put("question", question).put("mode", mode)
-            conversationId?.let { body.put("conversationId", it) }
-            modelId?.let { body.put("modelId", it) }
-            ApiClient.post("/api/ai/ask", body)
-        }
+    /**
+     * POST /ai/ask → { conversationId, title, answer, sources?, modelName?, latencyMs? }（一次性完整回答，非流式）。
+     * modelId：系统模型；userModelId：用户私有模型（/api/ai/models 里 scope=user 的条目）。
+     * 两者都空 → 后端按候选链选默认模型。走长读超时通道：完整回答常超 15s。
+     */
+    suspend fun aiAsk(
+        question: String,
+        conversationId: Long? = null,
+        modelId: Long? = null,
+        mode: String = "kb",
+        userModelId: Long? = null
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("question", question).put("mode", mode)
+        conversationId?.let { body.put("conversationId", it) }
+        modelId?.let { body.put("modelId", it) }
+        userModelId?.let { body.put("userModelId", it) }
+        ApiClient.postLong("/api/ai/ask", body)
+    }
 
     // ---------- 复习卡片 ----------
 

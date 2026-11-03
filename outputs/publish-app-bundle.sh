@@ -29,8 +29,8 @@ KEY="$ROOT/outputs/.deploykey"
 [ -f "$KEY" ] || KEY="/c/chkk/知识库/outputs/.deploykey"
 : "${KB_DEPLOY_TARGET:?请先 export KB_DEPLOY_TARGET（如 root@你的服务器IP），并把服务器指纹加入本机 known_hosts}"
 SSH="ssh -i $KEY -o StrictHostKeyChecking=yes $KB_DEPLOY_TARGET"
-# 知识库主域名是 你的域名；www.你的域名 已改作订餐系统，App 里不能再指向它
-DOMAIN="${KB_DOMAIN:-https://你的域名}"
+# 知识库主域名是 chkk116.cn；www.chkk116.cn 已改作订餐系统，App 里不能再指向它
+DOMAIN="${KB_DOMAIN:-https://chkk116.cn}"
 
 # JSON 字符串转义（含换行→删；引号/反斜杠转义），供嵌入 JSON 值
 json_str() { printf '%s' "$1" | tr -d '\r\n' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }

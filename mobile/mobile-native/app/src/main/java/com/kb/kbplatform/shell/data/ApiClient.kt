@@ -32,6 +32,15 @@ object ApiClient {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * AI 问答等长耗时请求专用：非流式完整回答（含 RAG 检索 + LLM 生成）经常远超 15s，
+     * 复用默认 client 会在等待回答时被读超时打断（SocketTimeoutException）。
+     * 读超时 180s 对齐后端 LLM 调用上限；连接超时沿用 10s（建连慢就该报错）。
+     */
+    val httpLong: OkHttpClient = http.newBuilder()
+        .readTimeout(180, TimeUnit.SECONDS)
+        .build()
+
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
     private fun newBuilder(method: String, path: String, body: JSONObject?): Request.Builder {
@@ -91,8 +100,10 @@ object ApiClient {
         return call(b)
     }
 
-    private fun call(req: Request.Builder): JSONObject {
-        val resp = http.newCall(req.build()).execute()
+    private fun call(req: Request.Builder): JSONObject = call(http, req)
+
+    private fun call(client: OkHttpClient, req: Request.Builder): JSONObject {
+        val resp = client.newCall(req.build()).execute()
         resp.use { r ->
             val text = r.body?.string() ?: ""
             if (r.code == 401) onUnauthorized()
@@ -100,6 +111,10 @@ object ApiClient {
             return JSONObject(text)
         }
     }
+
+    /** POST JSON 对象体（长读超时版，AI 问答用） */
+    fun postLong(path: String, body: JSONObject): JSONObject =
+        call(httpLong, newBuilder("POST", path, body))
 
     /** 后端统一错误体 { error: "中文提示" }（GlobalExceptionHandler） */
     private fun parseError(text: String, code: Int): String =
