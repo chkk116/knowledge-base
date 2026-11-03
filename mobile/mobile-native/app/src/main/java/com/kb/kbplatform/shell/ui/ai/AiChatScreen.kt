@@ -8,8 +8,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -66,10 +70,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.ApiError
 import com.kb.kbplatform.shell.data.KbApi
@@ -94,6 +104,15 @@ import org.json.JSONObject
  * 未覆盖（刻意取舍）：ReAct 工具调用轨迹、图片多模态、会话重命名/批量删除——
  * 这些继续用 Web 版；原生版聚焦「快进快出的随手问答」。
  */
+/** 品牌渐变：靛蓝→紫。AI 头像 / 用户气泡 / 发送键 / 空状态 logo 共用，替代"几个灰框框" */
+private val BrandGradient = Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFF8B5CF6)))
+
+private fun copyAiText(ctx: android.content.Context, s: String) {
+    val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    cm.setPrimaryClip(android.content.ClipData.newPlainText("kb-ai", s))
+    Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
+}
+
 private data class AiMsg(
     val role: String,          // user | assistant
     val content: String,
@@ -105,6 +124,7 @@ private data class AiModelOpt(val id: Long, val name: String, val scope: String)
 
 private data class AiConv(val id: Long, val title: String, val updatedAt: String)
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiChatScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -270,22 +290,35 @@ fun AiChatScreen(onBack: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 模型选择：主色描边胶囊（带 AI 图标），替代 M3 默认 AssistChip
             Box {
-                AssistChip(
-                    onClick = { modelMenuOpen = true },
-                    label = {
-                        Text(
-                            "模型：" + (selectedModel?.name ?: "默认模型") +
-                                (selectedModel?.let { if (it.scope == "user") " · 我的" else "" } ?: "")
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
+                    modifier = Modifier.clickable(enabled = !sending) { modelMenuOpen = true },
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.AutoAwesome, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(13.dp),
                         )
-                    },
-                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        trailingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    enabled = !sending,
-                )
+                        Spacer(Modifier.size(5.dp))
+                        Text(
+                            (selectedModel?.name ?: "默认模型") +
+                                (selectedModel?.let { if (it.scope == "user") " · 我的" else "" } ?: ""),
+                            fontSize = 12.5.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Icon(
+                            Icons.Filled.ArrowDropDown, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
                 DropdownMenu(expanded = modelMenuOpen, onDismissRequest = { modelMenuOpen = false }) {
                     DropdownMenuItem(
                         text = { Text("默认模型") },
@@ -299,27 +332,45 @@ fun AiChatScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            AssistChip(
-                onClick = { mode = if (mode == "kb") "general" else "kb" },
-                label = { Text(if (mode == "kb") "知识库检索" else "通用问答") },
-                colors = AssistChipDefaults.assistChipColors(
-                    labelColor = MaterialTheme.colorScheme.primary,
-                ),
-                border = AssistChipDefaults.assistChipBorder(
-                    enabled = true,
-                    borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                ),
-                enabled = !sending,
-            )
-            AssistChip(
-                onClick = { loadConversations(); convOpen = true },
-                label = { Text("历史会话") },
-                leadingIcon = { Icon(Icons.Filled.History, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            )
+
+            // 模式切换：分段式 pill，选中实底白字（比描边 chip 更清晰）
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            ) {
+                Row(Modifier.padding(3.dp)) {
+                    listOf("kb" to "知识库", "general" to "通用").forEach { (v, label) ->
+                        val active = mode == v
+                        Text(
+                            label,
+                            fontSize = 12.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (active) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(17.dp))
+                                .background(
+                                    if (active) MaterialTheme.colorScheme.primary else Color.Transparent
+                                )
+                                .clickable(enabled = !sending && !active) { mode = v }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+            }
+
+            // 历史会话：圆形图标钮
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                modifier = Modifier.clickable { loadConversations(); convOpen = true },
+            ) {
+                Icon(
+                    Icons.Filled.History, contentDescription = "历史会话",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(8.dp).size(17.dp),
+                )
+            }
         }
 
         // 消息区
@@ -334,11 +385,17 @@ fun AiChatScreen(onBack: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Icon(
-                    Icons.Filled.AutoAwesome, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                    modifier = Modifier.size(42.dp),
-                )
+                Box(
+                    Modifier
+                        .size(78.dp)
+                        .background(BrandGradient, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.AutoAwesome, contentDescription = null,
+                        tint = Color.White, modifier = Modifier.size(36.dp),
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 Text("有什么可以帮你？", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(5.dp))
@@ -356,7 +413,8 @@ fun AiChatScreen(onBack: () -> Unit) {
                 ).forEach { q ->
                     Surface(
                         shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 5.dp)
@@ -381,44 +439,65 @@ fun AiChatScreen(onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 itemsIndexed(msgs) { _, m ->
+                    val ctx = LocalContext.current
                     AnimatedVisibility(
                         visible = true,
                         enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 8 },
                     ) {
                         if (m.role == "user") {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp, 4.dp, 16.dp, 16.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                ) {
-                                    Text(
-                                        m.content,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                        fontSize = 14.5.sp,
-                                        lineHeight = 22.sp,
-                                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
-                                    )
-                                }
+                                // 用户消息：品牌渐变气泡，长按复制
+                                Text(
+                                    m.content,
+                                    color = Color.White,
+                                    fontSize = 14.5.sp,
+                                    lineHeight = 22.sp,
+                                    modifier = Modifier
+                                        .widthIn(max = 300.dp)
+                                        .background(BrandGradient, RoundedCornerShape(18.dp, 6.dp, 18.dp, 18.dp))
+                                        .combinedClickable(
+                                            onClick = {},
+                                            onLongClick = { copyAiText(ctx, m.content) },
+                                        )
+                                        .padding(horizontal = 13.dp, vertical = 10.dp),
+                                )
                             }
                         } else {
-                            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                            // AI 回答：渐变头像 + 浅底气泡（对标主流 AI 应用的消息版式）
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                                Box(
+                                    Modifier
+                                        .size(30.dp)
+                                        .background(BrandGradient, CircleShape),
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    Column(Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
-                                        MarkdownLite(
-                                            m.content + if (m.streaming) " ▍" else "",
+                                    Icon(
+                                        Icons.Filled.AutoAwesome, contentDescription = null,
+                                        tint = Color.White, modifier = Modifier.size(15.dp),
+                                    )
+                                }
+                                Spacer(Modifier.size(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = {},
+                                            onLongClick = { copyAiText(ctx, m.content) },
+                                        ),
+                                    ) {
+                                        Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp)) {
+                                            MarkdownLite(m.content + if (m.streaming) " ▍" else "")
+                                        }
+                                    }
+                                    if (m.modelName.isNotBlank() && !m.streaming) {
+                                        Text(
+                                            m.modelName,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(start = 4.dp, top = 3.dp),
                                         )
                                     }
-                                }
-                                if (m.modelName.isNotBlank() && !m.streaming) {
-                                    Text(
-                                        m.modelName,
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(start = 6.dp, top = 3.dp),
-                                    )
                                 }
                             }
                         }
@@ -465,32 +544,33 @@ fun AiChatScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurface,
                 ),
             )
-            if (sending) {
-                // 流式中：发送键变「停止」，点了取消本次生成（已生成的部分保留）
-                Button(
-                    onClick = { job?.cancel() },
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    modifier = Modifier.height(48.dp),
-                ) {
-                    Icon(Icons.Filled.Stop, contentDescription = "停止生成", modifier = Modifier.size(18.dp))
-                }
-            } else {
-                Button(
-                    onClick = { send() },
-                    enabled = input.isNotBlank() && loggedIn,
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                    modifier = Modifier.height(48.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送", modifier = Modifier.size(18.dp))
-                }
+            // 发送 / 停止：44dp 圆形键，发送态用品牌渐变（对标主流 AI 应用）
+            val canSend = input.isNotBlank() && loggedIn && !sending
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .then(
+                        if (canSend) Modifier.background(BrandGradient, CircleShape)
+                        else Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                    )
+                    .clickable {
+                        when {
+                            sending -> job?.cancel()
+                            canSend -> send()
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (sending) Icons.Filled.Stop else Icons.AutoMirrored.Filled.Send,
+                    contentDescription = if (sending) "停止生成" else "发送",
+                    tint = when {
+                        sending -> MaterialTheme.colorScheme.onSurfaceVariant
+                        canSend -> Color.White
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(19.dp),
+                )
             }
         }
     }
