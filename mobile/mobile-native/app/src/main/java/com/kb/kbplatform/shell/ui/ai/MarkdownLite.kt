@@ -104,18 +104,19 @@ private fun parseBlocks(text: String): List<Block> {
         else {
             var l = line
             // 标题 → 去井号加粗；无序列表 → 项目符号；有序列表原样
-            val heading = Regex("^#{1,6}\\s+(.*)$").find(l)
+            val heading = HEADING.find(l)
             if (heading != null) l = "**" + heading.groupValues[1] + "**"
-            l = Regex("^[-*]\\s+").replace(l, "•  ")
+            l = BULLET.replace(l, "•  ")
             textBuf.add(l)
         }
     }
     flushText(); flushCode()
-    if (inCode && codeBuf.isNotEmpty()) out.add(Block.Code(codeBuf.toList()))
     return out
 }
 
 /** 行内解析：**加粗** 与 `代码` */
+private val HEADING = Regex("^#{1,6}\\s+(.*)$")
+private val BULLET = Regex("^[-*]\\s+")
 private val INLINE = Regex("\\*\\*(.+?)\\*\\*|`([^`]+)`")
 
 private fun inline(line: String): AnnotatedString = buildAnnotatedString {

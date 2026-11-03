@@ -42,7 +42,7 @@ esac
 [[ "$NAME" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "❌ versionName 只允许字母数字 . _ -，实际: $NAME"; exit 1; }
 case "$FORCE" in true|false) ;; *) echo "❌ force 只能是 true/false，实际: $FORCE"; exit 1 ;; esac
 
-# 知识库主域名是 你的域名；www.你的域名 已改作订餐系统，App 里不能再指向它
+# 知识库主域名是 chkk116.cn；www.chkk116.cn 已改作订餐系统，App 里不能再指向它
 DOMAIN="${KB_DOMAIN:-https://chkk116.cn}"
 KEY="$(cd "$(dirname "$0")/.." && pwd)/outputs/.deploykey"
 [ -f "$KEY" ] || KEY="/c/chkk/知识库/outputs/.deploykey"

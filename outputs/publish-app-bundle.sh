@@ -31,13 +31,18 @@ KEY="$ROOT/outputs/.deploykey"
 SSH="ssh -i $KEY -o StrictHostKeyChecking=yes $KB_DEPLOY_TARGET"
 # 知识库主域名是 chkk116.cn；www.chkk116.cn 已改作订餐系统，App 里不能再指向它
 DOMAIN="${KB_DOMAIN:-https://chkk116.cn}"
+# 构建器校验 assets 里含线上 host（不带协议），否则 fail-close；这里跟 DOMAIN 同步导出
+export KB_NATIVE_HOST="$(printf '%s' "$DOMAIN" | sed -E 's#^https?://##; s#/.*$##')"
 
 # JSON 字符串转义（含换行→删；引号/反斜杠转义），供嵌入 JSON 值
 json_str() { printf '%s' "$1" | tr -d '\r\n' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
 echo "== 1. 打 zip =="
 cd "$ROOT"
-NODE_OPTIONS='' node outputs/build-app-bundle.cjs "$VER" 2>&1 | grep -E "打包完成|体积|SHA-256" || true
+if ! NODE_OPTIONS='' node outputs/build-app-bundle.cjs "$VER"; then
+  echo "❌ 打包失败（见上方输出），已中止" >&2
+  exit 1
+fi
 
 ZIP=$(ls -t outputs/app-bundles/*.zip | head -1)
 NAME=$(basename "$ZIP")

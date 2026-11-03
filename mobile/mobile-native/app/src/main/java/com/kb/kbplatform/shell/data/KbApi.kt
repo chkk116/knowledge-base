@@ -10,6 +10,8 @@ import android.util.Base64
 import com.kb.kbplatform.shell.AppConfig
 import com.kb.kbplatform.shell.TokenStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -349,40 +351,51 @@ object KbApi {
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
         TokenStore.token.value?.let { builder.header("Authorization", "Bearer $it") }
 
-        val resp = ApiClient.httpLong.newCall(builder.build()).execute()
-        resp.use { r ->
-            if (r.code == 401) { TokenStore.set(null); throw ApiError(401, "登录已过期，请重新登录") }
-            if (!r.isSuccessful) throw ApiError(r.code, "请求失败(${r.code})")
-            val text = r.body?.string() ?: ""
+        val call = ApiClient.httpLong.newCall(builder.build())
+        try {
+            call.execute().use { r ->
+                if (r.code == 401) { TokenStore.set(null); throw ApiError(401, "登录已过期，请重新登录") }
+                if (!r.isSuccessful) throw ApiError(r.code, "请求失败(${r.code})")
+                // 逐行阻塞读：事件到达即回调，不等整个响应结束（否则流式=伪流式，整段回答还要驻留内存）
+                val source = r.body?.source() ?: throw ApiError(0, "空响应")
 
-            var event = "message"
-            val data = StringBuilder()
-            var result: JSONObject? = null
-            fun flush() {
-                if (data.isEmpty()) return
-                val payload = try { JSONObject(data.toString()) } catch (e: Exception) { null }
-                data.setLength(0)
-                if (payload == null) return
-                when (event) {
-                    "done" -> result = payload
-                    "error" -> throw ApiError(0, payload.optString("error", "AI 生成中断"))
-                    else -> {
-                        payload.optString("delta").takeIf { it.isNotEmpty() }?.let(onDelta)
-                        payload.optString("reasoning").takeIf { it.isNotEmpty() }?.let(onReasoning)
+                var event = "message"
+                val data = StringBuilder()
+                var result: JSONObject? = null
+                fun flush() {
+                    if (data.isEmpty()) return
+                    val payload = try { JSONObject(data.toString()) } catch (e: Exception) { null }
+                    data.setLength(0)
+                    if (payload == null) return
+                    when (event) {
+                        "done" -> result = payload
+                        "error" -> throw ApiError(0, payload.optString("error", "AI 生成中断"))
+                        else -> {
+                            payload.optString("delta").takeIf { it.isNotEmpty() }?.let(onDelta)
+                            payload.optString("reasoning").takeIf { it.isNotEmpty() }?.let(onReasoning)
+                        }
+                    }
+                    event = "message"
+                }
+                while (true) {
+                    currentCoroutineContext().ensureActive()   // 页面离开/取消时尽快中止，不再白跑满超时
+                    val rawLine = source.readUtf8Line() ?: break
+                    val line = rawLine.trimEnd('\r')
+                    when {
+                        line.isEmpty() -> flush()   // 空行 = 事件边界（SSE 规范）
+                        line.startsWith("event:") -> event = line.substring(6).trim()
+                        line.startsWith("data:") -> {
+                            if (data.isNotEmpty()) data.append('\n')   // SSE 规范：多行 data 以 \n 连接
+                            data.append(line.substring(5).trimStart())
+                        }
                     }
                 }
-                event = "message"
+                flush()
+                // done 是协议约定事件；缺失说明流被截断（或协议变更），不能当成功返回空对象
+                result ?: throw ApiError(0, "回答流中断（缺少 done 事件）")
             }
-            for (rawLine in text.split("\n")) {
-                val line = rawLine.trimEnd('\r')
-                when {
-                    line.isEmpty() -> flush()   // 空行 = 事件边界（SSE 规范）
-                    line.startsWith("event:") -> event = line.substring(6).trim()
-                    line.startsWith("data:") -> data.append(line.substring(5).trim())
-                }
-            }
-            flush()
-            result ?: JSONObject()
+        } finally {
+            call.cancel()   // 取消/异常时释放连接，避免后台继续消耗
         }
     }
 
