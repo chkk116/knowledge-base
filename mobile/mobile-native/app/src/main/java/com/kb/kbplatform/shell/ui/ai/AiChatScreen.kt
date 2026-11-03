@@ -20,19 +20,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -73,6 +78,7 @@ import com.kb.kbplatform.shell.ui.common.CenterHint
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.theme.KbRed
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -108,6 +114,7 @@ fun AiChatScreen(onBack: () -> Unit) {
     var convId by rememberSaveable { mutableStateOf<Long?>(null) }
     var input by rememberSaveable { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    var job by remember { mutableStateOf<Job?>(null) }   // 当前流式请求，支持「停止生成」
     var error by remember { mutableStateOf("") }
     var initialLoading by remember { mutableStateOf(true) }
 
@@ -204,7 +211,7 @@ fun AiChatScreen(onBack: () -> Unit) {
         sending = true
         val sysId = selectedModel?.takeIf { it.scope != "user" }?.id
         val userId = selectedModel?.takeIf { it.scope == "user" }?.id
-        scope.launch {
+        job = scope.launch {
             try {
                 val res = KbApi.aiAskStream(
                     question = q, conversationId = convId, mode = mode,
@@ -222,7 +229,12 @@ fun AiChatScreen(onBack: () -> Unit) {
                 }
                 msgs[idx] = cur.copy(content = finalText, modelName = res.optString("modelName"), streaming = false)
             } catch (e: CancellationException) {
-                msgs.removeAt(idx)
+                // 用户主动停止：保留已生成的部分回答，而不是整条丢弃
+                val cur = msgs.getOrNull(idx)
+                if (cur != null) {
+                    if (cur.content.isBlank()) msgs.removeAt(idx)
+                    else msgs[idx] = cur.copy(streaming = false)
+                }
                 throw e
             } catch (e: Exception) {
                 val msg = (e as? ApiError)?.message ?: e.message ?: "请求失败，请检查网络"
@@ -242,7 +254,12 @@ fun AiChatScreen(onBack: () -> Unit) {
             .imePadding()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        TopBar(title = "AI 问答", onBack = onBack)
+        TopBar(title = "AI 问答", onBack = onBack) {
+            // 新建对话：放顶栏右侧显眼位（大厂惯例），不再藏在横向 chip 行里
+            IconButton(onClick = { newChat() }, enabled = !sending) {
+                Icon(Icons.Filled.Add, contentDescription = "新建对话", modifier = Modifier.size(22.dp))
+            }
+        }
 
         // 模型 / 模式 / 历史行（横向滚动，窄屏不溢出）
         Row(
@@ -303,22 +320,58 @@ fun AiChatScreen(onBack: () -> Unit) {
                     leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
             )
-            AssistChip(
-                onClick = { newChat() },
-                label = { Text("新对话") },
-                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            )
         }
 
         // 消息区
         when {
             initialLoading -> CenterHint("加载中…", loading = true)
             !loggedIn -> CenterHint("请先登录后再使用 AI 问答")
-            msgs.isEmpty() -> CenterHint("开始新的对话吧 👇\n顶部可切换模型与知识库/通用模式")
+            msgs.isEmpty() -> Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Filled.AutoAwesome, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                    modifier = Modifier.size(42.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("有什么可以帮你？", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    "基于知识库检索回答，可切换模型与模式",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(22.dp))
+                // 推荐问题：点击直接发送（大厂 AI 界面的冷启动引导）
+                listOf(
+                    "知识库里的文档怎么检索最快？",
+                    "帮我总结最近的文章要点",
+                    "什么是间隔重复记忆法？",
+                    "给我一份周报模板",
+                ).forEach { q ->
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 5.dp)
+                            .clickable(enabled = loggedIn && !sending) { input = q; send() },
+                    ) {
+                        Text(
+                            q, fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
             else -> LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -387,6 +440,7 @@ fun AiChatScreen(onBack: () -> Unit) {
         Row(
             Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -411,22 +465,30 @@ fun AiChatScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurface,
                 ),
             )
-            Button(
-                onClick = { send() },
-                enabled = !sending && input.isNotBlank() && loggedIn,
-                shape = RoundedCornerShape(20.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-                modifier = Modifier.height(48.dp),
-            ) {
-                if (sending) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp), strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
+            if (sending) {
+                // 流式中：发送键变「停止」，点了取消本次生成（已生成的部分保留）
+                Button(
+                    onClick = { job?.cancel() },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                    modifier = Modifier.height(48.dp),
+                ) {
+                    Icon(Icons.Filled.Stop, contentDescription = "停止生成", modifier = Modifier.size(18.dp))
+                }
+            } else {
+                Button(
+                    onClick = { send() },
+                    enabled = input.isNotBlank() && loggedIn,
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    modifier = Modifier.height(48.dp),
+                ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送", modifier = Modifier.size(18.dp))
                 }
             }
