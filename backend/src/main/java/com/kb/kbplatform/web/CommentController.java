@@ -7,6 +7,7 @@ package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.domain.Comment;
 import com.kb.kbplatform.domain.Document;
+import com.kb.kbplatform.domain.User;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.security.RateLimitService;
 import com.kb.kbplatform.service.BizException;
@@ -14,8 +15,12 @@ import com.kb.kbplatform.service.CommentService;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -26,19 +31,51 @@ public class CommentController {
 
     private final CommentService svc;
     private final com.kb.kbplatform.repository.DocumentRepository docRepo;
+    private final com.kb.kbplatform.repository.UserRepository userRepo;
     private final RateLimitService rateLimit;
 
     public CommentController(CommentService svc, RateLimitService rateLimit,
-                             com.kb.kbplatform.repository.DocumentRepository docRepo) {
+                             com.kb.kbplatform.repository.DocumentRepository docRepo,
+                             com.kb.kbplatform.repository.UserRepository userRepo) {
         this.docRepo = docRepo;
         this.svc = svc;
         this.rateLimit = rateLimit;
+        this.userRepo = userRepo;
+    }
+
+    /** 评论列表附带评论人昵称与头像（username 仍是唯一标识；匿名/已注销用户两字段为空） */
+    private List<Map<String, Object>> withUser(List<Comment> list) {
+        Set<String> names = list.stream()
+                .map(Comment::getUsername)
+                .filter(u -> u != null && !u.isBlank())
+                .collect(Collectors.toSet());
+        Map<String, User> byName = names.isEmpty() ? Map.of()
+                : userRepo.findByUsernameIn(names).stream()
+                    .collect(Collectors.toMap(User::getUsername, u -> u, (a, b) -> a));
+        List<Map<String, Object>> out = new ArrayList<>(list.size());
+        for (Comment c : list) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", c.getId());
+            m.put("targetType", c.getTargetType());
+            m.put("docId", c.getDocId());
+            m.put("parentId", c.getParentId());
+            m.put("userId", c.getUserId());
+            m.put("username", c.getUsername());
+            m.put("content", c.getContent());
+            m.put("likes", c.getLikes());
+            m.put("createdAt", c.getCreatedAt());
+            User u = c.getUsername() == null ? null : byName.get(c.getUsername());
+            m.put("displayName", u == null ? null : u.getDisplayName());
+            m.put("avatar", u == null ? null : u.getAvatar());
+            out.add(m);
+        }
+        return out;
     }
 
     /** 公开：某文档的评论列表 */
     @GetMapping("/docs/{id}/comments")
-    public List<Comment> list(@PathVariable Long id) {
-        return svc.list(id);
+    public List<Map<String, Object>> list(@PathVariable Long id) {
+        return withUser(svc.list(id));
     }
 
     /** 我评论过的文档列表（仅已发布，按更新时间倒序），用于个人资料页展示（强制登录） */
@@ -50,7 +87,7 @@ public class CommentController {
 
     /** 登录用户发表评论（可带 parentId 进行楼中楼回复） */
     @PostMapping("/docs/{id}/comments")
-    public Comment add(@RequestAttribute("kbUser") TokenClaims c,
+    public Map<String, Object> add(@RequestAttribute("kbUser") TokenClaims c,
                        @PathVariable Long id,
                        @RequestBody Map<String, Object> body) {
         if (c == null) throw new ResponseStatusException(UNAUTHORIZED, "请先登录");
@@ -66,18 +103,18 @@ public class CommentController {
         }
         Object pid = body.get("parentId");
         Long parentId = (pid == null || pid.toString().isBlank()) ? null : Long.valueOf(pid.toString());
-        return svc.add(id, c, (String) body.get("content"), parentId);
+        return withUser(List.of(svc.add(id, c, (String) body.get("content"), parentId))).get(0);
     }
 
     /** 通用评论列表（跨对象类型：DOC 帖子 / CHAPTER 章节），公开可见 */
     @GetMapping("/comments")
-    public List<Comment> listGeneric(@RequestParam String targetType, @RequestParam Long targetId) {
-        return svc.list(targetType, targetId);
+    public List<Map<String, Object>> listGeneric(@RequestParam String targetType, @RequestParam Long targetId) {
+        return withUser(svc.list(targetType, targetId));
     }
 
     /** 通用发表评论（跨对象类型），登录可用 */
     @PostMapping("/comments")
-    public Comment addGeneric(@RequestAttribute("kbUser") TokenClaims c,
+    public Map<String, Object> addGeneric(@RequestAttribute("kbUser") TokenClaims c,
                               @RequestBody Map<String, Object> body) {
         if (c == null) throw new ResponseStatusException(UNAUTHORIZED, "请先登录");
         String targetType = body.get("targetType") == null ? "DOC" : body.get("targetType").toString();
@@ -97,7 +134,7 @@ public class CommentController {
         }
         Object pid = body.get("parentId");
         Long parentId = (pid == null || pid.toString().isBlank()) ? null : Long.valueOf(pid.toString());
-        return svc.add(targetType, targetId, c, (String) body.get("content"), parentId);
+        return withUser(List.of(svc.add(targetType, targetId, c, (String) body.get("content"), parentId))).get(0);
     }
 
     /** 删除评论：管理员可删任意评论，普通用户仅能删自己的 */

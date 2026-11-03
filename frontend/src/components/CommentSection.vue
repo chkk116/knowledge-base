@@ -45,7 +45,7 @@ const commentTree = computed(() => {
   const byTime = (arr) => [...arr].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
   return byTime(tops).map(t => ({
     ...t,
-    replies: byTime(children[t.id] || []).map(r => ({ ...r, parentName: map[r.parentId] ? map[r.parentId].username : '' }))
+    replies: byTime(children[t.id] || []).map(r => ({ ...r, parentName: map[r.parentId] ? (map[r.parentId].displayName || map[r.parentId].username) : '' }))
   }))
 })
 const sortedComments = computed(() => {
@@ -62,7 +62,7 @@ const startReply = (c) => {
   if (!auth.loggedIn) { ElMessage.warning('请先登录'); router.push('/login'); return }
   const topId = c.parentId || c.id
   const top = commentMap.value[topId]
-  replyTo.value = { id: topId, name: top ? top.username : c.username }
+  replyTo.value = { id: topId, name: top ? (top.displayName || top.username) : (c.displayName || c.username) }
   nextTick(() => { if (commentInputRef.value) commentInputRef.value.focus() })
 }
 const cancelReply = () => { replyTo.value = null }
@@ -235,8 +235,12 @@ onMounted(async () => {
 
     <ul class="clist" v-if="sortedComments.length" v-loading="loading">
       <li v-for="c in sortedComments" :key="c.id" class="citem" :id="'c' + c.id" :class="{ 'cmt-flash': flashId === c.id }">
+        <div class="cmain">
+        <img v-if="c.avatar" class="cava" :src="c.avatar" alt="" />
+        <span v-else class="cava cava-none">{{ (c.displayName || c.username || "?").slice(0, 1) }}</span>
+        <div class="cwrap">
         <div class="chead">
-          <b>{{ c.username }}</b>
+          <b>{{ c.displayName || c.username }}</b>
           <span class="ctime" v-if="c.createdAt">{{ fromNow(c.createdAt) }}（{{ fmtDateTime(c.createdAt) }}）</span>
           <button class="clike" :class="{ on: commentLikedIds.has(c.id) }" @click="onToggleCommentLike(c)" title="点赞">
             <span class="lic"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M2 21h2V9H2v12zm20-10.09c0-.58-.47-1.05-1.05-1.05H13.8l.94-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.3 1.3 6.72 7.9A1.98 1.98 0 0 0 5.3 9.3v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91z"/></svg></span><span class="ln">{{ c.likes || 0 }}</span>
@@ -247,8 +251,12 @@ onMounted(async () => {
         <div class="cbody" v-html="c.content"></div>
         <ul class="replies" v-if="c.replies && c.replies.length">
           <li v-for="r in (expandedReplies[c.id] ? c.replies : c.replies.slice(0, 3))" :key="r.id" class="ritem" :id="'c' + r.id" :class="{ 'cmt-flash': flashId === r.id }">
+            <div class="cmain">
+            <img v-if="r.avatar" class="cava cava-sm" :src="r.avatar" alt="" />
+            <span v-else class="cava cava-none cava-sm">{{ (r.displayName || r.username || "?").slice(0, 1) }}</span>
+            <div class="cwrap">
             <div class="chead">
-              <b>{{ r.username }}</b>
+              <b>{{ r.displayName || r.username }}</b>
               <span class="r-to" v-if="r.parentName">回复 @{{ r.parentName }}</span>
               <span class="ctime" v-if="r.createdAt">{{ fromNow(r.createdAt) }}（{{ fmtDateTime(r.createdAt) }}）</span>
               <button class="clike" :class="{ on: commentLikedIds.has(r.id) }" @click="onToggleCommentLike(r)" title="点赞">
@@ -258,12 +266,16 @@ onMounted(async () => {
               <button class="cdel" v-if="canDeleteComment(r)" @click="onDeleteComment(r)">删除</button>
             </div>
             <div class="cbody" v-html="r.content"></div>
+            </div>
+            </div>
           </li>
         </ul>
         <button v-if="c.replies && c.replies.length > 3" class="more-replies"
                 @click="expandedReplies[c.id] = !expandedReplies[c.id]">
           {{ expandedReplies[c.id] ? '收起回复' : '查看全部 ' + c.replies.length + ' 条回复' }}
         </button>
+        </div>
+        </div>
       </li>
     </ul>
     <el-empty v-else-if="!loading" description="还没有评论，快来抢沙发" />
@@ -286,6 +298,13 @@ html.dark .cmt-flash { animation: cmtFlashDark 2s ease-out; }
   100% { background: transparent; }
 }
 @media (prefers-reduced-motion: reduce) { .cmt-flash { animation: none; } }
+.cmain { display: flex; gap: 10px; align-items: flex-start; }
+.cava { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; background: #f1f5f9; }
+.cava-sm { width: 26px; height: 26px; }
+.cava-none { display: flex; align-items: center; justify-content: center; color: #64748b; font-weight: 700; font-size: 15px; }
+.cava-sm.cava-none { font-size: 12px; }
+.cwrap { flex: 1; min-width: 0; }
+html.dark .cava { background: #2a2a35; color: #a6a7b7; }
 .cs { margin-top: 18px; }
 .cform { margin-bottom: 16px; }
 .cform-bar { margin-bottom: 8px; }

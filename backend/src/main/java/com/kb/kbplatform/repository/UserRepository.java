@@ -19,6 +19,9 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsername(String username);
 
+    /** 批量按用户名取用户（评论列表附昵称/头像用） */
+    List<User> findByUsernameIn(Iterable<String> usernames);
+
     /** 按邮箱查询（邮箱绑定唯一性校验用） */
     Optional<User> findByEmail(String email);
 
