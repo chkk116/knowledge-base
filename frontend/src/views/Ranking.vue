@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '../store/auth'
 import { ranking } from '../api/auth'
 import { getLevel, LEVELS } from '../utils/level'
+import RankMedal from '../components/RankMedal.vue'
 
 const auth = useAuthStore()
 const top = ref([])
@@ -11,7 +12,6 @@ const total = ref(0)
 const loading = ref(false)
 
 const rankClass = (i) => (i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '')
-const medal = (i) => (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1))
 
 onMounted(load)
 async function load() {
@@ -81,7 +81,10 @@ const myLevel = computed(() => getLevel(auth.user?.points || 0))
     <div v-else-if="top.length === 0" class="empty">暂无排行数据</div>
     <ul v-else class="list">
       <li v-for="(u, i) in top" :key="u.username" :class="{ mine: u.username === auth.user?.username }">
-        <div class="rk" :class="rankClass(i)">{{ medal(i) }}</div>
+        <div class="rk" :class="rankClass(i)">
+          <RankMedal v-if="i < 3" :rank="i + 1" :size="26" />
+          <span v-else>{{ i + 1 }}</span>
+        </div>
         <div class="av">
           <img v-if="u.avatar" :src="u.avatar" alt="" />
           <span v-else>{{ (u.displayName || u.username).charAt(0) }}</span>
@@ -176,7 +179,7 @@ html.dark .list li { border-bottom-color: #2a2a35; }
 html.dark .list li:hover { background: #23232e; }
 .list li.mine { background: #f8fafc; }
 html.dark .list li.mine { background: #23232e; }
-.rk { width: 28px; text-align: center; font-weight: 700; font-size: 16px; color: #94a3b8; flex: none; }
+.rk { width: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; color: #94a3b8; flex: none; }
 .rk.gold { color: #f59e0b; }
 .rk.silver { color: #94a3b8; }
 .rk.bronze { color: #b45309; }
