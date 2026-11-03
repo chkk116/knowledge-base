@@ -260,23 +260,37 @@ public class MailService {
         return out;
     }
 
-    /** 保存模板（只落 reset / verify / notify 三项） */
+    /** 保存模板（只更新请求里提供的项，未提供的保留库里的原值，避免部分提交清空其它模板） */
     @Transactional
     public void saveTemplates(Map<String, Map<String, String>> in) {
-        ObjectNode n = objectMapper.createObjectNode();
+        SysSetting s = settingRepo.findByKey(TPL_KEY).orElse(null);
+        ObjectNode n;
+        if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
+            try {
+                n = (ObjectNode) objectMapper.readTree(s.getValue());
+            } catch (Exception e) {
+                n = objectMapper.createObjectNode();
+            }
+        } else {
+            n = objectMapper.createObjectNode();
+        }
         for (String key : List.of("reset", "verify", "notify")) {
             Map<String, String> t = in == null ? null : in.get(key);
-            if (t == null) continue;
+            if (t == null) continue;   // 未提供 → 保留原值
+            String subj = t.get("subject");
+            String body = t.get("body");
+            if (subj == null || subj.isBlank() || body == null || body.isBlank()) {
+                throw new IllegalArgumentException("模板「" + key + "」的主题和正文不能为空");
+            }
             ObjectNode o = objectMapper.createObjectNode();
-            o.put("subject", t.getOrDefault("subject", ""));
-            o.put("body", t.getOrDefault("body", ""));
+            o.put("subject", subj);
+            o.put("body", body);
             n.set(key, o);
         }
-        SysSetting s = settingRepo.findByKey(TPL_KEY).orElseGet(() -> {
-            SysSetting x = new SysSetting();
-            x.setKey(TPL_KEY);
-            return x;
-        });
+        if (s == null) {
+            s = new SysSetting();
+            s.setKey(TPL_KEY);
+        }
         s.setValue(n.toString());
         s.setUpdatedAt(java.time.LocalDateTime.now());
         settingRepo.save(s);
@@ -292,13 +306,26 @@ public class MailService {
         return s;
     }
 
-    /** 正文渲染：普通文字自动转义并保留换行；只有主动写了 HTML 标签才按 HTML 原样输出 */
+    /**
+     * 正文渲染：是否 HTML 只看模板原文（渲染前判定），变量值一律先转义再替换。
+     * 否则用户可控的标题/摘要里带 "<a " 就能把整封邮件切到 HTML 原样输出（钓鱼链接注入）。
+     */
     private String renderBody(String tpl, Map<String, String> vars) {
-        String s = render(tpl, vars);
-        String t = s.trim();
-        boolean hasHtml = t.startsWith("<") || t.contains("<p>") || t.contains("<div") || t.contains("<br") || t.contains("<a ");
-        if (hasHtml) return s;
-        return "<p>" + escapeHtml(s).replace("\r\n", "\n").replace("\n", "<br/>") + "</p>";
+        String raw = tpl == null ? "" : tpl;
+        boolean hasHtml = isHtmlTemplate(raw.trim());
+        Map<String, String> safe = new LinkedHashMap<>();
+        if (vars != null) {
+            for (Map.Entry<String, String> e : vars.entrySet()) {
+                safe.put(e.getKey(), escapeHtml(e.getValue() == null ? "" : e.getValue()));
+            }
+        }
+        String rendered = render(raw, safe);
+        if (hasHtml) return rendered;
+        return "<p>" + rendered.replace("\r\n", "\n").replace("\n", "<br/>") + "</p>";
+    }
+
+    private static boolean isHtmlTemplate(String t) {
+        return t.startsWith("<") || t.contains("<p>") || t.contains("<div") || t.contains("<br") || t.contains("<a ");
     }
 
     /** 模板正文外套统一外壳（页脚） */

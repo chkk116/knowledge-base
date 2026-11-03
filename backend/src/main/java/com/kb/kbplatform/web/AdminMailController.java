@@ -150,18 +150,28 @@ public class AdminMailController {
         if (!u.isEnabled()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "账号已禁用，不能发送重置邮件");
         }
+        // 防权限提升：与 AdminUserController.reset-link 一致，非 ADMIN 不得给管理员账号生成重置链接
+        if (!c.isAdmin() && "ADMIN".equals(u.getRole())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权限操作管理员账号");
+        }
         if (u.getEmail() == null || u.getEmail().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该用户未绑定邮箱");
         }
         Map<String, Object> link = passwordResetService.createLink(u.getId(), c.userId());
         String url = siteBaseUrl + "/reset-password?token=" + link.get("token");
+        // 邮件失败不影响链接生成：token 仍返回，管理员可手动转交给用户
+        boolean emailed = true;
+        String sendErr = null;
         try {
             mailService.sendResetLink(u, url);
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "发送失败：" + e.getMessage());
+            emailed = false;
+            sendErr = e.getMessage();
         }
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("ok", true);
+        m.put("emailed", emailed);
+        m.put("sendError", sendErr);
         m.put("email", u.getEmail());
         m.put("link", url);
         m.put("expiresAt", link.get("expiresAt"));

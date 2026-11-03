@@ -217,13 +217,14 @@ async function loadTemplates() {
     tpls.value = data.templates || {}
     defaults.value = data.defaults || {}
     tplVars.value = data.vars || {}
-    // 补齐缺失项，避免模板 tab 渲染时取到 undefined
+  } catch (e) {
+    ElMessage.error(errMsg(e, '模板加载失败'))
+  } finally {
+    // 失败时也给空表单，避免 tplReady 永远 false 卡在骨架屏
     for (const t of TPL_META) {
       if (!tpls.value[t.key]) tpls.value[t.key] = { subject: '', body: '' }
     }
     tplReady.value = true
-  } catch (e) {
-    ElMessage.error(errMsg(e, '模板加载失败'))
   }
 }
 
@@ -319,10 +320,15 @@ async function doResetMail() {
   resetLink.value = ''
   try {
     const { data } = await api.post('/admin/mail/reset-mail', { account: resetForm.value.account.trim() })
-    resetMsg.value = '重置邮件已发送至 ' + (data.email || '用户邮箱')
-    resetMsgType.value = 'success'
     resetLink.value = data.link || ''
-    ElMessage.success('已发送重置邮件')
+    if (data.emailed === false) {
+      resetMsg.value = '邮件发送失败' + (data.sendError ? '：' + data.sendError : '') + '；已生成备用链接，可直接复制给用户'
+      resetMsgType.value = 'warning'
+    } else {
+      resetMsg.value = '重置邮件已发送至 ' + (data.email || '用户邮箱')
+      resetMsgType.value = 'success'
+    }
+    ElMessage.success(data.emailed === false ? '已生成备用链接' : '已发送重置邮件')
   } catch (e) {
     resetMsg.value = errMsg(e, '发送失败')
     resetMsgType.value = 'error'
