@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -173,7 +174,7 @@ fun CardsScreen() {
                         .padding(horizontal = 16.dp)
                         .kbPress { revealed = !revealed }
                 ) {
-                    Box(Modifier.fillMaxSize().padding(20.dp)) {
+                    Box(Modifier.fillMaxSize().padding(24.dp)) {
                         // 正面
                         CardFace(
                             visible = flip <= 90f,
@@ -188,7 +189,7 @@ fun CardsScreen() {
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.height(10.dp))
+                            Spacer(Modifier.height(14.dp))
                         }
                         // 背面（rotation + 180，视觉上与正面镜像衔接）
                         CardFace(
@@ -204,7 +205,7 @@ fun CardsScreen() {
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.height(10.dp))
+                            Spacer(Modifier.height(14.dp))
                         }
                     }
                 }
@@ -239,7 +240,8 @@ fun CardsScreen() {
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                     )
                 }
-                Spacer(Modifier.height(14.dp))
+                // 评分按钮别贴手势条/导航栏：底部给导航栏留出安全距离
+                Spacer(Modifier.navigationBarsPadding().height(14.dp))
             }
         }
     }
