@@ -57,8 +57,7 @@ Web 全功能 + Electron 桌面客户端 + Capacitor Android + **Kotlin 原生�
 
 ## 在线演示
 
-- 在线演示（Web）：<https://chkk116.cn>
-- 移动端：<https://chkk116.cn/m>
+- 在线演示：<https://chkk116.cn>
 
 | 账号 | 密码 | 说明 |
 |---|---|---|
