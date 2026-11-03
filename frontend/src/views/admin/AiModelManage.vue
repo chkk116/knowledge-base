@@ -298,6 +298,19 @@ const onTest = async (row) => {
   }
 }
 
+// ---------- 语义索引（向量 RAG） ----------
+const reindexing = ref(false)
+async function reindexVector() {
+  reindexing.value = true
+  try {
+    const { data } = await api.post('/admin/ai/models/reindex')
+    ElMessage.success(`语义索引重建完成：已索引 ${data.indexed} 篇文档`)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.error || '重建失败，请确认已配置并启用「语义检索（向量）」模型')
+  } finally {
+    reindexing.value = false
+  }
+}
 // ---------- 用量统计（对标平台官方控制台的「用量信息」页） ----------
 const usageDays = ref(30)
 const usageModelId = ref(null)
@@ -397,6 +410,7 @@ onUnmounted(() => {
           <el-radio-button value="market">供应商视图</el-radio-button>
           <el-radio-button value="list">配置列表</el-radio-button>
         </el-radio-group>
+        <el-button :loading="reindexing" @click="reindexVector" title="配好「语义检索（向量）」模型后，点这里全量建一次向量索引">重建语义索引</el-button>
         <el-button type="primary" @click="openAdd">＋ 新增模型</el-button>
       </div>
     </div>
