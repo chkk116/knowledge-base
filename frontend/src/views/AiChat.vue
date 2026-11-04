@@ -158,11 +158,14 @@ function buildMeta(data) {
 const FB_REASONS = ['答非所问', '没有依据', '资料过时', '回答不完整']
 const fbBusy = reactive({})
 
-/** 赞直接提交；踩先展开原因面板，选一个原因再提交（也可直接点「就这些」提交空原因） */
+/** 赞/踩可随时切换或取消：再点一次同项 = 取消（rating 0），点另一项 = 改评；踩先展开原因面板 */
 function rateMsg(m, rating) {
   if (!m.qaId || fbBusy[m.qaId]) return
-  if (rating === -1) { m.fbOpen = !m.fbOpen; return }
-  submitRate(m, 1, '')
+  if (rating === -1) {
+    if (m.fbRating === -1) { submitRate(m, 0, ''); return }   // 已踩 → 取消
+    m.fbOpen = !m.fbOpen; return                              // 展开原因面板
+  }
+  submitRate(m, m.fbRating === 1 ? 0 : 1, '')                 // 已赞 → 取消
 }
 
 async function submitRate(m, rating, reason) {
@@ -172,7 +175,7 @@ async function submitRate(m, rating, reason) {
     await aiFeedback(m.qaId, rating, reason)
     m.fbRating = rating
     m.fbOpen = false
-    ElMessage.success(rating === 1 ? '感谢反馈' : '已记录，我们会据此补充文档')
+    ElMessage.success(rating === 1 ? '感谢反馈' : rating === 0 ? '已取消反馈' : '已记录，我们会据此补充文档')
   } catch (e) {
     ElMessage.error('反馈失败，请稍后重试')
   } finally {
@@ -1472,14 +1475,17 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                   <span>已检索知识库，未命中相关内容</span>
                 </div>
 
-                <!-- 反馈：赞 / 踩。踩时展开原因面板；数据回流到管理端「AI 反馈」看板 -->
+                <!-- 反馈：赞 / 踩（自绘拇指图标，可随时切换或取消）。踩时展开原因面板；数据回流到管理端「AI 反馈」看板 -->
                 <div v-if="m.qaId && !m.streaming" class="ai-fb">
-                  <span v-if="m.fbRating" class="ai-fb-done">{{ m.fbRating === 1 ? '已赞' : '已反馈' }}</span>
-                  <template v-else>
-                    <button type="button" class="ai-fb-btn" title="有帮助" @click="rateMsg(m, 1)">👍</button>
-                    <button type="button" class="ai-fb-btn" :class="{ on: m.fbOpen }" title="没帮助" @click="rateMsg(m, -1)">👎</button>
-                  </template>
-                  <div v-if="m.fbOpen && !m.fbRating" class="ai-fb-reasons">
+                  <button type="button" class="ai-fb-btn" :class="{ on: m.fbRating === 1 }" title="有帮助" @click="rateMsg(m, 1)">
+                    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M2 21h2V9H2v12zm20-10.09c0-.58-.47-1.05-1.05-1.05H13.8l.94-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.3 1.3 6.72 7.9A1.98 1.98 0 0 0 5.3 9.3v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91z"/></svg>
+                  </button>
+                  <button type="button" class="ai-fb-btn" :class="{ on: m.fbRating === -1 }" title="没帮助" @click="rateMsg(m, -1)">
+                    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" style="transform: rotate(180deg)"><path fill="currentColor" d="M2 21h2V9H2v12zm20-10.09c0-.58-.47-1.05-1.05-1.05H13.8l.94-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.3 1.3 6.72 7.9A1.98 1.98 0 0 0 5.3 9.3v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91z"/></svg>
+                  </button>
+                  <span v-if="m.fbRating === 1" class="ai-fb-done">已赞，再点一次可取消</span>
+                  <span v-else-if="m.fbRating === -1" class="ai-fb-done">已反馈，再点 👎 可取消</span>
+                  <div v-if="m.fbOpen && m.fbRating !== 1 && m.fbRating !== -1" class="ai-fb-reasons">
                     <span class="ai-fb-tip">哪里不好？</span>
                     <button v-for="r in FB_REASONS" :key="r" type="button" @click="submitRate(m, -1, r)">{{ r }}</button>
                     <button type="button" class="ghost" @click="submitRate(m, -1, '')">就这些</button>
@@ -2046,6 +2052,8 @@ html.dark .ai-no-source .el-icon { color: #4a4b6a; }
 }
 .ai-fb-btn:hover { border-color: #c7d2fe; background: #f5f7ff; }
 .ai-fb-btn:active { transform: scale(.94); }
+.ai-fb-btn.on { border-color: #6366f1; color: #4f46e5; background: #eef2ff; }
+html.dark .ai-fb-btn.on { border-color: #818cf8; color: #a5b4fc; background: #1a1f2e; }
 .ai-fb-btn.on { border-color: #fca5a5; background: #fef2f2; }
 .ai-fb-done { font-size: 12px; color: #94a3b8; }
 .ai-fb-reasons { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: 2px; }

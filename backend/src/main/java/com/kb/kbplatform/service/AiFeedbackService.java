@@ -70,14 +70,15 @@ public class AiFeedbackService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> rate(Long userId, Long qaId, Integer rating, String reason) {
         if (qaId == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少 qaId");
-        if (rating == null || (rating != 1 && rating != -1)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "rating 只能是 1（赞）或 -1（踩）");
+        // 0 = 取消评价：rating/reason/ratedAt 全部清空，前端「再点一次同项」即取消
+        if (rating == null || (rating != 1 && rating != -1 && rating != 0)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "rating 只能是 1（赞）、-1（踩）或 0（取消评价）");
         }
         AiQaLog log = repo.findByIdAndUserId(qaId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "记录不存在或无权评价"));
-        log.setRating(rating);
+        log.setRating(rating == 0 ? null : rating);
         log.setReason(rating == -1 ? truncate(reason, MAX_REASON) : null);
-        log.setRatedAt(LocalDateTime.now());
+        log.setRatedAt(rating == 0 ? null : LocalDateTime.now());
         repo.save(log);
         return Map.of("ok", true, "qaId", qaId, "rating", rating);
     }
