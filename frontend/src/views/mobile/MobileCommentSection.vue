@@ -58,7 +58,7 @@ const commentTree = computed(() => {
     ...t,
     replies: byTime(children[t.id] || []).map((r) => ({
       ...r,
-      parentName: map[r.parentId] ? (map[r.parentId].username || map[r.parentId].userName) : '',
+      parentName: map[r.parentId] ? (map[r.parentId].displayName || map[r.parentId].username || map[r.parentId].userName) : '',
     })),
   }))
 })
@@ -87,7 +87,7 @@ function initial(name) {
   const s = String(name || '').trim()
   return s ? s[0].toUpperCase() : '匿'
 }
-const nameOf = (c) => c.username || c.userName || '匿名'
+const nameOf = (c) => c.displayName || c.username || c.userName || '匿名'
 
 async function loadComments() {
   loading.value = true
@@ -250,7 +250,8 @@ watch(() => [props.targetType, props.targetId], () => {
     <div v-if="sortedComments.length" class="mcs-list">
       <div v-for="c in sortedComments" :key="c.id" class="mcs-item">
         <div class="mcs-row">
-          <span class="mcs-av" :style="{ background: avColor(nameOf(c)) }">{{ initial(nameOf(c)) }}</span>
+          <img v-if="c.avatar" class="mcs-av mcs-av-img" :src="c.avatar" alt="" @error="c.avatar = null" />
+          <span v-else class="mcs-av" :style="{ background: avColor(nameOf(c)) }">{{ initial(nameOf(c)) }}</span>
           <div class="mcs-main">
             <div class="mcs-meta">
               <b class="mcs-name">{{ nameOf(c) }}</b>
@@ -355,6 +356,9 @@ watch(() => [props.targetType, props.targetId], () => {
   color: #fff; font-size: 14px; font-weight: 600;
   display: flex; align-items: center; justify-content: center;
 }
+/* 真实头像：接口带 avatar 时用图，加载失败回退首字母圆（@error 已把 avatar 置空） */
+.mcs-av-img { object-fit: cover; background: #f1f5f9; }
+html.dark .mcs-av-img { background: #2a2a35; }
 .mcs-main { flex: 1 1 auto; min-width: 0; }
 .mcs-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mcs-name { font-size: 13.5px; font-weight: 600; color: var(--m-text); }
