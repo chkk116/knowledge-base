@@ -503,7 +503,7 @@ onUnmounted(() => {
           </div>
           <div class="row">
             <span class="k">用途</span>
-            <span class="v">{{ m.kind === 'IMAGE' ? '文生图' : m.kind === 'VIDEO' ? '文生视频' : m.kind === 'EMBEDDING' ? '语义检索 / 向量化' : '默认（对话 / 出题）' }}</span>
+            <span class="v">{{ m.kind === 'IMAGE' ? '文生图' : m.kind === 'VIDEO' ? '文生视频' : m.kind === 'EMBEDDING' ? '语义检索 / 向量化' : '对话模型池' }}</span>
           </div>
           <div class="row">
             <span class="k">Key</span>
@@ -657,9 +657,9 @@ onUnmounted(() => {
     <!-- 编辑弹窗：改 Key 只需重填一栏，其余字段不动即可 -->
     <el-dialog v-model="dialog" :title="form.id ? '编辑模型' : '新增模型'" width="560px">
       <el-form label-width="96px">
-        <el-form-item label="用途">
-          <!-- 对话 / 出题模型由「AI 能力配置」页分配具体用途，这里不需要选：
-               都不勾选 = 默认的对话模型池成员，只标文生图/文生视频/语义检索这类特殊用途 -->
+        <!-- 用途由「AI 能力配置」页分配，编辑已有模型时不在这里重复配置；
+             仅新增时允许标文生图/文生视频/语义检索这类特殊用途，不选即对话模型池成员 -->
+        <el-form-item v-if="!form.id" label="特殊用途">
           <div class="kind-box">
             <el-radio-group v-model="form.kind">
               <el-radio value="IMAGE">文生图</el-radio>
@@ -667,9 +667,9 @@ onUnmounted(() => {
               <el-radio value="EMBEDDING">语义检索（向量）</el-radio>
             </el-radio-group>
             <div class="kind-hint">
-              <span>不选即默认「对话 / 出题」模型，由「AI 能力配置」页分配用途</span>
+              <span>不选即加入对话模型池，具体能力由「AI 能力配置」页分配</span>
               <el-button v-if="form.kind && form.kind !== 'CHAT'" link type="primary" size="small"
-                         @click="form.kind = 'CHAT'">恢复为对话模型</el-button>
+                         @click="form.kind = 'CHAT'">清除特殊用途</el-button>
             </div>
           </div>
         </el-form-item>
