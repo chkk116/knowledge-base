@@ -110,8 +110,12 @@ function onUnauthorized() {
 window.addEventListener('kb-unauthorized', onUnauthorized)
 onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
 
-// 登录页 / 独立阅读窗口：独立整页，不带侧边栏与顶栏
-const barePage = computed(() => route.path === '/login' || route.path.startsWith('/reader/'))
+// 登录页 / 独立阅读窗口：独立整页，不带侧边栏与顶栏。
+// 首次导航完成前 route 仍是 START_LOCATION（path='/'、matched 为空），若按普通页渲染会
+// 闪一帧带旧标签的外壳（刷新 /login 时尤其明显）；就绪前一律按 barePage 只渲染 router-view。
+const routerReady = ref(route.matched.length > 0)
+router.isReady().then(() => { routerReady.value = true }).catch(() => { routerReady.value = true })
+const barePage = computed(() => !routerReady.value || route.path === '/login' || route.path.startsWith('/reader/'))
 
 // 未读通知数（顶栏铃铛红点，来自 SSE 实时推送，详见 store/notification）
 function goNotifications() { router.push('/notifications') }
