@@ -15,6 +15,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsername(String username);
@@ -40,6 +41,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** 按作者名检索：用户名或昵称模糊匹配（搜索「按作者」筛选用） */
     List<User> findByUsernameContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(String username, String displayName);
+
+    /**
+     * 邀请选人专用：只查启用用户并在 DB 侧 LIMIT。
+     * 原派生查询会把全部匹配行拉进 JVM 再内存截断，用户量一大（万级）响应体和堆内存都会放大。
+     */
+    @Query("SELECT u FROM User u WHERE u.enabled = true AND "
+            + "(LOWER(u.username) LIKE LOWER(CONCAT('%', :kw, '%')) "
+            + "OR LOWER(u.displayName) LIKE LOWER(CONCAT('%', :kw, '%')))")
+    List<User> searchEnabledUsers(@org.springframework.data.repository.query.Param("kw") String kw, Pageable pageable);
 
     /** 管理员用户检索：用户名或昵称模糊匹配（keyword 为空时返回全部），可按角色 / 启用态过滤；
      *  role 为 null 不过滤角色，enabled 为 null 不过滤启用态；排序/分页由 Pageable 控制 */

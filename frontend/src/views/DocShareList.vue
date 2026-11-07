@@ -32,16 +32,26 @@ const colorOf = (s) => PALETTE.find(p => p.key === s.color) || PALETTE[(s.id || 
 // ---- 选人（远程搜索） ----
 const userOptions = ref([])
 const userLoading = ref(false)
-const searchUsers = async (kw) => {
+let userSearchTimer = null
+let userSearchSeq = 0
+const searchUsers = (kw) => {
+  // 250ms 防抖 + 序号防竞态：连打字不再连发请求，旧响应也不会覆盖新输入的结果
+  const seq = ++userSearchSeq
+  if (userSearchTimer) clearTimeout(userSearchTimer)
   userLoading.value = true
-  try {
-    const { data } = await searchShareUsers(kw || '')
-    // 保留已选中但不在当前搜索结果里的人，避免 tag 闪没
-    const chosen = userOptions.value.filter(o => form.value.members.includes(o.id))
-    const merged = [...(data || [])]
-    for (const c of chosen) if (!merged.some(m => m.id === c.id)) merged.push(c)
-    userOptions.value = merged
-  } catch { /* 静默 */ } finally { userLoading.value = false }
+  userSearchTimer = setTimeout(async () => {
+    try {
+      const { data } = await searchShareUsers(kw || '')
+      if (seq !== userSearchSeq) return
+      // 保留已选中但不在当前搜索结果里的人，避免 tag 闪没
+      const chosen = userOptions.value.filter(o => form.value.members.includes(o.id))
+      const merged = [...(data || [])]
+      for (const c of chosen) if (!merged.some(m => m.id === c.id)) merged.push(c)
+      userOptions.value = merged
+    } catch { /* 静默 */ } finally {
+      if (seq === userSearchSeq) userLoading.value = false
+    }
+  }, 250)
 }
 
 // 个人存储用量（有效配额 = 管理员分配或默认 200MB）

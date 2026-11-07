@@ -426,16 +426,24 @@ const openMembers = async () => {
   await searchMemberUsers('')
 }
 // 选人搜索：复用后端 /doc-shares/users（登录即可用，无需 USER_MANAGE 管理员权限）
-const searchMemberUsers = async (kw) => {
+let memberSearchTimer = null
+let memberSearchSeq = 0
+const searchMemberUsers = (kw) => {
+  // 250ms 防抖 + 序号防竞态（与创建空间弹窗同策略）
+  const seq = ++memberSearchSeq
+  if (memberSearchTimer) clearTimeout(memberSearchTimer)
   userLoading.value = true
-  try {
-    const { data } = await searchShareUsers(kw || '')
-    allUsers.value = (data || []).filter(u => u.id !== share.value?.ownerId)
-  } catch (e) {
-    allUsers.value = []
-  } finally {
-    userLoading.value = false
-  }
+  memberSearchTimer = setTimeout(async () => {
+    try {
+      const { data } = await searchShareUsers(kw || '')
+      if (seq !== memberSearchSeq) return
+      allUsers.value = (data || []).filter(u => u.id !== share.value?.ownerId)
+    } catch (e) {
+      if (seq === memberSearchSeq) allUsers.value = []
+    } finally {
+      if (seq === memberSearchSeq) userLoading.value = false
+    }
+  }, 250)
 }
 
 const invite = async () => {

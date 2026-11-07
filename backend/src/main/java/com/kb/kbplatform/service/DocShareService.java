@@ -362,7 +362,7 @@ public class DocShareService {
         String kw = keyword == null ? "" : keyword.trim();
         List<User> users = kw.isEmpty()
                 ? userRepo.findByEnabledTrue(PageRequest.of(0, 30)).getContent()
-                : userRepo.findByUsernameContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(kw, kw);
+                : userRepo.searchEnabledUsers(kw, PageRequest.of(0, 20));
         List<Map<String, Object>> result = new ArrayList<>();
         for (User u : users) {
             if (!u.isEnabled()) continue;
