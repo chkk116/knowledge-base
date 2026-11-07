@@ -10,6 +10,16 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.31',
+    date: '2026-11-07',
+    title: 'AI 对话拆分第二步',
+    items: [
+      'Markdown 渲染与格式化抽成共用 composable（features/ai/useMarkdownView.js），模板不动，只换函数来源',
+      '高亮器改为依赖注入，模块不依赖浏览器全局，可在 Node 里直接单测',
+      '新增 7 个单测，累计 18 个全绿；图片白名单、fence 语言白名单等安全行为有回归保护',
+    ],
+  },
+  {
     version: '1.3.30',
     date: '2026-11-07',
     title: 'AI 对话拆分第一步',
