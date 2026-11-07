@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { fetchPublicDoc, fetchPublicMeta } from '../api/docShare'
 
@@ -89,11 +89,16 @@ onMounted(async () => {
 
 // 「禁止复制」：拦住选中/右键/复制。只是提高门槛，不是安全边界（截图、保存网页仍可获取）
 function block(e) { if (noCopy.value) e.preventDefault() }
-if (typeof document !== 'undefined') {
+onMounted(() => {
   document.addEventListener('contextmenu', block)
   document.addEventListener('copy', block)
   document.addEventListener('cut', block)
-}
+})
+onUnmounted(() => {
+  document.removeEventListener('contextmenu', block)
+  document.removeEventListener('copy', block)
+  document.removeEventListener('cut', block)
+})
 </script>
 
 <style scoped>

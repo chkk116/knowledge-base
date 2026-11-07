@@ -145,7 +145,7 @@ import { ref, onMounted } from 'vue'
 import { Message } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '../../api/request'
-import { errMsg } from '../../utils/errmsg'
+import { errMsg } from '../../utils/errMsg'
 
 const tab = ref('smtp')
 
