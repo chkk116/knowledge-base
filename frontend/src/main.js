@@ -251,7 +251,7 @@ window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + (
     el.querySelector('button').addEventListener('click', () => location.reload())
     document.body.appendChild(el)
   }
-  setTimeout(probe, 60 * 1000)
+  setTimeout(probe, 8 * 1000)             // 启动 8 秒后首查（部署后切回页面很快就能看到提示）
   setInterval(probe, 10 * 60 * 1000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden) probe() })
 })()

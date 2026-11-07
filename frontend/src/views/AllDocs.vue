@@ -343,8 +343,8 @@ async function doBatch() {
       </template>
     </el-table>
 
-    <!-- 分页：每页条数可调，筛选条件变化时自动回到第 1 页 -->
-    <div class="pager" v-if="shown.length > 20">
+    <!-- 分页：常驻显示（数据少时也能看到「共 N 条 / 每页条数」），每页条数可调，筛选变化回第 1 页 -->
+    <div class="pager" v-if="shown.length">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"

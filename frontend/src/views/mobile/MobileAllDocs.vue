@@ -245,6 +245,9 @@ onMounted(load)
         <div>{{ filtersActive ? '没有符合条件的文档' : '还没有可显示的文档' }}</div>
         <button v-if="filtersActive" class="reset-btn" type="button" @click="clearFilters">清除筛选</button>
       </div>
+      <div v-if="!loading && shown.length" class="list-count">
+        共 {{ shown.length }} 篇<template v-if="hasMore">，已加载 {{ visibleDocs.length }} 篇</template>
+      </div>
       <div class="bottom-space"></div>
     </div>
 
@@ -264,6 +267,7 @@ onMounted(load)
 
 <style scoped>
 .all-docs { min-height: 100%; }
+.list-count { text-align: center; padding: 10px 0; font-size: 12px; color: #94a3b8; }
 .load-more {
   width: 100%; padding: 12px 0; border: 0; border-top: 1px solid #f1f5f9;
   background: transparent; color: #6366f1; font-size: 13px; cursor: pointer;
