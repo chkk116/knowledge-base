@@ -70,3 +70,17 @@ sw = sw.replace(marker, 'const PRECACHE_ASSETS = ' + JSON.stringify(list, null, 
   .replace("const VERSION = 'kb-mobile-v1'", "const VERSION = 'kb-mobile-" + pkgVersion + '-' + buildStamp + "'")
 fs.writeFileSync(swPath, sw, 'utf8')
 console.log('已注入 ' + swPath + ' (' + fs.statSync(swPath).size + ' 字节)')
+
+// 6) 注入构建版本号（meta app-version）：运行时 main.js 比对线上版本，有新版弹出「立即刷新」
+//    解决部署后用户不刷新、一直跑旧 bundle 的问题（SPA 内路由切换不会重新拉 JS）
+const verTag = '<meta name="app-version" content="' + pkgVersion + '-' + buildStamp + '" />'
+for (const f of ['index.html', 'mobile.html']) {
+  const p = path.join(root, f)
+  if (!fs.existsSync(p)) continue
+  let html = fs.readFileSync(p, 'utf8')
+  if (html.includes('name="app-version"')) continue
+  html = html.replace('</head>', '  ' + verTag + '\n</head>')
+  fs.writeFileSync(p, html, 'utf8')
+  console.log('已注入版本号 ' + f + ' -> ' + pkgVersion + '-' + buildStamp)
+}
+

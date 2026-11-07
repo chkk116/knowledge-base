@@ -220,4 +220,40 @@ window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + (
   })
 })()
 
+
+/* ---- 新版本检测（构建时注入 meta app-version）：部署后无需用户手动强刷 ----
+ * 场景：SPA 内路由切换不会重新拉取 JS，用户会一直跑内存里的旧 bundle；
+ * 每 10 分钟 / 切回标签页时比对线上 index.html 的版本号，发现新版弹「立即刷新」。
+ */
+;(function watchVersion() {
+  const cur = document.querySelector('meta[name="app-version"]')?.getAttribute('content') || ''
+  if (!cur) return
+  let busy = false
+  let shown = false
+  const probe = async () => {
+    if (busy || shown || document.hidden) return
+    busy = true
+    try {
+      const res = await fetch('/index.html?_v=' + Date.now(), { cache: 'no-store' })
+      if (res.ok) {
+        const m = (await res.text()).match(/name="app-version" content="([^"]+)"/)
+        if (m && m[1] && m[1] !== cur) showBar()
+      }
+    } catch { /* 离线/网络异常忽略 */ } finally { busy = false }
+  }
+  const showBar = () => {
+    shown = true
+    if (document.getElementById('kb-update-bar')) return
+    const el = document.createElement('div')
+    el.id = 'kb-update-bar'
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:14px;z-index:99999;display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;background:#4f46e5;color:#fff;font-size:13px;box-shadow:0 8px 24px rgba(79,70,229,.35)'
+    el.innerHTML = '<span>检测到新版本，刷新后生效</span><button type="button" style="border:0;background:#fff;color:#4f46e5;border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer">立即刷新</button>'
+    el.querySelector('button').addEventListener('click', () => location.reload())
+    document.body.appendChild(el)
+  }
+  setTimeout(probe, 60 * 1000)
+  setInterval(probe, 10 * 60 * 1000)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) probe() })
+})()
+
 app.use(createPinia()).use(router).mount('#app')
