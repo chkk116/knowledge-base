@@ -39,15 +39,12 @@ export function cleanTitle(raw) {
 
 /**
  * Agent 写文档用的极简 Markdown → HTML。
- * 正文本身是 HTML（Agent 读回原文再写回）时直接返回，避免二次转义；入库安全性由后端 HtmlSanitizer 保证。
- * 引号必须转义（alt/src 属性位置可被注入 onerror）；图片源只允许本站 /uploads /emojis 或 data:image。
+ * 安全约定：不做「正文已是 HTML 就原样返回」的直通——该分支会把 onmouseover/onclick 等事件属性
+ * 原样提交给服务端，也会把「提到了 <p> 标签」的普通回答误判成 HTML 导致格式全丢。
+ * 一律按 Markdown 解析：引号必须转义（alt/src 属性位置可被注入 onerror）；
+ * 图片源只允许本站 /uploads /emojis 或 data:image。后端 HtmlSanitizer 另有一层兜底。
  */
 export function mdToHtml(md) {
-  const src0 = String(md || '')
-  if (/<(h[1-6]|p|ul|ol|li|div|table|blockquote|video|img|figure)\b/i.test(src0)
-      && !/^#{1,6}\s/m.test(src0)) {
-    return src0
-  }
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   const out = []
   let inCode = false

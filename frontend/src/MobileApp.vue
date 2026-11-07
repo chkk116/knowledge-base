@@ -554,7 +554,7 @@ onUnmounted(() => window.removeEventListener('kb-unauthorized', onUnauthorized))
             <el-icon :size="19"><Delete /></el-icon>
           </button>
         </div>
-        <div class="lock-hint">忘记密码？清除应用数据后重新登录即可重设</div>
+        <div class="lock-hint">应用锁密码仅保存在本机，请妥善保管；账号密码请通过登录页「忘记密码」流程重置</div>
       </div>
     </div>
   </div>

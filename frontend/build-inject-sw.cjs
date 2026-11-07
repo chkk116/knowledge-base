@@ -23,6 +23,16 @@ if (firstVersion !== pkgVersion) {
   console.error('版本号不一致：package.json=' + pkgVersion + '，changelog 最新=' + (firstVersion || '未找到'))
   process.exit(1)
 }
+// native 壳版本：升级弹层按 versionName 匹配 changelog，缺条目会让 App 内更新说明空白
+const gradlePath = path.join(__dirname, '../mobile/mobile-native/app/build.gradle')
+if (fs.existsSync(gradlePath)) {
+  const gradle = fs.readFileSync(gradlePath, 'utf8')
+  const nativeVer = (gradle.match(/versionName\s+'([^']+)'/) || [])[1]
+  if (!nativeVer || !versions.includes(nativeVer)) {
+    console.error('native 版本未登记：build.gradle versionName=' + (nativeVer || '未找到') + '，changelog 中无对应条目')
+    process.exit(1)
+  }
+}
 console.log('版本一致性 OK: ' + pkgVersion)
 // 版本号带构建时间戳：同一 package 版本内多次发版也能让旧哈希缓存随激活被清掉（外部复审 2026-10-06）
 const buildStamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)

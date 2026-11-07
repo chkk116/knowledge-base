@@ -58,8 +58,21 @@ test('mdToHtml: 标题/加粗/列表/代码块', () => {
   assert.match(h, /<pre>code<\/pre>/)
 })
 
-test('mdToHtml: 正文已是 HTML 时直通，避免二次转义', () => {
-  assert.equal(mdToHtml('<p>原文</p>'), '<p>原文</p>')
+test('mdToHtml: 不再有 HTML 直通分支，事件属性一律转义', () => {
+  const a = mdToHtml('<div onmouseover="alert(1)">x</div>')
+  assert.ok(!a.includes('<div onmouseover'))   // 标签+属性结构必须被转义，不能成为可执行 HTML
+  assert.ok(!a.includes('<div'))
+  assert.match(a, /&lt;div/)
+  const b = mdToHtml('<p onclick="alert(1)">点我</p>')
+  assert.ok(!b.includes('<p onclick'))
+  assert.match(b, /&lt;p/)
+})
+
+test('mdToHtml: 提到 HTML 标签的普通回答按文本处理，不误判成 HTML', () => {
+  const h = mdToHtml('HTML 里 <p> 表示段落，<div> 表示块')
+  assert.match(h, /&lt;p&gt;/)
+  assert.match(h, /表示段落/)
+  assert.ok(!h.includes('<p> 表示段落'))   // 输入标签已转义，输出里的 <p> 只是正文包裹
 })
 
 test('mdToHtml: XSS 转义（尖括号与引号）', () => {

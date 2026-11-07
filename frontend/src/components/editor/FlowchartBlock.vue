@@ -366,13 +366,26 @@ function syncForms() {
 }
 watch([selectedId, selectedEdgeId, editing], syncForms)
 
+// 属性面板输入校验：即便有人绕过 UI（控制台改 DOM / 直接改持久化数据），也不让非法值进 style
+function safeColor(v) { return /^#[0-9a-fA-F]{3,8}$/.test(String(v)) ? v : null }
+function safeNum(v, min, max) {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= min && n <= max ? n : null
+}
+function validateStyleValue(key, val) {
+  if (['fill', 'stroke', 'color'].includes(key)) return safeColor(val)
+  if (key === 'strokeWidth') return safeNum(val, 0.5, 8)
+  if (key === 'fontSize') return safeNum(val, 10, 28)
+  return null
+}
 function setNodeStyle(key, val) {
   const id = selectedId.value
-  if (!id) return
+  const safe = validateStyleValue(key, val)
+  if (!id || safe === null) return
   setNodes(nodes.value.map((n) => n.id === id
-    ? { ...n, data: { ...n.data, style: { ...(n.data?.style || {}), [key]: val } } }
+    ? { ...n, data: { ...n.data, style: { ...(n.data?.style || {}), [key]: safe } } }
     : n))
-  nodeForm[key] = val
+  nodeForm[key] = safe
   dirty.value = true
 }
 function resetNodeStyle() {
@@ -384,11 +397,12 @@ function resetNodeStyle() {
 }
 function setEdgeStyle(key, val) {
   const id = selectedEdgeId.value
-  if (!id) return
+  const safe = validateStyleValue(key, val)
+  if (!id || safe === null) return
   setEdges(edges.value.map((e) => e.id === id
-    ? { ...e, style: { ...(e.style || { ...edgeStyle }), [key]: val } }
+    ? { ...e, style: { ...(e.style || { ...edgeStyle }), [key]: safe } }
     : e))
-  edgeForm[key] = val
+  edgeForm[key] = safe
   dirty.value = true
 }
 function setEdgeArrow(v) {

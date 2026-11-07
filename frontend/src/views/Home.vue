@@ -270,12 +270,12 @@ onMounted(async () => {
         <button type="button" class="go ghost" v-if="mode === 'search'" @click="reset">查看全部</button>
       </div>
       <div class="filters">
-        <select v-model="sort" @change="onSortChange">
-          <option value="latest">最新</option>
-          <option value="hot">最热（浏览量）</option>
-          <option value="comments">最多评论</option>
-          <option value="favorites">最多收藏</option>
-        </select>
+        <el-select v-model="sort" size="default" style="width: 160px" @change="onSortChange">
+          <el-option label="最新" value="latest" />
+          <el-option label="最热（浏览量）" value="hot" />
+          <el-option label="最多评论" value="comments" />
+          <el-option label="最多收藏" value="favorites" />
+        </el-select>
         <el-tree-select v-model="category" :data="categoryTree" node-key="name"
           :props="{ label: 'name', children: 'children' }"
           placeholder="全部分类" clearable @change="onCategoryChange" @clear="onCategoryChange"
@@ -347,7 +347,18 @@ onMounted(async () => {
           <p class="snippet">{{ d.snippet || snippetOf(d.content) }}</p>
         </li>
       </ul>
-      <p v-else class="state">{{ mode === 'search' ? '没有找到相关文档。' : '暂无文档。' }}</p>
+      <div v-else class="empty-state">
+        <svg class="es-ico" viewBox="0 0 96 72" width="96" height="72" aria-hidden="true">
+          <rect x="20" y="8" width="52" height="60" rx="7" fill="#eef2ff" stroke="#c7d2fe" stroke-width="2"/>
+          <path d="M30 24h32M30 34h32M30 44h20" stroke="#a5b4fc" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="70" cy="54" r="13" fill="#4f46e5"/>
+          <path d="M70 48v12M64 54h12" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <p class="es-title">{{ mode === 'search' ? '没有找到相关文档' : '还没有文档' }}</p>
+        <p class="es-sub">{{ mode === 'search' ? '换个关键词，或看看全部文档' : '写下第一篇，把知识沉淀下来' }}</p>
+        <el-button v-if="mode === 'search'" size="small" @click="reset">查看全部文档</el-button>
+        <el-button v-else type="primary" size="small" @click="router.push('/write')">写第一篇文章</el-button>
+      </div>
 
       <el-pagination v-if="!loading && total > 0"
         class="pager" background
@@ -412,6 +423,15 @@ html.dark .tagcloud .chip.more { border-color: #3a3b45; color: #7b8190; }
 .filters select { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
 .hint { color: #64748b; font-size: 13px; }
 .state { color: #64748b; padding: 12px 0; }
+/* 空状态：插图 + 主次文案 + 明确的下一步操作 */
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 34px 16px 40px; text-align: center; }
+.es-ico { margin-bottom: 4px; }
+.es-title { margin: 0; font-size: 15px; font-weight: 600; color: #334155; }
+.es-sub { margin: 0 0 8px; font-size: 12.5px; color: #94a3b8; }
+html.dark .es-title { color: #e2e8f0; }
+html.dark .es-sub { color: #8b8fa3; }
+html.dark .empty-state .es-ico rect { fill: #23233a; stroke: #3a3a6b; }
+html.dark .empty-state .es-ico path { stroke: #6b73a8; }
 .state.err { color: #ef4444; display: flex; align-items: center; gap: 10px; }
 .state .retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; border-radius: 6px; padding: 3px 12px; cursor: pointer; font-size: 13px; }
 .state .retry:hover { background: #ef4444; color: #fff; }
