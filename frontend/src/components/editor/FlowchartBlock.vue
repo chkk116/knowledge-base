@@ -16,6 +16,8 @@
         <span v-else-if="editing" class="kb-fc-status editing">你正在编辑</span>
         <span class="kb-fc-actions">
           <button class="kb-fc-btn" @click="fit">适应视图</button>
+          <button class="kb-fc-btn" title="导出 SVG 矢量图" @click="exportSvg">导出 SVG</button>
+          <button class="kb-fc-btn" title="导出 PNG 图片" @click="exportPng">导出 PNG</button>
           <button v-if="!editing && canAcquire" class="kb-fc-btn primary" @click="acquire">编辑</button>
           <button
             v-if="!editing && lockInfo && !isMine"
@@ -44,7 +46,9 @@
           <li><b>添加图形</b>：点左侧图形栏的图形，或按住拖到画布指定位置</li>
           <li><b>改文字</b>：双击图形直接输入</li>
           <li><b>连线</b>：从图形右侧 / 底部圆点拖到另一图形的左侧 / 顶部圆点</li>
-          <li><b>连线标签</b>：点一下连线，在下方输入「是 / 否」</li>
+          <li><b>连线标签</b>：点一下连线，在下方输入「是 / 否」（也可双击标签改）</li>
+          <li><b>改样式</b>：选中图形或连线后，右侧属性面板可调填充色 / 边框 / 线宽 / 字号 / 箭头</li>
+          <li><b>导出</b>：顶部「导出 SVG / PNG」把当前流程图存成图片</li>
           <li><b>删除</b>：选中图形或连线后按 Delete</li>
         </ul>
       </div>
@@ -145,13 +149,14 @@
             <div
               class="fc-node"
               :class="['shape-' + (sp.data?.shape || 'rect'), { editing: editingId === sp.id, selected: selectedId === sp.id }]"
+              :style="nodeCssVars(sp.data?.style)"
               @dblclick.stop="startEdit(sp.id)"
             >
               <Handle :id="sp.id + '-t'" type="target" :position="Position.Top" />
               <Handle :id="sp.id + '-l'" type="target" :position="Position.Left" />
               <Handle :id="sp.id + '-b'" type="source" :position="Position.Bottom" />
               <Handle :id="sp.id + '-r'" type="source" :position="Position.Right" />
-              <div class="fc-shape" />
+              <div class="fc-shape" :style="shapeStyle(sp.data?.style)" />
               <div class="fc-body">
                 <input
                   v-if="editingId === sp.id"
@@ -170,8 +175,8 @@
             <BaseEdge
               :id="esp.id"
               :path="bezier(esp).path"
-              :marker-end="esp.markerEnd"
-              :style="edgeStyle"
+              :marker-end="esp.markerEnd || defaultMarker"
+              :style="edgeStyleOf(esp)"
             />
             <EdgeLabelRenderer>
               <div
@@ -184,6 +189,33 @@
             </EdgeLabelRenderer>
           </template>
         </VueFlow>
+
+        <!-- 右侧属性面板：选中图形/连线后调整外观（对齐设计器属性栏） -->
+        <div v-if="editing && (selectedId || selectedEdgeId)" class="fc-inspector" @mousedown.stop @click.stop>
+          <div class="fci-head">
+            <span>{{ selectedEdgeId ? '连线样式' : '图形样式' }}</span>
+            <button class="fci-close" title="关闭" @click="clearSelection">×</button>
+          </div>
+          <template v-if="selectedEdgeId">
+            <label class="fci-row"><span>连线色</span><input type="color" :value="edgeForm.stroke" @input="setEdgeStyle('stroke', $event.target.value)" /></label>
+            <label class="fci-row"><span>线宽</span><input type="number" min="0.5" max="8" step="0.5" :value="edgeForm.strokeWidth" @input="setEdgeStyle('strokeWidth', Number($event.target.value))" /></label>
+            <label class="fci-row"><span>箭头</span>
+              <select :value="edgeForm.arrow" @change="setEdgeArrow($event.target.value)">
+                <option value="closed">闭合箭头</option>
+                <option value="open">开放箭头</option>
+                <option value="none">无箭头</option>
+              </select>
+            </label>
+          </template>
+          <template v-else>
+            <label class="fci-row"><span>填充色</span><input type="color" :value="nodeForm.fill" @input="setNodeStyle('fill', $event.target.value)" /></label>
+            <label class="fci-row"><span>边框色</span><input type="color" :value="nodeForm.stroke" @input="setNodeStyle('stroke', $event.target.value)" /></label>
+            <label class="fci-row"><span>边框宽</span><input type="number" min="0.5" max="8" step="0.5" :value="nodeForm.strokeWidth" @input="setNodeStyle('strokeWidth', Number($event.target.value))" /></label>
+            <label class="fci-row"><span>文字色</span><input type="color" :value="nodeForm.color" @input="setNodeStyle('color', $event.target.value)" /></label>
+            <label class="fci-row"><span>字号</span><input type="number" min="10" max="28" :value="nodeForm.fontSize" @input="setNodeStyle('fontSize', Number($event.target.value))" /></label>
+            <button class="kb-fc-btn fci-reset" @click="resetNodeStyle">恢复默认样式</button>
+          </template>
+        </div>
       </div>
 
       <!-- 编辑态：上下文操作条 -->
@@ -215,7 +247,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import {
   VueFlow, useVueFlow, MarkerType, Handle, Position,
@@ -288,6 +320,177 @@ const edgeOptions = {
 }
 const edgeStyle = { stroke: '#94a3b8', strokeWidth: 1.5 }
 
+// ---------- 属性面板：图形 / 连线的外观（选中后右侧浮层调整，样式写进 data 持久化） ----------
+const defaultMarker = edgeOptions.markerEnd
+const nodeForm = reactive({ fill: '#dbeafe', stroke: '#3b82f6', strokeWidth: 1.5, color: '#1e3a8a', fontSize: 13 })
+const edgeForm = reactive({ stroke: '#94a3b8', strokeWidth: 1.5, arrow: 'closed' })
+
+function nodeCssVars(s) {
+  const o = {}
+  if (s?.fill) o['--fc-fill'] = s.fill          // clip 形状内层 ::before 用
+  if (s?.color) o.color = s.color
+  if (s?.fontSize) o.fontSize = s.fontSize + 'px'
+  return o
+}
+function shapeStyle(s) {
+  const o = {}
+  if (s?.fill) o.background = s.fill
+  if (s?.stroke) { o.borderColor = s.stroke; o.borderStyle = 'solid' }
+  if (s?.strokeWidth) o.borderWidth = s.strokeWidth + 'px'
+  return o
+}
+function edgeStyleOf(esp) {
+  const st = esp?.style || edgeStyle
+  return { stroke: st.stroke || edgeStyle.stroke, strokeWidth: st.strokeWidth ?? edgeStyle.strokeWidth }
+}
+function currentNode() { return selectedId.value ? findNode(selectedId.value) : null }
+function currentEdge() { return selectedEdgeId.value ? edges.value.find((e) => e.id === selectedEdgeId.value) : null }
+function syncForms() {
+  const n = currentNode()
+  if (n) {
+    const s = n.data?.style || {}
+    nodeForm.fill = s.fill || '#dbeafe'
+    nodeForm.stroke = s.stroke || '#3b82f6'
+    nodeForm.strokeWidth = s.strokeWidth ?? 1.5
+    nodeForm.color = s.color || '#1e3a8a'
+    nodeForm.fontSize = s.fontSize ?? 13
+  }
+  const e = currentEdge()
+  if (e) {
+    const st = e.style || edgeStyle
+    edgeForm.stroke = st.stroke || edgeStyle.stroke
+    edgeForm.strokeWidth = st.strokeWidth ?? edgeStyle.strokeWidth
+    edgeForm.arrow = e.markerEnd === null ? 'none'
+      : (e.markerEnd?.type === MarkerType.ArrowOpen ? 'open' : 'closed')
+  }
+}
+watch([selectedId, selectedEdgeId, editing], syncForms)
+
+function setNodeStyle(key, val) {
+  const id = selectedId.value
+  if (!id) return
+  setNodes(nodes.value.map((n) => n.id === id
+    ? { ...n, data: { ...n.data, style: { ...(n.data?.style || {}), [key]: val } } }
+    : n))
+  nodeForm[key] = val
+  dirty.value = true
+}
+function resetNodeStyle() {
+  const id = selectedId.value
+  if (!id) return
+  setNodes(nodes.value.map((n) => n.id === id ? { ...n, data: { ...n.data, style: {} } } : n))
+  Object.assign(nodeForm, { fill: '#dbeafe', stroke: '#3b82f6', strokeWidth: 1.5, color: '#1e3a8a', fontSize: 13 })
+  dirty.value = true
+}
+function setEdgeStyle(key, val) {
+  const id = selectedEdgeId.value
+  if (!id) return
+  setEdges(edges.value.map((e) => e.id === id
+    ? { ...e, style: { ...(e.style || { ...edgeStyle }), [key]: val } }
+    : e))
+  edgeForm[key] = val
+  dirty.value = true
+}
+function setEdgeArrow(v) {
+  const id = selectedEdgeId.value
+  if (!id) return
+  const markerEnd = v === 'none' ? null
+    : { type: v === 'open' ? MarkerType.ArrowOpen : MarkerType.ArrowClosed, color: edgeForm.stroke }
+  setEdges(edges.value.map((e) => e.id === id ? { ...e, markerEnd } : e))
+  edgeForm.arrow = v
+  dirty.value = true
+}
+function clearSelection() { selectedId.value = null; selectedEdgeId.value = null }
+
+// ---------- 导出：零依赖 SVG 生成 + SVG→PNG（不引入 html-to-image 之类大包） ----------
+function buildSvg() {
+  const ns = nodes.value, es = edges.value
+  if (!ns.length) { ElMessage.warning('画布为空，无法导出'); return null }
+  const sizeOf = (n) => {
+    const sh = n.data?.shape || 'rect'
+    if (sh === 'circle') return { w: 72, h: 72 }
+    if (sh === 'diamond') return { w: 110, h: 70 }
+    if (['database', 'preprocess', 'hexagon', 'manual', 'delay', 'document', 'data', 'step'].includes(sh)) return { w: 120, h: 56 }
+    return { w: 110, h: 46 }
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  ns.forEach((n) => {
+    const { w, h } = sizeOf(n)
+    minX = Math.min(minX, n.position.x); minY = Math.min(minY, n.position.y)
+    maxX = Math.max(maxX, n.position.x + w); maxY = Math.max(maxY, n.position.y + h)
+  })
+  const pad = 40, W = Math.ceil(maxX - minX + pad * 2), H = Math.ceil(maxY - minY + pad * 2)
+  const X = (v) => Math.round(v - minX + pad), Y = (v) => Math.round(v - minY + pad)
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]))
+  const p = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
+    `<rect width="100%" height="100%" fill="#ffffff"/>`,
+    `<defs><marker id="fc-arr" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#64748b"/></marker></defs>`]
+  es.forEach((e) => {
+    const a = ns.find((n) => n.id === e.source), b = ns.find((n) => n.id === e.target)
+    if (!a || !b) return
+    const sa = sizeOf(a), sb = sizeOf(b)
+    const x1 = X(a.position.x + sa.w / 2), y1 = Y(a.position.y + sa.h / 2)
+    const x2 = X(b.position.x + sb.w / 2), y2 = Y(b.position.y + sb.h / 2)
+    const st = e.style || edgeStyle
+    const color = st.stroke || edgeStyle.stroke, wd = st.strokeWidth ?? 1.5
+    const noArrow = e.markerEnd === null
+    p.push(`<path d="M${x1},${y1} C${x1},${Math.round((y1 + y2) / 2)} ${x2},${Math.round((y1 + y2) / 2)} ${x2},${y2}" fill="none" stroke="${esc(color)}" stroke-width="${wd}"${noArrow ? '' : ' marker-end="url(#fc-arr)"'}/>`)
+    const lab = e.data?.label
+    if (lab) {
+      const mx = Math.round((x1 + x2) / 2), my = Math.round((y1 + y2) / 2)
+      p.push(`<rect x="${mx - 30}" y="${my - 11}" width="60" height="20" rx="6" fill="#fff" stroke="#e2e8f0"/>`)
+      p.push(`<text x="${mx}" y="${my + 3}" text-anchor="middle" font-size="12" fill="#475569">${esc(lab)}</text>`)
+    }
+  })
+  ns.forEach((n) => {
+    const { w, h } = sizeOf(n), x = X(n.position.x), y = Y(n.position.y)
+    const sh = n.data?.shape || 'rect', st = n.data?.style || {}
+    const fill = st.fill || '#e8f1ff', stroke = st.stroke || '#3b82f6'
+    const sw = st.strokeWidth ?? 1.5, color = st.color || '#1e293b', fs = st.fontSize || 13
+    const cx = x + w / 2, cy = y + h / 2
+    if (sh === 'circle' || sh === 'ellipse') {
+      p.push(`<ellipse cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}" fill="${esc(fill)}" stroke="${esc(stroke)}" stroke-width="${sw}"/>`)
+    } else if (sh === 'diamond') {
+      p.push(`<polygon points="${cx},${y} ${x + w},${cy} ${cx},${y + h} ${x},${cy}" fill="${esc(fill)}" stroke="${esc(stroke)}" stroke-width="${sw}"/>`)
+    } else {
+      p.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${sh === 'delay' ? 18 : 4}" fill="${esc(fill)}" stroke="${esc(stroke)}" stroke-width="${sw}"/>`)
+    }
+    p.push(`<text x="${cx}" y="${cy + fs / 3}" text-anchor="middle" font-size="${fs}" font-weight="600" fill="${esc(color)}">${esc(n.data?.label || '')}</text>`)
+  })
+  p.push('</svg>')
+  return { svg: p.join(''), w: W, h: H }
+}
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = name
+  document.body.appendChild(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+function exportSvg() {
+  const out = buildSvg()
+  if (!out) return
+  downloadBlob(new Blob([out.svg], { type: 'image/svg+xml;charset=utf-8' }), 'flowchart.svg')
+  ElMessage.success('已导出 SVG')
+}
+function exportPng() {
+  const out = buildSvg()
+  if (!out) return
+  const url = URL.createObjectURL(new Blob([out.svg], { type: 'image/svg+xml;charset=utf-8' }))
+  const img = new Image()
+  img.onload = () => {
+    const c = document.createElement('canvas')
+    c.width = out.w * 2; c.height = out.h * 2
+    const ctx = c.getContext('2d')
+    ctx.scale(2, 2); ctx.drawImage(img, 0, 0)
+    c.toBlob((b) => { if (b) { downloadBlob(b, 'flowchart.png'); ElMessage.success('已导出 PNG') } }, 'image/png')
+    URL.revokeObjectURL(url)
+  }
+  img.onerror = () => { ElMessage.error('导出失败'); URL.revokeObjectURL(url) }
+  img.src = url
+}
+
 // ---------- 锁状态 ----------
 const lockInfo = computed(() => {
   try {
@@ -346,7 +549,7 @@ function parseData() {
       id: n.id,
       type: 'fcNode',
       position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
-      data: { label: n.data?.label ?? '', shape: n.data?.shape || 'rect' },
+      data: { label: n.data?.label ?? '', shape: n.data?.shape || 'rect', style: n.data?.style || {} },
     }))
     const es = (raw.edges || []).map((e) => ({
       id: e.id,
@@ -356,6 +559,8 @@ function parseData() {
       targetHandle: e.targetHandle ?? `${e.target}-t`,
       type: 'fcEdge',
       data: { label: e.data?.label ?? '' },
+      ...(e.style ? { style: e.style } : {}),
+      ...(e.markerEnd ? { markerEnd: e.markerEnd } : {}),
     }))
     return { nodes: ns, edges: es }
   }
@@ -371,7 +576,7 @@ function serialize() {
     id: n.id,
     type: 'fcNode',
     position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
-    data: { label: n.data?.label ?? '', shape: n.data?.shape || 'rect' },
+    data: { label: n.data?.label ?? '', shape: n.data?.shape || 'rect', style: n.data?.style || {} },
   }))
   const es = edges.value.map((e) => ({
     id: e.id,
@@ -381,6 +586,8 @@ function serialize() {
     targetHandle: e.targetHandle,
     type: 'fcEdge',
     data: { label: e.data?.label ?? '' },
+    ...(e.style ? { style: e.style } : {}),
+    ...(e.markerEnd ? { markerEnd: e.markerEnd } : {}),
   }))
   return { nodes: ns, edges: es }
 }
@@ -728,6 +935,22 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
+/* 右侧属性面板：浮动在画布内，编辑态选中图形/连线时出现 */
+.fc-inspector {
+  position: absolute; right: 10px; top: 10px; z-index: 20; width: 210px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15,23,42,.14); padding: 10px 12px;
+  font-size: 12px; color: #334155;
+}
+.fci-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; margin-bottom: 8px; }
+.fci-close { border: 0; background: transparent; font-size: 16px; line-height: 1; cursor: pointer; color: #94a3b8; }
+.fci-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+.fci-row input[type="color"] { width: 44px; height: 24px; padding: 1px; border: 1px solid #e2e8f0; border-radius: 4px; background: #fff; cursor: pointer; }
+.fci-row input[type="number"], .fci-row select { width: 92px; padding: 3px 6px; font-size: 12px; background: #fff; color: #334155; border: 1px solid #e2e8f0; border-radius: 5px; }
+.fci-reset { width: 100%; margin-top: 8px; }
+html.dark .fc-inspector { background: #1f2130; border-color: #34345a; color: #d5d6e4; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+html.dark .fci-row input[type="number"], html.dark .fci-row select { background: #26283a; border-color: #3b3d5c; color: #e2e8f0; }
+html.dark .fci-row input[type="color"] { background: #26283a; border-color: #3b3d5c; }
 .kb-fc-wrap { margin: 10px 0; }
 .kb-fc {
   border: 1px solid var(--border, #e5e7eb);
@@ -872,19 +1095,19 @@ html.dark .kb-fc-help b { color: #f1f5f9; }
 .shape-ellipse { color: #78350f; }
 .shape-diamond .fc-shape { background: #ef4444; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
 .shape-diamond .fc-shape::before {
-  content: ''; position: absolute; inset: 1.5px; background: #fee2e2;
+  content: ''; position: absolute; inset: 1.5px; background: var(--fc-fill, #fee2e2);
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
 .shape-diamond { color: #991b1b; }
 .shape-document .fc-shape { background: #a855f7; clip-path: polygon(0 0, 100% 0, 100% 84%, 50% 100%, 0 84%); }
 .shape-document .fc-shape::before {
-  content: ''; position: absolute; inset: 1.5px; background: #f3e8ff;
+  content: ''; position: absolute; inset: 1.5px; background: var(--fc-fill, #f3e8ff);
   clip-path: polygon(0 0, 100% 0, 100% 84%, 50% 100%, 0 84%);
 }
 .shape-document { color: #6b21a8; }
 .shape-step .fc-shape { background: #0ea5e9; clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%); }
 .shape-step .fc-shape::before {
-  content: ''; position: absolute; inset: 1.5px; background: #e0f2fe;
+  content: ''; position: absolute; inset: 1.5px; background: var(--fc-fill, #e0f2fe);
   clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%);
 }
 .shape-step { color: #075985; }
@@ -893,7 +1116,7 @@ html.dark .kb-fc-help b { color: #f1f5f9; }
    准备=六边形、手动=倒梯形、延迟=D 形半圆） */
 .shape-data .fc-shape { background: #16a34a; clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%); }
 .shape-data .fc-shape::before {
-  content: ''; position: absolute; inset: 1.5px; background: #dcfce7;
+  content: ''; position: absolute; inset: 1.5px; background: var(--fc-fill, #dcfce7);
   clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%);
 }
 .shape-data { color: #14532d; }
@@ -910,13 +1133,13 @@ html.dark .kb-fc-help b { color: #f1f5f9; }
 .shape-preprocess { color: #164e63; }
 .shape-hexagon .fc-shape { background: #ea580c; clip-path: polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%); }
 .shape-hexagon .fc-shape::before {
-  content: ''; position: absolute; inset: 1.5px; background: #ffedd5;
+  content: ''; position: absolute; inset: 1.5px; background: var(--fc-fill, #ffedd5);
   clip-path: polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%);
 }
 .shape-hexagon { color: #7c2d12; }
 .shape-manual .fc-shape { background: #db2777; clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%); }
 .shape-manual .fc-shape::before {
-  content: ''; position: absolute; inset: 1.5px; background: #fce7f3;
+  content: ''; position: absolute; inset: 1.5px; background: var(--fc-fill, #fce7f3);
   clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
 }
 .shape-manual { color: #831843; }
