@@ -503,7 +503,7 @@ onUnmounted(() => {
           </div>
           <div class="row">
             <span class="k">用途</span>
-            <span class="v">{{ m.kind === 'IMAGE' ? '文生图' : m.kind === 'VIDEO' ? '文生视频' : m.kind === 'EMBEDDING' ? '语义检索 / 向量化' : '对话 / 出题' }}</span>
+            <span class="v">{{ m.kind === 'IMAGE' ? '文生图' : m.kind === 'VIDEO' ? '文生视频' : m.kind === 'EMBEDDING' ? '语义检索 / 向量化' : '默认（对话 / 出题）' }}</span>
           </div>
           <div class="row">
             <span class="k">Key</span>
@@ -658,12 +658,20 @@ onUnmounted(() => {
     <el-dialog v-model="dialog" :title="form.id ? '编辑模型' : '新增模型'" width="560px">
       <el-form label-width="96px">
         <el-form-item label="用途">
-          <el-radio-group v-model="form.kind">
-            <el-radio value="CHAT">对话 / 出题</el-radio>
-            <el-radio value="IMAGE">文生图</el-radio>
-            <el-radio value="VIDEO">文生视频</el-radio>
-            <el-radio value="EMBEDDING">语义检索（向量）</el-radio>
-          </el-radio-group>
+          <!-- 对话 / 出题模型由「AI 能力配置」页分配具体用途，这里不需要选：
+               都不勾选 = 默认的对话模型池成员，只标文生图/文生视频/语义检索这类特殊用途 -->
+          <div class="kind-box">
+            <el-radio-group v-model="form.kind">
+              <el-radio value="IMAGE">文生图</el-radio>
+              <el-radio value="VIDEO">文生视频</el-radio>
+              <el-radio value="EMBEDDING">语义检索（向量）</el-radio>
+            </el-radio-group>
+            <div class="kind-hint">
+              <span>不选即默认「对话 / 出题」模型，由「AI 能力配置」页分配用途</span>
+              <el-button v-if="form.kind && form.kind !== 'CHAT'" link type="primary" size="small"
+                         @click="form.kind = 'CHAT'">恢复为对话模型</el-button>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="平台">
           <el-select v-model="form.provider" style="width: 100%" @change="onProviderChange" :disabled="!!form.id">
@@ -735,6 +743,9 @@ onUnmounted(() => {
 
 <style scoped>
 /* ===== 页头 ===== */
+.kind-box { width: 100%; }
+.kind-hint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; font-size: 12px; color: #94a3b8; }
+html.dark .kind-hint { color: #7c7d96; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .ph-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .ph-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
