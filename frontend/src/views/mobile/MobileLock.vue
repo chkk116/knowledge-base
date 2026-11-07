@@ -141,7 +141,7 @@ function pickTimeout(v) {
         </div>
       </template>
 
-      <div class="tip">密码只保存在本机（加盐哈希），不会上传服务器；忘记密码需重新登录并重设。</div>
+      <div class="tip">应用锁密码只保存在本机（加盐哈希），不会上传服务器，请妥善保管；账号密码请通过登录页「忘记密码」流程重置。</div>
     </div>
   </div>
 </template>

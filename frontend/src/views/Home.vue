@@ -373,7 +373,7 @@ onMounted(async () => {
 .side-rail { width: 280px; flex-shrink: 0; position: sticky; top: 24px; }
 .side-rail.rail-hidden { display: none; }
 .search .bar { display: flex; gap: 8px; }
-.q { flex: 1; padding: 12px 14px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 10px; outline: none; }
+.q { flex: 1; min-width: 0; padding: 12px 14px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 10px; outline: none; }
 .q:focus { border-color: #4f46e5; }
 .q.shake { border-color: #ef4444; animation: kb-shake .45s; }
 @keyframes kb-shake {
@@ -383,7 +383,7 @@ onMounted(async () => {
   60% { transform: translateX(-5px); }
   80% { transform: translateX(5px); }
 }
-.go { padding: 12px 18px; border: none; border-radius: 10px; background: #4f46e5; color: #fff; font-size: 15px; cursor: pointer; }
+.go { flex: none; white-space: nowrap; padding: 12px 18px; border: none; border-radius: 10px; background: #4f46e5; color: #fff; font-size: 15px; cursor: pointer; }
 .go.ghost { background: #e2e8f0; color: #334155; }
 .filters { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
 .tagcloud { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 2px; }

@@ -33,6 +33,8 @@ import MarkdownIt from 'markdown-it'
 
 const router = useRouter()
 const auth = useAuthStore()
+// 会话 id 按账号隔离（与桌面端同规则，避免换账号后请求上一个账号的会话）
+const convStorageKey = () => 'kb_ai_current_conversation:' + (auth.user?.id || auth.user?.username || 'anon')
 
 const conversations = ref([])
 const currentId = ref(null)
@@ -198,7 +200,7 @@ async function selectConversation(id) {
   historyOpen.value = false
   if (currentId.value === id) return
   currentId.value = id
-  try { localStorage.setItem('kb_ai_current_conversation', String(id)) } catch {}
+  try { localStorage.setItem(convStorageKey(), String(id)) } catch {}
   await loadMessages(id)
   scrollToBottom()
 }
@@ -210,7 +212,7 @@ async function newConversation() {
     convMessages.value[data.id] = []
     conversations.value.unshift(data)
     currentId.value = data.id
-    try { localStorage.setItem('kb_ai_current_conversation', String(data.id)) } catch {}
+    try { localStorage.setItem(convStorageKey(), String(data.id)) } catch {}
     input.value = ''
   } catch {
     window.__kbMsg?.error('创建会话失败')
@@ -827,7 +829,7 @@ onMounted(async () => {
   await loadModels()
   await loadConversations()
   let saved = null
-  try { saved = localStorage.getItem('kb_ai_current_conversation') } catch {}
+  try { saved = localStorage.getItem(convStorageKey()) } catch {}
   if (saved && conversations.value.some((c) => String(c.id) === saved)) {
     await selectConversation(Number(saved))
   }

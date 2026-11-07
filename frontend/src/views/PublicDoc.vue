@@ -88,17 +88,10 @@ onMounted(async () => {
 })
 
 // 「禁止复制」：拦住选中/右键/复制。只是提高门槛，不是安全边界（截图、保存网页仍可获取）
+const BLOCKED_EVENTS = ['contextmenu', 'copy', 'cut']
 function block(e) { if (noCopy.value) e.preventDefault() }
-onMounted(() => {
-  document.addEventListener('contextmenu', block)
-  document.addEventListener('copy', block)
-  document.addEventListener('cut', block)
-})
-onUnmounted(() => {
-  document.removeEventListener('contextmenu', block)
-  document.removeEventListener('copy', block)
-  document.removeEventListener('cut', block)
-})
+onMounted(() => BLOCKED_EVENTS.forEach((ev) => document.addEventListener(ev, block)))
+onUnmounted(() => BLOCKED_EVENTS.forEach((ev) => document.removeEventListener(ev, block)))
 </script>
 
 <style scoped>

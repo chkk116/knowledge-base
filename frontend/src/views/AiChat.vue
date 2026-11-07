@@ -360,7 +360,8 @@ const savingInstructions = ref(false)
 const loadingMessages = ref(false)
 const loadingConversations = ref(false)
 
-const STORAGE_KEY = 'kb_ai_current_conversation'
+// 会话 id 按账号隔离：同一台设备换账号登录后不会请求上一个账号的会话（外部复审 2026-11-07）
+const convStorageKey = () => 'kb_ai_current_conversation:' + (auth.user?.id || auth.user?.username || 'anon')
 
 const suggestions = [
   '如何发布一篇文章？',
@@ -506,7 +507,7 @@ async function selectConversation(id) {
   closeDrawerOnMobile()
   if (currentId.value === id) return
   currentId.value = id
-  localStorage.setItem(STORAGE_KEY, String(id))
+  localStorage.setItem(convStorageKey(), String(id))
   await loadMessages(id)
   scrollToBottom()
 }
@@ -519,7 +520,7 @@ async function newConversation() {
     convMessages.value[data.id] = []
     conversations.value.unshift(data)
     currentId.value = data.id
-    localStorage.setItem(STORAGE_KEY, String(data.id))
+    localStorage.setItem(convStorageKey(), String(data.id))
     input.value = ''
     closeDrawerOnMobile()
   } catch {
@@ -637,7 +638,7 @@ async function sendAgent(raw) {
     const t = new Date(top.createdAt || top.updatedAt || 0).getTime()
     if (!t || Date.now() - t < 30 * 60 * 1000) {
       convId = currentId.value = top.id
-      localStorage.setItem(STORAGE_KEY, String(top.id))
+      localStorage.setItem(convStorageKey(), String(top.id))
       if (!convMessages.value[top.id]) { try { await loadMessages(top.id) } catch (e) {} }
     }
   }
@@ -648,7 +649,7 @@ async function sendAgent(raw) {
       convMessages.value[data.id] = []
       conversations.value.unshift(data)
       currentId.value = data.id
-      localStorage.setItem(STORAGE_KEY, String(data.id))
+      localStorage.setItem(convStorageKey(), String(data.id))
       convId = data.id
     } catch {
       ElMessage.error('创建会话失败')
@@ -863,7 +864,7 @@ async function send(text) {
     const t = new Date(top.createdAt || top.updatedAt || 0).getTime()
     if (!t || Date.now() - t < 30 * 60 * 1000) {
       convId = currentId.value = top.id
-      localStorage.setItem(STORAGE_KEY, String(top.id))
+      localStorage.setItem(convStorageKey(), String(top.id))
       if (!convMessages.value[top.id]) { try { await loadMessages(top.id) } catch (e) {} }
     }
   }
@@ -874,7 +875,7 @@ async function send(text) {
       convMessages.value[data.id] = []
       conversations.value.unshift(data)
       currentId.value = data.id
-      localStorage.setItem(STORAGE_KEY, String(data.id))
+      localStorage.setItem(convStorageKey(), String(data.id))
       convId = data.id
     } catch {
       ElMessage.error('创建会话失败')
@@ -1016,7 +1017,7 @@ async function removeConversation(id, e) {
     await deleteConversation(id)
     conversations.value = conversations.value.filter((c) => c.id !== id)
     delete convMessages.value[id]
-    if (currentId.value === id) { currentId.value = null; localStorage.removeItem(STORAGE_KEY) }
+    if (currentId.value === id) { currentId.value = null; localStorage.removeItem(convStorageKey()) }
     ElMessage.success('已删除')
   } catch (e) {
     if (e !== 'cancel') ElMessage.error('删除失败')
@@ -1065,7 +1066,7 @@ async function removeSelectedConvs() {
     // 当前正在看的会话被删掉了 → 切到剩下的第一条，别停在空白页
     if (ids.some((id) => String(id) === String(currentId.value))) {
       currentId.value = conversations.value[0]?.id ?? null
-      if (currentId.value == null) localStorage.removeItem(STORAGE_KEY)
+      if (currentId.value == null) localStorage.removeItem(convStorageKey())
     }
     ElMessage.success(`已删除 ${ids.length} 个会话`)
     batchMode.value = false
@@ -1274,17 +1275,17 @@ onMounted(async () => {
   await loadModels()
   loadCtxWindow()   // 模型拿到后才能按 id 恢复用户调过的上下文窗口
   await loadConversations()
-  const saved = localStorage.getItem(STORAGE_KEY)
+  const saved = localStorage.getItem(convStorageKey())
   if (saved && conversations.value.some((c) => String(c.id) === saved)) {
     currentId.value = Number(saved)
     await loadMessages(currentId.value)
   } else if (conversations.value.length > 0) {
     currentId.value = conversations.value[0].id
-    localStorage.setItem(STORAGE_KEY, String(currentId.value))
+    localStorage.setItem(convStorageKey(), String(currentId.value))
     await loadMessages(currentId.value)
   } else {
     currentId.value = null
-    localStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem(convStorageKey())
   }
 })
 
@@ -1295,7 +1296,7 @@ onBeforeUnmount(() => {
   bodyRef.value?.removeEventListener('click', onBodyClick)
 })
 
-watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id)) })
+watch(currentId, (id) => { if (id) localStorage.setItem(convStorageKey(), String(id)) })
 </script>
 
 <template>

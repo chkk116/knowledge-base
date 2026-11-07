@@ -63,7 +63,12 @@ function onCaptchaOk(token) {
 }
 
 function onForgot() {
-  window.__kbMsgBox?.alert('请联系系统管理员重置密码。', '忘记密码', { confirmButtonText: '知道了' })
+  // 与桌面端保持一致：管理员在「用户管理」生成一次性重置链接（30 分钟有效），或后台配好 SMTP 后由邮件发送
+  window.__kbMsgBox?.alert(
+    '请联系管理员在「用户管理」中为你生成一次性重置链接（30 分钟内有效），打开链接即可自己设置新密码。',
+    '忘记密码',
+    { confirmButtonText: '知道了' }
+  )
 }
 
 // ---------- 粒子连线动画（移动端漂移版；prefers-reduced-motion 只画静态一帧） ----------

@@ -143,13 +143,6 @@ async function submit() {
   captchaOpen.value = true
 }
 
-function onForgot() {
-  ElMessageBox.alert(
-    '请联系系统管理员重置密码。',
-    { confirmButtonText: '知道了', type: 'info' }
-  )
-}
-
 // 3D 插画的微妙视差（鼠标移动驱动 transform 微调）
 const sceneRef = ref(null)
 const onSceneMove = (e) => {
@@ -503,7 +496,6 @@ function startParticles() {
           <el-button type="primary" size="large" class="login-submit" :loading="loading" @click="submit">
             {{ ldapMode ? '域账号登录' : '立即登录' }}
           </el-button>
-          <div class="forgot-row"><span @click="showForgot">忘记密码？</span></div>
           <div v-if="ldapEnabled" class="ldap-switch">
             <span @click="ldapMode = !ldapMode">{{ ldapMode ? '← 返回普通登录' : '使用域账号（AD/LDAP）登录' }}</span>
           </div>
@@ -535,7 +527,7 @@ function startParticles() {
         </div>
 
         <div class="footer-tip">
-          <span @click="onForgot">忘记密码？</span>
+          <span @click="showForgot">忘记密码？</span>
           <i class="ft-sep">·</i>
           <span @click="router.push('/privacy')">隐私政策</span>
           <i class="ft-sep">·</i>
