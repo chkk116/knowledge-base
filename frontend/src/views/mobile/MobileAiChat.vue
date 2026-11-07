@@ -29,6 +29,7 @@ import { createShareDoc, updateShareDoc, getShareDoc } from '../../api/docShare'
 import { shareDocPath, normalizeNavPath } from '../../utils/docPath'
 import { resolveDefaultSpaceId } from '../../utils/spaceResolver'
 import { agentCreateQuestions } from '../../utils/questionGen'
+import { sanitizeInput, mdToHtml, buildQuestionWithAttachments } from '../../utils/aiPure'
 import MarkdownIt from 'markdown-it'
 
 const router = useRouter()
@@ -300,44 +301,6 @@ function answerAgentAsk(val) {
  * 轻量 Markdown → HTML：Agent 写/改文档时用（文档正文存的是富文本 HTML）。
  * 只支持标题 / 列表 / 加粗 / 代码块 / 段落 —— 够 Agent 产出用，且零依赖。
  */
-function mdToHtml(md) {
-  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')   // 引号必须转义：alt/src 属性位置可被注入 onerror
-  const out = []
-  let inCode = false
-  let inList = false
-  const closeList = () => { if (inList) { out.push('</ul>'); inList = false } }
-  for (const raw of String(md || '').split('\n')) {
-    const line = raw.replace(/\s+$/, '')
-    if (/^```/.test(line)) {
-      closeList()
-      out.push(inCode ? '</pre>' : '<pre>')
-      inCode = !inCode
-      continue
-    }
-    if (inCode) { out.push(esc(line)); continue }
-    // 图片：![说明](url) —— Agent 用 list_my_files 拿到 url 后这样插入
-    const img = line.match(/^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/)
-    if (img) { closeList(); out.push(`<img src="${esc(img[2])}" alt="${esc(img[1])}"/>`); continue }
-    // 视频 / 音频：@[video](url) / @[audio](url)（HTML 标签会被转义，故用专门语法）
-    const media = line.match(/^@\[(video|audio)\]\(([^)\s]+)\)\s*$/)
-    if (media) {
-      closeList()
-      out.push(`<${media[1]} src="${esc(media[2])}" controls></${media[1]}>`)
-      continue
-    }
-    const h = line.match(/^(#{1,4})\s+(.*)$/)
-    if (h) { closeList(); out.push(`<h${h[1].length}>${esc(h[2])}</h${h[1].length}>`); continue }
-    const li = line.match(/^\s*[-*]\s+(.*)$/)
-    if (li) { if (!inList) { out.push('<ul>'); inList = true } out.push(`<li>${esc(li[1])}</li>`); continue }
-    closeList()
-    if (!line.trim()) continue
-    out.push(`<p>${esc(line).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`)
-  }
-  closeList()
-  if (inCode) out.push('</pre>')
-  return out.join('')
-}
-
 // ---------- 附件 ----------
 function pickFiles() { fileInput.value?.click() }
 
@@ -438,14 +401,6 @@ async function onFilesPicked(e) {
 }
 
 /** 把文本类内容（文本文件 + 已本地识别的图片）拼进提问；「看图」的图片由 images 走多模态 */
-function buildQuestionWithAttachments(q) {
-  const texts = attachments.value.filter((a) => a.text)
-  if (!texts.length) return q
-  const parts = texts.map((a, i) =>
-    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 本地识别文字】' : '】') + '\n' + a.text
-  )
-  return parts.join('\n\n') + '\n\n【提问】' + q
-}
 /** 发送前把附件文字汇总为一段（Agent 两种引擎共用） */
 const attachmentsText = computed(() => {
   const texts = attachments.value.filter((a) => a.text)
@@ -481,7 +436,7 @@ async function sendAgent(convId) {
   const ep = (localStorage.getItem('kb_agent_endpoint') || '').trim()
   if (!ep) { openAgentCfg(); return }
   const key = localStorage.getItem('kb_agent_key') || ''
-  const q = buildQuestionWithAttachments(input.value.trim())
+  const q = buildQuestionWithAttachments(input.value.trim(), attachments.value)
   const fileNames = attachments.value.map((a) => a.name)
 
   const cur = convMessages.value[convId] || []
@@ -789,7 +744,7 @@ async function send(text) {
   // 「识文字」模式的图片先本地 OCR（文字拼进提问，离线也能用）；「看图」模式的收集为多模态 images
   await ocrMarkedAttachments()
   const images = attachments.value.filter((a) => a.kind === 'image' && a.mode === 'vision' && a.dataUrl).map((a) => a.dataUrl)
-  const finalQ = buildQuestionWithAttachments(q)
+  const finalQ = buildQuestionWithAttachments(q, attachments.value)
   input.value = ''
   attachments.value = []
   loading.value = true

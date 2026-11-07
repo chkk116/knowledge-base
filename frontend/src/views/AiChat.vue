@@ -24,6 +24,7 @@ import { createShareDoc, updateShareDoc, getShareDoc } from '../api/docShare'
 import { shareDocPath, normalizeNavPath } from '../utils/docPath'
 import { resolveDefaultSpaceId } from '../utils/spaceResolver'
 import { agentCreateQuestions } from '../utils/questionGen'
+import { mkey, sanitizeAnswer, sanitizeInput, cleanTitle, mdToHtml, buildQuestionWithAttachments } from '../utils/aiPure'
 import {
   estimateTokens, formatTokens, pickHistory, historyToText,
   COMPACT_INSTRUCTION, THINK_LEVELS, thinkPrefix,
@@ -117,7 +118,7 @@ function answerAgentAsk(val) {
 const modelList = ref([])
 const selectedModelId = ref('')
 // 模型 key：系统模型 s:<id>、自己的模型 u:<id>（两类 id 各自自增可能重复，必须带前缀区分）
-function mkey(m) { return (m.scope === 'user' ? 'u:' : 's:') + m.id }
+
 function modelPayload() {
   const v = String(selectedModelId.value || '')
   if (!v) return { modelId: null }
@@ -534,98 +535,10 @@ async function newConversation() {
  * 轻量 Markdown → HTML：Agent 写/改文档时用（文档正文存的是富文本 HTML）。
  * 只支持标题 / 列表 / 加粗 / 代码块 / 段落 —— 够 Agent 产出用，且零依赖。
  */
-function mdToHtml(md) {
-  const src0 = String(md || '')
-  // 正文本身是 HTML（Agent 读回原文再写回）：直接返回，避免二次转义成一堆 &lt;p&gt;。
-  // 安全性由后端 DocumentController 入库时的 HtmlSanitizer.sanitize 保证。
-  if (/<(h[1-6]|p|ul|ol|li|div|table|blockquote|video|img|figure)\b/i.test(src0)
-      && !/^#{1,6}\s/m.test(src0)) {
-    return src0
-  }
-  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')   // 引号必须转义：alt/src 属性位置可被注入 onerror（外部复审 2026-10-08）
-  const out = []
-  let inCode = false
-  let inList = false
-  const closeList = () => { if (inList) { out.push('</ul>'); inList = false } }
-  for (const raw of String(md || '').split('\n')) {
-    const line = raw.replace(/\s+$/, '')
-    if (/^```/.test(line)) {
-      closeList()
-      out.push(inCode ? '</pre>' : '<pre>')
-      inCode = !inCode
-      continue
-    }
-    if (inCode) { out.push(esc(line)); continue }
-    // 图片：![说明](url) —— Agent 用 list_my_files 拿到 url 后这样插入
-    const img = line.match(/^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/)
-    if (img) { closeList(); out.push(`<img src="${esc(img[2])}" alt="${esc(img[1])}"/>`); continue }
-    // Agent 有时写 HTML 图片（<p align="center"><img src width></p> 或单行 <img>）：
-    // 只白名单提取 src/alt/width，源必须本站 /uploads 或 data:image，其余 HTML 仍按文本转义
-    const htmlImg = line.match(/^(?:<p[^>]*>\s*)?<img\b([^>]*)>(?:\s*<\/p>)?\s*$/i)
-    if (htmlImg) {
-      const attrs = htmlImg[1]
-      const srcM = attrs.match(/src\s*=\s*["']([^"']+)["']/i)
-      const src = srcM ? srcM[1] : ''
-      if (/^\/(uploads|emojis)\//i.test(src) || /^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(src)) {
-        const altM = attrs.match(/alt\s*=\s*["']([^"']*)["']/i)
-        const wM = attrs.match(/width\s*=\s*["']?(\d{1,3}%|\d{2,4})["']?/i)
-        closeList()
-        out.push(`<img class="ai-html-img" src="${esc(src)}" alt="${esc(altM ? altM[1] : '')}"`
-          + (wM ? ` style="max-width:${wM[1].endsWith('%') ? wM[1] : Math.min(Number(wM[1]), 900) + 'px'}"` : '')
-          + ' />')
-        continue
-      }
-    }
-    // 视频 / 音频：@[video](url) / @[audio](url)（HTML 标签会被转义，故用专门语法）
-    const media = line.match(/^@\[(video|audio)\]\(([^)\s]+)\)\s*$/)
-    if (media) {
-      closeList()
-      out.push(`<${media[1]} src="${esc(media[2])}" controls></${media[1]}>`)
-      continue
-    }
-    const h = line.match(/^(#{1,4})\s+(.*)$/)
-    if (h) { closeList(); out.push(`<h${h[1].length}>${esc(h[2])}</h${h[1].length}>`); continue }
-    const li = line.match(/^\s*[-*]\s+(.*)$/)
-    if (li) { if (!inList) { out.push('<ul>'); inList = true } out.push(`<li>${esc(li[1])}</li>`); continue }
-    closeList()
-    if (!line.trim()) continue
-    out.push(`<p>${esc(line).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`)
-  }
-  closeList()
-  if (inCode) out.push('</pre>')
-  return out.join('')
-}
-
 /**
  * Agent 模式：ReAct 编排 + 本地工具（检索 / 读文档 / 写文档 / 改文档 / 跳转）。
  * 与移动端同一套引擎（utils/localAgent），走「通用」模式的无状态调用，不进后端会话。
  */
-/** 回答里若混入 Agent 内部指令（模型复述 prompt），整段替换成提示，避免一屏手册 */
-function sanitizeAnswer(t) {
-  const x = String(t || '')
-  const looksLeaked = x.length > 400
-    && /(工作方式要求|工具列表|可用工具（需要时输出|禁止在回答中复述)/.test(x)
-    && x.includes('TOOL:')
-  if (!looksLeaked) return x
-  return '本次没有生成有效回答，请重试一次。'
-}
-
-/** 剥离 Agent 内部标记（防「重试/回填」把【任务】【最近的对话】当用户输入存库） */
-function sanitizeInput(t) {
-  let x = String(t || '')
-  x = x.replace(/【(任务|最近的对话|本次任务|已执行的步骤与结果|要求|工具返回)】/g, '')
-  x = x.replace(/^\s*(用户|助手)：/gm, '')
-  return x.replace(/\n{3,}/g, '\n\n').trim()
-}
-
-/** 会话标题：取第一行有效文字，剥掉【】包装与思考残留，控制在 20 字内 */
-function cleanTitle(raw) {
-  let t = String(raw || '').split('\n').find((l) => l.trim()) || '新对话'
-  t = t.replace(/【[^】]*】/g, ' ').replace(/<[^>]+>/g, ' ')
-       .replace(/\bthink\b|思考过程|reasoning/gi, ' ').replace(/\s+/g, ' ').trim()
-  return (t || '新对话').slice(0, 20)
-}
-
 async function sendAgent(raw) {
   if (!raw) { ElMessage.warning('请输入任务描述'); return }
   if (loading.value) return
@@ -841,7 +754,7 @@ async function send(text) {
   }
   const fileNames = attachments.value.map((a) => a.name)
   const images = attachments.value.filter((a) => a.kind === 'image' && a.mode === 'vision' && a.dataUrl).map((a) => a.dataUrl)
-  const q = buildQuestionWithAttachments(raw || (images.length ? '请识别并说明这些图片的内容' : ''))
+  const q = buildQuestionWithAttachments(raw || (images.length ? '请识别并说明这些图片的内容' : ''), attachments.value)
 
   // 高消耗确认：图片走多模态约 850 tokens/张，长文本约 1.5 tokens/汉字。
   // 开关与阈值由管理员在「AI 模型管理 → 消息设置」里配置（/api/public/ai-guard），读不到用默认值。
@@ -1190,13 +1103,6 @@ async function onFilesPicked(e) {
 }
 
 /** 把文本类内容（文本文件 + 「识文字」的图片）拼进提问；「看图」的图片由 images 走多模态 */
-function buildQuestionWithAttachments(q) {
-  const texts = attachments.value.filter((a) => a.text)
-  if (!texts.length) return q
-  const parts = texts.map((a, i) =>
-    '【附件 ' + (i + 1) + '：' + a.name + (a.kind === 'image' ? ' · 本地识别文字】' : '】') + '\n' + a.text)
-  return parts.join('\n\n') + '\n\n【提问】' + q
-}
 async function copyAnswer(m) {
   try { await navigator.clipboard.writeText(m.content); ElMessage.success('已复制') }
   catch { ElMessage.warning('复制失败，请手动选择') }

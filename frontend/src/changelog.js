@@ -10,6 +10,17 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.30',
+    date: '2026-11-07',
+    title: 'AI 对话拆分第一步',
+    items: [
+      '桌面端与移动端抽出 6 个共用纯函数到 utils/aiPure.js，不再各维护一份；移动端 mdToHtml 统一到安全加固版',
+      '新增 11 个纯函数单测（node --test，零依赖，覆盖 XSS 转义与图片源白名单）',
+      '顺带修复移动端缺失的 sanitizeInput 定义（此前部分发送分支会报错）',
+      '附件拼接改为显式传参的纯函数，行为不变',
+    ],
+  },
+  {
     version: '1.3.29',
     date: '2026-11-07',
     title: '登录与会话一致性修正',
