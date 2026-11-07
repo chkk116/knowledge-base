@@ -194,6 +194,32 @@ function addTab(r) {
   saveTabs()
 }
 function goTab(path) { if (path !== route.path) router.push(path) }
+
+// 多标签横向滚动：滚轮是垂直 deltaY，浏览器不会自动转成横向滚动，这里显式映射。
+// 触控板横向手势（deltaX）也兼容；滚到两端时不再接管，页面可继续正常纵向滚动。
+const tabScrollEl = ref(null)
+function onTabWheel(e) {
+  const el = e.currentTarget
+  const unit = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? el.clientWidth : 1)
+  const delta = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * unit
+  if (!delta) return
+  const max = el.scrollWidth - el.clientWidth
+  if (max <= 0) return
+  if ((delta < 0 && el.scrollLeft <= 0) || (delta > 0 && el.scrollLeft >= max - 1)) return
+  e.preventDefault()
+  el.scrollLeft = Math.max(0, Math.min(max, el.scrollLeft + delta))
+}
+// 打开/切换标签后把激活项滚进可视区（标签多时新开的总在最右侧，否则用户看不到当前页）
+watch(() => route.path, () => {
+  nextTick(() => {
+    const el = tabScrollEl.value
+    const on = el?.querySelector?.('.tab.on')
+    if (!el || !on) return
+    const left = on.offsetLeft, right = left + on.offsetWidth
+    if (left < el.scrollLeft) el.scrollLeft = Math.max(0, left - 8)
+    else if (right > el.scrollLeft + el.clientWidth) el.scrollLeft = right - el.clientWidth + 8
+  })
+})
 function closeTab(path) {
   const i = tabs.value.findIndex((t) => t.path === path)
   if (i < 0 || tabs.value[i].pinned) return
@@ -1061,7 +1087,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
 
       <!-- 顶部多标签页：首页固定，其余可关闭（参考中后台常见交互） -->
       <nav v-if="tabs.length" class="tabbar">
-        <div class="tabbar-scroll">
+        <div ref="tabScrollEl" class="tabbar-scroll" @wheel="onTabWheel">
           <div v-for="t in tabs" :key="t.path" class="tab" :class="{ on: t.path === route.path }"
                @click="goTab(t.path)" @contextmenu="openTabMenu($event, t)">
             <span v-if="t.path === route.path" class="tab-dot"></span>
