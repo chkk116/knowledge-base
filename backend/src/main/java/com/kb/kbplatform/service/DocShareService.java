@@ -677,6 +677,28 @@ public class DocShareService {
         return s.length() <= max ? s : s.substring(0, max);
     }
 
+    /** 「全部文档」列表的正文条数上限：正文只用于页面检索，超出的文档不带正文 */
+    private static final int MAX_CONTENT_DOCS = 300;
+    /** 「全部文档」列表的条目硬上限：极端数据量下截断并告警（导出不受影响） */
+    private static final int MAX_LIST_DOCS = 5000;
+
+    /**
+     * 「全部文档」列表查询（带护栏）：总量超 5000 篇截断并告警，withContent 时只给前 300 篇带正文。
+     * 导出走 {@link #listAllDocs} 不经这里，保证导出内容完整。
+     * 数据量继续增长时应改为服务端分页（权限过滤需下推到 SQL join）。
+     */
+    public List<SharedDocument> listAllDocsForList(Long userId, boolean sysAdmin, boolean withContent) {
+        List<SharedDocument> docs = listAllDocs(userId, sysAdmin, withContent);
+        if (docs.size() > MAX_LIST_DOCS) {
+            log.warn("全部文档列表超过 {} 篇（实际 {}），已截断；建议改服务端分页", MAX_LIST_DOCS, docs.size());
+            docs = new ArrayList<>(docs.subList(0, MAX_LIST_DOCS));
+        }
+        if (withContent && docs.size() > MAX_CONTENT_DOCS) {
+            for (int i = MAX_CONTENT_DOCS; i < docs.size(); i++) docs.get(i).setContent(null);
+        }
+        return docs;
+    }
+
     /**
      * 整库导出：zip = 每篇一个 .html + 一份 index.md 清单。
      *

@@ -6,7 +6,7 @@
  * 搜索（标题/标签）× 标签 × 空间 × 类型 × 更新时间。
  * 数据来自 /api/doc-shares/docs/all（服务端已按空间级/文档级权限逐条裁决）。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Collection, Download } from '@element-plus/icons-vue'
@@ -84,6 +84,16 @@ const shown = computed(() => {
 })
 
 const filtersActive = computed(() => !!(keyword.value.trim() || tagFilter.value || spaceFilter.value || typeFilter.value || timeFilter.value))
+
+/**
+ * 客户端分页：「全部文档」接口是一次性全量下发（文档级权限过滤在服务端内存中裁决），
+ * 这里只把渲染切成每页 N 条，避免上千行表格一次渲染卡顿；
+ * 文档量继续增长（万级）时应改服务端分页，权限过滤需下推 SQL。
+ */
+const page = ref(1)
+const pageSize = ref(50)
+const paged = computed(() => shown.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
+watch([keyword, tagFilter, spaceFilter, typeFilter, timeFilter], () => { page.value = 1 })
 
 /** 关键词命中正文时，在标题下方显示一小段上下文 */
 function hitSnippet(row) {
@@ -291,7 +301,7 @@ async function doBatch() {
       <el-button size="small" text @click="clearSelection">取消选择</el-button>
     </div>
 
-    <el-table ref="tableRef" :data="shown" v-loading="loading" row-key="id" @row-click="onRowClick"
+    <el-table ref="tableRef" :data="paged" v-loading="loading" row-key="id" @row-click="onRowClick"
               @selection-change="onSelectionChange" style="width: 100%">
       <el-table-column type="selection" width="44" />
       <el-table-column label="标题" min-width="280">
@@ -333,6 +343,19 @@ async function doBatch() {
       </template>
     </el-table>
 
+    <!-- 分页：每页条数可调，筛选条件变化时自动回到第 1 页 -->
+    <div class="pager" v-if="shown.length > 20">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="shown.length"
+        :page-sizes="[20, 50, 100, 200]"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        small
+      />
+    </div>
+
     <el-dialog v-model="tagDialog" title="管理标签" width="440px">
       <div class="dlg-sub">「{{ tagTarget?.title || '未命名文档' }}」</div>
       <el-select v-model="tagDraft" multiple filterable allow-create default-first-option
@@ -373,6 +396,7 @@ async function doBatch() {
 </template>
 
 <style scoped>
+.pager { display: flex; justify-content: flex-end; margin-top: 10px; }
 .bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .title { margin: 0; font-size: 18px; color: #0f172a; }
 html.dark .title { color: #e2e8f0; }

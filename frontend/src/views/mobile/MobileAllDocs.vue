@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { listAllShareDocs, listMyShares, setShareDocTags, exportAllShareDocs } from '../../api/docShare'
@@ -70,6 +70,15 @@ const shown = computed(() => {
 })
 
 const filtersActive = computed(() => !!(keyword.value.trim() || tagFilter.value || spaceFilter.value || typeFilter.value || timeFilter.value))
+
+/**
+ * 移动端渐进渲染：接口一次性全量下发（权限过滤在服务端内存裁决），这里按 40 条一批渲染，
+ * 避免首屏挂上千个 DOM 节点卡住滑动；筛选变化时回到第一批。
+ */
+const visibleCount = ref(40)
+const visibleDocs = computed(() => shown.value.slice(0, visibleCount.value))
+const hasMore = computed(() => shown.value.length > visibleCount.value)
+watch([keyword, tagFilter, spaceFilter, typeFilter, timeFilter], () => { visibleCount.value = 40 })
 
 /** 关键词命中正文时，在标题下方显示一小段上下文 */
 function hitSnippet(doc) {
@@ -209,7 +218,7 @@ onMounted(load)
         <div v-for="i in 4" :key="i" class="skeleton-row"><div class="m-skel" style="height:16px;width:62%"></div><div class="m-skel" style="height:12px;width:44%;margin-top:9px"></div></div>
       </div>
       <div v-else-if="shown.length" class="m-card doc-list">
-        <div v-for="doc in shown" :key="`${doc.shareId}:${doc.id}`" class="doc-row">
+        <div v-for="doc in visibleDocs" :key="`${doc.shareId}:${doc.id}`" class="doc-row">
           <button class="doc-main" type="button" @click="openDoc(doc)">
             <span class="doc-title">{{ doc.title || '未命名文档' }}</span>
             <span class="doc-meta">
@@ -227,6 +236,9 @@ onMounted(load)
           </button>
           <button class="more-btn" type="button" aria-label="文档操作" @click="sheetDoc = doc"><el-icon><MoreFilled /></el-icon></button>
         </div>
+        <button v-if="hasMore" class="load-more" type="button" @click="visibleCount += 40">
+          加载更多（还有 {{ shown.length - visibleCount }} 篇）
+        </button>
       </div>
       <div v-else class="m-card empty">
         <div class="empty-icon"><el-icon :size="30"><Document /></el-icon></div>
@@ -252,6 +264,11 @@ onMounted(load)
 
 <style scoped>
 .all-docs { min-height: 100%; }
+.load-more {
+  width: 100%; padding: 12px 0; border: 0; border-top: 1px solid #f1f5f9;
+  background: transparent; color: #6366f1; font-size: 13px; cursor: pointer;
+}
+html.dark .load-more { border-top-color: #2f2f42; color: #a5b4fc; }
 .body { padding: 0 16px; }
 .filter-body { padding-top: 10px; }
 .searchbox {

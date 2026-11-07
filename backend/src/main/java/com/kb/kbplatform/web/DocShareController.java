@@ -188,7 +188,7 @@ public class DocShareController {
     @GetMapping("/docs/all")
     public List<SharedDocument> allDocs(@RequestAttribute("kbUser") TokenClaims c,
                                         @RequestParam(value = "withContent", defaultValue = "false") boolean withContent) {
-        return svc.listAllDocs(resolveUserId(c), isSysAdmin(c), withContent);
+        return svc.listAllDocsForList(resolveUserId(c), isSysAdmin(c), withContent);
     }
 
     /**
