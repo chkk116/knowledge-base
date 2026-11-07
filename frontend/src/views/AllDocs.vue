@@ -94,6 +94,14 @@ const page = ref(1)
 const pageSize = ref(50)
 const paged = computed(() => shown.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 watch([keyword, tagFilter, spaceFilter, typeFilter, timeFilter], () => { page.value = 1 })
+// 数据集缩小 / 每页条数变化时，当前页可能越界（空白表格），夹回合法范围
+watch([pageSize, () => shown.value.length], () => {
+  const maxPage = Math.max(1, Math.ceil(shown.value.length / pageSize.value))
+  if (page.value > maxPage) page.value = maxPage
+})
+// 正文检索覆盖提示：列表接口只给前 300 篇带正文（超出时 content=null），别让用户误以为「没搜到」
+const contentCovered = computed(() => docs.value.filter(d => d.content != null).length)
+const contentLimited = computed(() => docs.value.length > contentCovered.value)
 
 /** 关键词命中正文时，在标题下方显示一小段上下文 */
 function hitSnippet(row) {
@@ -110,6 +118,7 @@ async function load() {
     const [a, s] = await Promise.all([listAllShareDocs(true), listMyShares()])
     docs.value = Array.isArray(a.data) ? a.data : []
     spaces.value = Array.isArray(s.data) ? s.data : []
+    page.value = 1              // 刷新后数据可能变少，当前页会越界
     clearDocSearchCache()   // 列表刷新后丢弃旧的正文缓存
   } catch (e) {
     ElMessage.error('加载失败：' + errMsg(e))
@@ -292,6 +301,9 @@ async function doBatch() {
 
     <div class="summary">
       共 {{ shown.length }} 篇<template v-if="filtersActive">（已筛选，全部 {{ docs.length }} 篇）</template>
+      <span v-if="contentLimited" class="coverage-tip" title="标题与标签检索不受影响">
+        · 正文检索仅覆盖前 {{ contentCovered }} 篇
+      </span>
     </div>
 
     <!-- 多选后出现的批量操作条 -->
@@ -303,7 +315,7 @@ async function doBatch() {
 
     <el-table ref="tableRef" :data="paged" v-loading="loading" row-key="id" @row-click="onRowClick"
               @selection-change="onSelectionChange" style="width: 100%">
-      <el-table-column type="selection" width="44" />
+      <el-table-column type="selection" width="44" reserve-selection />
       <el-table-column label="标题" min-width="280">
         <template #default="{ row }">
           <div class="t-title">{{ row.title || '未命名文档' }}</div>
@@ -397,6 +409,8 @@ async function doBatch() {
 
 <style scoped>
 .pager { display: flex; justify-content: flex-end; margin-top: 10px; }
+.coverage-tip { margin-left: 6px; color: #d97706; font-size: 12px; }
+html.dark .coverage-tip { color: #fbbf24; }
 .bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .title { margin: 0; font-size: 18px; color: #0f172a; }
 html.dark .title { color: #e2e8f0; }

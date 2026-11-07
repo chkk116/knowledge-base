@@ -627,19 +627,36 @@ public class DocShareService {
         return list;
     }
 
-    /** 用户可读的跨空间文档列表，复用空间级与文档级权限判断，不返回待整理项。 */
+    /** 用户可读的跨空间文档列表（导出/全量正文场景），复用空间级与文档级权限判断，不返回待整理项。 */
     public List<SharedDocument> listAllDocs(Long userId, boolean sysAdmin, boolean withContent) {
+        return buildLibraryDocs(userId, sysAdmin, withContent, false);
+    }
+
+    /**
+     * 「全部文档」列表查询（带护栏）：摘要查询只取正文前缀，不拉全文；
+     * 总量超 {@link #MAX_LIST_DOCS} 篇截断并告警，withContent 时只对前 {@link #MAX_CONTENT_DOCS} 篇
+     * 批量取完整正文（其余 content=null，前端据此提示检索覆盖范围）。
+     * 导出走 {@link #listAllDocs} 不经这里，保证导出内容完整。
+     */
+    public List<SharedDocument> listAllDocsForList(Long userId, boolean sysAdmin, boolean withContent) {
+        return buildLibraryDocs(userId, sysAdmin, withContent, true);
+    }
+
+    private List<SharedDocument> buildLibraryDocs(Long userId, boolean sysAdmin, boolean withContent, boolean forList) {
         List<DocShare> spaces = listMine(userId, sysAdmin);
         if (spaces.isEmpty()) return List.of();
         Map<Long, DocShare> spaceById = spaces.stream().collect(Collectors.toMap(DocShare::getId, s -> s));
         List<Long> shareIds = spaces.stream().map(DocShare::getId).toList();
-        List<SharedDocumentSummary> summaries = docRepo.findLibrarySummariesByShareIdIn(shareIds);
+        List<SharedDocumentSummary> summaries = forList
+                ? docRepo.findLibraryMetaByShareIdIn(shareIds)
+                : docRepo.findLibrarySummariesByShareIdIn(shareIds);
         if (summaries.isEmpty()) return List.of();
 
         List<Long> docIds = summaries.stream().map(SharedDocumentSummary::getId).toList();
         Map<Long, SharedDocPermission> overrides = docPermRepo.findByDocIdInAndUserId(docIds, userId).stream()
                 .collect(Collectors.toMap(SharedDocPermission::getDocId, p -> p, (a, b) -> a));
         List<SharedDocument> out = new ArrayList<>();
+        List<SharedDocumentSummary> rows = new ArrayList<>();   // 与 out 一一对应，供全量正文回填
         for (SharedDocumentSummary row : summaries) {
             DocShare space = spaceById.get(row.getShareId());
             if (space == null) continue;
@@ -659,14 +676,37 @@ public class DocShareService {
             doc.setOwnerId(row.getOwnerId());
             doc.setCreatedAt(row.getCreatedAt());
             doc.setUpdatedAt(row.getUpdatedAt());
+            // 列表路径 row.content 是 200 字前缀，足够判断 JSON/HTML/文本类型
             doc.setContentType(classifyContentType(row.getContent()));
-            // 正文检索（2026-10-18）：按需下发正文。截断到 20000 字符——
-            // 列表页的搜索不需要完整正文，而把每篇全文都塞进列表响应会让首屏明显变慢。
-            if (withContent) doc.setContent(truncateForSearch(row.getContent(), 20000));
             doc.setSpaceName(space.getName());
             doc.setSpaceType(space.getType());
             doc.setMyPerm(permission);
             out.add(doc);
+            rows.add(row);
+        }
+        if (forList && out.size() > MAX_LIST_DOCS) {
+            log.warn("全部文档列表超过 {} 篇（实际 {}），已截断；建议改服务端分页", MAX_LIST_DOCS, out.size());
+            out = new ArrayList<>(out.subList(0, MAX_LIST_DOCS));
+            rows = new ArrayList<>(rows.subList(0, MAX_LIST_DOCS));
+        }
+        // 正文检索（2026-10-18）：按需下发，截断到 20000 字符；列表路径只给前 MAX_CONTENT_DOCS 篇，
+        // 其余保持 null —— 前端可据此告诉用户「正文检索覆盖范围」，而不是静默少搜。
+        if (withContent) {
+            if (forList) {
+                int n = Math.min(MAX_CONTENT_DOCS, out.size());
+                List<Long> ids = out.subList(0, n).stream().map(SharedDocument::getId).toList();
+                Map<Long, String> bodies = ids.isEmpty() ? Map.of()
+                        : docRepo.findContentByIdIn(ids).stream()
+                            .collect(Collectors.toMap(SharedDocumentSummary::getId,
+                                    SharedDocumentSummary::getContent, (a, b) -> a));
+                for (int i = 0; i < n; i++) {
+                    out.get(i).setContent(truncateForSearch(bodies.get(out.get(i).getId()), 20000));
+                }
+            } else {
+                for (int i = 0; i < out.size(); i++) {
+                    out.get(i).setContent(truncateForSearch(rows.get(i).getContent(), 20000));
+                }
+            }
         }
         return out;
     }
@@ -681,23 +721,6 @@ public class DocShareService {
     private static final int MAX_CONTENT_DOCS = 300;
     /** 「全部文档」列表的条目硬上限：极端数据量下截断并告警（导出不受影响） */
     private static final int MAX_LIST_DOCS = 5000;
-
-    /**
-     * 「全部文档」列表查询（带护栏）：总量超 5000 篇截断并告警，withContent 时只给前 300 篇带正文。
-     * 导出走 {@link #listAllDocs} 不经这里，保证导出内容完整。
-     * 数据量继续增长时应改为服务端分页（权限过滤需下推到 SQL join）。
-     */
-    public List<SharedDocument> listAllDocsForList(Long userId, boolean sysAdmin, boolean withContent) {
-        List<SharedDocument> docs = listAllDocs(userId, sysAdmin, withContent);
-        if (docs.size() > MAX_LIST_DOCS) {
-            log.warn("全部文档列表超过 {} 篇（实际 {}），已截断；建议改服务端分页", MAX_LIST_DOCS, docs.size());
-            docs = new ArrayList<>(docs.subList(0, MAX_LIST_DOCS));
-        }
-        if (withContent && docs.size() > MAX_CONTENT_DOCS) {
-            for (int i = MAX_CONTENT_DOCS; i < docs.size(); i++) docs.get(i).setContent(null);
-        }
-        return docs;
-    }
 
     /**
      * 整库导出：zip = 每篇一个 .html + 一份 index.md 清单。

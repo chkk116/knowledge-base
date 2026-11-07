@@ -1483,7 +1483,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                   <button type="button" class="ai-fb-btn" :class="{ on: m.fbRating === -1 }" title="没帮助" @click="rateMsg(m, -1)">
                     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" style="transform: rotate(180deg)"><path fill="currentColor" d="M2 21h2V9H2v12zm20-10.09c0-.58-.47-1.05-1.05-1.05H13.8l.94-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.3 1.3 6.72 7.9A1.98 1.98 0 0 0 5.3 9.3v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91z"/></svg>
                   </button>
-                  <span v-if="m.fbRating === 1" class="ai-fb-done">已赞，再点一次可取消</span>
+                  <span v-if="m.fbRating === 1 && !m.fbOpen" class="ai-fb-done">已赞，再点一次可取消</span>
                   <span v-else-if="m.fbRating === -1" class="ai-fb-done">已反馈，再点 👎 可取消</span>
                   <div v-if="m.fbOpen && m.fbRating !== -1" class="ai-fb-reasons">
                     <span class="ai-fb-tip">哪里不好？</span>

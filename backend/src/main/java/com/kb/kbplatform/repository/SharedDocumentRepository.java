@@ -27,6 +27,19 @@ public interface SharedDocumentRepository extends JpaRepository<SharedDocument, 
             "FROM SharedDocument d WHERE d.shareId IN :shareIds AND d.inbox = false ORDER BY d.updatedAt DESC")
     List<SharedDocumentSummary> findLibrarySummariesByShareIdIn(@org.springframework.data.repository.query.Param("shareIds") java.util.Collection<Long> shareIds);
 
+    /**
+     * 「全部文档」列表用：正文只取 200 字前缀（够 classifyContentType 判类型），不把每篇全文拉进内存。
+     * 完整正文由 findContentByIdIn 按需批量取（仅列表前若干篇），避免万级文档时 DB 返回体与堆内存爆掉。
+     */
+    @Query("SELECT d.id AS id, d.shareId AS shareId, d.title AS title, SUBSTRING(d.content, 1, 200) AS content, " +
+            "d.tags AS tags, d.ownerId AS ownerId, d.createdAt AS createdAt, d.updatedAt AS updatedAt " +
+            "FROM SharedDocument d WHERE d.shareId IN :shareIds AND d.inbox = false ORDER BY d.updatedAt DESC")
+    List<SharedDocumentSummary> findLibraryMetaByShareIdIn(@org.springframework.data.repository.query.Param("shareIds") java.util.Collection<Long> shareIds);
+
+    /** 列表正文检索：按 id 批量取完整正文（只对前 N 篇调用） */
+    @Query("SELECT d.id AS id, d.content AS content FROM SharedDocument d WHERE d.id IN :ids")
+    List<SharedDocumentSummary> findContentByIdIn(@org.springframework.data.repository.query.Param("ids") java.util.Collection<Long> ids);
+
     /** 待整理箱（2026-10-15）：本人收进但未归档的文档，跨空间、按更新时间倒序 */
     List<SharedDocument> findByOwnerIdAndInboxTrueOrderByUpdatedAtDesc(Long ownerId);
 

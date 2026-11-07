@@ -75,10 +75,14 @@ const filtersActive = computed(() => !!(keyword.value.trim() || tagFilter.value 
  * 移动端渐进渲染：接口一次性全量下发（权限过滤在服务端内存裁决），这里按 40 条一批渲染，
  * 避免首屏挂上千个 DOM 节点卡住滑动；筛选变化时回到第一批。
  */
-const visibleCount = ref(40)
+const BATCH = 40
+const visibleCount = ref(BATCH)
 const visibleDocs = computed(() => shown.value.slice(0, visibleCount.value))
 const hasMore = computed(() => shown.value.length > visibleCount.value)
-watch([keyword, tagFilter, spaceFilter, typeFilter, timeFilter], () => { visibleCount.value = 40 })
+watch([keyword, tagFilter, spaceFilter, typeFilter, timeFilter], () => { visibleCount.value = BATCH })
+// 列表接口只给前 300 篇带正文，超出时 content=null —— 明示检索覆盖范围，避免误以为「没搜到」
+const contentCovered = computed(() => docs.value.filter(d => d.content != null).length)
+const contentLimited = computed(() => docs.value.length > contentCovered.value)
 
 /** 关键词命中正文时，在标题下方显示一小段上下文 */
 function hitSnippet(doc) {
@@ -236,7 +240,7 @@ onMounted(load)
           </button>
           <button class="more-btn" type="button" aria-label="文档操作" @click="sheetDoc = doc"><el-icon><MoreFilled /></el-icon></button>
         </div>
-        <button v-if="hasMore" class="load-more" type="button" @click="visibleCount += 40">
+        <button v-if="hasMore" class="load-more" type="button" @click="visibleCount += BATCH">
           加载更多（还有 {{ shown.length - visibleCount }} 篇）
         </button>
       </div>
@@ -247,6 +251,7 @@ onMounted(load)
       </div>
       <div v-if="!loading && shown.length" class="list-count">
         共 {{ shown.length }} 篇<template v-if="hasMore">，已加载 {{ visibleDocs.length }} 篇</template>
+        <span v-if="contentLimited"> · 正文检索仅覆盖前 {{ contentCovered }} 篇</span>
       </div>
       <div class="bottom-space"></div>
     </div>

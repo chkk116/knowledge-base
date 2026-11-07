@@ -89,9 +89,12 @@ function initial(name) {
 }
 // 头像加载失败标记：sortedComments 是 spread 出的普通对象（非响应式），直接改 c.avatar 不会触发重渲染
 const avatarFail = reactive({})
+/** 重新加载/切换对象时清掉失败标记：网络抖动造成的失败不该永久生效，换了头像 URL 也要重新尝试 */
+function resetAvatarFail() { for (const k of Object.keys(avatarFail)) delete avatarFail[k] }
 const nameOf = (c) => c.displayName || c.username || c.userName || '匿名'
 
 async function loadComments() {
+  resetAvatarFail()
   loading.value = true
   try {
     const { data } = await getCommentsGeneric(props.targetType, props.targetId)
