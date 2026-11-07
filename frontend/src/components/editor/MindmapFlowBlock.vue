@@ -173,6 +173,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, defineComponent, h } from 'vue'
+import { errMsg } from '../../utils/errMsg'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import { VueFlow, useVueFlow, MarkerType, Handle, Position, getSmoothStepPath } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
@@ -960,11 +961,6 @@ function applyTree(tree, fileName) {
   } else {
     ElMessage.success(`${src}已导入 ${n} 个节点 / ${d} 层`)
   }
-}
-
-function errMsg(e, fallback) {
-  const m = e && e.message ? String(e.message) : ''
-  return m || fallback
 }
 
 // 数据/锁/编辑态变化：非编辑态时同步渲染最新数据（含协作者的改动）

@@ -84,3 +84,13 @@ for (const f of ['index.html', 'mobile.html']) {
   console.log('已注入版本号 ' + f + ' -> ' + pkgVersion + '-' + buildStamp)
 }
 
+// 7) 构建时校验版本一致性：changelog 首条（纯数字版）必须与 package.json version 一致。
+//    漏写 changelog 会让应用内升级弹层匹配不到版本说明，构建阶段直接失败兜住。
+const changelogSrc = fs.readFileSync(path.join(__dirname, 'src/changelog.js'), 'utf8')
+const firstVersion = (changelogSrc.match(/version:\s*'([0-9]+\.[0-9]+\.[0-9]+)'/) || [])[1]
+if (firstVersion !== pkgVersion) {
+  console.error('版本号不一致：package.json=' + pkgVersion + '，changelog 最新=' + (firstVersion || '未找到'))
+  process.exit(1)
+}
+console.log('版本一致性 OK: ' + pkgVersion)
+

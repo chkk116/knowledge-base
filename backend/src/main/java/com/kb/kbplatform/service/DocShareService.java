@@ -149,10 +149,16 @@ public class DocShareService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权访问该文档");
         List<DocSharePermission> spaceMembers = permRepo.findByShareIdOrderByCreatedAtAsc(shareId);
         List<SharedDocPermission> docOverrides = docPermRepo.findByDocId(docId);
+        // 批量取用户：此前循环里逐个 findById，成员多时是 N+1（外部复审 2026-11-07）
+        java.util.Set<Long> memberIds = new java.util.HashSet<>();
+        for (DocSharePermission sp : spaceMembers) memberIds.add(sp.getUserId());
+        for (SharedDocPermission ov : docOverrides) memberIds.add(ov.getUserId());
+        Map<Long, User> users = userRepo.findAllById(memberIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
         List<Map<String, Object>> result = new ArrayList<>();
         // 空间成员
         for (DocSharePermission sp : spaceMembers) {
-            User u = userRepo.findById(sp.getUserId()).orElse(null);
+            User u = users.get(sp.getUserId());
             if (u == null) continue;
             SharedDocPermission ov = docOverrides.stream().filter(o -> o.getUserId().equals(sp.getUserId())).findFirst().orElse(null);
             Map<String, Object> m = new LinkedHashMap<>();
@@ -168,7 +174,7 @@ public class DocShareService {
         // 单独设置但非空间成员的用户（理论上不应出现，但防御性列出）
         for (SharedDocPermission ov : docOverrides) {
             if (result.stream().anyMatch(r -> r.get("userId").equals(ov.getUserId()))) continue;
-            User u = userRepo.findById(ov.getUserId()).orElse(null);
+            User u = users.get(ov.getUserId());
             if (u == null) continue;
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("userId", u.getId());
@@ -248,12 +254,15 @@ public class DocShareService {
     }
 
     private void fillMemberNames(List<DocSharePermission> list) {
+        if (list.isEmpty()) return;
+        Map<Long, User> users = userRepo.findAllById(list.stream().map(DocSharePermission::getUserId).toList()).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
         for (DocSharePermission p : list) {
-            userRepo.findById(p.getUserId()).ifPresent(u -> {
-                p.setUsername(u.getUsername());
-                p.setDisplayName(u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
-                p.setAvatar(u.getAvatar());
-            });
+            User u = users.get(p.getUserId());
+            if (u == null) continue;
+            p.setUsername(u.getUsername());
+            p.setDisplayName(u.getDisplayName() != null ? u.getDisplayName() : u.getUsername());
+            p.setAvatar(u.getAvatar());
         }
     }
 
