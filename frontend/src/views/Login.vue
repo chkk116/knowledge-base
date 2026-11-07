@@ -817,8 +817,5 @@ html.dark .footer-tip span { color: #8ea0c5; }
 }
 
 .ldap-switch { margin-top: 10px; text-align: center; font-size: 12.5px; color: var(--el-color-primary); cursor: pointer; }
-.forgot-row { margin-top: 8px; text-align: right; font-size: 12.5px; }
-.forgot-row span { color: #64748b; cursor: pointer; }
-.forgot-row span:hover { color: #2563eb; }
 .ldap-hint { margin-top: 6px; text-align: center; font-size: 12px; color: #9aa0ac; }
 </style>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Collection } from '@element-plus/icons-vue'
@@ -215,6 +215,7 @@ const remove = async (row) => {
 }
 
 onMounted(load)
+onBeforeUnmount(() => clearTimeout(userSearchTimer))
 </script>
 
 <template>

@@ -13,6 +13,17 @@ const path = require('path')
 
 const dist = process.argv[2] || 'dist'
 const pkgVersion = require('./package.json').version || '0.0.0'
+
+// 版本一致性校验（前置：失败时直接退出，不留已注入一半的 dist）
+// 兼容单/双引号，取所有 version 条目并跳过 -native 壳专属版本（与 changelog.js 的 CURRENT_VERSION 语义一致）
+const changelogSrc = fs.readFileSync(path.join(__dirname, 'src/changelog.js'), 'utf8')
+const versions = [...changelogSrc.matchAll(/version:\s*['"]([^'"]+)['"]/g)].map((m) => m[1])
+const firstVersion = versions.find((v) => !/-native$/.test(v))
+if (firstVersion !== pkgVersion) {
+  console.error('版本号不一致：package.json=' + pkgVersion + '，changelog 最新=' + (firstVersion || '未找到'))
+  process.exit(1)
+}
+console.log('版本一致性 OK: ' + pkgVersion)
 // 版本号带构建时间戳：同一 package 版本内多次发版也能让旧哈希缓存随激活被清掉（外部复审 2026-10-06）
 const buildStamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
 const root = path.resolve(dist)
@@ -84,13 +95,4 @@ for (const f of ['index.html', 'mobile.html']) {
   console.log('已注入版本号 ' + f + ' -> ' + pkgVersion + '-' + buildStamp)
 }
 
-// 7) 构建时校验版本一致性：changelog 首条（纯数字版）必须与 package.json version 一致。
-//    漏写 changelog 会让应用内升级弹层匹配不到版本说明，构建阶段直接失败兜住。
-const changelogSrc = fs.readFileSync(path.join(__dirname, 'src/changelog.js'), 'utf8')
-const firstVersion = (changelogSrc.match(/version:\s*'([0-9]+\.[0-9]+\.[0-9]+)'/) || [])[1]
-if (firstVersion !== pkgVersion) {
-  console.error('版本号不一致：package.json=' + pkgVersion + '，changelog 最新=' + (firstVersion || '未找到'))
-  process.exit(1)
-}
-console.log('版本一致性 OK: ' + pkgVersion)
 

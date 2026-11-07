@@ -81,8 +81,10 @@ const visibleDocs = computed(() => shown.value.slice(0, visibleCount.value))
 const hasMore = computed(() => shown.value.length > visibleCount.value)
 watch([keyword, tagFilter, spaceFilter, typeFilter, timeFilter], () => { visibleCount.value = BATCH })
 // 列表接口只给前 300 篇带正文，超出时 content=null —— 明示检索覆盖范围，避免误以为「没搜到」
-const contentCovered = computed(() => docs.value.filter(d => d.content != null).length)
-const contentLimited = computed(() => docs.value.length > contentCovered.value)
+// 与后端 MAX_CONTENT_DOCS=300 对齐：空正文文档 content 本就是 null，不能按 content!=null 统计覆盖
+const CONTENT_CAP = 300
+const contentCovered = computed(() => Math.min(docs.value.length, CONTENT_CAP))
+const contentLimited = computed(() => docs.value.length > CONTENT_CAP)
 
 /** 关键词命中正文时，在标题下方显示一小段上下文 */
 function hitSnippet(doc) {

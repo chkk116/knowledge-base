@@ -42,6 +42,7 @@ function onReadingKey(e) {
 }
 onMounted(() => window.addEventListener('keydown', onReadingKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onReadingKey))
+onBeforeUnmount(() => clearTimeout(memberSearchTimer))
 const editorTitle = ref('')
 const saving = ref(false)
 
@@ -420,10 +421,10 @@ const doMove = async () => {
 }
 
 // ---------- 成员 ----------
-const openMembers = async () => {
+const openMembers = () => {
   memberDialog.value = true
   memberLoading.value = false
-  await searchMemberUsers('')
+  searchMemberUsers('')   // 内部是防抖调度，不必 await
 }
 // 选人搜索：复用后端 /doc-shares/users（登录即可用，无需 USER_MANAGE 管理员权限）
 let memberSearchTimer = null

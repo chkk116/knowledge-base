@@ -28,10 +28,11 @@ public interface SharedDocumentRepository extends JpaRepository<SharedDocument, 
     List<SharedDocumentSummary> findLibrarySummariesByShareIdIn(@org.springframework.data.repository.query.Param("shareIds") java.util.Collection<Long> shareIds);
 
     /**
-     * 「全部文档」列表用：正文只取 200 字前缀（够 classifyContentType 判类型），不把每篇全文拉进内存。
+     * 「全部文档」列表用：正文取前 2000 字（够 classifyContentType 识别 <img>/<video>/.pdf 等标记，
+     * 长导语里标记在 200 字之后也不会误判为 TEXT），不把每篇全文拉进内存。
      * 完整正文由 findContentByIdIn 按需批量取（仅列表前若干篇），避免万级文档时 DB 返回体与堆内存爆掉。
      */
-    @Query("SELECT d.id AS id, d.shareId AS shareId, d.title AS title, SUBSTRING(d.content, 1, 200) AS content, " +
+    @Query("SELECT d.id AS id, d.shareId AS shareId, d.title AS title, SUBSTRING(d.content, 1, 2000) AS content, " +
             "d.tags AS tags, d.ownerId AS ownerId, d.createdAt AS createdAt, d.updatedAt AS updatedAt " +
             "FROM SharedDocument d WHERE d.shareId IN :shareIds AND d.inbox = false ORDER BY d.updatedAt DESC")
     List<SharedDocumentSummary> findLibraryMetaByShareIdIn(@org.springframework.data.repository.query.Param("shareIds") java.util.Collection<Long> shareIds);

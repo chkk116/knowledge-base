@@ -100,8 +100,11 @@ watch([pageSize, () => shown.value.length], () => {
   if (page.value > maxPage) page.value = maxPage
 })
 // 正文检索覆盖提示：列表接口只给前 300 篇带正文（超出时 content=null），别让用户误以为「没搜到」
-const contentCovered = computed(() => docs.value.filter(d => d.content != null).length)
-const contentLimited = computed(() => docs.value.length > contentCovered.value)
+// 正文覆盖按后端上限（DocShareService.MAX_CONTENT_DOCS=300）判断：
+// 空正文文档的 content 本来就是 null，用 content!=null 统计会误报「仅覆盖 N 篇」
+const CONTENT_CAP = 300
+const contentCovered = computed(() => Math.min(docs.value.length, CONTENT_CAP))
+const contentLimited = computed(() => docs.value.length > CONTENT_CAP)
 
 /** 关键词命中正文时，在标题下方显示一小段上下文 */
 function hitSnippet(row) {
@@ -119,6 +122,7 @@ async function load() {
     docs.value = Array.isArray(a.data) ? a.data : []
     spaces.value = Array.isArray(s.data) ? s.data : []
     page.value = 1              // 刷新后数据可能变少，当前页会越界
+    clearSelection()            // reserve-selection 会跨页保留勾选，刷新后须清掉已删除/失权的旧行
     clearDocSearchCache()   // 列表刷新后丢弃旧的正文缓存
   } catch (e) {
     ElMessage.error('加载失败：' + errMsg(e))

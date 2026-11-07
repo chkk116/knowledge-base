@@ -364,8 +364,8 @@ public class DocShareService {
                 ? userRepo.findByEnabledTrue(PageRequest.of(0, 30)).getContent()
                 : userRepo.searchEnabledUsers(kw, PageRequest.of(0, 20));
         List<Map<String, Object>> result = new ArrayList<>();
+        // 两条查询路径都只返回 enabled=true 用户，无需再判 isEnabled
         for (User u : users) {
-            if (!u.isEnabled()) continue;
             if (excludeUserId != null && excludeUserId.equals(u.getId())) continue;
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", u.getId());
@@ -706,8 +706,10 @@ public class DocShareService {
                 List<Long> ids = out.subList(0, n).stream().map(SharedDocument::getId).toList();
                 Map<Long, String> bodies = ids.isEmpty() ? Map.of()
                         : docRepo.findContentByIdIn(ids).stream()
-                            .collect(Collectors.toMap(SharedDocumentSummary::getId,
-                                    SharedDocumentSummary::getContent, (a, b) -> a));
+                            // 手写 put：Collectors.toMap 遇到 content=null 会抛 NPE（HashMap.merge 不接受 null 值）
+                            .collect(java.util.HashMap::new,
+                                    (m, r) -> m.put(r.getId(), r.getContent() == null ? "" : r.getContent()),
+                                    java.util.HashMap::putAll);
                 for (int i = 0; i < n; i++) {
                     out.get(i).setContent(truncateForSearch(bodies.get(out.get(i).getId()), 20000));
                 }
