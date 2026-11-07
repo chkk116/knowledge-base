@@ -1485,7 +1485,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(STORAGE_KEY, String(id))
                   </button>
                   <span v-if="m.fbRating === 1" class="ai-fb-done">已赞，再点一次可取消</span>
                   <span v-else-if="m.fbRating === -1" class="ai-fb-done">已反馈，再点 👎 可取消</span>
-                  <div v-if="m.fbOpen && m.fbRating !== 1 && m.fbRating !== -1" class="ai-fb-reasons">
+                  <div v-if="m.fbOpen && m.fbRating !== -1" class="ai-fb-reasons">
                     <span class="ai-fb-tip">哪里不好？</span>
                     <button v-for="r in FB_REASONS" :key="r" type="button" @click="submitRate(m, -1, r)">{{ r }}</button>
                     <button type="button" class="ghost" @click="submitRate(m, -1, '')">就这些</button>
@@ -2054,7 +2054,6 @@ html.dark .ai-no-source .el-icon { color: #4a4b6a; }
 .ai-fb-btn:active { transform: scale(.94); }
 .ai-fb-btn.on { border-color: #6366f1; color: #4f46e5; background: #eef2ff; }
 html.dark .ai-fb-btn.on { border-color: #818cf8; color: #a5b4fc; background: #1a1f2e; }
-.ai-fb-btn.on { border-color: #fca5a5; background: #fef2f2; }
 .ai-fb-done { font-size: 12px; color: #94a3b8; }
 .ai-fb-reasons { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: 2px; }
 .ai-fb-tip { font-size: 12px; color: #94a3b8; }
@@ -2066,7 +2065,6 @@ html.dark .ai-fb-btn.on { border-color: #818cf8; color: #a5b4fc; background: #1a
 .ai-fb-reasons button.ghost { color: #94a3b8; background: transparent; }
 html.dark .ai-fb-btn { background: #23233a; border-color: #34345a; }
 html.dark .ai-fb-btn:hover { background: #2b2b48; border-color: #4a4a7a; }
-html.dark .ai-fb-btn.on { background: #3a2330; border-color: #7f3b4a; }
 html.dark .ai-fb-reasons button { background: #23233a; border-color: #34345a; color: #b7b8cd; }
 html.dark .ai-fb-reasons button:hover { background: #2b2b48; color: #c7d2fe; }
 .ai-sources-head { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px; }

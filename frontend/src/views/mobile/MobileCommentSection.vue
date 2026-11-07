@@ -87,6 +87,8 @@ function initial(name) {
   const s = String(name || '').trim()
   return s ? s[0].toUpperCase() : '匿'
 }
+// 头像加载失败标记：sortedComments 是 spread 出的普通对象（非响应式），直接改 c.avatar 不会触发重渲染
+const avatarFail = reactive({})
 const nameOf = (c) => c.displayName || c.username || c.userName || '匿名'
 
 async function loadComments() {
@@ -250,7 +252,7 @@ watch(() => [props.targetType, props.targetId], () => {
     <div v-if="sortedComments.length" class="mcs-list">
       <div v-for="c in sortedComments" :key="c.id" class="mcs-item">
         <div class="mcs-row">
-          <img v-if="c.avatar" class="mcs-av mcs-av-img" :src="c.avatar" alt="" @error="c.avatar = null" />
+          <img v-if="c.avatar && !avatarFail[c.id]" class="mcs-av mcs-av-img" :src="c.avatar" alt="" @error="avatarFail[c.id] = true" />
           <span v-else class="mcs-av" :style="{ background: avColor(nameOf(c)) }">{{ initial(nameOf(c)) }}</span>
           <div class="mcs-main">
             <div class="mcs-meta">
