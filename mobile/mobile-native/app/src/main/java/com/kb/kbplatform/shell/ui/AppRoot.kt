@@ -455,6 +455,34 @@ private fun GlobalUpdatePrompt() {
             }
         )
 
+        // 下载失败：留在 App 内直接给出原因与重试入口（原来只有通知/「我的」页那一行，
+        // 用户看到 Software caused connection abort 这种英文原文完全无从下手）
+        is com.kb.kbplatform.shell.data.AppUpdater.State.Error -> androidx.compose.material3.AlertDialog(
+            onDismissRequest = { com.kb.kbplatform.shell.data.AppUpdater.reset() },
+            title = { androidx.compose.material3.Text("更新下载失败") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    androidx.compose.material3.Text(s.message, fontSize = 13.sp)
+                    androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.Text(
+                        "已下载的部分会保留，点「重试」从断点继续；建议先切换网络（Wi-Fi / 移动数据）再试。",
+                        fontSize = 12.sp,
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(onClick = {
+                    scope.launch { com.kb.kbplatform.shell.data.AppUpdater.download(ctx) }
+                }) { androidx.compose.material3.Text("重试") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    com.kb.kbplatform.shell.data.AppUpdater.reset()
+                }) { androidx.compose.material3.Text("稍后") }
+            }
+        )
+
         else -> Unit
     }
 }

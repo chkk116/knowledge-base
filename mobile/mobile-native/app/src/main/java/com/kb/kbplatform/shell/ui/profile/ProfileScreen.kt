@@ -369,7 +369,12 @@ fun ProfileScreen(
                         Text("后台下载")
                     }
                     is AppUpdater.State.Ready -> Button(onClick = { AppUpdater.install(ctx) }) { Text("安装") }
-                    is AppUpdater.State.Error -> Button(onClick = { scope.launch { AppUpdater.check(ctx) } }) {
+                    is AppUpdater.State.Error -> Button(onClick = {
+                        // 直接续传重试（AppUpdater 内部保留 lastAvailable 与 .part），
+                        // 不再先 check —— check 只会把状态切回 Available，用户还得多点一次
+                        com.kb.kbplatform.shell.data.UpdateNotify.ensurePermission(ctx)
+                        scope.launch { AppUpdater.download(ctx) }
+                    }) {
                         Text("重试")
                     }
                     else -> TextButton(onClick = { showUpdateDialog = false }) { Text("知道了") }
