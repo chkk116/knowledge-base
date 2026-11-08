@@ -215,7 +215,7 @@ onMounted(load)
     <div v-if="loading && !files.length" class="fc-empty">加载中…</div>
     <div v-else-if="!files.length" class="fc-empty">
       <div class="fc-empty-t">还没有文件</div>
-      <div class="fc-empty-d">上传后可复制链接插进文档；在编辑器里直接粘贴图片也会自动登记到这里。</div>
+      <div class="fc-empty-d">上传后可复制链接插进文档。注意：编辑器里直接粘贴/上传的配图不登记在这里，只有从本页上传的文件才会出现在列表中。</div>
     </div>
     <div v-else-if="!shown.length" class="fc-empty">没有匹配的文件</div>
     <div v-else class="fc-grid">

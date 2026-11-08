@@ -7,6 +7,7 @@ package com.kb.kbplatform.repository;
 
 import com.kb.kbplatform.domain.UploadedFile;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 
@@ -14,4 +15,9 @@ public interface UploadedFileRepository extends JpaRepository<UploadedFile, Long
 
     /** 某用户的文件（新的在前） */
     List<UploadedFile> findByOwnerIdOrderByCreatedAtDesc(Long ownerId);
+
+    /** 全部在册文件地址（供孤儿扫描排除：用户上传到文件中心但还没插进任何文档的文件，
+     *  磁盘上"没人引用"，但它在「我的文件」里可见，绝不能当孤儿清理掉） */
+    @Query("SELECT f.url FROM UploadedFile f WHERE f.url IS NOT NULL")
+    List<String> findAllUrls();
 }

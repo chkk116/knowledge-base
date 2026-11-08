@@ -6,6 +6,7 @@
 package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.repository.DocumentRepository;
+import com.kb.kbplatform.repository.UploadedFileRepository;
 import com.kb.kbplatform.security.Perm;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.TokenClaims;
@@ -31,11 +32,14 @@ public class AdminFileController {
     private final FileService fileSvc;
     private final DocumentRepository docRepo;
     private final UserRepository userRepo;
+    private final UploadedFileRepository fileRepo;
 
-    public AdminFileController(FileService fileSvc, DocumentRepository docRepo, UserRepository userRepo) {
+    public AdminFileController(FileService fileSvc, DocumentRepository docRepo, UserRepository userRepo,
+                              UploadedFileRepository fileRepo) {
         this.fileSvc = fileSvc;
         this.docRepo = docRepo;
         this.userRepo = userRepo;
+        this.fileRepo = fileRepo;
     }
 
     /** 孤儿文件列表（仅管理员）：未被任何文档/用户头像引用的上传文件。
@@ -48,9 +52,12 @@ public class AdminFileController {
                                        @RequestParam(defaultValue = "all") String kind,
                                        @RequestParam(required = false) String q) {
         requireAdminView(c);
-        Set<String> avatars = new HashSet<>(userRepo.findAllUploadAvatars());
-        avatars.addAll(userRepo.findAllPendingUploadAvatars());   // 待审头像同样占用上传目录，避免被当孤儿清掉
-        List<Map<String, Object>> all = fileSvc.findOrphans(docRepo.findAllContents(), avatars);
+        Set<String> used = new HashSet<>(userRepo.findAllUploadAvatars());
+        used.addAll(userRepo.findAllPendingUploadAvatars());   // 待审头像同样占用上传目录，避免被当孤儿清掉
+        // 「我的文件」在册文件也算在用：用户传上来还没插进文档时，正文/头像里都搜不到它，
+        // 只按"文档引用 + 头像"判定会把它当孤儿删掉，而登记记录还在 → 文件中心裂图。
+        used.addAll(fileRepo.findAllUrls());
+        List<Map<String, Object>> all = fileSvc.findOrphans(docRepo.findAllContents(), used);
 
         // 类型统计（过滤前）
         long imageCount = all.stream().filter(f -> !isAudio(str(f.get("url")))).count();
