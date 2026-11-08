@@ -7,7 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  mkey, sanitizeAnswer, sanitizeInput, cleanTitle, mdToHtml, toDocHtml, buildQuestionWithAttachments,
+  mkey, sanitizeAnswer, sanitizeInput, cleanTitle, mdToHtml, toDocHtml, sanitizeDocHtml, buildQuestionWithAttachments,
 } from '../src/utils/aiPure.js'
 
 test('mkey: 用户模型与系统模型带不同前缀，避免 id 冲突', () => {
@@ -145,4 +145,46 @@ test('toDocHtml: 只是提到标签的普通文本不会被当成 HTML 直通', 
 test('toDocHtml: 单个闭合标签的伪 HTML 不算直通', () => {
   const t = '<p>只有一段</p>'
   assert.equal(toDocHtml(t), '<p>&lt;p&gt;只有一段&lt;/p&gt;</p>')
+})
+
+test('sanitizeDocHtml: 干净富文本字符串完全不变（不破坏 TipTap 节点）', () => {
+  const html = '<p>第一段 <strong>加粗</strong></p><ul><li>要点</li></ul>'
+  assert.equal(sanitizeDocHtml(html), html)
+  const graph = '<div data-type="flowchart" data=\'{"nodes":[{"id":"1"}],"edges":[]}\'></div><p>说明</p>'
+  assert.equal(sanitizeDocHtml(graph), graph)
+})
+
+test('sanitizeDocHtml: script / 事件属性 / javascript: 全部剔除', () => {
+  const dirty = '<div onmouseover="alert(1)"><p onclick="x">正文</p><a href="javascript:alert(1)">链接</a><script>alert(2)</script></div><p>尾</p>'
+  const out = sanitizeDocHtml(dirty)
+  assert.ok(!/<script/i.test(out))
+  assert.ok(!/\son[a-z]+\s*=/i.test(out))
+  assert.ok(!/javascript:/i.test(out))
+  assert.match(out, /正文/)
+  assert.match(out, /尾/)
+})
+
+test('sanitizeDocHtml: 外站 src/poster 丢弃，站内与 data: 保留', () => {
+  const dirty = '<p><img src="https://evil.example/x.png" alt="外图"><video src="https://evil.example/v.mp4" poster="https://evil.example/p.png" controls></video></p><p>结束</p>'
+  const out = sanitizeDocHtml(dirty)
+  assert.ok(!/evil\.example/.test(out), '外站地址不得进入正文')
+  assert.ok(!/src=/.test(out), '外站 src/poster 属性须整条丢弃')
+  const clean = '<p><img src="/uploads/a.png" alt="站图"><video src="/uploads/a.mp4" controls></video></p><p>结束</p>'
+  assert.match(sanitizeDocHtml(clean), /src="\/uploads\/a\.png"/)
+  assert.match(sanitizeDocHtml(clean), /src="\/uploads\/a\.mp4"/)
+  assert.match(sanitizeDocHtml('<p><img src="data:image/png;base64,AAAA"></p><p>结束</p>'), /src="data:image\/png;base64,AAAA"/)
+})
+
+test('sanitizeDocHtml: style 里的 url() 外部资源被剔除，其余样式保留', () => {
+  const out = sanitizeDocHtml('<div style="background:url(https://evil/x.png);color:red"></div><p>正文</p>')
+  assert.ok(!/evil\.example|evil\/x/.test(out))
+  assert.match(out, /color:red/)
+})
+
+test('toDocHtml: 富文本直通走前端净化后再提交', () => {
+  const dirty = '<div onmouseover="alert(1)"><p>正文</p><img src="https://evil.example/x.png"></div><p>尾</p>'
+  const out = toDocHtml(dirty)
+  assert.ok(!/\son[a-z]+\s*=/i.test(out))
+  assert.ok(!/evil\.example/.test(out))
+  assert.match(out, /正文/)
 })

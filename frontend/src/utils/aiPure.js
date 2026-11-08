@@ -110,15 +110,58 @@ export function mdToHtml(md) {
 }
 
 /**
- * 「保存文档」专用：正文本来就是富文本 HTML 就原样交给后端，否则按 Markdown 解析。
+ * 富文本直通内容的「前端纵深净化」（第 4 项）：后端 HtmlSanitizer 是权威防线，
+ * 这里再做一次保守收敛，防止把 script / 事件属性 / 外站资源直接提交给服务端。
+ *
+ * 刻意不做成「标签白名单」：导图/流程图/表格是 TipTap 自定义节点，图形数据全在
+ * data='{"nodes":...}' 属性里，按白名单重建标签会把图全部毁掉。
+ * 所以只剔除危险位，其余（含 data-*、class、style）原样保留；
+ * 干净 HTML 经过本函数字符串完全不变（单测断言了这点）。
+ */
+const DANGEROUS_TAG = /^(script|iframe|object|embed|link|meta|base|form|input|button|svg|math)$/i
+const EVENT_ATTR = /\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi
+const JS_PROTO = /(?:javascript|vbscript|data:text\/html)\s*:/gi
+const SRC_ATTR = /(\s(?:src|poster|srcset)\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi
+const TAG_RE = /<(\/?)([a-z][a-z0-9-]*)\b([^>]*)>/gi
+
+export function sanitizeDocHtml(html) {
+  const s = String(html || '').replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
+  return s.replace(TAG_RE, (whole, slash, tag, attrs) => {
+    if (DANGEROUS_TAG.test(tag)) return ''
+    if (!attrs) return whole
+    let a = attrs.replace(EVENT_ATTR, '').replace(JS_PROTO, '')
+    // style 里的 url(...) 会向第三方发请求，去掉 url() 但保留其余内联样式
+    a = a.replace(/(\sstyle\s*=\s*")([^"]*)(")/gi, (m, p, v, q) => p + v.replace(/url\s*\([^)]*\)/gi, '') + q)
+    a = a.replace(/(\sstyle\s*=\s*')([^']*)(')/gi, (m, p, v, q) => p + v.replace(/url\s*\([^)]*\)/gi, '') + q)
+    // src/poster/srcset：只保留站内资源与内联 data:，外站地址整条属性丢弃
+    a = a.replace(SRC_ATTR, (m, prefix, d, s1, u) => {
+      const attrName = prefix.trim().split(/\s*=/)[0].toLowerCase()
+      const raw = String(d ?? s1 ?? u ?? '')
+      // srcset 是「URL + 描述符」列表，逐条校验；src/poster 整值校验
+      // （data:image/...;base64,AAAA 自带逗号，不能按逗号切）
+      const values = attrName === 'srcset'
+        ? raw.split(',').map((x) => x.trim().split(/\s+/)[0])
+        : [raw]
+      const ok = values.length > 0 && values.every((v) =>
+        /^\/(uploads|emojis)\//i.test(v)
+        || /^data:(image\/(png|jpe?g|gif|webp|bmp);base64,|video\/|audio\/)/i.test(v))
+      return ok ? m : ''
+    })
+    return a === attrs ? whole : `<${slash}${tag}${a}>`
+  })
+}
+
+/**
+ * 「保存文档」专用：正文本来就是富文本 HTML 就交给后端（先过一道前端净化），否则按 Markdown 解析。
  *
  * 为什么不能一律 mdToHtml：Agent 的 read_doc → update_doc 链路读回来的是库里的 HTML，
  * 模型会把它整段写回；一律按 Markdown 转义的话，正文会变成满屏 `&lt;p&gt;` 字面量，
  * 原文档的排版、图片全丢。
  *
  * 安全性：这里的直通**只作用于提交给后端的正文**，聊天里的回答渲染仍走 mdToHtml（一律转义），
- * 所以不存在「模型输出被当 HTML 直接 v-html」的面；入库前服务端 DocumentController /
- * DocShareService 还会用 HtmlSanitizer 白名单再洗一遍（事件属性、script 都会掉）。
+ * 所以不存在「模型输出被当 HTML 直接 v-html」的面；提交前先由 sanitizeDocHtml 剔除
+ * script / 事件属性 / 外站资源，入库前服务端 DocumentController / DocShareService
+ * 还会用 HtmlSanitizer 白名单再洗一遍（两层纵深）。
  */
 export function toDocHtml(md) {
   const s = String(md || '')
@@ -126,7 +169,7 @@ export function toDocHtml(md) {
   // 避免「正文里提到了 <p> 标签」的普通 Markdown 被误判成 HTML（老直通分支就是这么翻车的）
   const startsBlock = /^\s*<(p|div|h[1-6]|ul|ol|table|blockquote|pre|figure|img|section|article)\b/i.test(s)
   const closes = (s.match(/<\/[a-z][a-z0-9]*\s*>/gi) || []).length
-  return startsBlock && closes >= 2 ? s : mdToHtml(s)
+  return startsBlock && closes >= 2 ? sanitizeDocHtml(s) : mdToHtml(s)
 }
 
 /** 把带本地识别文字的附件汇总进提问（纯函数版：attachments 由调用方传入数组） */

@@ -367,8 +367,10 @@ cd mobile/mobile-native
 - 仓库位于中文路径（`C:/chkk/知识库/...`）时，AGP 会拒绝构建；已在 `gradle.properties` 加 `android.overridePathCheck=true`
 - release 签名读环境变量 `KB_KS_PATH` / `KB_KS_PASS`（或用户级 `~/.gradle/gradle.properties`），**仓库不留口令**；
   未提供时只出未签名包
-- WebView 令牌桥接依赖「内联 script 注入」，若后端将来给 `/m/` 文档加 CSP，需在 `script-src` 放行 `'unsafe-inline'`
-  或改为 `evaluateJavascript` 下发（否则桥接会静默失效）
+- WebView 令牌桥接依赖「内联 script 注入」：SPA 的 CSP（`SecurityHeadersFilter`，线上实测生效）用 `script-src 'self'`；
+  原生壳走 `shouldInterceptRequest` 自行拼装 HTML 并用 `WebResourceResponse` 返回（不继承响应头），
+  因此注入的 `<script>window.__KB_NATIVE_TOKEN=…</script>` 不受该 CSP 约束。
+  **若以后改成透传网络响应头或改用 WebView 直接加载，必须同步处理**（放行 `'unsafe-inline'` 或改 `evaluateJavascript` 下发）
 - 系统级「随手问」：任意 App 长按选中文字 → 系统菜单出现「问知识库」→ `ProcessTextActivity`
   （`ACTION_PROCESS_TEXT` + `text/plain`）拉起独立轻量页，可 AI 解释 / 总结 / 翻译或继续追问，结果一键复制；
   不初始化 WebView、不加载完整 AppRoot，冷启动更快。未登录时引导打开 App 登录
@@ -378,6 +380,17 @@ cd mobile/mobile-native
   否则覆盖安装会 `INSTALL_FAILED_VERSION_DOWNGRADE`、服务端也会误判「已是最新」而不推送更新。
   Capacitor 套壳已停发（发版脚本默认拦截 `app_version`），当前唯一发版通道为 `KB_CHANNEL=app_version_native`；
   `frontend/build-inject-sw.cjs` 在每次前端构建时校验上述规则
+
+### 热更包签名（RS256）
+- `outputs/publish-app-bundle.sh` 用私钥 `outputs/.bundle-signing-key.pem` 对
+  `version\nurl\nchecksum` 签名，写进 `SysSetting.app_bundle` 的 `signature` / `sigAlg=RS256`；
+  服务器只存签名、不存私钥。
+- `frontend/src/utils/bundleSignature.js` 内置公钥（SPKI），`MobileApp.vue` 在下载前
+  **fail-closed 验签**：缺签名或验签失败直接跳过本次热更；地址还要过 `assertSafeAssetUrl` 域名白名单。
+- `mobile/android/app/src/main/assets/capacitor.config.json` **刻意不配 Capgo 的 `publicKey`**：
+  Capgo 校验的是 zip 本身，而这里的签名覆盖的是元数据（version/url/checksum），两者格式不通用；
+  配上去反而会让插件拒收合法包。轮换密钥需发新 APK（公钥随包内置）。
+- 原生壳不消费热更包（WebView 直接加载站点），其应用内升级走 APK 的 SHA-256 校验。
 
 ## 移动端（Capacitor / Android）
 
