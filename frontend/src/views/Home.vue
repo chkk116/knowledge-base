@@ -378,7 +378,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.page { max-width: 1080px; margin: 0 auto; padding: 24px; color: #0f172a; }
+.page { max-width: 1080px; margin: 0 auto; padding: 24px; color: #0f172a; box-sizing: border-box; width: 100%; }
 /* 主内容区 + 右侧边栏两栏布局 */
 .content { display: flex; gap: 20px; align-items: flex-start; margin-top: 4px; }
 .list { flex: 1; min-width: 0; }

@@ -7,7 +7,10 @@ android {
         applicationId "com.kb.kbplatform"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 与原生壳统一编码：10304 = 1.3.4（历史上 0.9.x 是三位数，直接比 code 会误判）
+        // ⚠️ Capacitor 套壳已停发（原生壳 1.3.x-native 转正，共用 applicationId=com.kb.kbplatform）。
+        // 不要再从此工程出包：versionCode 远低于原生壳，覆盖安装会降级失败；
+        // outputs/publish-app-release.sh 默认拦截 app_version 通道，前端构建也会校验两工程的 code 关系。
+        // 保留代码仅作历史参考；code 规则固定为 major*10000 + minor*100 + patch（1.3.10 → 10310）。
         versionCode 10310
         versionName "1.3.10"
         // 更新包/热更包允许的下载域名白名单（逗号分隔）。

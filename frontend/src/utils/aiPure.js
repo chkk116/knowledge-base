@@ -42,8 +42,15 @@ export function cleanTitle(raw) {
  * 安全约定：不做「正文已是 HTML 就原样返回」的直通——该分支会把 onmouseover/onclick 等事件属性
  * 原样提交给服务端，也会把「提到了 <p> 标签」的普通回答误判成 HTML 导致格式全丢。
  * 一律按 Markdown 解析：引号必须转义（alt/src 属性位置可被注入 onerror）；
- * 图片源只允许本站 /uploads /emojis 或 data:image。后端 HtmlSanitizer 另有一层兜底。
+ * 图片 / 音视频只放行站内资源与内联 data:，外站地址一律降级成纯文本，
+ * 避免读者打开文档时向第三方发请求（与 /uploads 站内资源策略一致）。
+ * 后端 HtmlSanitizer 另有一层兜底。
  */
+// 资源白名单：图片 /uploads、/emojis 或 data:image；音视频 /uploads 或 data:(video|audio)。
+// 复用给 Markdown 语法与单行 HTML <img>，两条路径口径必须一致。
+const ALLOWED_IMG = (src) => /^\/(uploads|emojis)\//i.test(src) || /^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(src)
+const ALLOWED_MEDIA = (src) => /^\/uploads\//i.test(src) || /^data:(video|audio)\//i.test(src)
+
 export function mdToHtml(md) {
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   const out = []
@@ -60,13 +67,19 @@ export function mdToHtml(md) {
     }
     if (inCode) { out.push(esc(line)); continue }
     const img = line.match(/^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/)
-    if (img) { closeList(); out.push(`<img src="${esc(img[2])}" alt="${esc(img[1])}"/>`); continue }
+    if (img) {
+      closeList()
+      // 外站图片不渲染：否则文档打开时会向第三方发请求（可能带 Referer / 追踪像素）
+      if (ALLOWED_IMG(img[2])) out.push(`<img src="${esc(img[2])}" alt="${esc(img[1])}"/>`)
+      else out.push(`<p>${esc(line)}</p>`)
+      continue
+    }
     const htmlImg = line.match(/^(?:<p[^>]*>\s*)?<img\b([^>]*)>(?:\s*<\/p>)?\s*$/i)
     if (htmlImg) {
       const attrs = htmlImg[1]
       const srcM = attrs.match(/src\s*=\s*["']([^"']+)["']/i)
       const src = srcM ? srcM[1] : ''
-      if (/^\/(uploads|emojis)\//i.test(src) || /^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(src)) {
+      if (ALLOWED_IMG(src)) {
         const altM = attrs.match(/alt\s*=\s*["']([^"']*)["']/i)
         const wM = attrs.match(/width\s*=\s*["']?(\d{1,3}%|\d{2,4})["']?/i)
         closeList()
@@ -79,7 +92,8 @@ export function mdToHtml(md) {
     const media = line.match(/^@\[(video|audio)\]\(([^)\s]+)\)\s*$/)
     if (media) {
       closeList()
-      out.push(`<${media[1]} src="${esc(media[2])}" controls></${media[1]}>`)
+      if (ALLOWED_MEDIA(media[2])) out.push(`<${media[1]} src="${esc(media[2])}" controls></${media[1]}>`)
+      else out.push(`<p>${esc(line)}</p>`)
       continue
     }
     const h = line.match(/^(#{1,4})\s+(.*)$/)

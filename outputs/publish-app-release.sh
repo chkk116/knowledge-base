@@ -3,19 +3,20 @@
 #
 # 用法：
 #   bash outputs/publish-app-release.sh <apk路径> <versionCode> <versionName> <更新说明> [force]
-#   发原生壳（com.kb.kbplatform）时务必带通道：
-#   KB_CHANNEL=app_version_native bash outputs/publish-app-release.sh <apk> 45 0.9.6-native "说明"
-#   （不带 = 写 app_version，那是 Capacitor 套壳读的通道）
+#   发原生壳（com.kb.kbplatform，当前唯一在发版的通道）：
+#   KB_CHANNEL=app_version_native bash outputs/publish-app-release.sh <apk> 10326 1.3.19-native "说明"
+#   ⚠️ 默认通道 app_version 属于已停发的 Capacitor 套壳，脚本会直接拦截（见下方守卫）；
+#      确需补发历史包时显式加 KB_ALLOW_CAPACITOR_RELEASE=1。
 # 例：
-#   bash outputs/publish-app-release.sh outputs/apk/知识库-v1.2-20261010-0900.apk 3 1.2 "修复xxx"
+#   KB_CHANNEL=app_version_native bash outputs/publish-app-release.sh outputs/apk/xxx.apk 10326 1.3.19-native "修复xxx"
 #
 # 做什么：
 #   1) 算 sha256
 #   2) 上传到 /opt/kb/app-release/kb-app-<versionName>.apk（nginx 暴露为 /app-release/，免鉴权）
-#   3) 把 SysSetting.app_version 写成 App 读的 JSON（versionCode/versionName/url/notes/force）
+#   3) 把 SysSetting.$CHANNEL 写成 App 读的 JSON（versionCode/versionName/url/notes/force）
 #   4) 校验公网可下载 + sha 一致 + 接口返回
 #
-# 前提：APK 的 versionCode 必须已 bump（改 mobile/android/app/build.gradle），且必须 > 用户已装的版本。
+# 前提：APK 的 versionCode 必须已 bump（改 mobile/mobile-native/app/build.gradle），且必须 > 用户已装的版本。
 #
 # 2026-10-21 安全加固（与 publish-app-bundle.sh 同款）：
 #   - SQL 注入：$NOTES/$NAME 等不再拼进 SQL——本地构造 JSON → base64 → psql 变量绑定（:'val'）。
@@ -29,13 +30,22 @@ NAME="${3:?缺 versionName}"
 NOTES="${4:-}"
 FORCE="${5:-false}"
 
-# 版本通道：默认写 app_version（Capacitor 套壳读的）；原生壳读 app_version_native。
+# 版本通道：原生壳读 app_version_native（当前唯一发版通道）；app_version 是已停发的 Capacitor 套壳。
 # 发原生包必须 KB_CHANNEL=app_version_native，否则原生用户收不到更新（而且会把 Capacitor 通道覆盖掉）。
 CHANNEL="${KB_CHANNEL:-app_version}"
 case "$CHANNEL" in
   app_version|app_version_native) ;;
   *) echo "❌ KB_CHANNEL 只能是 app_version / app_version_native，实际: $CHANNEL"; exit 1 ;;
 esac
+
+# ⚠️ Capacitor 套壳已停用：与原生壳共用 applicationId=com.kb.kbplatform，其 versionCode(10310/1.3.10)
+# 远低于原生壳(10326/1.3.19-native)。再向 app_version 发 APK，会让已装原生壳的用户覆盖安装
+# 直接降级失败（INSTALL_FAILED_VERSION_DOWNGRADE），或让旧设备版本回环。默认硬拦截，保留显式逃生口。
+if [ "$CHANNEL" = "app_version" ] && [ "${KB_ALLOW_CAPACITOR_RELEASE:-0}" != "1" ]; then
+  echo "❌ Capacitor 套壳已停用：禁止发布 app_version 通道（脚本默认即该通道）。" >&2
+  echo "   原生壳请用 KB_CHANNEL=app_version_native；确需补发历史包时显式设置 KB_ALLOW_CAPACITOR_RELEASE=1。" >&2
+  exit 1
+fi
 
 # versionCode 必须是纯数字；FORCE 只能是 true/false
 [[ "$CODE" =~ ^[0-9]+$ ]] || { echo "❌ versionCode 必须是数字，实际: $CODE"; exit 1; }

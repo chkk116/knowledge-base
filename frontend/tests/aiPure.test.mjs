@@ -82,8 +82,7 @@ test('mdToHtml: XSS 转义（尖括号与引号）', () => {
 })
 
 test('mdToHtml: 图片源白名单 —— 外站 URL 不渲染 img，本站 /uploads 与 data:image 放行', () => {
-  // 单行纯 HTML 会命中「正文已是 HTML」直通分支（安全性由后端 HtmlSanitizer 兜底）；
-  // 混合 Markdown 内容才走逐行解析与图片源白名单，这里验证白名单确实拦下外站 URL。
+  // 统一走逐行解析 + 站内图片白名单（HTML 直通分支已移除）。
   const evil = mdToHtml('# 标题\n<img src="https://evil.example/x" onerror="alert(1)">')
   assert.ok(!evil.includes('<img'))
   const site = mdToHtml('# 标题\n<img src="/uploads/a.png" alt="图">')
@@ -94,10 +93,31 @@ test('mdToHtml: 图片源白名单 —— 外站 URL 不渲染 img，本站 /upl
 })
 
 test('mdToHtml: Markdown 图片语法的 alt 含引号也必须转义', () => {
-  const h = mdToHtml('![" onerror="alert(1)](https://evil/x.png)')
-  // 该语法会生成 img（源不做白名单，由渲染层处理），但属性引号必须转义，不能出现未转义的 onerror 属性
-  assert.ok(!h.includes('alt="" onerror=""') || h.includes('&quot;'))
+  const h = mdToHtml('![" onerror="alert(1)](/uploads/x.png)')
+  // alt 属性位置可被注入 onerror，引号必须转义；站内源才会生成 img
+  assert.match(h, /<img src="\/uploads\/x\.png"/)
   assert.match(h, /&quot;/)
+  assert.ok(!/alt="[^"]*"\s+onerror=/.test(h))
+})
+
+test('mdToHtml: 外站 Markdown 图片 / 视频 / 音频降级为纯文本，不发第三方请求', () => {
+  for (const line of [
+    '![a](https://evil.example/x.png)',
+    '![a](http://evil.example/x.png)',
+    '@[video](https://evil.example/v.mp4)',
+    '@[audio](https://evil.example/a.mp3)'
+  ]) {
+    const h = mdToHtml(line)
+    assert.ok(!/<(img|video|audio)\b/i.test(h), '外部资源被渲染: ' + line)
+    // 原文以转义纯文本保留，用户仍能看到写了什么
+    assert.match(h, /<p>/)
+  }
+  // 站内与内联资源照常渲染
+  assert.match(mdToHtml('![a](/uploads/a.png)'), /<img src="\/uploads\/a\.png"/)
+  assert.match(mdToHtml('![a](/emojis/happy.png)'), /<img src="\/emojis\/happy\.png"/)
+  assert.match(mdToHtml('![a](data:image/png;base64,AAAA)'), /<img src="data:image\/png;base64,AAAA"/)
+  assert.match(mdToHtml('@[video](/uploads/a.mp4)'), /<video src="\/uploads\/a\.mp4" controls>/)
+  assert.match(mdToHtml('@[audio](data:audio/mp3;base64,AAAA)'), /<audio src="data:audio\/mp3;base64,AAAA" controls>/)
 })
 
 test('mdToHtml: 视频/音频语法', () => {

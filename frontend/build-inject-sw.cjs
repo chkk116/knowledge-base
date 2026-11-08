@@ -23,15 +23,47 @@ if (firstVersion !== pkgVersion) {
   console.error('版本号不一致：package.json=' + pkgVersion + '，changelog 最新=' + (firstVersion || '未找到'))
   process.exit(1)
 }
-// native 壳版本：升级弹层按 versionName 匹配 changelog，缺条目会让 App 内更新说明空白
+// 两个 Android 工程共用 applicationId=com.kb.kbplatform，必须一起校验，否则从 Capacitor
+// 工程出包会覆盖安装失败（降级）。两者版本体系不同：
+//   - Capacitor（已停发，保留代码作历史参考）：versionName 1.3.x，code = major*10000+minor*100+patch
+//   - 原生壳（当前唯一发版通道）：versionName 1.3.x-native，code 独立递增且必须严格大于 Capacitor
 const gradlePath = path.join(__dirname, '../mobile/mobile-native/app/build.gradle')
+const capPath = path.join(__dirname, '../mobile/android/app/build.gradle')
 if (fs.existsSync(gradlePath)) {
   const gradle = fs.readFileSync(gradlePath, 'utf8')
   // Groovy 单/双引号都合法，两种都要认（只认单引号会在有人改用双引号时误报「未找到」并阻断发版）
   const nativeVer = (gradle.match(/versionName\s+['"]([^'"]+)['"]/) || [])[1]
+  const nativeCode = Number((gradle.match(/versionCode\s+(\d+)/) || [])[1])
   if (!nativeVer || !versions.includes(nativeVer)) {
     console.error('native 版本未登记：build.gradle versionName=' + (nativeVer || '未找到') + '，changelog 中无对应条目')
     process.exit(1)
+  }
+  if (!Number.isFinite(nativeCode)) {
+    console.error('native versionCode 未找到或非法：' + gradlePath)
+    process.exit(1)
+  }
+  if (fs.existsSync(capPath)) {
+    const cap = fs.readFileSync(capPath, 'utf8')
+    const capVer = (cap.match(/versionName\s+['"]([^'"]+)['"]/) || [])[1]
+    const capCode = Number((cap.match(/versionCode\s+(\d+)/) || [])[1])
+    if (!capVer || !Number.isFinite(capCode)) {
+      console.error('Capacitor 版本未找到或非法：' + capPath)
+      process.exit(1)
+    }
+    const [ma, mi, pa] = capVer.split('.').map(Number)
+    const expectCode = ma * 10000 + mi * 100 + pa
+    if (capCode !== expectCode) {
+      console.error('Capacitor versionCode 不符规则：' + capVer + ' 应为 ' + expectCode + '，实际 ' + capCode)
+      process.exit(1)
+    }
+    if (!(nativeCode > capCode)) {
+      console.error('版本降级风险：原生壳 versionCode=' + nativeCode + ' 必须严格大于 Capacitor=' + capCode +
+        '（共用 applicationId，否则覆盖安装会 INSTALL_FAILED_VERSION_DOWNGRADE）')
+      process.exit(1)
+    }
+    console.log('安卓版本一致性 OK: Capacitor ' + capVer + '(' + capCode + ') < native ' + nativeVer + '(' + nativeCode + ')')
+  } else {
+    console.warn('⚠️ 未找到 ' + capPath + '，跳过 Capacitor 版本校验')
   }
 } else {
   // 路径变了 / 局部检出时别静默跳过，否则「漏配会阻断发版」这句承诺会无声失效

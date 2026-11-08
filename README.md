@@ -372,8 +372,12 @@ cd mobile/mobile-native
 - 系统级「随手问」：任意 App 长按选中文字 → 系统菜单出现「问知识库」→ `ProcessTextActivity`
   （`ACTION_PROCESS_TEXT` + `text/plain`）拉起独立轻量页，可 AI 解释 / 总结 / 翻译或继续追问，结果一键复制；
   不初始化 WebView、不加载完整 AppRoot，冷启动更快。未登录时引导打开 App 登录
-- 版本对齐：Android 原生壳与 Web/Capacitor 共用 `versionName`；`versionCode` 取 `1.03.14 → 10316` 的编码，
-  需高于历史所有 code，否则服务端会误判「已是最新」而不推送更新
+- 版本对齐：Web / Capacitor 版用 `versionName 1.3.x`（`versionCode = major*10000 + minor*100 + patch`，如 1.3.10 → 10310）；
+  **Android 原生壳用独立的 `1.3.x-native`**（如 1.3.19-native / 10326），不与 Web 共用 versionName。
+  两者共用 `applicationId=com.kb.kbplatform`，因此原生壳的 versionCode 必须**严格大于** Capacitor 版且高于线上历史值，
+  否则覆盖安装会 `INSTALL_FAILED_VERSION_DOWNGRADE`、服务端也会误判「已是最新」而不推送更新。
+  Capacitor 套壳已停发（发版脚本默认拦截 `app_version`），当前唯一发版通道为 `KB_CHANNEL=app_version_native`；
+  `frontend/build-inject-sw.cjs` 在每次前端构建时校验上述规则
 
 ## 移动端（Capacitor / Android）
 
