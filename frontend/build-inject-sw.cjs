@@ -27,11 +27,15 @@ if (firstVersion !== pkgVersion) {
 const gradlePath = path.join(__dirname, '../mobile/mobile-native/app/build.gradle')
 if (fs.existsSync(gradlePath)) {
   const gradle = fs.readFileSync(gradlePath, 'utf8')
-  const nativeVer = (gradle.match(/versionName\s+'([^']+)'/) || [])[1]
+  // Groovy 单/双引号都合法，两种都要认（只认单引号会在有人改用双引号时误报「未找到」并阻断发版）
+  const nativeVer = (gradle.match(/versionName\s+['"]([^'"]+)['"]/) || [])[1]
   if (!nativeVer || !versions.includes(nativeVer)) {
     console.error('native 版本未登记：build.gradle versionName=' + (nativeVer || '未找到') + '，changelog 中无对应条目')
     process.exit(1)
   }
+} else {
+  // 路径变了 / 局部检出时别静默跳过，否则「漏配会阻断发版」这句承诺会无声失效
+  console.warn('⚠️ 未找到 ' + gradlePath + '，跳过 native 版本一致性校验')
 }
 console.log('版本一致性 OK: ' + pkgVersion)
 // 版本号带构建时间戳：同一 package 版本内多次发版也能让旧哈希缓存随激活被清掉（外部复审 2026-10-06）

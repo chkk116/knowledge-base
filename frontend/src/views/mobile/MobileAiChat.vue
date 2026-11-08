@@ -29,7 +29,7 @@ import { createShareDoc, updateShareDoc, getShareDoc } from '../../api/docShare'
 import { shareDocPath, normalizeNavPath } from '../../utils/docPath'
 import { resolveDefaultSpaceId } from '../../utils/spaceResolver'
 import { agentCreateQuestions } from '../../utils/questionGen'
-import { sanitizeInput, mdToHtml, buildQuestionWithAttachments } from '../../utils/aiPure'
+import { sanitizeInput, mdToHtml, toDocHtml, buildQuestionWithAttachments } from '../../utils/aiPure'
 import MarkdownIt from 'markdown-it'
 
 const router = useRouter()
@@ -576,6 +576,8 @@ async function send(text) {
           },
           onStep: (t) => { agentSteps.value = [...agentSteps.value, t] },
           signal,
+          // 权限二次校验：registry 里声明 perm 的工具据此拦一道
+          hasPerm: (p) => auth.hasPerm(p),
           // 让 Agent 真正能「干活」：跳转页面 + 写/改知识库文档
           hooks: {
             askUser,
@@ -647,7 +649,7 @@ async function send(text) {
                 const isDraft = status === 'draft'
                 const { data } = await createMyDoc({
                   title,
-                  content: mdToHtml(content),
+                  content: toDocHtml(content),
                   status: isDraft ? 'DRAFT' : 'PENDING_REVIEW'
                 })
                 const id = data && data.id
@@ -663,7 +665,7 @@ async function send(text) {
             updateDoc: async ({ id, title, content }) => {
               if (auth.isDemo) return '演示账号是只读的，无法修改文档（请用正式账号登录后再试）'
               try {
-                const body = { content: mdToHtml(content) }
+                const body = { content: toDocHtml(content) }
                 if (title) body.title = title
                 const { data } = await updateMyDoc(id, body)
                 const st = data && data.status

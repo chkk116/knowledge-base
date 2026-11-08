@@ -352,12 +352,13 @@ onMounted(async () => {
           <rect x="20" y="8" width="52" height="60" rx="7" fill="#eef2ff" stroke="#c7d2fe" stroke-width="2"/>
           <path d="M30 24h32M30 34h32M30 44h20" stroke="#a5b4fc" stroke-width="3" stroke-linecap="round"/>
           <circle cx="70" cy="54" r="13" fill="#4f46e5"/>
-          <path d="M70 48v12M64 54h12" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+          <path d="M70 48v12M64 54h12" class="es-plus" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
         </svg>
-        <p class="es-title">{{ mode === 'search' ? '没有找到相关文档' : '还没有文档' }}</p>
-        <p class="es-sub">{{ mode === 'search' ? '换个关键词，或看看全部文档' : '写下第一篇，把知识沉淀下来' }}</p>
-        <el-button v-if="mode === 'search'" size="small" @click="reset">查看全部文档</el-button>
-        <el-button v-else type="primary" size="small" @click="router.push('/write')">写第一篇文章</el-button>
+        <!-- 这里的 mode 只会是 'list'（搜索已改为跳 /search 页），所以只留 list 这一套文案；
+             原来那套 mode==='search' 的分支和「查看全部文档」按钮永远不会渲染 -->
+        <p class="es-title">还没有文档</p>
+        <p class="es-sub">写下第一篇，把知识沉淀下来</p>
+        <el-button type="primary" size="small" @click="router.push('/write')">写第一篇文章</el-button>
       </div>
 
       <el-pagination v-if="!loading && total > 0"
@@ -420,7 +421,6 @@ html.dark .tagcloud .chip.more { border-color: #3a3b45; color: #7b8190; }
 .author-banner .clear:hover { color: #4338ca; }
 .tag.grey { cursor: pointer; }
 .tag.grey:hover { background: #e2e8f0; color: #334155; }
-.filters select { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
 .hint { color: #64748b; font-size: 13px; }
 .state { color: #64748b; padding: 12px 0; }
 /* 空状态：插图 + 主次文案 + 明确的下一步操作 */
@@ -431,7 +431,8 @@ html.dark .tagcloud .chip.more { border-color: #3a3b45; color: #7b8190; }
 html.dark .es-title { color: #e2e8f0; }
 html.dark .es-sub { color: #8b8fa3; }
 html.dark .empty-state .es-ico rect { fill: #23233a; stroke: #3a3a6b; }
-html.dark .empty-state .es-ico path { stroke: #6b73a8; }
+/* 只染文档线条，别把圆里的白色「+」也涂掉（深色下会糊成一团看不清） */
+html.dark .empty-state .es-ico path:not(.es-plus) { stroke: #6b73a8; }
 .state.err { color: #ef4444; display: flex; align-items: center; gap: 10px; }
 .state .retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; border-radius: 6px; padding: 3px 12px; cursor: pointer; font-size: 13px; }
 .state .retry:hover { background: #ef4444; color: #fff; }
@@ -498,7 +499,6 @@ html.dark .like { color: #8b8fa0; }
   .q { flex: 1 1 100%; padding: 10px 12px; font-size: 14px; }
   .go { flex: 1; padding: 10px 14px; font-size: 14px; }
   .filters { gap: 8px; }
-  .filters select { flex: 1 1 100%; }
   .filters :deep(.el-select) { width: 100% !important; }
   /* minmax(0, 1fr) + min-width:0 让卡片真能缩到容器宽以下；
      否则 1fr 会被 min-content 撑开（标题/标签/按钮连写一行时超 375px 视口） */

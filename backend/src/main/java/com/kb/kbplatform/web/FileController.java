@@ -81,10 +81,16 @@ public class FileController {
         // 同一用户传过同样内容、且磁盘文件还在 → 直接复用原记录，不再写第二份
         // （磁盘文件可能已被管理员当孤儿清掉，所以必须确认 exists）
         UploadedFile dup = fileRepo.findFirstByOwnerIdAndHash(c.userId(), hash).orElse(null);
-        if (dup != null && svc.exists(dup.getUrl())) {
-            Map<String, Object> res = payload(dup);
-            res.put("deduped", true);
-            return res;
+        if (dup != null) {
+            if (svc.exists(dup.getUrl())) {
+                Map<String, Object> res = payload(dup);
+                res.put("deduped", true);
+                return res;
+            }
+            // 残留记录：物理文件已被「孤儿清理」之类的操作删掉。必须清掉再写新的，
+            // 否则同一 (ownerId, hash) 会留下两条，而 findFirst 没有排序，
+            // 后续上传可能一直命中这条死记录、返回一个 404 链接。
+            fileRepo.delete(dup);
         }
         // 配额闸门放在落盘前：否则超标文件已经写进磁盘才报错，等于白占空间
         docShare.assertUserStorage(c.userId(), file.getSize());

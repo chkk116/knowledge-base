@@ -7,7 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  mkey, sanitizeAnswer, sanitizeInput, cleanTitle, mdToHtml, buildQuestionWithAttachments,
+  mkey, sanitizeAnswer, sanitizeInput, cleanTitle, mdToHtml, toDocHtml, buildQuestionWithAttachments,
 } from '../src/utils/aiPure.js'
 
 test('mkey: 用户模型与系统模型带不同前缀，避免 id 冲突', () => {
@@ -103,4 +103,26 @@ test('mdToHtml: Markdown 图片语法的 alt 含引号也必须转义', () => {
 test('mdToHtml: 视频/音频语法', () => {
   assert.match(mdToHtml('@[video](/uploads/a.mp4)'), /<video src="\/uploads\/a\.mp4" controls>/)
   assert.match(mdToHtml('@[audio](/uploads/a.mp3)'), /<audio src="\/uploads\/a\.mp3" controls>/)
+})
+
+test('toDocHtml: 已是富文本 HTML 的正文原样保留（Agent read_doc → update_doc 回写）', () => {
+  const html = '<p>第一段 <strong>加粗</strong></p><ul><li>要点</li></ul>'
+  assert.equal(toDocHtml(html), html)
+})
+
+test('toDocHtml: 普通 Markdown 仍按 Markdown 解析', () => {
+  assert.match(toDocHtml('# 标题\n\n正文'), /<p>/)
+})
+
+test('toDocHtml: 只是提到标签的普通文本不会被当成 HTML 直通', () => {
+  const text = '可以用 <p> 标签分段，也可以用 <div> 包一层'
+  const out = toDocHtml(text)
+  assert.ok(out.includes('&lt;p&gt;'), '标签文本必须被转义')
+  assert.ok(out.includes('&lt;div&gt;'), '提到的标签都要转义')
+  assert.ok(!/<p>标签/.test(out), '不能把提到的标签还原成真结构')
+})
+
+test('toDocHtml: 单个闭合标签的伪 HTML 不算直通', () => {
+  const t = '<p>只有一段</p>'
+  assert.equal(toDocHtml(t), '<p>&lt;p&gt;只有一段&lt;/p&gt;</p>')
 })

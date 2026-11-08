@@ -24,7 +24,7 @@ import { createShareDoc, updateShareDoc, getShareDoc } from '../api/docShare'
 import { shareDocPath, normalizeNavPath } from '../utils/docPath'
 import { resolveDefaultSpaceId } from '../utils/spaceResolver'
 import { agentCreateQuestions } from '../utils/questionGen'
-import { mkey, sanitizeAnswer, sanitizeInput, cleanTitle, mdToHtml, buildQuestionWithAttachments } from '../utils/aiPure'
+import { mkey, sanitizeAnswer, sanitizeInput, cleanTitle, mdToHtml, toDocHtml, buildQuestionWithAttachments } from '../utils/aiPure'
 import {
   estimateTokens, formatTokens, pickHistory, historyToText,
   COMPACT_INSTRUCTION, THINK_LEVELS, thinkPrefix,
@@ -583,6 +583,9 @@ async function sendAgent(raw) {
       },
       onStep: (s) => { agentSteps.value = [...agentSteps.value, s] },
       signal: abortCtrl.value.signal,
+      // 权限二次校验：registry 里声明 perm 的工具（如 create_questions）据此拦一道，
+      // 不传的话那句「即便模型猜到工具名也绕不过权限码」就是空话
+      hasPerm: (p) => auth.hasPerm(p),
       hooks: {
         askUser,
         createImage: async (prompt) => {
@@ -672,7 +675,7 @@ async function sendAgent(raw) {
           try {
             const isDraft = status === 'draft'
             const { data } = await createMyDoc({
-              title, content: mdToHtml(content), status: isDraft ? 'DRAFT' : 'PENDING_REVIEW'
+              title, content: toDocHtml(content), status: isDraft ? 'DRAFT' : 'PENDING_REVIEW'
             })
             const st = (data && data.status) || (isDraft ? 'DRAFT' : 'PENDING_REVIEW')
             if (st === 'PUBLISHED') return '已发布《' + title + '》（id=' + (data && data.id) + '）'
@@ -683,7 +686,7 @@ async function sendAgent(raw) {
         updateDoc: async ({ id, title, content }) => {
           if (auth.isDemo) return '演示账号是只读的，无法修改文档（请用正式账号登录后再试）'
           try {
-            const body = { content: mdToHtml(content) }
+            const body = { content: toDocHtml(content) }
             if (title) body.title = title
             const { data } = await updateMyDoc(id, body)
             const st = data && data.status

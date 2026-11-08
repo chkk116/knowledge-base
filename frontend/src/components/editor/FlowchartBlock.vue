@@ -367,7 +367,10 @@ function syncForms() {
 watch([selectedId, selectedEdgeId, editing], syncForms)
 
 // 属性面板输入校验：即便有人绕过 UI（控制台改 DOM / 直接改持久化数据），也不让非法值进 style
-function safeColor(v) { return /^#[0-9a-fA-F]{3,8}$/.test(String(v)) ? v : null }
+// 只认合法的 CSS hex 长度：3 / 4 / 6 / 8 位（{3,8} 会放过 #12345、#1234567 这类非法值）；
+// 返回 String(v)：校验的是 String(v)，存的也必须是同一个字符串，否则
+// 「对象的 toString 返回合法 hex」这类值会绕过校验、以原对象形态进持久化
+function safeColor(v) { const s = String(v); return /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s) ? s : null }
 function safeNum(v, min, max) {
   const n = Number(v)
   return Number.isFinite(n) && n >= min && n <= max ? n : null
