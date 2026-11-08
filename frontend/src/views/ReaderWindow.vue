@@ -1,10 +1,13 @@
 <script setup>
+import { docIdFromParam } from '../utils/docCode'
 import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getDoc } from '../api/kb'
 import { enhanceVideos, bindImgLightbox, absolutizeMedia } from '../utils/mediaEnhance'
 
 const route = useRoute()
+// 路由参数可能是 8 位短码，也可能是老数字链接；统一还原成真实文档 id
+const currentDocId = () => docIdFromParam(route.params.id) || route.params.id
 const doc = ref(null)
 const loading = ref(true)
 const error = ref('')
@@ -25,7 +28,7 @@ onMounted(async () => {
     document.documentElement.classList.add('dark')
   }
   try {
-    const { data } = await getDoc(route.params.id)
+    const { data } = await getDoc(currentDocId())
     doc.value = data
   } catch (e) {
     error.value = '加载失败（请确认已登录且后端已启动）'

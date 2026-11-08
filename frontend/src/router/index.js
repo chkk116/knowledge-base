@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { featureMap } from '../api/features'
+import { upgradeDocPath } from '../utils/docCode'
 
 const routes = [
   { path: '/', component: () => import('../views/Home.vue'), meta: { title: '知识库', maintenance: 'docs' } },
@@ -229,6 +230,20 @@ router.beforeEach(async (to) => {
     }
   }
   return true
+})
+
+// 文章链接短码化：站内 30+ 处跳转仍拼数字 id（一处都不用改），导航完成后
+// 用 replaceState 把地址栏换成 8 位短码 —— 分享出去的链接不再暴露文章序号，
+// 也不会在历史栈里多留一条数字 URL（返回按钮行为不变）。
+// 老数字链接照样能打开：router 内部 params 仍是数字，详情页 docIdFromParam 兼容。
+router.afterEach((to) => {
+  const p = upgradeDocPath(to.path)
+  if (!p) return
+  try {
+    const href = router.resolve({ path: p, query: to.query, hash: to.hash }).href
+    const now = window.location.pathname + window.location.search + window.location.hash
+    if (href && href !== now) window.history.replaceState(window.history.state, '', href)
+  } catch { /* 地址栏改写失败不影响页面展示 */ }
 })
 
 // 空闲时仅预加载登录后的着陆页（首页）chunk，提升登录后跳转的即时感。

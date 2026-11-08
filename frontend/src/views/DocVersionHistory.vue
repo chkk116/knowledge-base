@@ -1,4 +1,5 @@
 <script setup>
+import { docIdFromParam } from '../utils/docCode'
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -7,8 +8,10 @@ import { fromNow, fmtDateTime } from '../utils/time'
 import { errMsg } from '../utils/errMsg'
 
 const route = useRoute()
+// 路由参数可能是 8 位短码，也可能是老数字链接；统一还原成真实文档 id
+const currentDocId = () => docIdFromParam(route.params.id) || route.params.id
 const router = useRouter()
-const docId = route.params.id
+const docId = currentDocId()
 const versions = ref([])
 const loading = ref(false)
 const preview = ref(null)     // 当前预览的版本 { title, content }

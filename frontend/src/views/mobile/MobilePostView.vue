@@ -1,4 +1,5 @@
 <script setup>
+import { docIdFromParam } from '../../utils/docCode'
 /**
  * 移动端「文章详情」——公开文章（Document）阅读页
  *
@@ -30,10 +31,12 @@ import ImageNode from '../../extensions/ImageNode'
 import VideoNode from '../../extensions/VideoNode'
 
 const route = useRoute()
+// 路由参数可能是 8 位短码，也可能是老数字链接；统一还原成真实文档 id
+const currentDocId = () => docIdFromParam(route.params.id) || route.params.id
 const router = useRouter()
 // let：路由参数变化时同步（外部审查 2026-10-12：原 const 导致复用组件后
 // 点赞/评论/收藏仍打旧文章 id——上一轮只重载了数据没同步这个变量）
-let id = Number(route.params.id)
+let id = Number(currentDocId())
 
 const doc = ref(null)
 const loading = ref(true)
@@ -173,7 +176,7 @@ async function loadDoc(curId) {
 onMounted(() => loadDoc(id))
 // 组件复用（相关文章跳转 /post/1 → /post/2 同组件）时路由参数不会重跑 setup，
 // id 固化会让全部接口打错文章——监听参数变化重新拉取（外部审查 2026-10-11）
-watch(() => route.params.id, (nv, ov) => {
+watch(() => currentDocId(), (nv, ov) => {
   const nid = Number(nv)
   if (nv != null && nid && nid !== Number(ov)) {
     id = nid

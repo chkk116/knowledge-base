@@ -16,6 +16,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { isNative } from '../utils/runtimeBase'
+import { upgradeDocPath } from '../utils/docCode'
 
 const routes = [
   // ---- 登录：移动端 v3 构图（玻璃胶囊 + 渐变按钮），设计语言与 Web 版同源但布局不同 ----
@@ -189,6 +190,17 @@ router.beforeEach(async (to) => {
     return true
   }
   return { path: '/login', query: { redirect: to.fullPath } }
+})
+
+// 与桌面端同口径：文章地址栏换成短码（base 由 router.resolve 自动带上 /m/ 或 /）
+router.afterEach((to) => {
+  const p = upgradeDocPath(to.path)
+  if (!p) return
+  try {
+    const href = router.resolve({ path: p, query: to.query, hash: to.hash }).href
+    const now = window.location.pathname + window.location.search + window.location.hash
+    if (href && href !== now) window.history.replaceState(window.history.state, '', href)
+  } catch { /* 地址栏改写失败不影响页面展示 */ }
 })
 
 // ---- 发版兜底：懒加载 chunk 取不到时自动刷新一次 ----

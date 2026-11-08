@@ -1,4 +1,5 @@
 <script setup>
+import { docIdFromParam } from '../utils/docCode'
 import ReportDialog from '../components/ReportDialog.vue'
 import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -19,6 +20,8 @@ import { splitTags } from '../utils/text'
 import { errMsg } from '../utils/errMsg'
 
 const route = useRoute()
+// 路由参数可能是 8 位短码，也可能是老数字链接；统一还原成真实文档 id
+const currentDocId = () => docIdFromParam(route.params.id) || route.params.id
 const router = useRouter()
 const auth = useAuthStore()
 const history = useHistoryStore()
@@ -458,14 +461,14 @@ const subCount = ref(0)
 
 const loadRelated = async () => {
   try {
-    const { data } = await getRelatedDocs(route.params.id, 6)
+    const { data } = await getRelatedDocs(currentDocId(), 6)
     relatedDocs.value = data || []
   } catch (e) { relatedDocs.value = [] }   // 推荐失败不影响正文与评论
 }
 
 const loadSubscription = async () => {
   try {
-    const { data } = await getDocSubscription(route.params.id)
+    const { data } = await getDocSubscription(currentDocId())
     subscribed.value = !!data?.subscribed
     subCount.value = data?.count || 0
   } catch (e) { subscribed.value = false; subCount.value = 0 }
@@ -478,7 +481,7 @@ const onToggleSubscribe = async () => {
     return
   }
   try {
-    const { data } = await (subscribed.value ? unsubscribeDoc(route.params.id) : subscribeDoc(route.params.id))
+    const { data } = await (subscribed.value ? unsubscribeDoc(currentDocId()) : subscribeDoc(currentDocId()))
     subscribed.value = !!data?.subscribed
     subCount.value = data?.count || 0
     ElMessage.success(subscribed.value ? '已订阅，文档更新时会通知你' : '已取消订阅')
@@ -490,11 +493,11 @@ const onToggleSubscribe = async () => {
 const load = async () => {
   loading.value = true
   try {
-    const { data } = await getDoc(route.params.id)
+    const { data } = await getDoc(currentDocId())
     doc.value = data
     // 面包屑：层级链路（根→…→父→自身），平铺文档无 parent 时返回空，不展示
     try {
-      crumbs.value = (await docBreadcrumb(route.params.id)).data || []
+      crumbs.value = (await docBreadcrumb(currentDocId())).data || []
     } catch (e) {
       crumbs.value = []
     }
@@ -505,14 +508,14 @@ const load = async () => {
     // 记录浏览历史（localStorage，按本机存储）
     history.add({ id: data.id, title: data.title, category: data.category, author: data.authorName || data.ownerName || '', views: data.views })
     loadAuthorCard(data.ownerId)
-    comments.value = (await getComments(route.params.id)).data || []
+    comments.value = (await getComments(currentDocId())).data || []
     focusCommentFromQuery()   // 数据面板「点击直达」：?c=评论id → 滚动定位并高亮
     if (auth.loggedIn) {
       try {
-        favorited.value = ((await myFavoriteIds()).data || []).includes(Number(route.params.id))
+        favorited.value = ((await myFavoriteIds()).data || []).includes(Number(currentDocId()))
       } catch (e) {}
       try {
-        liked.value = ((await myLikeIds()).data || []).includes(Number(route.params.id))
+        liked.value = ((await myLikeIds()).data || []).includes(Number(currentDocId()))
       } catch (e) {}
       try {
         commentLikedIds.value = new Set((await myCommentLikes()).data || [])
@@ -533,7 +536,7 @@ const onToggleFav = async () => {
     return
   }
   try {
-    const { data } = await toggleFavorite(route.params.id)
+    const { data } = await toggleFavorite(currentDocId())
     favorited.value = data.favorited
     ElMessage.success(data.favorited ? '已收藏' : '已取消收藏')
   } catch (e) {
@@ -548,7 +551,7 @@ const onToggleLike = async () => {
     return
   }
   try {
-    const { data } = await toggleLike(route.params.id)
+    const { data } = await toggleLike(currentDocId())
     liked.value = data.liked
     if (doc.value) doc.value.likes = data.likes
   } catch (e) {
@@ -587,7 +590,7 @@ const submitComment = async () => {
   if (!el.textContent.trim() && !el.querySelector('img')) return
   posting.value = true
   try {
-    const r = await addComment(route.params.id, html, replyTo.value ? replyTo.value.id : null)
+    const r = await addComment(currentDocId(), html, replyTo.value ? replyTo.value.id : null)
     // 业务性失败（内容为空/敏感词）：后端返回 200 + { ok:false, error }
     if (r?.data && r.data.ok === false) {
       ElMessage.error(r.data.error || '评论失败')
@@ -595,7 +598,7 @@ const submitComment = async () => {
     }
     clearCommentBox()
     replyTo.value = null
-    comments.value = (await getComments(route.params.id)).data || []
+    comments.value = (await getComments(currentDocId())).data || []
     ElMessage.success('评论成功')
   } catch (e) {
     ElMessage.error(errMsg(e, '评论失败'))
@@ -684,7 +687,7 @@ const goComment = () => {
 
 // 站内从本页跳另一篇文章（如右侧「他的文章」）时，路由只变 params、组件被复用，
 // onMounted 不会再执行 —— 必须监听 id 变化重新加载，否则点了看着"没反应"。
-watch(() => route.params.id, (nid, old) => {
+watch(() => currentDocId(), (nid, old) => {
   if (!nid || nid === old) return
   // 重置上一篇的局部状态，避免串数据
   doc.value = null
@@ -984,7 +987,7 @@ onBeforeUnmount(() => {
       <img :src="lightboxSrc" alt="" @click.stop />
       <button class="lb-close" type="button" @click="lightboxSrc = ''" title="关闭">×</button>
     </div>
-    <ReportDialog v-model="reportOpen" target-type="POST" :target-id="Number(route.params.id)"
+    <ReportDialog v-model="reportOpen" target-type="POST" :target-id="Number(currentDocId())"
                   :target-label="'举报这篇内容：' + (post?.title || '')" />
   </div>
 </template>
