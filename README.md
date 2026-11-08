@@ -476,6 +476,8 @@ App 壳内走 WebView 需在 preferences 里写死后端地址，不能用相对
 - **权限模型**：细粒度权限码（`Perm` 集中白名单）+ 角色聚合 + 全权限视同管理员；资源审批类接口刻意仅认真实 ADMIN
 - **敏感词**：评论过滤，≤4 位纯 ASCII 词要求词边界匹配，命中返回 400 + 中文 error
 - **公开资源**：`/uploads`、`/api/thumb` 在 AuthFilter 白名单放行（ThumbController 内做穿越防护）
+- **富文本双层净化**：AI 生成的正文提交前先过前端 `sanitizeDocHtml()`（整棵删除 script/style/svg/iframe 等危险子树，剔除 `on*` 事件属性、`javascript:`、`style` 里的 `url()`、外站 `src|poster|srcset`，未闭合的脚本连内容丢弃），入库再走服务端 `HtmlSanitizer` 白名单；聊天里的回答渲染始终按 Markdown 转义，不直接 `v-html`
+- **外站资源不外发**：文档与回答里的第三方图片/音视频降级为链接文字，只放行站内 `/uploads`、`/emojis` 与内联 `data:`
 
 ## 代码质量工具
 
