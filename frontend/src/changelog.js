@@ -10,6 +10,18 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.40',
+    date: '2026-11-08',
+    title: '外站资源收敛与安卓版本校验',
+    items: [
+      '文档与 AI 回答里的外站图片 / 音视频不再直接渲染，改为降级成原链接文字，避免打开页面就向第三方发请求（站内 /uploads、/emojis 与内联 data: 照常显示）',
+      'Agent 回写富文本时前端再做一层净化：script / style / svg / iframe 连内容一起剔除，事件属性、javascript:、外站 src 一律去掉；干净正文一字不改',
+      '安卓两个工程共用 applicationId，前端构建时校验 Capacitor 与原生壳的 versionCode 关系，原生壳必须严格更大，防止覆盖安装降级失败',
+      'Capacitor 套壳确认停发，发版脚本对 app_version 通道默认拦截（需要补发历史包时显式放行）',
+      '首页容器补 box-sizing 与宽度约束，窄屏不再横向溢出',
+    ],
+  },
+  {
     version: '1.3.39',
     date: '2026-11-08',
     title: '第 35 轮审查修复',

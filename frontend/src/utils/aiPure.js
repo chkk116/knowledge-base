@@ -118,14 +118,20 @@ export function mdToHtml(md) {
  * 所以只剔除危险位，其余（含 data-*、class、style）原样保留；
  * 干净 HTML 经过本函数字符串完全不变（单测断言了这点）。
  */
-const DANGEROUS_TAG = /^(script|iframe|object|embed|link|meta|base|form|input|button|svg|math)$/i
+const DANGEROUS_TAG = /^(script|style|iframe|object|embed|link|meta|base|form|input|button|textarea|select|template|svg|math)$/i
 const EVENT_ATTR = /\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi
 const JS_PROTO = /(?:javascript|vbscript|data:text\/html)\s*:/gi
 const SRC_ATTR = /(\s(?:src|poster|srcset)\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi
 const TAG_RE = /<(\/?)([a-z][a-z0-9-]*)\b([^>]*)>/gi
+// 这几类必须连内容一起删：只摘掉开闭标签会把里面的东西留成正文
+// （`<script>alert(1)` 少个闭合标签时会变成可见文字 `<p>a</p>alert(1)`；<svg> 摘标签会留下裸 <circle/>）
+const DANGEROUS_BLOCK = /<(script|style|svg|math|iframe|object|embed|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi
 
 export function sanitizeDocHtml(html) {
-  const s = String(html || '').replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
+  // ① 整棵危险子树先删（含内容）② 再兜没闭合的 <script>/<style>：从它开始到文末都不留
+  const s = String(html || '')
+    .replace(DANGEROUS_BLOCK, '')
+    .replace(/<(script|style)\b[^>]*>[\s\S]*$/gi, '')
   return s.replace(TAG_RE, (whole, slash, tag, attrs) => {
     if (DANGEROUS_TAG.test(tag)) return ''
     if (!attrs) return whole

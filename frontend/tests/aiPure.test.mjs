@@ -188,3 +188,13 @@ test('toDocHtml: 富文本直通走前端净化后再提交', () => {
   assert.ok(!/evil\.example/.test(out))
   assert.match(out, /正文/)
 })
+
+test('sanitizeDocHtml: 没闭合的 <script>/<style> 连内容一起丢掉，不能留成可见文字', () => {
+  assert.equal(sanitizeDocHtml('<p>a</p><script>alert(1)'), '<p>a</p>')
+  assert.equal(sanitizeDocHtml('<p>a</p><style>body{display:none}'), '<p>a</p>')
+})
+
+test('sanitizeDocHtml: svg / iframe 整棵子树删掉，不留裸子节点', () => {
+  assert.equal(sanitizeDocHtml('<svg onload="alert(1)"><circle/></svg>'), '')
+  assert.equal(sanitizeDocHtml('<iframe src="https://evil">fallback</iframe>ok'), 'ok')
+})
