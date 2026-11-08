@@ -916,7 +916,7 @@ onMounted(async () => {
         :placeholder="mode === 'agent' ? '给 Agent 派活…' : '问点什么…'" @keydown.enter.exact.prevent="send()"
       ></textarea>
       <button v-if="loading" class="aic-send stop" @click="stopAi">停止</button>
-      <button v-else class="aic-send" :disabled="!input.trim()" @click="send()">
+      <button v-else class="aic-send" :disabled="!input.trim() && !attachments.length" @click="send()">
         <el-icon><Promotion /></el-icon>
       </button>
     </div>

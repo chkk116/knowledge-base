@@ -118,6 +118,13 @@
           <el-button text size="small" @click="quoteRef = null">取消</el-button>
         </div>
         <footer class="dm-input">
+          <!-- 待发送图片：选图只到这里，点「发送」才上传发出 -->
+          <div v-if="pendingImage" class="pending-img">
+            <img :src="pendingImage.url" alt="待发送图片预览" />
+            <span class="pi-name" :title="pendingImage.name">{{ pendingImage.name }}</span>
+            <span class="pi-hint">点「发送」后发出</span>
+            <button type="button" class="pi-x" title="移除图片" @click="clearPendingImage">×</button>
+          </div>
           <div class="dm-editor">
             <el-input
               ref="inputRef" v-model="draft" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" resize="none"
@@ -129,12 +136,12 @@
           <div class="dm-input-bot">
             <div class="dm-tools">
               <button type="button" class="tool" :class="{ on: emojiOpen }" title="表情" @click="emojiOpen = !emojiOpen">😊</button>
-              <button type="button" class="tool" title="发送图片" :disabled="!quota.peerAllowDm || sending" @click="pickImage">
+              <button type="button" class="tool" title="选择图片（发送前可预览）" :disabled="!quota.peerAllowDm || sending || uploading" @click="pickImage">
                 <el-icon><Picture /></el-icon>
               </button>
               <span class="tool-hint">Enter 发送 · Shift+Enter 换行</span>
             </div>
-            <el-button type="primary" class="send-btn" :disabled="!canSend" :loading="sending" @click="send">发送</el-button>
+            <el-button type="primary" class="send-btn" :disabled="!canSend" :loading="sending || uploading" @click="send">发送</el-button>
           </div>
           <input ref="fileInput" type="file" accept="image/*" class="hidden-file" @change="onPickImage" />
         </footer>
@@ -187,6 +194,10 @@ const draft = ref('')
 const quoteRef = ref(null)
 const loading = ref(false)
 const sending = ref(false)
+const uploading = ref(false)
+// 待发送图片：选图只进输入区预览，点「发送」才上传并发出（不再选完即发）
+// peerId 用于锁定会话，切走会话时预览会被清掉，避免误发给别人
+const pendingImage = ref(null)   // { file, url, name, peerId } | null
 const following = ref(false)
 const quota = reactive({ mutual: false, replied: false, sent: 0, remaining: -1, limited: false, peerAllowDm: true })
 const settings = reactive({ open: false, allowDm: true })
@@ -200,8 +211,8 @@ const filtered = computed(() => {
   return k ? convs.value.filter((c) => (c.name || '').includes(k) || (c.lastMessage || '').includes(k)) : convs.value
 })
 const currentList = computed(() => (showArchived.value ? archivedConvs.value : filtered.value))
-const canSend = computed(() => !!draft.value.trim() && !sending.value && quota.peerAllowDm
-  && !(quota.limited && quota.sent >= 3))
+const canSend = computed(() => (!!draft.value.trim() || !!pendingImage.value) && !sending.value && !uploading.value
+  && quota.peerAllowDm && !(quota.limited && quota.sent >= 3))
 
 /* ---------- 消息分组 / 日期分隔（飞书式） ---------- */
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString()
@@ -288,6 +299,7 @@ async function openPeer(peerId, info) {
   following.value = !!known?.isFollowing
   loading.value = true
   draft.value = ''
+  clearPendingImage()   // 切会话丢弃未发图片，避免错发给新会话
   msgs.value = []          // 立刻清空，避免上一个会话的消息闪现（审查 r20 High）
   quoteRef.value = null
   const stamp = ++openSeq   // 请求序号：返回时若已切走则丢弃，防止串会话
@@ -362,7 +374,7 @@ async function doArchiveConv(c) {
     } else {
       await dmArchiveConv(c.peerId, true)
       convs.value = convs.value.filter((x) => x.peerId !== c.peerId)
-      if (peer.value?.peerId === c.peerId) peer.value = null
+      if (peer.value?.peerId === c.peerId) { peer.value = null; clearPendingImage() }
       ElMessage.success('已归档')
     }
   } catch (e) {
@@ -377,42 +389,38 @@ async function doDeleteConv(c) {
     convs.value = convs.value.filter((x) => x.peerId !== c.peerId)
     archivedConvs.value = archivedConvs.value.filter((x) => x.peerId !== c.peerId)
     archivedCount.value = archivedConvs.value.length
-    if (peer.value?.peerId === c.peerId) peer.value = null
+    if (peer.value?.peerId === c.peerId) { peer.value = null; clearPendingImage() }
     ElMessage.success('已删除')
   } catch (e) { /* 取消 */ }
 }
 
 const fileInput = ref(null)
 const reportOpen = ref(false)
-const uploading = ref(false)
 
 function pickImage() { fileInput.value?.click() }
 
-async function onPickImage(e) {
+/** 释放预览用的 objectURL，避免内存泄漏 */
+function clearPendingImage() {
+  if (pendingImage.value?.url) URL.revokeObjectURL(pendingImage.value.url)
+  pendingImage.value = null
+}
+
+/** 选图：只做本地预览并挂到输入区，不上传、不发送；真正发出统一走 send() */
+function onPickImage(e) {
   const f = e.target.files?.[0]
   e.target.value = ''
   if (!f) return
+  if (!/^image\//i.test(f.type)) { ElMessage.warning('请选择图片文件'); return }
   if (f.size > 8 * 1024 * 1024) { ElMessage.warning('图片请小于 8MB'); return }
-  uploading.value = true
-  const targetPeer = peer.value?.peerId        // 上传前锁定收件人（审查 NH5）：上传期间切会话不再错发
-  try {
-    const { data } = await uploadFile(f)
-    const url = data?.data?.url || data?.url
-    if (!url) throw new Error('上传返回异常')
-    if (!peer.value || peer.value.peerId !== targetPeer) {
-      ElMessage.warning('已切换会话，图片未发送，请重新选择')
-      return
-    }
-    const { data: r } = await dmSend(targetPeer, url, 'IMAGE', quoteRef.value?.id ?? null)
-    quoteRef.value = null
-    msgs.value.push({ id: r.id, fromId: meId.value, kind: 'IMAGE', content: url, createdAt: new Date().toISOString(), read: false })
-    if (r.quota) Object.assign(quota, r.quota)
-    await scrollBottom()
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.error || '图片发送失败')
-  } finally {
-    uploading.value = false
+  if (!peer.value) return
+  clearPendingImage()
+  pendingImage.value = {
+    file: f,
+    url: URL.createObjectURL(f),
+    name: f.name,
+    peerId: peer.value.peerId,
   }
+  nextTick(() => inputRef.value?.focus?.())
 }
 
 /** 引用某条消息：记录 id + 摘要，发送时带上 replyId */
@@ -441,23 +449,64 @@ async function recall(m) {
   }
 }
 
+/**
+ * 统一发送入口：文字与待发图片都在输入区编辑好，点「发送」才真正提交。
+ * 两者同时存在时按顺序发两条（文字 → 图片），引用只挂在第一条上。
+ * 图片上传失败时保留预览，用户可直接重试；切会话时丢弃预览避免错发。
+ */
 async function send() {
   if (!canSend.value) return
-  sending.value = true
   const text = draft.value.trim()
+  const img = pendingImage.value
+  const pid = peer.value.peerId
+  const replyId = quoteRef.value?.id ?? null
+  if (img && img.peerId !== pid) {
+    ElMessage.warning('已切换会话，待发图片已清除，请重新选择')
+    clearPendingImage()
+    return
+  }
+  sending.value = true
   try {
-    const { data } = await dmSend(peer.value.peerId, text, 'TEXT', quoteRef.value?.id ?? null)
-    draft.value = ''
-    quoteRef.value = null
-    msgs.value.push({
-      id: data.id, fromId: meId.value, kind: 'TEXT', content: text,
-      createdAt: new Date().toISOString(), read: false,
-    })
-    if (data.quota) Object.assign(quota, data.quota)
+    let replyUsed = false
+    if (text) {
+      const { data } = await dmSend(pid, text, 'TEXT', replyId)
+      draft.value = ''
+      quoteRef.value = null
+      replyUsed = true
+      msgs.value.push({
+        id: data.id, fromId: meId.value, kind: 'TEXT', content: text,
+        createdAt: new Date().toISOString(), read: false,
+      })
+      if (data.quota) Object.assign(quota, data.quota)
+      loadConvs()
+    }
+    if (img) {
+      uploading.value = true
+      try {
+        const { data: up } = await uploadFile(img.file)
+        const url = up?.data?.url || up?.url
+        if (!url) throw new Error('上传返回异常')
+        if (!peer.value || peer.value.peerId !== pid) {
+          ElMessage.warning('已切换会话，图片未发送，请重新选择')
+          clearPendingImage()
+          return
+        }
+        const { data: r } = await dmSend(pid, url, 'IMAGE', replyUsed ? null : replyId)
+        quoteRef.value = null
+        clearPendingImage()
+        msgs.value.push({
+          id: r.id, fromId: meId.value, kind: 'IMAGE', content: url,
+          createdAt: new Date().toISOString(), read: false,
+        })
+        if (r.quota) Object.assign(quota, r.quota)
+      } finally {
+        uploading.value = false
+      }
+    }
     await scrollBottom()
     loadConvs()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.error || '发送失败')
+    ElMessage.error(e?.response?.data?.error || (img ? '图片发送失败，可重新点发送重试' : '发送失败'))
   } finally {
     sending.value = false
   }
@@ -551,6 +600,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   stopPoll()
+  clearPendingImage()
   window.removeEventListener('kb:dm', onDmEvent)
   window.removeEventListener('kb:dm-recall', onRecallEvent)
 })
@@ -652,6 +702,20 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .tool:disabled { opacity: .4; cursor: default; }
 .tool-hint { font-size: 11px; color: #b6bdc9; margin-left: 4px; white-space: nowrap; }
 .dm-editor { position: relative; width: 100%; }
+/* 待发送图片预览条：与输入区同宽，浅底圆角，不抢发送按钮视觉 */
+.pending-img { display: flex; align-items: center; gap: 9px; padding: 6px 8px;
+  background: #f5f6f7; border: 1px solid #e5e6eb; border-radius: 10px; }
+.pending-img img { width: 42px; height: 42px; object-fit: cover; border-radius: 7px;
+  -webkit-user-drag: none; user-select: none; }
+.pi-name { font-size: 12px; color: #1d2129; max-width: 200px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.pi-hint { flex: 1; font-size: 11px; color: #86909c; white-space: nowrap; }
+.pi-x { width: 24px; height: 24px; border: 0; background: transparent; border-radius: 6px;
+  color: #86909c; font-size: 18px; line-height: 1; cursor: pointer; }
+.pi-x:hover { background: #e5e6eb; color: #f53f3f; }
+html.dark .pending-img { background: #1f2024; border-color: #2a2c33; }
+html.dark .pi-name { color: #e5e6eb; }
+html.dark .pi-x:hover { background: #2a2c33; }
 .emoji-pop { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 30; }
 .send-btn { height: 38px; border-radius: 8px; background: #1677ff; border: none; box-shadow: none; }
 .st-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
