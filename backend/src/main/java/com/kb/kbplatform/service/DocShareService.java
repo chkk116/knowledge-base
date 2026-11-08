@@ -20,6 +20,7 @@ import com.kb.kbplatform.repository.SharedDocPermissionRepository;
 import com.kb.kbplatform.repository.SharedDocumentRepository;
 import com.kb.kbplatform.repository.SharedDocumentSummary;
 import com.kb.kbplatform.repository.SharedDocVersionRepository;
+import com.kb.kbplatform.repository.UploadedFileRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import com.kb.kbplatform.security.HtmlSanitizer;
 import org.slf4j.Logger;
@@ -47,6 +48,7 @@ public class DocShareService {
     private final UserRepository userRepo;
     private final SharedDocVersionRepository sharedDocVerRepo;
     private final DocAnnotationRepository annoRepo;
+    private final UploadedFileRepository fileRepo;
     private final TransactionTemplate tx;
     private final RelayNotifier relayNotifier;
     private final NotificationService notificationService;
@@ -54,7 +56,8 @@ public class DocShareService {
     public DocShareService(DocShareRepository shareRepo, DocSharePermissionRepository permRepo,
                            SharedDocumentRepository docRepo, SharedDocPermissionRepository docPermRepo,
                            UserRepository userRepo, SharedDocVersionRepository sharedDocVerRepo,
-                           DocAnnotationRepository annoRepo, TransactionTemplate tx, RelayNotifier relayNotifier,
+                           DocAnnotationRepository annoRepo, UploadedFileRepository fileRepo,
+                           TransactionTemplate tx, RelayNotifier relayNotifier,
                            NotificationService notificationService) {
         this.relayNotifier = relayNotifier;
         this.notificationService = notificationService;
@@ -65,6 +68,7 @@ public class DocShareService {
         this.userRepo = userRepo;
         this.sharedDocVerRepo = sharedDocVerRepo;
         this.annoRepo = annoRepo;
+        this.fileRepo = fileRepo;
         this.tx = tx;
     }
 
@@ -289,7 +293,21 @@ public class DocShareService {
 
     /** 某用户作为文档所有者已用字节数（content + yjs_state 之和） */
     public long storageUsage(Long userId) {
-        return docRepo.sumSizeByOwnerId(userId);
+        // 个人存储 = 共享文档正文/yjs 快照 + 「我的文件」上传件。
+        // 只算前者会让文件中心顶部的「已用」永远是几 KB（文件明明占了 300MB 也不动）。
+        return docRepo.sumSizeByOwnerId(userId) + fileRepo.sumSizeByOwnerId(userId);
+    }
+
+    /** 上传前配额闸门：incoming 字节放不下就 413（否则「已用/配额」只是摆设，磁盘能被传满） */
+    public void assertUserStorage(Long userId, long incoming) {
+        if (incoming <= 0) return;
+        long used = storageUsage(userId);
+        long quota = effectiveUserQuota(userId);
+        if (used + incoming > quota) {
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                    "个人存储空间不足（已用 " + formatSize(used) + " / 配额 " + formatSize(quota)
+                            + "），如需扩容请联系管理员");
+        }
     }
 
     /** 用户有效总配额：管理员分配过则用之，否则系统默认 200MB（见 PER_USER_QUOTA_BYTES） */

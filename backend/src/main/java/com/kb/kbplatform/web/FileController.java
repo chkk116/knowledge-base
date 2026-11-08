@@ -9,6 +9,7 @@ import com.kb.kbplatform.domain.UploadedFile;
 import com.kb.kbplatform.repository.DocumentRepository;
 import com.kb.kbplatform.repository.UploadedFileRepository;
 import com.kb.kbplatform.security.TokenClaims;
+import com.kb.kbplatform.service.DocShareService;
 import com.kb.kbplatform.service.FileService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,11 +33,14 @@ public class FileController {
     private final FileService svc;
     private final UploadedFileRepository fileRepo;
     private final DocumentRepository docRepo;
+    private final DocShareService docShare;
 
-    public FileController(FileService svc, UploadedFileRepository fileRepo, DocumentRepository docRepo) {
+    public FileController(FileService svc, UploadedFileRepository fileRepo, DocumentRepository docRepo,
+                          DocShareService docShare) {
         this.svc = svc;
         this.fileRepo = fileRepo;
         this.docRepo = docRepo;
+        this.docShare = docShare;
     }
 
     /**
@@ -71,6 +75,8 @@ public class FileController {
     @PostMapping("/mine")
     public Map<String, Object> uploadMine(@RequestAttribute("kbUser") TokenClaims c,
                                           @RequestParam("file") MultipartFile file) {
+        // 先过配额闸门再落盘：否则不合规的大文件已经写进磁盘才报错，等于白占空间
+        docShare.assertUserStorage(c.userId(), file == null ? 0L : file.getSize());
         String url = svc.upload(file);
         UploadedFile f = new UploadedFile(
                 c.userId(), url,

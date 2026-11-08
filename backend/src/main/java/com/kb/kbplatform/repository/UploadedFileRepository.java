@@ -20,4 +20,8 @@ public interface UploadedFileRepository extends JpaRepository<UploadedFile, Long
      *  磁盘上"没人引用"，但它在「我的文件」里可见，绝不能当孤儿清理掉） */
     @Query("SELECT f.url FROM UploadedFile f WHERE f.url IS NOT NULL")
     List<String> findAllUrls();
+
+    /** 某用户上传文件占用的总字节数（个人配额核算用，需与共享文档占用相加） */
+    @Query("SELECT COALESCE(SUM(f.size), 0) FROM UploadedFile f WHERE f.ownerId = ?1")
+    long sumSizeByOwnerId(Long ownerId);
 }
