@@ -75,19 +75,35 @@ public class FileController {
     @PostMapping("/mine")
     public Map<String, Object> uploadMine(@RequestAttribute("kbUser") TokenClaims c,
                                           @RequestParam("file") MultipartFile file) {
-        // 先过配额闸门再落盘：否则不合规的大文件已经写进磁盘才报错，等于白占空间
-        docShare.assertUserStorage(c.userId(), file == null ? 0L : file.getSize());
+        // 先校验再算摘要：伪造类型/超大文件不必浪费时间读一遍内容
+        svc.validate(file);
+        String hash = svc.sha256(file);
+        // 同一用户传过同样内容、且磁盘文件还在 → 直接复用原记录，不再写第二份
+        // （磁盘文件可能已被管理员当孤儿清掉，所以必须确认 exists）
+        UploadedFile dup = fileRepo.findFirstByOwnerIdAndHash(c.userId(), hash).orElse(null);
+        if (dup != null && svc.exists(dup.getUrl())) {
+            Map<String, Object> res = payload(dup);
+            res.put("deduped", true);
+            return res;
+        }
+        // 配额闸门放在落盘前：否则超标文件已经写进磁盘才报错，等于白占空间
+        docShare.assertUserStorage(c.userId(), file.getSize());
         String url = svc.upload(file);
         UploadedFile f = new UploadedFile(
                 c.userId(), url,
                 file.getOriginalFilename() == null ? "" : file.getOriginalFilename(),
                 file.getSize(),
-                file.getContentType() == null ? "" : file.getContentType());
+                file.getContentType() == null ? "" : file.getContentType(),
+                hash);
         fileRepo.save(f);
+        return payload(f);
+    }
+
+    private Map<String, Object> payload(UploadedFile f) {
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("ok", true);
         res.put("id", f.getId());
-        res.put("url", url);
+        res.put("url", f.getUrl());
         res.put("name", f.getName());
         res.put("size", f.getSize());
         res.put("contentType", f.getContentType());

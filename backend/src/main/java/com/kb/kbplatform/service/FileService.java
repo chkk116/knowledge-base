@@ -56,8 +56,8 @@ public class FileService {
         log.info("FileService 上传目录已就绪：{}", this.root);
     }
 
-    /** 保存上传图片，返回可访问的相对 URL */
-    public String upload(MultipartFile file) {
+    /** 类型/大小/魔数校验（抽取出来是为了让「去重复用」分支在落盘前就能判定合法性） */
+    public void validate(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("上传文件为空");
         }
@@ -72,6 +72,31 @@ public class FileService {
         if (!magicMatches(ct.toLowerCase(), readHead(file))) {
             throw new IllegalArgumentException("文件内容与声明类型不符，上传被拒绝");
         }
+    }
+
+    /** 内容摘要（流式，50MB 也不进堆内存）。用于同用户重复上传复用 */
+    public String sha256(MultipartFile file) {
+        try (var in = file.getInputStream()) {
+            var md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+            return java.util.HexFormat.of().formatHex(md.digest());
+        } catch (Exception e) {
+            throw new RuntimeException("计算文件摘要失败：" + e.getMessage(), e);
+        }
+    }
+
+    /** 相对 URL 对应的文件是否还在磁盘上（去重复用前必须确认，否则会把用户指到一个 404） */
+    public boolean exists(String url) {
+        if (url == null || !url.startsWith("/uploads/")) return false;
+        Path p = root.resolve(url.substring("/uploads/".length())).normalize();
+        return p.startsWith(root) && Files.isRegularFile(p);
+    }
+
+    /** 保存上传图片，返回可访问的相对 URL */
+    public String upload(MultipartFile file) {
+        validate(file);
         LocalDate d = LocalDate.now();
         Path dateDir = root.resolve(String.format("%d/%02d/%02d",
                 d.getYear(), d.getMonthValue(), d.getDayOfMonth()));

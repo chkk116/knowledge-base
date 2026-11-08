@@ -40,16 +40,24 @@ public class UploadedFile {
     @Column(length = 128)
     private String contentType;                 // 声明的 MIME（落盘时已做魔数校验）
 
+    @Column(length = 64)
+    private String hash;                        // 内容 SHA-256（同一用户重复上传直接复用，省一份磁盘）
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     public UploadedFile() {}
 
     public UploadedFile(Long ownerId, String url, String name, Long size, String contentType) {
+        this(ownerId, url, name, size, contentType, null);
+    }
+
+    public UploadedFile(Long ownerId, String url, String name, Long size, String contentType, String hash) {
         this.ownerId = ownerId;
         this.url = url;
         this.name = name;
         this.size = size;
         this.contentType = contentType;
+        this.hash = hash;
     }
 
     public Long getId() { return id; }
@@ -69,6 +77,9 @@ public class UploadedFile {
 
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
+
+    public String getHash() { return hash; }
+    public void setHash(String hash) { this.hash = hash; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

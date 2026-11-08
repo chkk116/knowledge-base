@@ -10,7 +10,7 @@
  *  - 列表按时间倒序；图片显示缩略图，其余显示类型图标
  *  - 删除前二次确认（后端还会在文档正文引用时只解除登记，避免文档裂图）
  */
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listMyFiles, uploadManagedFile, deleteMyFile } from '../api/file'
 import { getStorage } from '../api/docShare'
@@ -78,6 +78,18 @@ const shown = computed(() => {
   return list
 })
 
+// 客户端分页：筛选/搜索仍在全量数据上做（结果才准），只把渲染量切页
+const PAGE_SIZE = 24
+const page = ref(1)
+const paged = computed(() => shown.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE))
+// 换筛选条件 / 搜索词时回到第一页，否则会停在一个已不存在的页码上显示空白
+watch([filter, keyword], () => { page.value = 1 })
+// 删除/上传后总数变了，页码要夹回有效范围
+watch(() => shown.value.length, (n) => {
+  const max = Math.max(1, Math.ceil(n / PAGE_SIZE))
+  if (page.value > max) page.value = max
+})
+
 const usedPercent = computed(() => {
   if (!storage.quota) return 0
   return Math.min(100, Math.round((storage.used / storage.quota) * 100))
@@ -109,8 +121,10 @@ async function uploadAll(list) {
     const item = reactive({ id: ++uploadSeq, name: f.name || '文件', percent: 0 })
     uploading.value.push(item)
     try {
-      await uploadManagedFile(f, (p) => { item.percent = p })
-      ElMessage.success(`${item.name} 上传成功`)
+      const { data } = await uploadManagedFile(f, (p) => { item.percent = p })
+      ElMessage.success(data && data.deduped
+        ? `${item.name}：内容已存在，直接复用原文件`
+        : `${item.name} 上传成功`)
     } catch (e) {
       const msg = (e && e.response && e.response.data && (e.response.data.message || e.response.data.error)) || (e && e.message) || '上传失败'
       ElMessage.error(`${item.name}：${msg}`)
@@ -219,7 +233,7 @@ onMounted(load)
     </div>
     <div v-else-if="!shown.length" class="fc-empty">没有匹配的文件</div>
     <div v-else class="fc-grid">
-      <div v-for="f in shown" :key="f.id" class="fc-item">
+      <div v-for="f in paged" :key="f.id" class="fc-item">
         <div class="fc-thumb" style="cursor: zoom-in" @click="openPreview(f)">
           <img v-if="isImage(f)" :src="f.url" :alt="f.name" />
           <span v-else class="fc-thumb-txt">{{ (f.name || '').split('.').pop()?.toUpperCase() || 'FILE' }}</span>
@@ -234,6 +248,17 @@ onMounted(load)
           <el-button size="small" type="danger" plain @click="remove(f)">删除</el-button>
         </div>
       </div>
+    </div>
+
+    <div v-if="shown.length > PAGE_SIZE" class="fc-page">
+      <el-pagination
+        v-model:current-page="page"
+        :page-size="PAGE_SIZE"
+        :total="shown.length"
+        layout="prev, pager, next, total"
+        background
+        small
+      />
     </div>
 
     <FilePreview v-model="previewOpen" :file="previewFile" />
@@ -318,4 +343,5 @@ onMounted(load)
 .fc-name { font-size: 13.5px; font-weight: 600; color: var(--el-text-color-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fc-dim { margin-top: 3px; font-size: 12px; color: var(--el-text-color-secondary); }
 .fc-acts { display: flex; gap: 8px; padding: 8px 12px 12px; }
+.fc-page { margin-top: 20px; display: flex; justify-content: center; }
 </style>

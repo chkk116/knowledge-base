@@ -6,7 +6,7 @@
  * 上传即登记归属 → 列表 → 预览 / 复制链接 / 删除。
  * 视觉走移动端语言（m-* 类 + --m-* 变量），不做 iframe 嵌套。
  */
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { listMyFiles, uploadManagedFile, deleteMyFile } from '../../api/file'
 
@@ -16,6 +16,10 @@ const loading = ref(false)
 let uploadSeq = 0
 const uploading = ref([])
 const inputRef = ref(null)
+// 分批渲染：列表一次性全画出来在手机上会卡（每项一个 <img>），先画 40 条，点「加载更多」继续
+const BATCH = 40
+const visible = ref(BATCH)
+const paged = computed(() => files.value.slice(0, visible.value))
 
 function fmtSize(n) {
   const v = Number(n || 0)
@@ -53,8 +57,10 @@ async function uploadAll(list) {
     const item = reactive({ id: ++uploadSeq, name: f.name || '文件', percent: 0 })
     uploading.value.push(item)
     try {
-      await uploadManagedFile(f, (p) => { item.percent = p })
-      window.__kbMsg?.success(`${item.name} 上传成功`)
+      const { data } = await uploadManagedFile(f, (p) => { item.percent = p })
+      window.__kbMsg?.success(data && data.deduped
+        ? `${item.name}：内容已存在，直接复用`
+        : `${item.name} 上传成功`)
     } catch (e) {
       const msg = (e && e.response && e.response.data && (e.response.data.message || e.response.data.error)) || (e && e.message) || '上传失败'
       window.__kbMsg?.error(msg)
@@ -133,7 +139,7 @@ onMounted(load)
       </div>
 
       <div v-else class="m-card">
-        <div v-for="f in files" :key="f.id" class="mf-row">
+        <div v-for="f in paged" :key="f.id" class="mf-row">
           <span class="mf-thumb">
             <img v-if="isImage(f)" :src="f.url" :alt="f.name" />
             <el-icon v-else><Document /></el-icon>
@@ -146,6 +152,9 @@ onMounted(load)
             <button class="mf-act" type="button" @click="copyLink(f)">复制</button>
             <button class="mf-act danger" type="button" @click="remove(f)">删除</button>
           </span>
+        </div>
+        <div v-if="files.length > visible" class="mf-more">
+          <button type="button" @click="visible += BATCH">加载更多（还有 {{ files.length - visible }} 个）</button>
         </div>
       </div>
     </div>
@@ -203,4 +212,9 @@ onMounted(load)
   padding: 6px 10px; font-size: 12.5px; cursor: pointer;
 }
 .mf-act.danger { color: var(--m-danger); border-color: var(--m-danger); }
+.mf-more { padding: 12px; text-align: center; border-top: 1px solid var(--m-border); }
+.mf-more button {
+  border: 1px solid var(--m-border); background: transparent; color: var(--m-text-sub);
+  border-radius: 999px; padding: 8px 18px; font-size: 13px; cursor: pointer;
+}
 </style>

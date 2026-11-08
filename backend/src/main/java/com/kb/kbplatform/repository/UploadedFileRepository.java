@@ -24,4 +24,7 @@ public interface UploadedFileRepository extends JpaRepository<UploadedFile, Long
     /** 某用户上传文件占用的总字节数（个人配额核算用，需与共享文档占用相加） */
     @Query("SELECT COALESCE(SUM(f.size), 0) FROM UploadedFile f WHERE f.ownerId = ?1")
     long sumSizeByOwnerId(Long ownerId);
+
+    /** 同一用户是否已传过同样内容的文件（去重：命中且磁盘文件还在就复用，不再落新盘） */
+    java.util.Optional<UploadedFile> findFirstByOwnerIdAndHash(Long ownerId, String hash);
 }
