@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { searchTest } from '../../api/admin'
 
@@ -13,6 +14,13 @@ const category = ref('')
 const loading = ref(false)
 const ran = ref(false)
 const result = ref(null) // { engine, meiliEnabled, tookMs, total, hits }
+
+// 支持 ?q= 直达：AI 反馈页「高频未命中 → 检索测试」会带问题跳过来自动执行
+const route = useRoute()
+onMounted(() => {
+  const q0 = String(route.query.q || '').trim()
+  if (q0) { q.value = q0; run() }
+})
 
 const run = async () => {
   if (!q.value.trim()) return ElMessage.warning('输入要测试的关键词')
