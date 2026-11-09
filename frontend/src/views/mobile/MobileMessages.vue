@@ -230,6 +230,8 @@ watch(() => n.version, load)
 .seg-badge {
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: #ef4444; color: #fff; font-size: 10px; line-height: 16px; font-weight: 600;
+  /* flex 子项会被块级化，min-width 生效后纯 line-height 会让数字贴左；显式居中，与 q-badge / ie-badge 一致 */
+  display: inline-flex; align-items: center; justify-content: center; text-align: center;
 }
 
 .msg { align-items: flex-start; }
