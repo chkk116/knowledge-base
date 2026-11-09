@@ -255,6 +255,9 @@ public class AuthFilter implements Filter {
         // ⚠️ 仅放行 GET：AI_MANAGE = 「能看模型配置，改不了」——该控制器写接口（增删改/测试连接）
         // 无自查，历史上一度依赖本过滤器的 admin 兜底，放宽后非 GET 必须回归 null（仅完全管理员），
         // 否则 AI_MANAGE 持有者可改凭证/把 Key 发往任意 baseUrl（SSRF）。
+        // 反馈工作台的处理状态写接口：只写 done/ignored + 备注，不涉及模型凭证或任意 URL，
+        // 无 SSRF 面，按 AI_MANAGE 放行写。必须精确匹配整个路径（不能放宽 /api/admin/ai 前缀）。
+        if (path.equals("/api/admin/ai/feedback/actions")) return "AI_MANAGE";
         if (path.startsWith("/api/admin/ai")) {
             return "GET".equalsIgnoreCase(method) ? "AI_MANAGE" : null;
         }

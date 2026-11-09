@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { aiFeedbackStats } from '../../api/admin'
+import { aiFeedbackStats, aiFeedbackActions, saveAiFeedbackAction } from '../../api/admin'
 import { createMyDoc } from '../../api/kb'
 
 /**
@@ -29,21 +29,38 @@ const ACTIONS_KEY = 'kb_ai_feedback_actions_v1'
 const actions = ref({})   // { [actKey]: { status: 'done'|'ignored', note, at } }
 const filter = ref('all') // all | open | done | ignored
 
+// 二期：服务端持久化（跨设备），localStorage 作为离线缓存/兜底
 function loadActions() {
-  try { actions.value = JSON.parse(localStorage.getItem(ACTIONS_KEY) || '{}') } catch { actions.value = {} }
+  try { return JSON.parse(localStorage.getItem(ACTIONS_KEY) || '{}') } catch { return {} }
 }
-function saveActions() {
+async function pullActions() {
+  try {
+    const { data } = await aiFeedbackActions()
+    actions.value = data || {}
+    saveLocal()
+  } catch {
+    actions.value = loadActions()
+    ElMessage.warning('服务端状态读取失败，暂用本机记录')
+  }
+}
+function saveLocal() {
   try { localStorage.setItem(ACTIONS_KEY, JSON.stringify(actions.value)) } catch { /* 隐私模式忽略 */ }
+}
+/** 乐观更新：先改本机，再同步服务端；失败保留本机记录并提示 */
+async function setStatus(key, status, note = '') {
+  if (!status) delete actions.value[key]
+  else actions.value[key] = { status, note: String(note || '').slice(0, 200), at: Date.now() }
+  saveLocal()
+  try {
+    await saveAiFeedbackAction({ key, status, note: String(note || '').slice(0, 200) })
+  } catch {
+    ElMessage.warning('服务端保存失败，状态仅保存在本机')
+  }
 }
 /** key：聚合项按问题文本（截 120 字），原始项按记录 id —— 聚合与原始共用同一状态 */
 const kMiss = (q) => 'm:' + String(q || '').trim().slice(0, 120)
 const kId = (kind, id) => kind + ':' + id
 function statusOf(key) { return actions.value[key]?.status || '' }
-function setStatus(key, status, note = '') {
-  if (!status) delete actions.value[key]
-  else actions.value[key] = { status, note: String(note || '').slice(0, 200), at: Date.now() }
-  saveActions()
-}
 function isOpen(key) { return statusOf(key) === '' }
 function passFilter(key) {
   const st = statusOf(key)
@@ -67,13 +84,13 @@ async function markDone(key) {
     })
     note = value || ''
   } catch { return }
-  setStatus(key, 'done', note)
+  await setStatus(key, 'done', note)
 }
 async function markIgnored(key) {
-  setStatus(key, 'ignored', '')
+  await setStatus(key, 'ignored', '')
 }
 async function reopen(key) {
-  setStatus(key, '')
+  await setStatus(key, '')
 }
 
 // ---------- 动作 ----------
@@ -101,7 +118,7 @@ async function createGapDoc(question) {
     const esc = q.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     const content = `<h2>问题</h2><p>${esc}</p><h2>背景</h2><p>该问题在 AI 问答中检索未命中（知识库现有内容未能回答）。</p><h2>待补充</h2><ul><li>与该问题相关的制度 / 说明 / 操作步骤</li><li>常见误区与注意事项</li></ul>`
     const { data } = await createMyDoc({ title, content, status: 'DRAFT' })
-    setStatus(kMiss(q), 'done', '已创建草稿 #' + (data?.id ?? ''))
+    await setStatus(kMiss(q), 'done', '已创建草稿 #' + (data?.id ?? ''))
     ElMessage.success('已创建草稿《' + title + '》，到「我的帖子」完善后提交')
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || '创建草稿失败')
@@ -132,8 +149,8 @@ async function classify(n, key) {
   const map = { 0: '检索没命中', 1: '文档不对', 2: '模型答错' }
   const note = (map[v[0]] || '其他') + (v.slice(1).trim() ? '：' + v.slice(1).trim() : '')
   // 0=检索没命中走「已忽略」（等补完文档它自然消失）；1/2 走「已处理」
-  setStatus(key, v[0] === '0' ? 'ignored' : 'done', note)
-  if (n?.question) setStatus(kMiss(n.question), 'done', note)
+  await setStatus(key, v[0] === '0' ? 'ignored' : 'done', note)
+  if (n?.question) await setStatus(kMiss(n.question), 'done', note)
   ElMessage.success('已记录：' + note)
 }
 
@@ -160,7 +177,7 @@ const fmtTime = (t) => {
   return `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-onMounted(() => { loadActions(); load() })
+onMounted(() => { pullActions(); load() })
 </script>
 
 <template>
@@ -218,8 +235,18 @@ onMounted(() => { loadActions(); load() })
             <span class="idx">{{ i + 1 }}</span>
             <span class="q" :class="{ handled: statusOf(kMiss(m.question)) }">{{ m.question }}</span>
             <span class="cnt">{{ m.count }} 次</span>
-            <span v-if="statusOf(kMiss(m.question))" class="st" :class="statusOf(kMiss(m.question))">
+            <span v-if="statusOf(kMiss(m.question)) === 'done' && m.recurred" class="st warn" :title="'补文档后又出现 ' + m.recurCount + ' 次未命中'">
+              ⚠ 又出现 {{ m.recurCount }} 次
+            </span>
+            <span v-else-if="statusOf(kMiss(m.question)) === 'done' && m.verified" class="st verified" title="标记为已处理后，该问题再未出现未命中">
+              ✓ 补文档后未复现
+            </span>
+            <span v-else-if="statusOf(kMiss(m.question))" class="st" :class="statusOf(kMiss(m.question))">
               {{ statusOf(kMiss(m.question)) === 'done' ? '已处理' : '已忽略' }}
+            </span>
+            <span v-if="statusOf(kMiss(m.question))" class="ops">
+              <el-button v-if="m.recurred" size="small" link type="warning" @click="reopen(kMiss(m.question))">重新排查</el-button>
+              <el-button v-if="actions[kMiss(m.question)]?.note" size="small" link disabled :title="actions[kMiss(m.question)].note">已备注</el-button>
             </span>
             <span v-else class="ops">
               <el-button size="small" link type="primary" @click="testSearch(m.question)">检索测试</el-button>
@@ -300,8 +327,9 @@ onMounted(() => { loadActions(); load() })
 
 .handled { opacity: .5; text-decoration: line-through; }
 .st { flex: none; font-size: 11px; border-radius: 6px; padding: 1px 7px; }
-.st.done { color: #15803d; background: #f0fdf4; }
+.st.done, .st.verified { color: #15803d; background: #f0fdf4; }
 .st.ignored { color: #64748b; background: #f1f5f9; }
+.st.warn { color: #b45309; background: #fffbeb; }
 .ops { flex: none; display: flex; align-items: center; }
 .ops .el-button { margin-left: 0; padding: 0 4px; }
 
@@ -353,6 +381,8 @@ onMounted(() => { loadActions(); load() })
 :deep(html.dark) .n-q,
 :deep(html.dark) .r-q { color: #d5d7e5; }
 :deep(html.dark) .missed .idx { background: #26263e; color: #a5a7bd; }
-:deep(html.dark) .st.done { color: #4ade80; background: rgba(74, 222, 128, .12); }
+:deep(html.dark) .st.done,
+:deep(html.dark) .st.verified { color: #4ade80; background: rgba(74, 222, 128, .12); }
 :deep(html.dark) .st.ignored { color: #a5a7bd; background: #26263e; }
+:deep(html.dark) .st.warn { color: #fbbf24; background: rgba(251, 191, 36, .12); }
 </style>

@@ -5,8 +5,10 @@
 
 package com.kb.kbplatform.service;
 
+import com.kb.kbplatform.domain.AiFeedbackAction;
 import com.kb.kbplatform.domain.AiQaLog;
 import com.kb.kbplatform.domain.User;
+import com.kb.kbplatform.repository.AiFeedbackActionRepository;
 import com.kb.kbplatform.repository.AiQaLogRepository;
 import com.kb.kbplatform.repository.UserRepository;
 import org.springframework.data.domain.PageRequest;
@@ -35,10 +37,13 @@ public class AiFeedbackService {
 
     private final AiQaLogRepository repo;
     private final UserRepository userRepo;
+    private final AiFeedbackActionRepository actionRepo;
 
-    public AiFeedbackService(AiQaLogRepository repo, UserRepository userRepo) {
+    public AiFeedbackService(AiQaLogRepository repo, UserRepository userRepo,
+                             AiFeedbackActionRepository actionRepo) {
         this.repo = repo;
         this.userRepo = userRepo;
+        this.actionRepo = actionRepo;
     }
 
     /** 回答落库：返回 qaId，前端用它回填赞/踩。任何异常都不能影响正常问答。 */
@@ -83,7 +88,52 @@ public class AiFeedbackService {
         return Map.of("ok", true, "qaId", qaId, "rating", rating);
     }
 
-    /** 管理端看板：命中率 / 赞踩 / 高频未命中 / 最近差评。 */
+    /** 处理状态全量下发（条目少，一次给全，前端按 key 查） */
+    @Transactional(readOnly = true)
+    public Map<String, Object> actions() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (AiFeedbackAction a : actionRepo.findAll()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("status", a.getStatus());
+            m.put("note", a.getNote());
+            m.put("at", a.getUpdatedAt() == null ? null : a.getUpdatedAt().toString());
+            out.put(a.getActionKey(), m);
+        }
+        return out;
+    }
+
+    /**
+     * 写入 / 删除处理状态。status 为空 = 删掉本行（回到待处理）。
+     * 只认 done / ignored，key 限长，note 截断 —— 不信任前端上报。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> saveAction(Long userId, String key, String status, String note) {
+        if (key == null || key.isBlank() || key.length() > 160) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "action key 非法");
+        }
+        if (status == null || status.isBlank()) {
+            actionRepo.findByActionKey(key).ifPresent(actionRepo::delete);
+            return Map.of("ok", true, "deleted", true);
+        }
+        if (!status.equals("done") && !status.equals("ignored")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status 只能是 done / ignored");
+        }
+        AiFeedbackAction a = actionRepo.findByActionKey(key).orElseGet(() -> new AiFeedbackAction(key));
+        a.setStatus(status);
+        a.setNote(note == null ? null : truncate(note, 200));
+        a.setActorId(userId);
+        a.setUpdatedAt(LocalDateTime.now());
+        actionRepo.save(a);
+        return Map.of("ok", true, "key", key, "status", status);
+    }
+
+    /** 前端 key：聚合未命中 = 'm:' + 问题文本（截 120 字），与数据库侧回测必须一致 */
+    private static String missKey(String question) {
+        String q = String.valueOf(question == null ? "" : question).trim();
+        return "m:" + q.substring(0, Math.min(120, q.length()));
+    }
+
+    /** 管理端看板：命中率 / 赞踩 / 高频未命中 / 最近差评 + 处理状态与补文档回测。 */
     @Transactional(readOnly = true)
     public Map<String, Object> stats(int days) {
         int d = Math.max(1, Math.min(days, 90));
@@ -106,12 +156,29 @@ public class AiFeedbackService {
         res.put("positive", positive);
         res.put("negative", negative);
 
-        // 高频未命中问题（近 N 天）
+        // 高频未命中问题（近 N 天）：附带处理状态 + 补文档后是否复现
+        Map<String, AiFeedbackAction> actionMap = new HashMap<>();
+        for (AiFeedbackAction a : actionRepo.findAll()) actionMap.put(a.getActionKey(), a);
         List<Map<String, Object>> topMissed = new ArrayList<>();
         for (Object[] row : repo.topMissedSince(since, PageRequest.of(0, 20))) {
+            String q = String.valueOf(row[0]);
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("question", row[0]);
+            m.put("question", q);
             m.put("count", ((Number) row[1]).longValue());
+            AiFeedbackAction a = actionMap.get(missKey(q));
+            if (a != null) {
+                m.put("status", a.getStatus());
+                m.put("actionNote", a.getNote());
+                // 回测：标为「已处理」之后，该问题是否又出现未命中
+                //   verified=true  → 补文档生效（处理后再没出现）
+                //   recurred=true  → 又出现，说明补得不够或检索仍有问题
+                if ("done".equals(a.getStatus()) && a.getUpdatedAt() != null) {
+                    long recur = repo.countByQuestionAndHitFalseAndCreatedAtAfter(q, a.getUpdatedAt());
+                    m.put("recurCount", recur);
+                    m.put("recurred", recur > 0);
+                    m.put("verified", recur == 0);
+                }
+            }
             topMissed.add(m);
         }
         res.put("topMissed", topMissed);

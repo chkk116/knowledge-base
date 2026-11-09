@@ -42,4 +42,7 @@ public interface AiQaLogRepository extends JpaRepository<AiQaLog, Long> {
            "where l.hit = false and l.mode <> 'general' and l.createdAt >= :since " +
            "group by l.question order by count(l) desc")
     List<Object[]> topMissedSince(@Param("since") LocalDateTime since, Pageable pageable);
+
+    /** 二期回测：某个问题在处理时间之后是否再次检索未命中（补文档有没有用） */
+    long countByQuestionAndHitFalseAndCreatedAtAfter(String question, LocalDateTime since);
 }

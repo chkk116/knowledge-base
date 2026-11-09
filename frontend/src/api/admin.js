@@ -93,6 +93,9 @@ export const searchTest = (params) => api.get('/admin/search/test', { params })
 // ---- AI 反馈与知识缺口（AI_MANAGE / 管理员）----
 // 返回 { days, total, kbTotal, hit, miss, hitRate, positive, negative, topMissed, recentMissed, recentNegative }
 export const aiFeedbackStats = (days = 7) => api.get('/admin/ai/feedback', { params: { days } })
+// 二期：处理状态跨设备持久化 + 补文档后回测（status 为空 = 重新打开）
+export const aiFeedbackActions = () => api.get('/admin/ai/feedback/actions')
+export const saveAiFeedbackAction = (d) => api.post('/admin/ai/feedback/actions', d)
 
 // ---- AI 能力配置（AI_MANAGE）：文生图 / 文生视频 / OCR 各用哪个模型 ----
 export const aiCapabilities = () => api.get('/admin/ai/capabilities')

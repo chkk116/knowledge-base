@@ -5,6 +5,7 @@
 package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.AiQaLog;
+import com.kb.kbplatform.repository.AiFeedbackActionRepository;
 import com.kb.kbplatform.repository.AiQaLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +46,15 @@ class AiFeedbackServiceTest {
                     case "toString" -> "stub-repo";
                     default -> null;   // rate() 只用上面两个方法，其余不触达
                 });
-        return new AiFeedbackService(repo, null);
+        // 二期加了处理状态仓库；本测试只覆盖 rate()，用空代理即可（不触达其方法）
+        AiFeedbackActionRepository actionRepo = (AiFeedbackActionRepository) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[]{AiFeedbackActionRepository.class},
+                (p, method, args) -> switch (method.getName()) {
+                    case "toString" -> "stub-actions";
+                    default -> null;
+                });
+        return new AiFeedbackService(repo, null, actionRepo);
     }
 
     @BeforeEach
