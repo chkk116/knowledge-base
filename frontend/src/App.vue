@@ -8,6 +8,7 @@ import ReportDialog from './components/ReportDialog.vue'
 import { useWatermarkStore, buildContent } from './store/watermark'
 import { useSiteInfoStore } from './store/siteInfo'
 import { usePrefsStore, applyPrefs } from './store/prefs'
+import { useScenarioStore } from './store/scenario'
 import WornBadgeStrip from './components/WornBadgeStrip.vue'
 import SiteFooter from './components/SiteFooter.vue'
 import MenuIcon from './components/MenuIcon.vue'
@@ -28,6 +29,7 @@ const siteInfo = useSiteInfoStore()
 
 // 界面偏好（布局 / 外观 / 密度）：本地持久化，改完即时生效（2026-10-22）
 const prefs = usePrefsStore()
+const scenario = useScenarioStore()
 prefs.load()
 applyPrefs(prefs.state)
 
@@ -67,6 +69,8 @@ onMounted(async () => {
   wm.dark = isDark.value   // 初始化水印主题状态（与当前页面主题一致）
   // 页脚配置走公开接口，**登录前也要拉**（登录页底部同样要展示备案信息）
   siteInfo.load()
+  // 场景模板：登录后拉一次，侧栏菜单等术语随之切换（未配置回落通用）
+  scenario.load()
   // 水印配置与 client-info 都要求登录态（匿名访问会 401），仅登录后拉取；
   // 匿名用户本就不显示水印，无需请求。等 fetchMe 恢复登录态/令牌后再调，避免 401 噪音。
   if (auth.loggedIn) wm.load()
@@ -322,33 +326,35 @@ onUnmounted(() => window.removeEventListener('click', onCaptureClick, true))
 //  - 所有登录用户：写文章、我的帖子
 //  - 管理类按细粒度权限归入「用户与权限」「内容管理」「站点设置」三个二级分组（ADMIN 隐式拥有全部，可见全部分组）
 const menus = computed(() => {
-  const base = [{ index: '/', title: '知识库首页', icon: 'House' }]
+  // 菜单标题走场景模板术语：t(key, 默认文案)，未配置场景时全部回落默认叫法
+  const t = (k, d) => scenario.t(k, d)
+  const base = [{ index: '/', title: t('home', '知识库首页'), icon: 'House' }]
   if (auth.loggedIn) {
     // 普通功能入口：受核心维护开关控制，关闭则不在侧边栏展示
     if (featureOpen('docs')) base.push(
-      { index: '/write', title: '写文章', icon: 'EditPen' },
-      { index: '/my/posts', title: '我的帖子', icon: 'Files' },
-      { index: '/recycle', title: '回收站', icon: 'Delete' },
-      { index: '/subscriptions', title: '我的订阅', icon: 'Bell' },
+      { index: '/write', title: t('write', '写文章'), icon: 'EditPen' },
+      { index: '/my/posts', title: t('myPosts', '我的帖子'), icon: 'Files' },
+      { index: '/recycle', title: t('recycle', '回收站'), icon: 'Delete' },
+      { index: '/subscriptions', title: t('subscriptions', '我的订阅'), icon: 'Bell' },
     )
     if (featureOpen('profile')) base.push(
-      { index: '/favorites', title: '我的收藏', icon: 'Star' },
-      { index: '/history', title: '浏览历史', icon: 'Clock' },
-      { index: '/badges', title: '我的勋章', icon: 'Medal' },
-      { index: '/files', title: '我的文件', icon: 'Upload' },
+      { index: '/favorites', title: t('favorites', '我的收藏'), icon: 'Star' },
+      { index: '/history', title: t('history', '浏览历史'), icon: 'Clock' },
+      { index: '/badges', title: t('badges', '我的勋章'), icon: 'Medal' },
+      { index: '/files', title: t('files', '我的文件'), icon: 'Upload' },
     )
-    if (featureOpen('ranking')) base.push({ index: '/ranking', title: '积分排行榜', icon: 'TrendCharts' })
-    if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: 'AI 问答', icon: 'AiSpark' })
-    base.push({ index: '/messages', title: '消息中心', icon: 'ChatDotRound' })
-    if (featureOpen('courses')) base.push({ index: '/study/courses', title: '培训', icon: 'Reading' })
+    if (featureOpen('ranking')) base.push({ index: '/ranking', title: t('ranking', '积分排行榜'), icon: 'TrendCharts' })
+    if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: t('aiChat', 'AI 问答'), icon: 'AiSpark' })
+    base.push({ index: '/messages', title: t('messages', '消息中心'), icon: 'ChatDotRound' })
+    if (featureOpen('courses')) base.push({ index: '/study/courses', title: t('courses', '培训'), icon: 'Reading' })
     // 考试与练习：原 7 个入口收敛为「在线考试」「练习」两个主入口（原「答题闯关」/quiz 并入在线考试），
     // 错题本 / 我的成绩 / 我的题库 在页内用 tab 切换（2026-10-29 入口收敛）
     if (featureOpen('exams') || featureOpen('quiz')) {
-      base.push({ index: '/exams', title: '在线考试', icon: 'Trophy' })
-      base.push({ index: '/exams/practice', title: '练习', icon: 'Edit' })
+      base.push({ index: '/exams', title: t('exams', '在线考试'), icon: 'Trophy' })
+      base.push({ index: '/exams/practice', title: t('practice', '练习'), icon: 'Edit' })
     }
-    if (featureOpen('doc_shares')) base.push({ index: '/doc-shares', title: '共享文档', icon: 'DocumentCopy' })
-    if (featureOpen('doc_shares')) base.push({ index: '/doc-shares/all', title: '全部文档', icon: 'Tickets' })
+    if (featureOpen('doc_shares')) base.push({ index: '/doc-shares', title: t('docShares', '共享文档'), icon: 'DocumentCopy' })
+    if (featureOpen('doc_shares')) base.push({ index: '/doc-shares/all', title: t('allDocs', '全部文档'), icon: 'Tickets' })
   }
 
   // 二级分组：用户与权限（用户管理 / 黑名单 / 操作审计）——账号、权限、黑名单与「谁操作了什么」归人域
@@ -408,6 +414,8 @@ const menus = computed(() => {
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Postcard' })
+  // 场景模板：按部署单位选叫法（医院/学校/企业），只改菜单术语不动数据
+  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/scenario', title: '场景模板', icon: 'Collection' })
   // 系统状态：Redis / 第三方登录连通性 + Redis 开关
   if (auth.hasPerm('CORE_MAINTAIN')) siteConfig.push({ index: '/admin/reports', title: '举报处理', icon: 'Warning' })
   if (auth.hasPerm('SYSTEM_STATUS_VIEW|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/system', title: '系统状态', icon: 'Monitor' })
