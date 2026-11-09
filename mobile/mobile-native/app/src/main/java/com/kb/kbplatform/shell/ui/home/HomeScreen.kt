@@ -4,6 +4,7 @@
  */
 package com.kb.kbplatform.shell.ui.home
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,7 +32,10 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -123,6 +127,11 @@ fun HomeScreen(
     var overview by remember { mutableStateOf<JSONObject?>(null) }
     var announcement by remember { mutableStateOf<JSONObject?>(null) }
     var dueCards by remember { mutableIntStateOf(0) }
+    // 顶部 Hero（搜索条 + 圆弧头部）可收起：状态持久化，收起后只留一条细展开条，
+    // 下方 LazyColumn 是 fillMaxSize，会自适应占满剩余空间。
+    val homeCtx = androidx.compose.ui.platform.LocalContext.current
+    val homePrefs = remember { homeCtx.getSharedPreferences("kb_home", Context.MODE_PRIVATE) }
+    var heroCollapsed by remember { mutableStateOf(homePrefs.getBoolean("hero_collapsed", false)) }
     var recent by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var spaces by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -170,7 +179,36 @@ fun HomeScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Hero(onAvatar = { switchTab(3) }, onSearch = { openRoute("search") }, onAi = { openRoute("ai") })
+        if (heroCollapsed) {
+            // 收起态：一条 24dp 左右的细条，随时点回展开；其余空间全给下方内容
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.primary)
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 2.dp)
+                    .kbPress(scaleDown = 0.99f) {
+                        heroCollapsed = false
+                        homePrefs.edit().putBoolean("hero_collapsed", false).apply()
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(Icons.Filled.ExpandMore, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.size(4.dp))
+                Text("显示顶部搜索栏", fontSize = 11.sp, color = Color.White.copy(alpha = 0.9f))
+            }
+        } else {
+            Hero(
+                onAvatar = { switchTab(3) },
+                onSearch = { openRoute("search") },
+                onAi = { openRoute("ai") },
+                onClose = {
+                    heroCollapsed = true
+                    homePrefs.edit().putBoolean("hero_collapsed", true).apply()
+                }
+            )
+        }
 
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -435,7 +473,7 @@ private fun greet(): String {
 }
 
 @Composable
-private fun Hero(onAvatar: () -> Unit, onSearch: () -> Unit, onAi: () -> Unit) {
+private fun Hero(onAvatar: () -> Unit, onSearch: () -> Unit, onAi: () -> Unit, onClose: () -> Unit) {
     val me = TokenStore.info.value
     Column(
         Modifier
@@ -476,6 +514,14 @@ private fun Hero(onAvatar: () -> Unit, onSearch: () -> Unit, onAi: () -> Unit) {
                     fontSize = 18.sp,
                     tint = Color.White,
                     modifier = Modifier.fillMaxSize()
+                )
+            }
+            Spacer(Modifier.size(6.dp))
+            // 收起顶部区域（含搜索条与圆弧头部）：收起后下方组件自适应填满
+            IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Filled.Close, "收起顶部搜索栏",
+                    tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp)
                 )
             }
         }

@@ -15,6 +15,7 @@ import android.provider.MediaStore
 import android.webkit.JsResult
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -24,12 +25,20 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,6 +80,9 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
     var progress by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     var canGoBack by remember { mutableStateOf(false) }
+    // 白屏兜底：加载失败或页面渲染为空时给出可见提示 + 重试，而不是一片空白
+    var pageError by remember { mutableStateOf<String?>(null) }
+    fun markPageError(msg: String) { if (pageError == null) pageError = msg }
 
     val webView = remember(path) { MutableWebViewHolder() }
     var fileCallback by remember {
@@ -175,11 +187,41 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                                 canGoBack = view.canGoBack()
                                 loading = true
+                                pageError = null
                             }
 
                             override fun onPageFinished(view: WebView, url: String) {
                                 canGoBack = view.canGoBack()
                                 loading = false
+                                // 页面挂载是异步的：8 秒后仍没有任何可见文本 → 判定白屏并给兜底 UI。
+                                // 8s 长于前端路由守卫的 1.5s 登录态等待，避免正常慢页面被误判。
+                                view.postDelayed({
+                                    try {
+                                        view.evaluateJavascript(
+                                            "(function(){var b=document.body;return b?String((b.innerText||'').trim().length):'0'})()"
+                                        ) { v ->
+                                            val n = v?.trim('"')?.toIntOrNull() ?: 0
+                                            if (n == 0) markPageError("页面没有渲染出内容（脚本或资源加载失败）")
+                                        }
+                                    } catch (e: Exception) { /* WebView 已销毁 */ }
+                                }, 8000)
+                            }
+
+                            /** 主文档加载失败（断网 / DNS / 证书）：给出可见错误，不再留一片白 */
+                            override fun onReceivedError(
+                                view: WebView, request: WebResourceRequest, error: WebResourceError
+                            ) {
+                                if (request.isForMainFrame) {
+                                    markPageError("加载失败：${error.description}")
+                                }
+                            }
+
+                            override fun onReceivedHttpError(
+                                view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse
+                            ) {
+                                if (request.isForMainFrame && errorResponse.statusCode >= 400) {
+                                    markPageError("服务器返回 ${errorResponse.statusCode}")
+                                }
                             }
                         }
                         webChromeClient = object : WebChromeClient() {
@@ -265,6 +307,31 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                 },
                 onRelease = { it.destroy() }
             )
+            // 白屏兜底：加载失败 / 渲染为空时盖一层可见提示，可重试或强制继续
+            if (pageError != null) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("页面没打开", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        pageError ?: "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = {
+                        pageError = null
+                        webView.view?.reload()
+                    }) { Text("重试") }
+                    TextButton(onClick = { pageError = null }) { Text("仍然继续") }
+                }
+            }
         }
     }
 }

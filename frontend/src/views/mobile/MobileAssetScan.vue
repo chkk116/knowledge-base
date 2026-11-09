@@ -189,12 +189,20 @@ async function startScan() {
   }
 }
 
+let autoScanTimer = null
 onMounted(() => {
   const c = codeFromRoute()
   if (c) load(c)
-  else if (String(route.query.scan || '') === '1') startScan()
+  else if (String(route.query.scan || '') === '1') {
+    // 先让页面把 header / 卡片渲染出来，再申请摄像头。
+    // 原生 WebView 在首帧就创建 video+getUserMedia 时，个别机型会把整个 WebView 刷成白屏。
+    autoScanTimer = setTimeout(() => { autoScanTimer = null; startScan().catch(() => {}) }, 600)
+  }
 })
-onBeforeUnmount(stopScan)
+onBeforeUnmount(() => {
+  if (autoScanTimer) { clearTimeout(autoScanTimer); autoScanTimer = null }
+  stopScan()
+})
 </script>
 
 <template>

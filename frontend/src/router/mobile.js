@@ -138,7 +138,7 @@ function ensureAuth() {
 
 // 登录态校验的最长等待：连不上服务器时 axios 要等满 15s 超时才 reject，
 // 期间路由一直挂起 → 白屏「打不开」。到点即用本地状态放行，避免长时间白屏。
-const AUTH_WAIT_MS = 6000
+const AUTH_WAIT_MS = 1500
 
 /**
  * 离线兜底：断网时 fetchMe 必然失败，若直接跳登录页，用户会被挡在门外 ——
