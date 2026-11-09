@@ -217,7 +217,9 @@ watch(() => n.version, load)
 
 .seg {
   display: flex; gap: 4px; background: var(--m-border);
-  padding: 3px; border-radius: 11px; margin-bottom: 12px;
+  /* 圆角 = 按钮 9px + padding 3px，两层弧同心；overflow 裁掉圆角外的阴影残边 */
+  padding: 3px; border-radius: 12px; margin-bottom: 12px;
+  overflow: hidden;
 }
 .seg button {
   flex: 1 1 0; height: 33px; border: none; border-radius: 9px;
@@ -226,7 +228,8 @@ watch(() => n.version, load)
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   transition: background-color .16s, color .16s;
 }
-.seg button.on { background: var(--m-card); color: var(--m-text); font-weight: 600; box-shadow: var(--m-shadow); }
+/* 选中态只用白底区分：双层 box-shadow 会在 9px 圆角外叠出同心灰弧，看起来像没切干净的残边 */
+.seg button.on { background: var(--m-card); color: var(--m-text); font-weight: 600; }
 .seg-badge {
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: #ef4444; color: #fff; font-size: 10px; line-height: 16px; font-weight: 600;
