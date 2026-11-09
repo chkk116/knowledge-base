@@ -5,6 +5,10 @@
 package com.kb.kbplatform.shell.ui.ai
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -22,6 +26,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -32,6 +37,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -71,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -117,7 +124,12 @@ private data class AiMsg(
     val role: String,          // user | assistant
     val content: String,
     val modelName: String = "",
-    val streaming: Boolean = false
+    val streaming: Boolean = false,
+    // 思考型模型（GLM 思考版 / DeepSeek）的 reasoning 增量：只在本次会话内展示，后端不落库。
+    // 以前整段丢弃，流式等待期气泡里只剩一个「▍」黑方块光标，看起来就是一条黑粗线。
+    val reasoning: String = "",
+    val reasoningOpen: Boolean = true,   // 思考中默认展开，出正文后自动折叠成摘要行
+    val thinkMs: Long = 0L               // 思考耗时（首个正文 token 到达时定格）
 )
 
 private data class AiModelOpt(val id: Long, val name: String, val scope: String)
@@ -171,7 +183,8 @@ fun AiChatScreen(onBack: () -> Unit) {
     }
 
     // 流式输出时跟随滚到底部
-    LaunchedEffect(msgs.size, msgs.lastOrNull()?.content?.length) {
+    // 思考增量也要带着滚，否则展开中的思考卡片会停在半截
+    LaunchedEffect(msgs.size, msgs.lastOrNull()?.content?.length, msgs.lastOrNull()?.reasoning?.length) {
         if (msgs.isNotEmpty()) listState.scrollToItem(msgs.lastIndex)
     }
 
@@ -228,6 +241,7 @@ fun AiChatScreen(onBack: () -> Unit) {
         msgs.add(AiMsg("user", q))
         msgs.add(AiMsg("assistant", "", streaming = true))
         val idx = msgs.lastIndex
+        val thinkStart = System.currentTimeMillis()
         sending = true
         val sysId = selectedModel?.takeIf { it.scope != "user" }?.id
         val userId = selectedModel?.takeIf { it.scope == "user" }?.id
@@ -238,31 +252,48 @@ fun AiChatScreen(onBack: () -> Unit) {
                     modelId = sysId, userModelId = userId,
                     onDelta = { d ->
                         val cur = msgs[idx]
-                        msgs[idx] = cur.copy(content = cur.content + d)
+                        val firstToken = cur.content.isEmpty() && d.isNotEmpty()
+                        msgs[idx] = cur.copy(
+                            content = cur.content + d,
+                            // 首个正文 token 到达 = 思考结束：定格耗时、自动折叠，只留一行摘要
+                            thinkMs = if (firstToken && cur.thinkMs == 0L)
+                                System.currentTimeMillis() - thinkStart else cur.thinkMs,
+                            reasoningOpen = if (firstToken && cur.reasoning.isNotEmpty()) false else cur.reasoningOpen
+                        )
                     },
-                    onReasoning = { /* 思考过程暂不展示，避免长文本挤压对话区 */ }
+                    onReasoning = { r ->
+                        val cur = msgs[idx]
+                        msgs[idx] = cur.copy(reasoning = cur.reasoning + r)
+                    }
                 )
                 convId = res.optLong("conversationId").takeIf { it > 0L }
                 val cur = msgs[idx]
                 val finalText = cur.content.ifBlank {
                     res.optString("answer").ifBlank { "（暂无返回内容）" }
                 }
-                msgs[idx] = cur.copy(content = finalText, modelName = res.optString("modelName"), streaming = false)
+                val spent = if (cur.thinkMs > 0L) cur.thinkMs else System.currentTimeMillis() - thinkStart
+                // 非流式兜底可能只在最终结果里带 reasoning，流式没吐过时补上
+                val fullReasoning = if (cur.reasoning.isNotEmpty()) cur.reasoning else res.optString("reasoning")
+                msgs[idx] = cur.copy(
+                    content = finalText, modelName = res.optString("modelName"), streaming = false,
+                    reasoning = fullReasoning, thinkMs = spent, reasoningOpen = false
+                )
             } catch (e: CancellationException) {
                 // 用户主动停止：保留已生成的部分回答，而不是整条丢弃
                 val cur = msgs.getOrNull(idx)
                 if (cur != null) {
                     if (cur.content.isBlank()) msgs.removeAt(idx)
-                    else msgs[idx] = cur.copy(streaming = false)
+                    else msgs[idx] = cur.copy(streaming = false, reasoningOpen = false)
                 }
                 throw e
             } catch (e: Exception) {
                 val msg = (e as? ApiError)?.message ?: e.message ?: "请求失败，请检查网络"
                 val cur = msgs[idx]
                 msgs[idx] = if (cur.content.isBlank()) {
-                    cur.copy(content = "出错了：$msg", streaming = false)
+                    cur.copy(content = "出错了：$msg", streaming = false, reasoningOpen = false)
                 } else {
-                    cur.copy(streaming = false)   // 已有部分内容：保留已生成部分
+                    // 已有部分内容：保留已生成部分
+                    cur.copy(streaming = false, reasoningOpen = false)
                 }
             } finally { sending = false }
         }
@@ -438,7 +469,7 @@ fun AiChatScreen(onBack: () -> Unit) {
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                itemsIndexed(msgs) { _, m ->
+                itemsIndexed(msgs) { i, m ->
                     val ctx = LocalContext.current
                     AnimatedVisibility(
                         visible = true,
@@ -463,7 +494,7 @@ fun AiChatScreen(onBack: () -> Unit) {
                                 )
                             }
                         } else {
-                            // AI 回答：渐变头像 + 浅底气泡（对标主流 AI 应用的消息版式）
+                            // AI 回答：渐变头像 + 可折叠「深度思考」卡片 + 浅底正文气泡
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                                 Box(
                                     Modifier
@@ -478,17 +509,36 @@ fun AiChatScreen(onBack: () -> Unit) {
                                 }
                                 Spacer(Modifier.size(8.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = {},
-                                            onLongClick = { copyAiText(ctx, m.content) },
-                                        ),
-                                    ) {
-                                        Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp)) {
-                                            MarkdownLite(m.content + if (m.streaming) " ▍" else "")
+                                    if (m.reasoning.isNotEmpty()) {
+                                        ThinkingCard(
+                                            text = m.reasoning,
+                                            thinking = m.streaming && m.content.isEmpty(),
+                                            thinkMs = m.thinkMs,
+                                            expanded = m.reasoningOpen,
+                                            onToggle = {
+                                                msgs.getOrNull(i)?.let { cur ->
+                                                    msgs[i] = cur.copy(reasoningOpen = !cur.reasoningOpen)
+                                                }
+                                            }
+                                        )
+                                        if (m.content.isNotEmpty() || !m.streaming) Spacer(Modifier.size(8.dp))
+                                    }
+                                    if (m.content.isNotEmpty() || !m.streaming) {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                            modifier = Modifier.combinedClickable(
+                                                onClick = {},
+                                                onLongClick = { copyAiText(ctx, m.content) },
+                                            ),
+                                        ) {
+                                            Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp)) {
+                                                MarkdownLite(m.content)
+                                            }
                                         }
+                                    } else if (m.reasoning.isEmpty()) {
+                                        // 非思考模型等首字：三点呼吸占位，不再是一条黑粗线
+                                        ThinkingDots()
                                     }
                                     if (m.modelName.isNotBlank() && !m.streaming) {
                                         Text(
@@ -627,5 +677,101 @@ fun AiChatScreen(onBack: () -> Unit) {
                 TextButton(onClick = { convOpen = false }) { Text("关闭") }
             },
         )
+    }
+}
+
+/**
+ * 对标主流 AI 应用的「深度思考」区：浅灰胶囊 + 脉冲小点（思考中）/ 完成图标 + 一行摘要，
+ * 点整块折叠展开；展开时小灰字流式跟随，最多 160dp 可滚。默认思考中展开、出正文后折叠。
+ */
+@Composable
+private fun ThinkingCard(
+    text: String,
+    thinking: Boolean,
+    thinkMs: Long,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    val brand = Color(0xFF6366F1)
+    val dim = MaterialTheme.colorScheme.onSurfaceVariant
+    val secs = (thinkMs / 1000L).coerceAtLeast(1L)
+    val title = if (thinking) {
+        "正在深度思考…" + (if (text.isNotEmpty()) " · " + text.length + " 字" else "")
+    } else {
+        "已深度思考（用时 " + secs + " 秒 · " + text.length + " 字）"
+    }
+    val scroll = rememberScrollState()
+    // 思考中跟着最新文字走，完成后保留用户自己滚到的位置
+    LaunchedEffect(text.length) { if (thinking) scroll.scrollTo(scroll.maxValue) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .clickable { onToggle() }
+            .padding(horizontal = 11.dp, vertical = 9.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (thinking) {
+                ThinkingDot(brand)
+            } else {
+                Icon(
+                    Icons.Filled.AutoAwesome, contentDescription = null,
+                    tint = brand.copy(alpha = 0.85f), modifier = Modifier.size(14.dp)
+                )
+            }
+            Spacer(Modifier.size(7.dp))
+            Text(
+                title, fontSize = 12.sp, color = dim, fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = if (expanded) "收起思考过程" else "展开思考过程",
+                tint = dim.copy(alpha = 0.7f),
+                modifier = Modifier.size(17.dp).rotate(if (expanded) 180f else 0f)
+            )
+        }
+        if (expanded && text.isNotEmpty()) {
+            Spacer(Modifier.size(7.dp))
+            Text(
+                text,
+                fontSize = 11.5.sp,
+                lineHeight = 17.sp,
+                color = dim.copy(alpha = 0.82f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 160.dp)
+                    .verticalScroll(scroll)
+            )
+        }
+    }
+}
+
+/** 思考中的呼吸小点 / 非思考模型等首字时的三点占位，替代原来的「▍」黑方块光标 */
+@Composable
+private fun ThinkingDot(color: Color) {
+    val transition = rememberInfiniteTransition(label = "think")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(850), repeatMode = RepeatMode.Reverse),
+        label = "thinkAlpha"
+    )
+    Box(Modifier.size(7.dp).clip(CircleShape).background(color.copy(alpha = alpha)))
+}
+
+@Composable
+private fun ThinkingDots() {
+    val brand = Color(0xFF6366F1)
+    Row(
+        Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ThinkingDot(brand)
+        Spacer(Modifier.size(5.dp))
+        ThinkingDot(brand)
+        Spacer(Modifier.size(5.dp))
+        ThinkingDot(brand)
     }
 }
