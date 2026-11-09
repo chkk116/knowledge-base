@@ -90,6 +90,24 @@ public class RagService {
     /** 检索 + Prompt 组装的结果；error 非空表示前置条件不满足（未启用/无模型） */
     private record Prepared(List<Map<String, Object>> messages, List<Map<String, Object>> sources, String error) {}
 
+    /**
+     * 纯寒暄短路：思考型模型（默认 glm-4.7-flash）对「你好」也会先写上千字 reasoning，
+     * 再按 kb 模式的身份口径把模型名、文章数、资料类型背一遍，既慢又答非所问。
+     * 这里直接本地回一句，不检索、不调模型、不产生思考过程；只匹配明确的问候/致谢，
+     * 带任何实质内容（「你好，帮我查…」）都会落到正常链路。
+     */
+    private static String smallTalkReply(String question) {
+        if (question == null) return null;
+        String q = question.strip().replaceAll("[!！。.,，~～?？]+$", "").strip().toLowerCase();
+        if (q.isEmpty() || q.length() > 8) return null;
+        return switch (q) {
+            case "你好", "您好", "hi", "hello", "嗨", "哈喽", "在吗", "早上好", "下午好", "晚上好", "你好呀" ->
+                    "你好！有什么可以帮你的？";
+            case "谢谢", "多谢", "thanks", "thank you", "3q" -> "不客气，有需要随时说。";
+            case "bye", "拜拜", "再见" -> "再见，随时找我。";
+            default -> null;
+        };
+    }
     /** 检索 + 组装 messages（ask 与 askStream 共用，避免两条链路提示词漂移） */
     private Prepared prepare(String question, List<Map<String, String>> history,
                              String instructions, String persona, String mode, Long modelId,
@@ -225,6 +243,8 @@ public class RagService {
     public Map<String, Object> ask(String question, List<Map<String, String>> history,
                                    String instructions, String persona, String mode, Long modelId,
                                    Long userModelId, Long userId, List<String> imageUrls) {
+        String small = smallTalkReply(question);
+        if (small != null) return Map.of("answer", small, "sources", List.of());
         Prepared p = prepare(question, history, instructions, persona, mode, modelId, imageUrls);
         if (p.error() != null) return Map.of("answer", p.error(), "sources", List.of());
         AiModelClient.AiChatResult call = callModel(modelId, userModelId, userId, p.messages());
@@ -246,6 +266,11 @@ public class RagService {
                                          String instructions, String persona, String mode, Long modelId,
                                          Long userModelId, Long userId, List<String> imageUrls,
                                          AiModelClient.StreamSink sink) throws Exception {
+        String small = smallTalkReply(question);
+        if (small != null) {
+            sink.accept(small, null);
+            return Map.of("answer", small, "sources", List.of());
+        }
         Prepared p = prepare(question, history, instructions, persona, mode, modelId, imageUrls);
         if (p.error() != null) {
             sink.accept(p.error(), null);
