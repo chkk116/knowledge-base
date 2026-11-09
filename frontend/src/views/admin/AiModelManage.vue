@@ -141,6 +141,13 @@ const form = reactive({
  * - 模型版本默认选推荐项，管理员可在下拉里换别的版本
  * - 显示名称没填过时，直接沿用模型名，省得再编一个
  */
+// 新增模型唯一可选的特殊用途：语义检索（Embedding）。
+// 文生图 / 文生视频已收敛到「AI 能力配置」页独立配置，模型池里的老 IMAGE/VIDEO 条目仅作兜底保留
+const asEmbedding = computed({
+  get: () => form.kind === 'EMBEDDING',
+  set: (v) => { form.kind = v ? 'EMBEDDING' : 'CHAT' }
+})
+
 // 模型下拉按「用途」过滤：元素可能是 'id' 或 {id,label,kind}
 // 切换「用途」时：模型下拉按用途过滤，当前模型不匹配则自动换默认
 watch(() => form.kind, () => {
@@ -657,20 +664,12 @@ onUnmounted(() => {
     <!-- 编辑弹窗：改 Key 只需重填一栏，其余字段不动即可 -->
     <el-dialog v-model="dialog" :title="form.id ? '编辑模型' : '新增模型'" width="560px">
       <el-form label-width="96px">
-        <!-- 用途由「AI 能力配置」页分配，编辑已有模型时不在这里重复配置；
-             仅新增时允许标文生图/文生视频/语义检索这类特殊用途，不选即对话模型池成员 -->
-        <el-form-item v-if="!form.id" label="特殊用途">
+        <!-- 新模型一律进对话模型池；文生图/文生视频走「AI 能力配置」页独立配置，不再在这里标记。
+             唯一例外是语义检索（Embedding）：它没有独立配置页，向量检索开关就是这里的 EMBEDDING 模型 -->
+        <el-form-item v-if="!form.id" label="语义检索">
           <div class="kind-box">
-            <el-radio-group v-model="form.kind">
-              <el-radio value="IMAGE">文生图</el-radio>
-              <el-radio value="VIDEO">文生视频</el-radio>
-              <el-radio value="EMBEDDING">语义检索（向量）</el-radio>
-            </el-radio-group>
-            <div class="kind-hint">
-              <span>不选即加入对话模型池，具体能力由「AI 能力配置」页分配</span>
-              <el-button v-if="form.kind && form.kind !== 'CHAT'" link type="primary" size="small"
-                         @click="form.kind = 'CHAT'">清除特殊用途</el-button>
-            </div>
+            <el-switch v-model="asEmbedding" />
+            <span class="kind-hint inline">作为语义检索（Embedding）模型，供 AI 语义检索使用；关闭即加入对话模型池。文生图 / 文生视频请到「AI 能力配置」页配置。</span>
           </div>
         </el-form-item>
         <el-form-item label="平台">
@@ -745,6 +744,7 @@ onUnmounted(() => {
 /* ===== 页头 ===== */
 .kind-box { width: 100%; }
 .kind-hint { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; font-size: 12px; color: #94a3b8; }
+.kind-hint.inline { display: block; margin-top: 6px; line-height: 1.6; }
 html.dark .kind-hint { color: #7c7d96; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .ph-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
