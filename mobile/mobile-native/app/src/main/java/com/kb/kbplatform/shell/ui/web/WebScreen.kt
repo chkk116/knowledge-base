@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -111,6 +112,16 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
         webView.view?.goBack()
     }
 
+    // 进扫码页就先申请，避免点「开始扫码」时才弹系统框导致首次失败。
+    // 必须放 LaunchedEffect（组合完成后执行）：launch() 若在组合阶段（如 AndroidView factory）
+    // 调用，launcher 尚未注册，会抛 IllegalStateException: Launcher has not been initialized
+    LaunchedEffect(path) {
+        if (path.contains("/m/asset") &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         TopBar(title = title, onBack = {
             if (webView.view?.canGoBack() == true) webView.view?.goBack() else onBack()
@@ -127,11 +138,6 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 factory = { c ->
                     WebView(c).apply {
-                        // 进扫码页就先申请，避免点「开始扫码」时才弹系统框导致首次失败
-                        if (path.contains("/m/asset") &&
-                            ContextCompat.checkSelfPermission(c, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                        }
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.mediaPlaybackRequiresUserGesture = false
