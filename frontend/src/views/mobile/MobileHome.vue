@@ -90,8 +90,10 @@ function fmtTime(s) {
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
-// 金刚区入口：8 个（新增功能一律在这里露出，避免"加了但找不到"）
+// 金刚区入口（新增功能一律在这里露出，避免"加了但找不到"）
+// 扫一扫放首位：资产标签二维码扫完直接进资产详情，其余资产功能都从这里进
 const QUICKS = [
+  { label: '扫一扫', icon: 'Aim', color: 'purple', to: '/asset?scan=1' },
   { label: '拍照建文档', icon: 'Camera', color: 'grad', to: '/capture' },
   { label: '速记', icon: 'EditPen', color: 'cyan', to: '/quick' },
   { label: '网页剪藏', icon: 'Link', color: 'blue', to: '/clip' },

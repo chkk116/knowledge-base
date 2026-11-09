@@ -4,13 +4,16 @@
  */
 package com.kb.kbplatform.shell.ui.web
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.webkit.JsResult
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -37,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.kb.kbplatform.shell.AppConfig
 import com.kb.kbplatform.shell.TokenStore
@@ -72,6 +76,13 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
         mutableStateOf<android.webkit.ValueCallback<Array<Uri>>?>(null)
     }
     var captureUri by remember { mutableStateOf<Uri?>(null) }
+
+    // 资产扫码页用 getUserMedia 调后置摄像头：运行时授权 + WebView 放行，缺一不可
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) Toast.makeText(ctx, "未授予相机权限，扫码不可用", Toast.LENGTH_SHORT).show()
+    }
 
     val chooserLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -116,6 +127,11 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 factory = { c ->
                     WebView(c).apply {
+                        // 进扫码页就先申请，避免点「开始扫码」时才弹系统框导致首次失败
+                        if (path.contains("/m/asset") &&
+                            ContextCompat.checkSelfPermission(c, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.mediaPlaybackRequiresUserGesture = false
@@ -163,6 +179,22 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                         webChromeClient = object : WebChromeClient() {
                             override fun onProgressChanged(view: WebView, newProgress: Int) {
                                 progress = newProgress
+                            }
+
+                            /** 只放行扫码页的摄像头请求，其余一律拒绝，别给任意网页开相机 */
+                            override fun onPermissionRequest(request: PermissionRequest) {
+                                val wantsCamera = request.resources.any {
+                                    it == PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                                }
+                                if (!wantsCamera || !path.contains("/m/asset")) {
+                                    request.deny(); return
+                                }
+                                if (ContextCompat.checkSelfPermission(c, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                    request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
+                                } else {
+                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    request.deny()
+                                }
                             }
 
                             /** 文件选择桥：<input type=file> 与 capture 拍照 */

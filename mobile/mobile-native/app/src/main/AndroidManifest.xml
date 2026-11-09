@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Android 13+ 通知需要运行时授权；下载进度/完成提示都靠它 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 首页「扫一扫」：WebView 里的 getUserMedia 需要相机运行时授权 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- 与 Capacitor 版一致：放行明文 HTTP，适配纯内网部署；公网部署建议 HTTPS -->
     <application

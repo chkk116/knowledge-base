@@ -185,6 +185,10 @@ fun AppRoot() {
             composable("cards") { CardsScreen() }
             composable("practice") { ExamPracticeScreen(onBack = { nav.popBackStack() }) }
             composable("share-import") { ShareImportScreen(onDone = { nav.popBackStack() }) }
+            // 首页金刚区「扫一扫」：以 WebView 打开移动资产扫码页，自动起摄像头并复用登录态
+            composable("asset-scan") {
+                WebScreen(path = "/m/asset?scan=1", title = "扫一扫", onBack = { nav.popBackStack() })
+            }
             composable("admin") {
                 AdminHomeScreen(
                     onOpen = { r -> safeNav(r) },

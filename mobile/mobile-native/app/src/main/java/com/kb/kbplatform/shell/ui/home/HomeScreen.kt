@@ -50,6 +50,7 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ChevronRight
@@ -219,6 +220,8 @@ fun HomeScreen(
                     // 4 列、间距 10、瓦片 52dp/圆角 16、图标 23dp 单色、文字 12sp
                     // 12 个入口 / 3 行，与套壳首页的金刚区同密度（那边是 14 个）
                     val quicks = listOf(
+                        // 资产标签二维码：复用站内登录态的 WebView 扫码页
+                        Quick("扫一扫", Icons.Filled.QrCode2, KbToneKind.Purple, "asset-scan"),
                         Quick("拍照建文档", Icons.Filled.PhotoCamera, KbToneKind.Primary, "capture"),
                         Quick("速记", Icons.Filled.EditNote, KbToneKind.Cyan, "quick"),
                         Quick("网页剪藏", Icons.Filled.Link, KbToneKind.Blue, "clip"),
