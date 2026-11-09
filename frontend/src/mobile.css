@@ -127,7 +127,8 @@ body.kb-mobile-body { overflow-x: hidden; }
 .m-title.sm { font-size: 17px; }
 .m-sub { font-size: 12.5px; color: var(--m-text-dim); font-weight: 400; margin-top: 1px; }
 .m-header-act {
-  flex: none; width: 36px; height: 36px; border-radius: 50%;
+  /* 手机上 36px 的返回/操作按钮偏小，放大到 40px 更接近可点击区下限 */
+  flex: none; width: 40px; height: 40px; border-radius: 50%;
   border: none; background: transparent; color: var(--m-text-sub);
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; transition: background-color .15s;
@@ -315,14 +316,26 @@ html.dark .m-chip.green { background: #0e2e26; color: #34d399; }
 html.dark .m-chip.orange { background: #3a2411; color: #fb923c; }
 html.dark .m-chip.red { background: #3d1a1a; color: #f87171; }
 
-/* 空状态 */
+/* 空状态：图标用品牌色圆形底，主文案与说明分层，避免「一行灰字挂在大片白底上」 */
 .m-empty {
-  padding: 60px 24px;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  color: var(--m-text-dim); font-size: 13.5px; text-align: center;
+  padding: 52px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  color: var(--m-text-sub); font-size: 14px; text-align: center;
 }
-.m-empty .ico { width: 64px; height: 64px; border-radius: 20px; background: var(--m-card);
-  display: inline-flex; align-items: center; justify-content: center; color: var(--m-text-dim); }
+.m-empty .ico {
+  width: 88px; height: 88px; border-radius: 50%;
+  background: var(--m-primary-soft); color: var(--m-primary);
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-bottom: 4px;
+}
+.m-empty > div { font-size: 14.5px; font-weight: 500; color: var(--m-text-sub); }
+.m-empty > div + div {
+  font-size: 12.5px; font-weight: 400; color: var(--m-text-dim);
+  line-height: 1.65; max-width: 260px;
+}
+.m-empty .m-btn { margin-top: 6px; }
+/* 整页级空状态（卡片里只有这一块）：在可视区中上部居中，别把内容顶在卡片最上面 */
+.m-card > .m-empty:only-child { min-height: 46vh; justify-content: center; padding-top: 32px; padding-bottom: 32px; }
 
 /* 底部固定操作条（编辑页 / 选择页用） */
 .m-actionbar {
