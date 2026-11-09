@@ -44,8 +44,11 @@ async function doLogin() {
   errMsg.value = ''
   try {
     await auth.login(username.value.trim(), password.value, captchaToken.value)
-    const to = route.query.redirect && String(route.query.redirect).startsWith('/m')
-      ? String(route.query.redirect) : '/home'
+    // 扫码等外部入口带 redirect：可能是带 /m/ 前缀的老链接，也可能是不含 base 的 fullPath。
+    // 统一去掉 base 再 replace，否则 createWebHistory('/m/') 会拼成 /m/m/xxx；同时拒掉 // 外链。
+    let to = String(route.query.redirect || '')
+    if (to.startsWith('/m/')) to = to.slice(3)
+    if (!to.startsWith('/') || to.startsWith('//') || to.startsWith('/\\')) to = '/home'
     router.replace(to)
   } catch (e) {
     errMsg.value = (e && (e.biz ? e.message : (e.response?.data?.error || e.message))) || '登录失败'

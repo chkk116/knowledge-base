@@ -57,6 +57,9 @@ const routes = [
   // 离线草稿详情（本地 IndexedDB 中的待同步文档）
   { path: '/draft/:localId', component: () => import('../views/mobile/MobileDraftView.vue'), meta: { title: '本地草稿' } },
 
+  // 资产扫码结果页：Web 后台生成的二维码指向这里，手机相机/微信扫码直达；需登录
+  { path: '/asset', component: () => import('../views/mobile/MobileAssetScan.vue'), meta: { title: '资产扫码' } },
+
   { path: '/search', component: () => import('../views/mobile/MobileSearch.vue'), meta: { title: '搜索' } },
   // ---- AI 问答：原生移动版（此前是 iframe 嵌桌面 /ai/chat，小屏体验差）----
   { path: '/ai', component: () => import('../views/mobile/MobileAiChat.vue'), meta: { title: 'AI 问答' } },

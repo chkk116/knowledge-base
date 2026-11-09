@@ -230,7 +230,7 @@
         </el-descriptions>
 
         <div class="qr-block" v-if="qrDataUrl">
-          <div class="qr-title">资产二维码（扫码读取编号）</div>
+          <div class="qr-title">资产二维码（手机扫码查看资产信息）</div>
           <img :src="qrDataUrl" class="qr-img" />
           <div class="qr-code-text">{{ current.code }}</div>
         </div>
@@ -387,7 +387,7 @@
           </el-select>
         </el-form-item>
         <el-alert type="info" :closable="false" show-icon
-                  title="二维码内容为资产编号，配合扫码端点 /api/assets/{code} 使用；建议先用「下载模板 / 导入」建好数据，再批量打印。" />
+                  title="二维码内容为手机端资产详情页地址，系统相机 / 微信扫码即可打开（需登录）；已打印的旧标签可在该页手动输入编号查询。建议先用「下载模板 / 导入」建好数据，再批量打印。" />
       </el-form>
       <template #footer>
         <el-button @click="labelDialog=false">取消</el-button>
@@ -627,6 +627,15 @@ async function onDelete(row) {
   catch (e) { ElMessage.error(errMsg(e, '删除失败')) }
 }
 
+/**
+ * 资产二维码内容：指向手机端资产详情页，系统相机 / 微信扫码即可直达。
+ * 以前只编码资产编号，手机扫出来是一串纯文本、打不开任何页面；
+ * 编号放 hash 是因为 hash 不发送到服务端，可避开 AuthFilter 对原始 URI 里 %XX 的 400 拦截。
+ */
+function assetQrContent(code) {
+  return `${window.location.origin}/m/asset#code=${encodeURIComponent(code || '')}`
+}
+
 async function openDetail(row) {
   current.value = row          // 先用列表数据即时渲染，避免抽屉空白
   detail.value = true
@@ -640,7 +649,7 @@ async function openDetail(row) {
     // 慢请求守卫：响应仍属于当前抽屉展示的资产才覆盖，防止旧响应把新详情覆盖回别的资产
     if (data && data.id === reqId && !stale()) current.value = data
   } catch (e) { /* 拉取失败就沿用列表行 */ }
-  try { if (!stale()) qrDataUrl.value = await QRCode.toDataURL(row.code, { width: 220, margin: 1 }) } catch (e) {}
+  try { if (!stale()) qrDataUrl.value = await QRCode.toDataURL(assetQrContent(row.code), { width: 220, margin: 1 }) } catch (e) {}
   try { const { data } = await assetBorrows(row.id); if (!stale()) borrows.value = data || [] } catch (e) { if (!stale()) borrows.value = [] }
   try { const { data } = await assetLogs(row.id); if (!stale()) logs.value = data || [] } catch (e) { if (!stale()) logs.value = [] }
 }
@@ -795,7 +804,7 @@ async function batchDelete() {
   } finally { batchDeleting.value = false }
 }
 
-// 批量打印标签：A4 一页多码，弹出独立打印窗口（二维码内容为资产编号）
+// 批量打印标签：A4 一页多码，弹出独立打印窗口（二维码内容为手机端详情页地址）
 function openLabelDialog() { labelDialog.value = true }
 async function printLabels() {
   printing.value = true
@@ -819,7 +828,7 @@ async function printLabels() {
     const items = await Promise.all(assets.map(async a => ({
       code: a.code,
       name: a.name,
-      qr: await QRCode.toDataURL(a.code, { width: 200, margin: 1 })
+      qr: await QRCode.toDataURL(assetQrContent(a.code), { width: 200, margin: 1 })
     })))
     const w = window.open('', '_blank')
     if (!w) { ElMessage.error('打印窗口被拦截，请允许浏览器弹出窗口'); return }
