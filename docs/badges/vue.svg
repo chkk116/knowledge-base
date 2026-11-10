@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="89" height="40" role="img" aria-label="Vue: 3">
+  <title>Vue: 3</title>
+  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+  <clipPath id="r"><rect width="89" height="40" rx="0" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="53" height="40" fill="#555"/>
+    <rect x="53" width="36" height="40" fill="#059669"/>
+    <rect width="89" height="40" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" font-weight="bold" transform="scale(.1)">
+    <text x="265" y="245" textLength="252" lengthAdjust="spacingAndGlyphs">Vue</text>
+    <text x="710" y="245" textLength="84" lengthAdjust="spacingAndGlyphs">3</text>
+  </g>
+</svg>

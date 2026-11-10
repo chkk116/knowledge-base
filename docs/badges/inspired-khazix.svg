@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="251" height="40" role="img" aria-label="Inspired by: Khazix Skills">
+  <title>Inspired by: Khazix Skills</title>
+  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+  <clipPath id="r"><rect width="251" height="40" rx="0" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="117" height="40" fill="#555"/>
+    <rect x="117" width="134" height="40" fill="#8B5CF6"/>
+    <rect width="251" height="40" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" font-weight="bold" transform="scale(.1)">
+    <text x="585" y="245" textLength="888" lengthAdjust="spacingAndGlyphs">Inspired by</text>
+    <text x="1840" y="245" textLength="1056" lengthAdjust="spacingAndGlyphs">Khazix Skills</text>
+  </g>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="40" role="img" aria-label="Electron: 33">
+  <title>Electron: 33</title>
+  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+  <clipPath id="r"><rect width="140" height="40" rx="0" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="95" height="40" fill="#555"/>
+    <rect x="95" width="45" height="40" fill="#47848F"/>
+    <rect width="140" height="40" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" font-weight="bold" transform="scale(.1)">
+    <text x="475" y="245" textLength="672" lengthAdjust="spacingAndGlyphs">Electron</text>
+    <text x="1175" y="245" textLength="168" lengthAdjust="spacingAndGlyphs">33</text>
+  </g>
+</svg>

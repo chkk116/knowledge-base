@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="176" height="40" role="img" aria-label="License: AGPL-3.0">
+  <title>License: AGPL-3.0</title>
+  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+  <clipPath id="r"><rect width="176" height="40" rx="0" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="87" height="40" fill="#555"/>
+    <rect x="87" width="89" height="40" fill="#3B82F6"/>
+    <rect width="176" height="40" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" font-weight="bold" transform="scale(.1)">
+    <text x="435" y="245" textLength="588" lengthAdjust="spacingAndGlyphs">License</text>
+    <text x="1315" y="245" textLength="611" lengthAdjust="spacingAndGlyphs">AGPL-3.0</text>
+  </g>
+</svg>

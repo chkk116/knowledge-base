@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="166" height="40" role="img" aria-label="Spring Boot: 4.x">
+  <title>Spring Boot: 4.x</title>
+  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+  <clipPath id="r"><rect width="166" height="40" rx="0" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="117" height="40" fill="#555"/>
+    <rect x="117" width="49" height="40" fill="#10B981"/>
+    <rect width="166" height="40" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" font-weight="bold" transform="scale(.1)">
+    <text x="585" y="245" textLength="888" lengthAdjust="spacingAndGlyphs">Spring Boot</text>
+    <text x="1415" y="245" textLength="213" lengthAdjust="spacingAndGlyphs">4.x</text>
+  </g>
+</svg>
