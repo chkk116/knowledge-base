@@ -147,7 +147,10 @@ public class FileService {
         if (p == null) return;
         try {
             Files.deleteIfExists(p);
-        } catch (IOException ignore) {
+        } catch (IOException e) {
+            // 权限/占用导致删不掉：消息本身已不可读（content 清空 + kind=RECALL），
+            // 但磁盘上会留一份无痕迹的残留，至少要留日志供排查。
+            log.warn("删除私信附件失败：{} ({})", ref, e.getMessage());
         }
     }
 
@@ -258,9 +261,14 @@ public class FileService {
             while (m.find()) used.add(m.group());
         }
         List<Map<String, Object>> result = new ArrayList<>();
+        // 私信附件在私有目录，引用形如 dm:<name>（存在 kb_dm_message.content），不匹配这里
+        // /uploads/... 形状的 used 集合。若不排除，每一张正在使用的私信图都会被误报成孤儿，
+        // 管理员点「清理」就经由 deleteByUrl 把双方还在看的图删掉。未发送的私信上传另走 TTL 清理。
+        Path dmDir = root.resolve("dm");
         // try-with-resources 关闭目录流（2026-10-13 审查 L1）：Files.walk 返回的 Stream 持有目录句柄，不关会泄漏文件描述符
         try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
+                    .filter(path -> !path.startsWith(dmDir))
                     .forEach(path -> {
                         String rel = "/uploads/" + root.relativize(path).toString().replace('\\', '/');
                         if (!used.contains(rel)) {

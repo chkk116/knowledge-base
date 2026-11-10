@@ -108,6 +108,21 @@ class DmAttachmentTest {
         assertNull(files.resolveDmRef("javascript:alert(1)"));
     }
 
+    /** 后台孤儿清理不能把活跃私信附件列出来：管理员点删除会连双方正在看的图一起删掉 */
+    @Test
+    void orphanScanSkipsDmAttachments() throws Exception {
+        putImage();
+        Path publicImg = temp.resolve("2026/11/10/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png");
+        Files.createDirectories(publicImg.getParent());
+        Files.write(publicImg, new byte[]{1, 2, 3});
+
+        var orphans = fileSvc().findOrphans(List.of(), java.util.Set.of());
+        assertTrue(orphans.stream().noneMatch(m -> String.valueOf(m.get("url")).contains("/uploads/dm/")),
+                "私信私有目录不该出现在孤儿列表");
+        assertTrue(orphans.stream().anyMatch(m -> String.valueOf(m.get("url")).contains("2026/11/10")),
+                "普通上传目录仍应被扫描");
+    }
+
     /** 撤回：content 清空 + 私有目录里的磁盘文件同步删除，且删除后不再可读 */
     @Test
     void recallDeletesAttachment() throws Exception {

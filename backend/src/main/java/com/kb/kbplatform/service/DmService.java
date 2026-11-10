@@ -76,7 +76,7 @@ public class DmService {
         if (ref == null || ref.isBlank()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
         boolean allowed = false;
         for (DmMessage m : msgs.findByContent(ref)) {
-            if (!"IMAGE".equals(m.getKind()) || "RECALL".equals(m.getKind())) continue;
+            if (!"IMAGE".equals(m.getKind())) continue;
             if (me.equals(m.getFromId()) || me.equals(m.getToId())) { allowed = true; break; }
         }
         if (!allowed) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在或无权访问");

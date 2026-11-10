@@ -111,15 +111,23 @@ public class DmController {
         if (!Files.isRegularFile(p)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
         }
-        // 前端限 8MB，这里再兜一层：避免异常大文件把整张图读进堆内存
-        if (Files.size(p) > 10L * 1024 * 1024) {
+        // 前端限 8MB，这里再兜一层：避免异常大文件把整张图读进堆内存。
+        // 校验通过后若文件被并发撤回删掉，size/readAllBytes 抛 IOException 也统一 404，
+        // 不暴露文件是否存在，更不退化成 500。
+        byte[] body;
+        try {
+            if (Files.size(p) > 10L * 1024 * 1024) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
+            }
+            body = Files.readAllBytes(p);
+        } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
         }
         return ResponseEntity.ok()
                 .header("X-Robots-Tag", "noindex, nofollow, noarchive")
                 .header("Cache-Control", "private, no-store, max-age=0")
                 .contentType(MediaType.parseMediaType(files.contentTypeOf(p)))
-                .body(Files.readAllBytes(p));
+                .body(body);
     }
 
     /** 撤回自己发的消息（2 分钟内） */
