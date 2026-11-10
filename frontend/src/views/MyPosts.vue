@@ -1,17 +1,30 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listMyDocs, deleteMyDoc, submitReview, withdrawReview } from '../api/kb'
 import PageBar from '../components/PageBar.vue'
 import { errMsg } from '../utils/errMsg'
 
+const route = useRoute()
 const router = useRouter()
 const docs = ref([])
 
 // 前端分页：帖子多了分页浏览
-const currentPage = ref(1)
+const qInt = (v) => {
+  const x = Number(v)
+  return Number.isInteger(x) && x > 0 ? x : 1
+}
+const currentPage = ref(qInt(route.query.page))
 const pageSize = ref(10)
+// 文章页「返回」会重新挂载本组件；页码写进 URL（replace 不新增历史）才能停回原页
+watch(currentPage, (p) => {
+  const next = { ...route.query }
+  if (p > 1) next.page = String(p)
+  else delete next.page
+  if (String(route.query.page ?? '') === (p > 1 ? String(p) : '')) return
+  router.replace({ query: next })
+}, { flush: 'post' })
 const total = computed(() => docs.value.length)
 const pagedDocs = computed(() =>
   docs.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value)

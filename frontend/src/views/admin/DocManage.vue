@@ -1,12 +1,13 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Close, Lock, EditPen, Top } from '@element-plus/icons-vue'
 import {
   listDocsAdmin, deleteDoc, blockDoc, unblockDoc, pinDoc, unpinDoc, approveDoc, rejectDoc,
 } from '../../api/admin'
 
+const route = useRoute()
 const router = useRouter()
 const docs = ref([])
 const statusTab = ref('all')   // all | PUBLISHED | PENDING_REVIEW | DRAFT | BLOCKED
@@ -17,6 +18,44 @@ const dir = ref('desc')
 const page = ref(1)
 const size = ref(15)
 const total = ref(0)
+
+// 页码与筛选写进路由 query：文章详情页的「返回」是 router.back()，回来时本组件会重新挂载，
+// 组件内 ref 会全部归位（page=1）。用 router.replace 同步 URL（不新增历史记录），
+// 从文章返回即回到翻页前那条 URL，刷新/复制链接也一样能停在第 N 页。
+const qInt = (v, fallback) => {
+  const x = Number(v)
+  return Number.isInteger(x) && x > 0 ? x : fallback
+}
+const VALID_TABS = ['all', 'PUBLISHED', 'PENDING_REVIEW', 'DRAFT', 'BLOCKED']
+const VALID_SORTS = ['updatedAt', 'created', 'views']
+if (route.query.page !== undefined) page.value = qInt(route.query.page, 1)
+if (VALID_TABS.includes(route.query.status)) statusTab.value = route.query.status
+if (typeof route.query.q === 'string') keyword.value = route.query.q.slice(0, 100)
+if (VALID_SORTS.includes(route.query.sort)) sort.value = route.query.sort
+if (route.query.dir === 'asc' || route.query.dir === 'desc') dir.value = route.query.dir
+if ([5, 15, 30].includes(qInt(route.query.size, 0))) size.value = qInt(route.query.size, 15)
+
+const QUERY_KEYS = ['page', 'status', 'q', 'sort', 'dir', 'size']
+const syncQuery = () => {
+  const next = { ...route.query }
+  for (const k of QUERY_KEYS) delete next[k]
+  if (page.value > 1) next.page = String(page.value)
+  if (statusTab.value !== 'all') next.status = statusTab.value
+  if (keyword.value.trim()) next.q = keyword.value.trim()
+  if (sort.value !== 'updatedAt') next.sort = sort.value
+  if (dir.value !== 'desc') next.dir = dir.value
+  if (size.value !== 15) next.size = String(size.value)
+  const pick = (o) => {
+    const r = {}
+    for (const k of QUERY_KEYS) if (o[k] !== undefined) r[k] = String(o[k])
+    return r
+  }
+  if (JSON.stringify(pick(route.query)) === JSON.stringify(pick(next))) return
+  router.replace({ query: next })
+}
+// keyword 由 v-model 逐字变化，不放进 watch 依赖（否则每敲一个字都改一次 URL）；
+// 搜索回车/清空时在 onSearch 里显式同步一次。
+watch([page, statusTab, sort, dir, size], syncQuery, { flush: 'post' })
 
 const STATUS_META = {
   PUBLISHED:      { label: '正常',   icon: Check,  color: '#10b981', bg: '#ecfdf5' },
@@ -39,7 +78,7 @@ const load = async () => {
     ElMessage.error('加载失败')
   }
 }
-const onSearch = () => { page.value = 1; load() }
+const onSearch = () => { page.value = 1; syncQuery(); load() }
 const onSort = () => { dir.value = 'desc'; page.value = 1; load() }
 const onSortChange = ({ prop, order }) => {
   if (!prop || !order) return
