@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="146.6" height="28" role="img" aria-label="POSTGRESQL: 18">
-  <title>POSTGRESQL: 18</title>
-  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
-  <clipPath id="r"><rect width="146.6" height="28" rx="0" fill="#fff"/></clipPath>
-  <g clip-path="url(#r)">
-    <rect width="105.5" height="28" fill="#555"/>
-    <rect x="105.5" width="41.1" height="28" fill="#8B5CF6"/>
-    <rect width="146.6" height="28" fill="url(#s)"/>
-  </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" transform="scale(.1)">
-    <text x="528" y="175" textLength="815" lengthAdjust="spacing">POSTGRESQL</text>
-    <text x="1261" y="175" textLength="171" lengthAdjust="spacing" font-weight="bold">18</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="145" height="28" role="img" aria-label="POSTGRESQL: 18"><title>POSTGRESQL: 18</title><g shape-rendering="crispEdges"><rect width="104.5" height="28" fill="#555"/><rect x="104.5" width="40.5" height="28" fill="#8b5cf6"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100"><text transform="scale(.1)" x="522.5" y="175" textLength="805">POSTGRESQL</text><text transform="scale(.1)" x="1247.5" y="175" textLength="165" font-weight="bold">18</text></g></svg>

@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="81.0" height="28" role="img" aria-label="VUE: 3">
-  <title>VUE: 3</title>
-  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
-  <clipPath id="r"><rect width="81.0" height="28" rx="0" fill="#fff"/></clipPath>
-  <g clip-path="url(#r)">
-    <rect width="48.5" height="28" fill="#555"/>
-    <rect x="48.5" width="32.5" height="28" fill="#059669"/>
-    <rect width="81.0" height="28" fill="url(#s)"/>
-  </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" transform="scale(.1)">
-    <text x="242" y="175" textLength="245" lengthAdjust="spacing">VUE</text>
-    <text x="647" y="175" textLength="86" lengthAdjust="spacing" font-weight="bold">3</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="28" role="img" aria-label="VUE: 3"><title>VUE: 3</title><g shape-rendering="crispEdges"><rect width="47.75" height="28" fill="#555"/><rect x="47.75" width="32.25" height="28" fill="#059669"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100"><text transform="scale(.1)" x="238.75" y="175" textLength="237.5">VUE</text><text transform="scale(.1)" x="638.75" y="175" textLength="82.5" font-weight="bold">3</text></g></svg>

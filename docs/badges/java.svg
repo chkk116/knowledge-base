@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="97.7" height="28" role="img" aria-label="JAVA: 21">
-  <title>JAVA: 21</title>
-  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
-  <clipPath id="r"><rect width="97.7" height="28" rx="0" fill="#fff"/></clipPath>
-  <g clip-path="url(#r)">
-    <rect width="56.6" height="28" fill="#555"/>
-    <rect x="56.6" width="41.1" height="28" fill="#D97706"/>
-    <rect width="97.7" height="28" fill="url(#s)"/>
-  </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" transform="scale(.1)">
-    <text x="283" y="175" textLength="326" lengthAdjust="spacing">JAVA</text>
-    <text x="771" y="175" textLength="171" lengthAdjust="spacing" font-weight="bold">21</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="94.5" height="28" role="img" aria-label="JAVA: 21"><title>JAVA: 21</title><g shape-rendering="crispEdges"><rect width="54" height="28" fill="#555"/><rect x="54" width="40.5" height="28" fill="#d97706"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100"><text transform="scale(.1)" x="270" y="175" textLength="300">JAVA</text><text transform="scale(.1)" x="742.5" y="175" textLength="165" font-weight="bold">21</text></g></svg>

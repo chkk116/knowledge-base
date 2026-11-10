@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="167.1" height="28" role="img" aria-label="LICENSE: AGPL-3.0">
-  <title>LICENSE: AGPL-3.0</title>
-  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
-  <clipPath id="r"><rect width="167.1" height="28" rx="0" fill="#fff"/></clipPath>
-  <g clip-path="url(#r)">
-    <rect width="81.0" height="28" fill="#555"/>
-    <rect x="81.0" width="86.0" height="28" fill="#3B82F6"/>
-    <rect width="167.1" height="28" fill="url(#s)"/>
-  </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" transform="scale(.1)">
-    <text x="405" y="175" textLength="571" lengthAdjust="spacing">LICENSE</text>
-    <text x="1241" y="175" textLength="620" lengthAdjust="spacing" font-weight="bold">AGPL-3.0</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="161.75" height="28" role="img" aria-label="LICENSE: AGPL-3.0"><title>LICENSE: AGPL-3.0</title><g shape-rendering="crispEdges"><rect width="75.75" height="28" fill="#555"/><rect x="75.75" width="86" height="28" fill="#3b82f6"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100"><text transform="scale(.1)" x="378.75" y="175" textLength="517.5">LICENSE</text><text transform="scale(.1)" x="1187.5" y="175" textLength="620" font-weight="bold">AGPL-3.0</text></g></svg>

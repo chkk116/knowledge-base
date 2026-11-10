@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="130.3" height="28" role="img" aria-label="ELECTRON: 33">
-  <title>ELECTRON: 33</title>
-  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
-  <clipPath id="r"><rect width="130.3" height="28" rx="0" fill="#fff"/></clipPath>
-  <g clip-path="url(#r)">
-    <rect width="89.2" height="28" fill="#555"/>
-    <rect x="89.2" width="41.1" height="28" fill="#47848F"/>
-    <rect width="130.3" height="28" fill="url(#s)"/>
-  </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" transform="scale(.1)">
-    <text x="446" y="175" textLength="652" lengthAdjust="spacing">ELECTRON</text>
-    <text x="1097" y="175" textLength="171" lengthAdjust="spacing" font-weight="bold">33</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="127.5" height="28" role="img" aria-label="ELECTRON: 33"><title>ELECTRON: 33</title><g shape-rendering="crispEdges"><rect width="87" height="28" fill="#555"/><rect x="87" width="40.5" height="28" fill="#47848f"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100"><text transform="scale(.1)" x="435" y="175" textLength="630">ELECTRON</text><text transform="scale(.1)" x="1072.5" y="175" textLength="165" font-weight="bold">33</text></g></svg>

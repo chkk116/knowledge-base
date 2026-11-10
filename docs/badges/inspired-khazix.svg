@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="241.6" height="28" role="img" aria-label="INSPIRED BY: KHAZIX SKILLS">
-  <title>INSPIRED BY: KHAZIX SKILLS</title>
-  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
-  <clipPath id="r"><rect width="241.6" height="28" rx="0" fill="#fff"/></clipPath>
-  <g clip-path="url(#r)">
-    <rect width="110.3" height="28" fill="#555"/>
-    <rect x="110.3" width="131.3" height="28" fill="#8B5CF6"/>
-    <rect width="241.6" height="28" fill="url(#s)"/>
-  </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="110" transform="scale(.1)">
-    <text x="551" y="175" textLength="863" lengthAdjust="spacing">INSPIRED BY</text>
-    <text x="1759" y="175" textLength="1073" lengthAdjust="spacing" font-weight="bold">KHAZIX SKILLS</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="231" height="28" role="img" aria-label="INSPIRED BY: KHAZIX SKILLS"><title>INSPIRED BY: KHAZIX SKILLS</title><g shape-rendering="crispEdges"><rect width="103.75" height="28" fill="#555"/><rect x="103.75" width="127.25" height="28" fill="#8b5cf6"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100"><text transform="scale(.1)" x="518.75" y="175" textLength="797.5">INSPIRED BY</text><text transform="scale(.1)" x="1673.75" y="175" textLength="1032.5" font-weight="bold">KHAZIX SKILLS</text></g></svg>
