@@ -4,13 +4,13 @@
 
 **一站式企业知识枢纽 · 文档协同 · 培训考核 · AI 问答**
 
-[![License](https://img.shields.io/badge/License-AGPL--3.0-blue)](#开源许可与商业授权)
-[![Java](https://img.shields.io/badge/Java-21-orange)](https://openjdk.org)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.x-green)](https://spring.io/projects/spring-boot)
-[![Vue](https://img.shields.io/badge/Vue-3-brightgreen)](https://vuejs.org)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-blue)](https://www.postgresql.org)
-[![Electron](https://img.shields.io/badge/Electron-33-47848F)](https://www.electronjs.org)
-[![Inspired by Khazix Skills](https://img.shields.io/badge/Inspired%20by-Khazix%20Skills-7C3AED)](https://github.com/KKKKhazix/Khazix-Skills)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-3B82F6?style=for-the-badge)](#开源许可与商业授权)
+[![Java](https://img.shields.io/badge/Java-21-D97706?style=for-the-badge)](https://openjdk.org)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.x-10B981?style=for-the-badge)](https://spring.io/projects/spring-boot)
+[![Vue](https://img.shields.io/badge/Vue-3-059669?style=for-the-badge)](https://vuejs.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-8B5CF6?style=for-the-badge)](https://www.postgresql.org)
+[![Electron](https://img.shields.io/badge/Electron-33-47848F?style=for-the-badge)](https://www.electronjs.org)
+[![Inspired by](https://img.shields.io/badge/Inspired_by-Khazix_Skills-8B5CF6?style=for-the-badge)](https://github.com/KKKKhazix/Khazix-Skills)
 
 </div>
 
