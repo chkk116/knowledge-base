@@ -15,6 +15,7 @@ import { ElMessage } from 'element-plus'
 import { Collection } from '@element-plus/icons-vue'
 import { useScenarioStore } from '../../store/scenario'
 import { SCENARIOS, MAX_PROMPTS } from '../../utils/scenarioPacks'
+import { listMyShares } from '../../api/docShare'
 
 const scenario = useScenarioStore()
 const saving = ref(false)
@@ -23,6 +24,9 @@ const saving = ref(false)
 const draftKey = ref('general')
 const draftTerms = ref({})
 const draftPrompts = ref('')
+/** 新人默认空间：新账号建成后自动以只读成员加入，null = 不启用 */
+const draftSpaceId = ref(null)
+const spaceOptions = ref([])
 
 /** 高级区 JSON 是否合法（保存前强校验，坏 JSON 不落库） */
 const termsJsonOk = computed(() => {
@@ -37,12 +41,18 @@ function loadDraft() {
   draftKey.value = scenario.key
   draftTerms.value = { ...(scenario.pack?.terms || {}) }
   draftPrompts.value = (scenario.pack?.quickPrompts || []).join('\n')
+  draftSpaceId.value = scenario.pack?.defaultSpaceId ?? null
   termsText.value = JSON.stringify(draftTerms.value, null, 2)
 }
 
 onMounted(async () => {
   await scenario.load()
   loadDraft()
+  try {
+    const { data } = await listMyShares()
+    // 个人专属空间不能加成员；只列出可用的团队空间
+    spaceOptions.value = (data || []).filter((s) => s.type === 'TEAM' && s.status === 'ACTIVE')
+  } catch { /* 空间列表拉不到不挡配置编辑 */ }
 })
 
 function choose(key) {
@@ -74,6 +84,7 @@ async function save() {
       key: draftKey.value,
       terms: draftTerms.value,
       quickPrompts: draftPrompts.value.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, MAX_PROMPTS),
+      defaultSpaceId: draftSpaceId.value || null,
     })
     ElMessage.success('已保存，全站术语即刻生效')
   } catch (e) {
@@ -150,6 +161,22 @@ async function save() {
         type="textarea" :rows="4"
         placeholder="「三查七对」的具体要求是什么？&#10;根据最新制度出 5 道考核题"
       />
+    </el-card>
+
+    <el-card class="cfg" shadow="never">
+      <template #header>
+        <div class="card-head">
+          <span class="card-title">新人默认空间</span>
+          <span class="hint">新账号一建好就自动以「只读」成员身份加入，不用一个个拉人</span>
+        </div>
+      </template>
+      <el-select v-model="draftSpaceId" clearable placeholder="不启用" style="width: 320px">
+        <el-option v-for="s in spaceOptions" :key="s.id" :label="s.name" :value="s.id" />
+      </el-select>
+      <div class="hint" style="margin-top: 8px">
+        仅团队空间可选；已有账号不受影响，加入后权限固定为只读（可在空间成员管理里单独调整）。
+        外部人员或漏网成员可在空间里生成「邀请链接」补加。
+      </div>
     </el-card>
 
     <el-card class="cfg" shadow="never">

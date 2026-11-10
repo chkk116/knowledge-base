@@ -81,6 +81,7 @@ export const GENERAL_PACK = {
   name: '通用知识库',
   terms: {},
   quickPrompts: [],
+  defaultSpaceId: null,
 }
 
 /** 收敛外部配置（管理员可能手填 JSON）：只保留合法键与字符串值，超长截断 */
@@ -100,5 +101,9 @@ export function normalizePack(raw) {
     ? p.quickPrompts.map((x) => String(x ?? '').trim()).filter(Boolean).slice(0, MAX_PROMPTS)
     : []
 
-  return { key, name: p.name || builtin.name, terms, quickPrompts }
+  // 新人默认空间：只接受正整数 id，非法值一律回落 null（后端还会再校验空间存在且是 ACTIVE/TEAM）
+  const sid = Number(p.defaultSpaceId)
+  const defaultSpaceId = Number.isInteger(sid) && sid > 0 ? sid : null
+
+  return { key, name: p.name || builtin.name, terms, quickPrompts, defaultSpaceId }
 }

@@ -28,6 +28,13 @@ export const addMember = (id, d) => api.post('/doc-shares/' + pid(id) + '/member
 export const updateMember = (id, userId, d) => api.put('/doc-shares/' + pid(id) + '/members/' + pid(userId, 'userId'), d)
 export const removeMember = (id, userId) => api.delete('/doc-shares/' + pid(id) + '/members/' + pid(userId, 'userId'))
 
+// 空间邀请链接：登录后凭 /join/<token> 兑换只读成员；生成/撤销需空间管理员
+export const getSpaceInvite = (id) => api.get('/space-invites/space/' + pid(id))
+export const createSpaceInvite = (id, d) => api.post('/space-invites/space/' + pid(id), d || {})
+export const revokeSpaceInvite = (id) => api.delete('/space-invites/space/' + pid(id))
+export const previewSpaceInvite = (token) => api.get('/space-invites/preview', { params: { token } })
+export const redeemSpaceInvite = (token) => api.post('/space-invites/redeem', { token })
+
 // 空间内文档
 export const listShareDocs = (id) => api.get('/doc-shares/' + pid(id) + '/docs')
 // 跨空间聚合文档列表（只返回当前用户有权读取的条目）

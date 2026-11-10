@@ -35,6 +35,7 @@ public class AuthService {
     private final UserRepository userRepo;
     private final com.kb.kbplatform.repository.DocShareRepository docShareRepo;
     private final AuditService audit;
+    private final SpaceAccessService spaceAccess;
     private final PointsLogRepository pointsLogRepo;
     private final OrgService orgService;
 
@@ -48,10 +49,11 @@ public class AuthService {
                         com.kb.kbplatform.security.TokenSecretProvider secretProvider,
                         NotificationService notificationService,
                         com.kb.kbplatform.repository.DocShareRepository docShareRepo,
-                        AuditService audit) {
+                        AuditService audit, SpaceAccessService spaceAccess) {
         this.userRepo = userRepo;
         this.docShareRepo = docShareRepo;
         this.audit = audit;
+        this.spaceAccess = spaceAccess;
         this.pointsLogRepo = pointsLogRepo;
         this.orgService = orgService;
         this.secretProvider = secretProvider;
@@ -312,6 +314,9 @@ public class AuthService {
         } catch (Exception ignore) {
             // 建空间失败不能挡住注册（用户已创建成功），后续可补建
         }
+        // 场景配置里指定了「新人默认空间」时，账号一建好就以只读成员身份加入。
+        // 失败不影响注册结果，SpaceAccessService 内部已全量兜底。
+        spaceAccess.joinDefaultSpace(u.getId(), name);
     }
 
     public User updateProfile(String username, String displayName, String avatar, String email, String bio,

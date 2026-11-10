@@ -75,6 +75,8 @@ const routes = [
   { path: '/doc-shares/import', component: () => import('../views/DocShareImport.vue'), meta: { title: '导入文档', maintenance: 'doc_shares' } },
   { path: '/doc-shares/graph', component: () => import('../views/DocGraph.vue'), meta: { title: '知识图谱', maintenance: 'doc_shares' } },
   { path: '/doc-shares/:id', component: () => import('../views/DocShareWorkspace.vue'), meta: { title: '协作空间', maintenance: 'doc_shares' } },
+  // 空间邀请链接落地页：守卫会先要求登录并带 redirect 回来，兑换成功跳空间工作台
+  { path: '/join/:token', component: () => import('../views/SpaceJoin.vue'), meta: { title: '加入空间' } },
   // 文档级深链：/doc-shares/12/docs/34 统一收敛到 ?doc= 形式（工作区唯一canonical地址，便于复制分享单篇文档）
   { path: '/doc-shares/:id/docs/:docId', redirect: to => `/doc-shares/${to.params.id}?doc=${to.params.docId}` },
   // 积分明细：个人资料「查看完整明细」跳转，带分页 + 类型筛选的独立页

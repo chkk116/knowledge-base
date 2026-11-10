@@ -14,6 +14,7 @@ import {
   getDocLinks,
   mentionDocUser,
   getPublicLinkInfo, savePublicLink, revokePublicLink,
+  getSpaceInvite, createSpaceInvite, revokeSpaceInvite,
 } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import DocShareEditor from './DocShareEditor.vue'
@@ -66,7 +67,8 @@ const canWrite = computed(() => {
 })
 const canAdmin = computed(() => {
   const p = share.value?.myPermission
-  return p === 'OWNER' || p === 'ADMIN'
+  // 与后端 SpaceAccessService 的 sysAdmin 旁路一致：完全管理员即使不是空间成员也能管理邀请链接
+  return p === 'OWNER' || p === 'ADMIN' || auth.isAdmin
 })
 const isOwner = computed(() => share.value?.myPermission === 'OWNER')
 
@@ -420,11 +422,58 @@ const doMove = async () => {
   }
 }
 
+// ---------- 邀请链接（企微式：凭链接登录兑换只读成员） ----------
+const inviteLink = ref(null)          // 当前有效邀请，null = 未生成
+const inviteForm = ref({ expireDays: 7, maxUses: 0 })
+const inviteBusy = ref(false)
+
+async function loadInvite() {
+  inviteLink.value = null
+  try {
+    const { data } = await getSpaceInvite(shareId.value)
+    inviteLink.value = data?.token ? data : null
+  } catch { /* 无空间管理员权限时静默，成员表格照常用 */ }
+}
+function inviteFullUrl() {
+  return window.location.origin + (inviteLink.value?.url || '')
+}
+async function copyInvite() {
+  try {
+    await navigator.clipboard.writeText(inviteFullUrl())
+    ElMessage.success('链接已复制，发给对方即可（需登录后加入）')
+  } catch {
+    ElMessage.warning('复制失败，请手动复制下方链接')
+  }
+}
+async function genInvite() {
+  inviteBusy.value = true
+  try {
+    const { data } = await createSpaceInvite(shareId.value, {
+      expireDays: Number(inviteForm.value.expireDays) || 7,
+      maxUses: Number(inviteForm.value.maxUses) || 0,
+    })
+    inviteLink.value = data
+    ElMessage.success('已生成邀请链接，旧链接同时作废')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.error || '生成失败')
+  } finally { inviteBusy.value = false }
+}
+async function killInvite() {
+  try {
+    await revokeSpaceInvite(shareId.value)
+    inviteLink.value = null
+    ElMessage.success('已撤销，链接立即失效')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.error || '撤销失败')
+  }
+}
+
 // ---------- 成员 ----------
 const openMembers = () => {
   memberDialog.value = true
   memberLoading.value = false
   searchMemberUsers('')   // 内部是防抖调度，不必 await
+  loadInvite()
 }
 // 选人搜索：复用后端 /doc-shares/users（登录即可用，无需 USER_MANAGE 管理员权限）
 let memberSearchTimer = null
@@ -890,6 +939,31 @@ async function copyPubUrl() {
             </template>
           </el-table-column>
         </el-table>
+        <div v-if="canAdmin" class="invite-link-box">
+          <div class="il-title">邀请链接 <span>凭链接登录后可自行加入，权限固定为「只读」</span></div>
+          <div class="il-row">
+            <el-select v-model="inviteForm.expireDays" style="width: 118px" :disabled="!!inviteLink">
+              <el-option label="1 天有效" :value="1" />
+              <el-option label="7 天有效" :value="7" />
+              <el-option label="30 天有效" :value="30" />
+              <el-option label="90 天有效" :value="90" />
+            </el-select>
+            <el-select v-model="inviteForm.maxUses" style="width: 130px" :disabled="!!inviteLink">
+              <el-option label="次数不限" :value="0" />
+              <el-option label="最多 10 人" :value="10" />
+              <el-option label="最多 50 人" :value="50" />
+              <el-option label="最多 200 人" :value="200" />
+            </el-select>
+            <el-button type="primary" :loading="inviteBusy" @click="genInvite">{{ inviteLink ? '重新生成' : '生成链接' }}</el-button>
+            <el-button v-if="inviteLink" type="danger" plain @click="killInvite">撤销</el-button>
+          </div>
+          <div v-if="inviteLink" class="il-active">
+            <el-input :model-value="inviteFullUrl()" readonly size="small" />
+            <el-button size="small" @click="copyInvite">复制</el-button>
+            <span class="il-meta">已加入 {{ inviteLink.usedCount }} 人{{ inviteLink.maxUses ? ' / 上限 ' + inviteLink.maxUses : '' }} · 有效期至 {{ String(inviteLink.expiresAt || '').slice(0, 16).replace('T', ' ') }}</span>
+          </div>
+          <div v-else class="il-hint">未生成有效链接；重新生成会让旧链接立即失效。</div>
+        </div>
       </div>
     </el-dialog>
 
@@ -1249,4 +1323,16 @@ html.dark .doc-links { background: #1c1c24; border-color: #2a2a35; }
 .mr-perm { font-size: 11.5px; color: var(--el-text-color-placeholder, #a8a8b3); }
 html.dark .mention-btn { border-color: #3a3a4a; color: #a8a8b3; }
 html.dark .mention-row:hover { background: #26262f; }
+/* 成员管理弹窗里的空间邀请链接 */
+.invite-link-box { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ebeef5; }
+.il-title { font-size: 13.5px; font-weight: 600; color: #1e293b; margin-bottom: 10px; }
+.il-title span { font-weight: 400; font-size: 12px; color: #94a3b8; margin-left: 8px; }
+.il-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.il-active { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.il-active .el-input { width: min(340px, 100%); }
+.il-meta { font-size: 12px; color: #94a3b8; }
+.il-hint { font-size: 12px; color: #94a3b8; margin-top: 10px; }
+:deep(html.dark) .invite-link-box { border-top-color: #2f2f4a; }
+:deep(html.dark) .il-title { color: #e5e7f3; }
+
 </style>

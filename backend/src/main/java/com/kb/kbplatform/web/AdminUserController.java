@@ -40,12 +40,14 @@ public class AdminUserController {
     private final OrgService orgService;
     private final com.kb.kbplatform.service.PasswordResetService passwordResetService;
     private final MailService mailService;
+    private final com.kb.kbplatform.service.SpaceAccessService spaceAccess;
     private final String siteBaseUrl;
 
     public AdminUserController(AdminService svc, AuthService authService, AuditService audit, DocShareService docShareSvc,
                                OrgService orgService,
                                com.kb.kbplatform.service.PasswordResetService passwordResetService,
                                MailService mailService,
+                               com.kb.kbplatform.service.SpaceAccessService spaceAccess,
                                @Value("${KB_PUBLIC_BASE_URL:https://chkk116.cn}") String siteBaseUrl) {
         this.svc = svc;
         this.authService = authService;
@@ -54,6 +56,7 @@ public class AdminUserController {
         this.orgService = orgService;
         this.passwordResetService = passwordResetService;
         this.mailService = mailService;
+        this.spaceAccess = spaceAccess;
         this.siteBaseUrl = siteBaseUrl.endsWith("/") ? siteBaseUrl.substring(0, siteBaseUrl.length() - 1) : siteBaseUrl;
     }
 
@@ -115,6 +118,7 @@ public class AdminUserController {
         }
         User u = svc.createUser(r);
         audit.log(c.userId(), c.username(), "CREATE_USER", "USER", u.getId(), u.getUsername(), "创建用户 " + u.getUsername());
+        spaceAccess.joinDefaultSpace(u.getId(), u.getUsername());
         return u;
     }
 
@@ -349,6 +353,7 @@ public class AdminUserController {
                     cr.role = role;
                     User u = svc.createUser(cr);
                     res.put("userId", u.getId());
+                    spaceAccess.joinDefaultSpace(u.getId(), u.getUsername());
                 }
                 res.put("status", dry ? "ok" : "created");
                 created++;
