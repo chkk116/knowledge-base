@@ -543,7 +543,7 @@ async function doExport() {
       </aside>
 
       <!-- 右侧主区 -->
-      <main class="main">
+      <main class="profile-main">
         <!-- 资料编辑 -->
         <section class="card">
           <div class="card-hd">
@@ -891,7 +891,9 @@ html.dark .cover.has-bg { background: #1e2430; }
 .lv-points { margin-left: auto; font-size: 13px; color: #64748b; font-weight: 600; }
 .lv-tip { font-size: 12px; color: #94a3b8; margin-top: 8px; }
 
-.main { display: flex; flex-direction: column; gap: 18px; }
+/* ⚠️ 不要叫 .main：App.vue 骨架有全局 .main{padding:20px ...}，会把整列往下推 20px，
+   导致左侧资料卡与右侧第一张卡顶部不齐（实测 355 vs 375）。 */
+.profile-main { display: flex; flex-direction: column; gap: 18px; }
 .card { background: #fff; border: 1px solid #eef2f7; border-radius: 16px; padding: 18px 20px; }
 .card-hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .card-title { font-size: 16px; font-weight: 700; color: #0f172a; }
@@ -995,7 +997,7 @@ html.dark .cert-time { color: #8b8fa0; }
    ============================================================ */
 @media (max-width: 1024px) {
   .body { grid-template-columns: 1fr; margin-top: 54px; }
-  .main { order: 1; }
+  .profile-main { order: 1; }
   .side { order: 2; }
   /* 侧栏落到下方后列表可以放宽限高 */
   .mine-list.open { max-height: 260px; }
