@@ -926,7 +926,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
       <button v-for="m in orderedMenus" :key="m.index" type="button" class="mb-item"
               :class="{ on: m.index === activePrimaryIndex }" :title="m.title"
               @click="onMixedPrimaryClick(m)">
-        <MenuIcon :name="m.icon" :size="16" />
+        <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="16" />
         <span>{{ m.title }}</span>
       </button>
     </div>
@@ -956,7 +956,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                 :style="subStyle(ii)" :title="it.title"
                 @pointerdown="onPressStart('sub', activePrimaryIndex, ii, $event)"
                 @click="onMixedItemClick(it)">
-          <MenuIcon :name="it.icon" :size="22" />
+          <MenuIcon :variant="prefs.menuIconStyle" :name="it.icon" :size="22" />
           <span class="ms-txt">{{ it.title }}</span>
         </button>
       </div>
@@ -971,7 +971,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                        :style="menuStyle(i)"
                        @pointerdown="onPressStart('primary', '', i, $event)">
             <template #title>
-              <MenuIcon :name="m.icon" :size="20" />
+              <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="20" />
               <span>{{ m.title }}</span>
             </template>
             <el-menu-item v-for="(c, ci) in orderedChildren(m)" :key="c.index" :index="c.index"
@@ -980,7 +980,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                                     'just-dropped': settleKey === 's:' + m.index + ':' + ci }"
                           :style="subStyle(ci)"
                           @pointerdown.stop="onPressStart('sub', m.index, ci, $event)">
-              <MenuIcon :name="c.icon" :size="18" />
+              <MenuIcon :variant="prefs.menuIconStyle" :name="c.icon" :size="18" />
               <span>{{ c.title }}</span>
               <el-badge v-if="c.index === '/messages' && dmUnreadCount" :value="dmUnreadCount" :max="99" class="menu-dot" />
             </el-menu-item>
@@ -990,7 +990,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                                   'just-dropped': settleKey === 'p:' + i }"
                         :style="menuStyle(i)"
                         @pointerdown="onPressStart('primary', '', i, $event)">
-            <MenuIcon :name="m.icon" :size="20" />
+            <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="20" />
             <span>{{ m.title }}</span>
             <el-badge v-if="m.index === '/messages' && dmUnreadCount" :value="dmUnreadCount" :max="99" class="menu-dot" />
           </el-menu-item>
@@ -1081,16 +1081,16 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
           <template v-for="m in menus" :key="m.index">
             <el-sub-menu v-if="m.children" :index="m.index">
               <template #title>
-                <MenuIcon :name="m.icon" :size="18" />
+                <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="18" />
                 <span>{{ m.title }}</span>
               </template>
               <el-menu-item v-for="c in m.children" :key="c.index" :index="c.index">
-                <MenuIcon :name="c.icon" :size="16" />
+                <MenuIcon :variant="prefs.menuIconStyle" :name="c.icon" :size="16" />
                 <span>{{ c.title }}</span>
               </el-menu-item>
             </el-sub-menu>
             <el-menu-item v-else :index="m.index">
-              <MenuIcon :name="m.icon" :size="18" />
+              <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="18" />
               <span>{{ m.title }}</span>
             </el-menu-item>
           </template>

@@ -91,6 +91,13 @@
               <el-radio-button value="compact">紧凑</el-radio-button>
             </el-radio-group>
           </div>
+          <div class="switch-row">
+            <div class="sw-txt"><b>菜单图标</b><span>双色几何（默认）或细线线框；线框覆盖高频项，其余沿用双色</span></div>
+            <el-radio-group :model-value="p.menuIconStyle" size="small" @change="(v) => set({ menuIconStyle: v })">
+              <el-radio-button value="duo">双色</el-radio-button>
+              <el-radio-button value="line">线框</el-radio-button>
+            </el-radio-group>
+          </div>
         </section>
 
         <section class="pf-sec">

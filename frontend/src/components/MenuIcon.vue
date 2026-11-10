@@ -21,6 +21,8 @@ import { computed } from 'vue'
 const props = defineProps({
   name: { type: String, default: '' },
   size: { type: [Number, String], default: 20 },
+  /** 图标风格：duo=双色几何（默认） / line=细线线框（偏好里可选） */
+  variant: { type: String, default: 'duo' },
 })
 
 // 色板：D=深色主形（配渐变），L=浅色部件
@@ -207,9 +209,33 @@ const uid = 'mi' + (++miSeq)
 const defs = DEFS.replaceAll('gd-', `gd-${uid}-`)
 const FALLBACK = `<circle cx="12" cy="12" r="7" fill="url(#gd-S)"/><circle cx="12" cy="12" r="2.4" fill="${X}"/>`
 
+/**
+ * 细线线框风格（2026-11-10，偏好里可选）：1.5px 线 + 圆角端点，
+ * 每枚只在恰好一处用主色 #1677FF，其余深灰 —— 覆盖高频菜单项，
+ * 未覆盖的名字回退到双色 ICONS（线框/双色混排时以双色兜底，避免空白）。
+ */
+const ICONS_LINE = {
+  House: `<path d="M4 11 12 4l8 7" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 10.5V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8.5" fill="none" stroke="#1D2129" stroke-width="1.5"/><path d="M10.5 20v-5h3v5" fill="none" stroke="#1677FF" stroke-width="1.5"/>`,
+  Files: `<path d="M8 3.5h7l4.5 4.5V19a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 19V5A1.5 1.5 0 0 1 8 3.5Z" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M15 3.5V8h4.5" fill="none" stroke="#1D2129" stroke-width="1.5"/><path d="M9.5 11.5h5M9.5 15h3.5" stroke="#1677FF" stroke-width="1.5" stroke-linecap="round" fill="none"/>`,
+  EditPen: `<path d="M4.5 19.5 6 14.8 16.2 4.6a1.6 1.6 0 0 1 2.3 0l1 1a1.6 1.6 0 0 1 0 2.3L9.3 18.2 4.5 19.5Z" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M14.8 6 18 9.2" stroke="#1677FF" stroke-width="1.5" stroke-linecap="round" fill="none"/>`,
+  AiSpark: `<path d="M12 4a8 8 0 0 1 8 8 8 8 0 0 1-8 8H5.6l1.6-2.5A8 8 0 0 1 12 4Z" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 8.6c.4 2.1 1.3 3 3.4 3.4-2.1.4-3 1.3-3.4 3.4-.4-2.1-1.3-3-3.4-3.4 2.1-.4 3-1.3 3.4-3.4Z" fill="#1677FF"/>`,
+  Search: `<circle cx="11" cy="10.5" r="5.5" fill="none" stroke="#1D2129" stroke-width="1.5"/><path d="M15.2 14.7 19.5 19" stroke="#1677FF" stroke-width="1.8" stroke-linecap="round" fill="none"/>`,
+  Setting: `<path d="M4 8.5h16M4 15.5h16" stroke="#1D2129" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="9.5" cy="8.5" r="2.6" fill="#1677FF"/><circle cx="14.5" cy="15.5" r="2.6" fill="none" stroke="#1D2129" stroke-width="1.5"/>`,
+  ChatDotRound: `<rect x="3.5" y="5" width="17" height="14" rx="2.5" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M3.5 7.5 12 13l8.5-5.5" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round" fill="none"/><circle cx="12" cy="16.4" r="1.1" fill="#1677FF"/>`,
+  Star: `<path d="M12 3.8l2.4 5 5.4.8-3.9 3.8.9 5.4-4.8-2.6-4.8 2.6.9-5.4L4.2 9.6l5.4-.8L12 3.8Z" fill="none" stroke="#1677FF" stroke-width="1.5" stroke-linejoin="round"/>`,
+  DocumentCopy: `<path d="M8 3.5h7l4.5 4.5V19a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 19V5A1.5 1.5 0 0 1 8 3.5Z" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M15 3.5V8h4.5" fill="none" stroke="#1D2129" stroke-width="1.5"/><path d="M9.5 14h5" stroke="#1677FF" stroke-width="1.5" stroke-linecap="round" fill="none"/>`,
+}
+
 // hasOwnProperty 守卫（第四轮审查）：原型链上的 constructor/toString 等名字不该被当成图标
 const inner = computed(() => {
-  const raw = Object.prototype.hasOwnProperty.call(ICONS, props.name) ? ICONS[props.name] : FALLBACK
+  let raw
+  if (props.variant === 'line' && Object.prototype.hasOwnProperty.call(ICONS_LINE, props.name)) {
+    raw = ICONS_LINE[props.name]
+  } else if (Object.prototype.hasOwnProperty.call(ICONS, props.name)) {
+    raw = ICONS[props.name]
+  } else {
+    raw = FALLBACK
+  }
   return raw.replaceAll('gd-', `gd-${uid}-`)
 })
 </script>

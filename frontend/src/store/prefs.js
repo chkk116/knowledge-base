@@ -30,6 +30,7 @@ export const DEFAULTS = {
   contentWidth: 'fluid',  // fluid=流式 / fixed=定宽
   density: 'normal',      // normal=标准 / compact=紧凑
   accent: 'indigo',       // 强调色（见 ACCENTS）
+  menuIconStyle: 'duo',   // duo=双色几何（默认）/ line=细线线框
   theme: 'auto',          // auto=跟随系统 / light / dark
   startPage: 'last',      // last=上次访问 / home=首页（登录后落地）
   menuOrder: [],          // 侧边/双列一级菜单的自定义顺序（存 menu.index 数组）
