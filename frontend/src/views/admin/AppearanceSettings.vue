@@ -10,11 +10,13 @@ import { loadAppearance as refreshSharedAppearance } from '../../utils/appearanc
 const bgBlurStyle = computed(() => profileBg.value ? { backgroundImage: 'url("' + profileBg.value + '")' } : null)
 
 // 外观设置：站点 Logo（侧栏顶部图标）+ 个人资料页背景图（全站默认）。
-// 存 SysSetting key=appearance，value 为 JSON { logo, profileBg }，均为 /uploads/... 直链。
-// 写权限 CORE_MAINTAIN（后端 AdminSettingsController 兜底）。
+// 存 SysSetting key=appearance，value 为 JSON { logo, profileBg, siteName, showName }，图片均为 /uploads/... 直链。
+// siteName/showName 控制侧栏 Logo 旁边的品牌文字（自定义 Logo 自带文字时可整块隐藏）。
 const KEY = 'appearance'
 const logo = ref('')
 const profileBg = ref('')
+const siteName = ref('')
+const showName = ref(true)
 const loaded = ref(false)
 const loadFailed = ref(false)   // 读取失败≠无配置：禁用保存，防止用空表单覆盖掉已有配置
 const saving = ref(false)
@@ -62,6 +64,8 @@ onMounted(async () => {
       const cfg = JSON.parse(data.value)
       logo.value = cfg.logo || ''
       profileBg.value = cfg.profileBg || ''
+      siteName.value = cfg.siteName || ''
+      showName.value = cfg.showName !== false
     }
     loaded.value = true
   } catch (e) {
@@ -76,7 +80,12 @@ async function save() {
   saving.value = true
   try {
     await api.put(`/admin/settings/${KEY}`, {
-      value: JSON.stringify({ logo: logo.value.trim(), profileBg: profileBg.value.trim() })
+      value: JSON.stringify({
+        logo: logo.value.trim(),
+        profileBg: profileBg.value.trim(),
+        siteName: siteName.value.trim(),
+        showName: showName.value,
+      })
     })
     refreshSharedAppearance(true)   // 强制刷新全站共享缓存，Logo/背景立即对新值生效
     ElMessage.success('已保存，刷新页面后全站生效')
@@ -137,6 +146,26 @@ async function save() {
       </el-card>
     </div>
 
+    <el-card shadow="never" class="brand-card">
+      <template #header><span class="card-title">侧栏品牌文字</span></template>
+      <div class="brand-form">
+        <div class="brand-row">
+          <span class="brand-label">站点名称</span>
+          <el-input v-model="siteName" placeholder="留空显示「知识库」" maxlength="20" clearable style="max-width: 260px" />
+        </div>
+        <div class="brand-row">
+          <span class="brand-label">显示名称</span>
+          <el-switch v-model="showName" />
+          <span class="brand-hint">自定义 Logo 图片里已经带字时，关掉这个开关，侧栏就只显示 Logo</span>
+        </div>
+        <div class="brand-preview">
+          <span class="bp-cap">侧栏预览</span>
+          <img :src="logo || '/logo.png'" alt="" />
+          <span v-if="showName" class="bp-name">{{ siteName || '知识库' }}</span>
+        </div>
+      </div>
+    </el-card>
+
     <div class="save-bar">
       <el-button type="primary" :loading="saving" :disabled="!loaded || loadFailed" @click="save">保存配置</el-button>
     </div>
@@ -161,6 +190,18 @@ async function save() {
 .preview-tip { font-size: 12px; color: #94a3b8; margin: 0; }
 .actions { display: flex; justify-content: center; gap: 4px; margin-top: 6px; }
 .save-bar { margin-top: 18px; display: flex; justify-content: center; }
+.brand-card { margin-top: 14px; }
+.brand-form { display: flex; flex-direction: column; gap: 14px; }
+.brand-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.brand-label { flex: none; width: 76px; font-size: 13px; color: #475569; }
+.brand-hint { font-size: 12px; color: #94a3b8; }
+.brand-preview { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; background: #f8fafc; }
+.bp-cap { font-size: 12px; color: #94a3b8; margin-right: 6px; }
+.brand-preview img { width: 26px; height: 26px; object-fit: contain; border-radius: 6px; }
+.bp-name { font-size: 15px; font-weight: 700; color: #4f46e5; white-space: nowrap; }
+html.dark .brand-preview { background: #1b1b2e; }
+html.dark .brand-label { color: #b7b8cd; }
+html.dark .bp-name { color: #a5b4fc; }
 
 @media (max-width: 1024px) {
   .ap-grid { grid-template-columns: 1fr; }

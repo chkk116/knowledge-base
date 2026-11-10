@@ -5,6 +5,9 @@ import api from '../api/request'
 // Logo（App.vue 侧栏）与资料页背景（Profile/UserProfile）都从这里取，避免四处各自拉取/解析漂移。
 export const appearanceLogo = ref('')
 export const appearanceProfileBg = ref('')
+// 侧栏品牌文字：站点设置里可改名称、也可整块隐藏（自定义 Logo 自带文字时用）
+export const appearanceSiteName = ref('')
+export const appearanceShowName = ref(true)
 let loaded = false
 
 /** 安全解析 appearance JSON（坏数据返回空对象，不抛错） */
@@ -20,6 +23,8 @@ export async function loadAppearance(force = false) {
     const cfg = parseAppearance(data?.value)
     appearanceLogo.value = cfg.logo || ''
     appearanceProfileBg.value = cfg.profileBg || ''
+    appearanceSiteName.value = cfg.siteName || ''
+    appearanceShowName.value = cfg.showName !== false
     loaded = true
   } catch { /* 无配置/无权限时保持内置默认 */ }
 }
@@ -28,5 +33,7 @@ export async function loadAppearance(force = false) {
 export function resetAppearance() {
   appearanceLogo.value = ''
   appearanceProfileBg.value = ''
+  appearanceSiteName.value = ''
+  appearanceShowName.value = true
   loaded = false
 }

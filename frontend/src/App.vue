@@ -16,7 +16,7 @@ import { useNotificationStore } from './store/notification'
 import { reader, closeReader, startDrag, startResize, clampToViewport } from './store/reader'
 import { enhanceVideos, bindImgLightbox, absolutizeMedia } from './utils/mediaEnhance'
 import { featureMap } from './api/features'
-import { appearanceLogo as siteLogo, loadAppearance, resetAppearance } from './utils/appearance'
+import { appearanceLogo as siteLogo, appearanceSiteName, appearanceShowName, loadAppearance, resetAppearance } from './utils/appearance'
 import CommandPalette from './components/CommandPalette.vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
 
@@ -30,6 +30,9 @@ const siteInfo = useSiteInfoStore()
 // 界面偏好（布局 / 外观 / 密度）：本地持久化，改完即时生效（2026-10-22）
 const prefs = usePrefsStore()
 const scenario = useScenarioStore()
+// 侧栏品牌文字：站点设置可改名称 / 整体隐藏（自定义 Logo 自带文字时）
+const brandName = computed(() => appearanceSiteName.value || '知识库')
+const showBrandText = computed(() => appearanceShowName.value)
 prefs.load()
 applyPrefs(prefs.state)
 
@@ -920,13 +923,13 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
   <nav v-if="isMixedNav" class="top-nav top-nav--mixed top-nav--global">
     <div class="brand-top" @click="goHome">
       <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
-      <span class="brand-txt">知识库</span>
+      <span v-if="showBrandText" class="brand-txt">{{ brandName }}</span>
     </div>
     <div class="mixed-bar">
       <button v-for="m in orderedMenus" :key="m.index" type="button" class="mb-item"
               :class="{ on: m.index === activePrimaryIndex }" :title="m.title"
               @click="onMixedPrimaryClick(m)">
-        <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="16" />
+        <MenuIcon :variant="prefs.state.menuIconStyle" :name="m.icon" :size="16" />
         <span>{{ m.title }}</span>
       </button>
     </div>
@@ -940,9 +943,9 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
               :class="{ collapsed: menuCollapsed, 'is-drawer': isNarrow, 'drawer-open': drawerOpen,
                         'dark-menu': prefs.state.sidebarDark, dual: isMixedNav }"
               @mouseenter="hoveringAside = true" @mouseleave="hoveringAside = false">
-      <div v-if="!isMixedNav" class="brand" :title="menuCollapsed ? '知识库' : ''" @click="goHome">
+      <div v-if="!isMixedNav" class="brand" :title="menuCollapsed ? brandName : ''" @click="goHome">
         <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
-        <span v-show="!menuCollapsed" class="brand-txt">知识库</span>
+        <span v-if="showBrandText" v-show="!menuCollapsed" class="brand-txt">{{ brandName }}</span>
       </div>
 
       <!-- 混合双列：左侧只有当前一级的二级项（图标 + 竖排文字，可拖拽排序），一级在顶部通栏 -->
@@ -956,7 +959,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                 :style="subStyle(ii)" :title="it.title"
                 @pointerdown="onPressStart('sub', activePrimaryIndex, ii, $event)"
                 @click="onMixedItemClick(it)">
-          <MenuIcon :variant="prefs.menuIconStyle" :name="it.icon" :size="22" />
+          <MenuIcon :variant="prefs.state.menuIconStyle" :name="it.icon" :size="22" />
           <span class="ms-txt">{{ it.title }}</span>
         </button>
       </div>
@@ -971,7 +974,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                        :style="menuStyle(i)"
                        @pointerdown="onPressStart('primary', '', i, $event)">
             <template #title>
-              <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="20" />
+              <MenuIcon :variant="prefs.state.menuIconStyle" :name="m.icon" :size="20" />
               <span>{{ m.title }}</span>
             </template>
             <el-menu-item v-for="(c, ci) in orderedChildren(m)" :key="c.index" :index="c.index"
@@ -980,7 +983,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                                     'just-dropped': settleKey === 's:' + m.index + ':' + ci }"
                           :style="subStyle(ci)"
                           @pointerdown.stop="onPressStart('sub', m.index, ci, $event)">
-              <MenuIcon :variant="prefs.menuIconStyle" :name="c.icon" :size="18" />
+              <MenuIcon :variant="prefs.state.menuIconStyle" :name="c.icon" :size="18" />
               <span>{{ c.title }}</span>
               <el-badge v-if="c.index === '/messages' && dmUnreadCount" :value="dmUnreadCount" :max="99" class="menu-dot" />
             </el-menu-item>
@@ -990,7 +993,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                                   'just-dropped': settleKey === 'p:' + i }"
                         :style="menuStyle(i)"
                         @pointerdown="onPressStart('primary', '', i, $event)">
-            <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="20" />
+            <MenuIcon :variant="prefs.state.menuIconStyle" :name="m.icon" :size="20" />
             <span>{{ m.title }}</span>
             <el-badge v-if="m.index === '/messages' && dmUnreadCount" :value="dmUnreadCount" :max="99" class="menu-dot" />
           </el-menu-item>
@@ -1081,16 +1084,16 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
           <template v-for="m in menus" :key="m.index">
             <el-sub-menu v-if="m.children" :index="m.index">
               <template #title>
-                <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="18" />
+                <MenuIcon :variant="prefs.state.menuIconStyle" :name="m.icon" :size="18" />
                 <span>{{ m.title }}</span>
               </template>
               <el-menu-item v-for="c in m.children" :key="c.index" :index="c.index">
-                <MenuIcon :variant="prefs.menuIconStyle" :name="c.icon" :size="16" />
+                <MenuIcon :variant="prefs.state.menuIconStyle" :name="c.icon" :size="16" />
                 <span>{{ c.title }}</span>
               </el-menu-item>
             </el-sub-menu>
             <el-menu-item v-else :index="m.index">
-              <MenuIcon :variant="prefs.menuIconStyle" :name="m.icon" :size="18" />
+              <MenuIcon :variant="prefs.state.menuIconStyle" :name="m.icon" :size="18" />
               <span>{{ m.title }}</span>
             </el-menu-item>
           </template>
