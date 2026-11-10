@@ -107,6 +107,10 @@ public class DmController {
     public ResponseEntity<byte[]> attachment(@RequestAttribute("kbUser") TokenClaims c,
                                              @RequestParam String key) throws IOException {
         Path p = svc.attachmentPath(uid(c), key);
+        // 文件不存在时 Files.size 会抛 NoSuchFileException → 500；先判存在，统一 404（不暴露文件是否存在）
+        if (!Files.isRegularFile(p)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
+        }
         // 前端限 8MB，这里再兜一层：避免异常大文件把整张图读进堆内存
         if (Files.size(p) > 10L * 1024 * 1024) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
