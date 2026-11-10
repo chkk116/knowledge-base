@@ -50,6 +50,13 @@ public class AuthFilter implements Filter {
             res.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
+        // 私信附件私有目录：/uploads 静态资源映射 + isPublic 白名单都不能放行，
+        // 否则任意登录用户（甚至匿名）拿到文件名即可越权取图。必须走 /api/dm/attachment 鉴权。
+        // 返回 404 而非 401/403，不暴露文件是否存在。
+        if (path.startsWith("/uploads/dm/")) {
+            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
         String method = req.getMethod();
 
         // CORS 预检（OPTIONS）必须直接放行：按规范预检不带凭证，浏览器只关心响应头。

@@ -94,6 +94,73 @@ public class FileService {
         return p.startsWith(root) && Files.isRegularFile(p);
     }
 
+    // ==================== 私信附件（私有目录，不经 /uploads 公开白名单） ====================
+    // 背景：私信图片原先走编辑器上传落在 /uploads 公开目录，AuthFilter 对 /uploads 全放行，
+    // 任何拿到链接的人都能打开，撤回也只清数据库 content、文件永久留盘。
+    // 现在私信图片单独落 uploads/dm/：该目录静态映射在 AuthFilter 里被直接 404，
+    // 只能经 /api/dm/attachment 按「会话双方」鉴权读取。
+
+    /** 私信图片上传：只返回文件名，消息 content 存 dm:<name>，不暴露物理路径 */
+    public String uploadDmImage(MultipartFile file) {
+        validate(file);
+        String ct = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
+        if (!ct.startsWith("image/")) throw new IllegalArgumentException("私信附件仅支持图片");
+        if (file.getSize() > 8L * 1024 * 1024) throw new IllegalArgumentException("私信图片不能超过 8MB");
+        String ext = extOf(file.getOriginalFilename());
+        String name = UUID.randomUUID().toString().replace("-", "") + ext;
+        Path dir = root.resolve("dm");
+        try {
+            Files.createDirectories(dir);
+            file.transferTo(dir.resolve(name).toFile());
+        } catch (IOException e) {
+            throw new RuntimeException("保存私信附件失败：" + e.getMessage(), e);
+        }
+        return name;
+    }
+
+    /**
+     * 把消息里的引用解析成磁盘文件。
+     * 新格式 dm:<uuid>[.ext] 落在私有目录；旧格式 /uploads/yyyy/mm/dd/<uuid>[.ext] 为历史消息兼容。
+     * 文件名严格白名单（32 位十六进制 + 可选扩展名），杜绝 ../ 路径穿越。
+     */
+    public Path resolveDmRef(String ref) {
+        if (ref == null || ref.isBlank()) return null;
+        String rel;
+        if (ref.startsWith("dm:")) {
+            String name = ref.substring(3);
+            if (!name.matches("[a-f0-9]{32}(\\.[A-Za-z0-9]{1,8})?")) return null;
+            rel = "dm/" + name;
+        } else if (ref.startsWith("/uploads/")) {
+            rel = ref.substring("/uploads/".length());
+            if (!rel.matches("\\d{4}/\\d{2}/\\d{2}/[a-f0-9]{32}(\\.[A-Za-z0-9]{1,8})?")) return null;
+        } else {
+            return null;
+        }
+        Path p = root.resolve(rel).normalize();
+        return p.startsWith(root) && Files.isRegularFile(p) ? p : null;
+    }
+
+    /** 撤回时删除附件。只删私有目录里的新格式；历史 /uploads 图片可能被文章正文引用，不自动动 */
+    public void deleteDmRef(String ref) {
+        if (ref == null || !ref.startsWith("dm:")) return;
+        Path p = resolveDmRef(ref);
+        if (p == null) return;
+        try {
+            Files.deleteIfExists(p);
+        } catch (IOException ignore) {
+        }
+    }
+
+    public String contentTypeOf(Path p) {
+        String name = p.getFileName().toString().toLowerCase();
+        if (name.endsWith(".png")) return "image/png";
+        if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+        if (name.endsWith(".gif")) return "image/gif";
+        if (name.endsWith(".webp")) return "image/webp";
+        if (name.endsWith(".bmp")) return "image/bmp";
+        return "application/octet-stream";
+    }
+
     /** 保存上传图片，返回可访问的相对 URL */
     public String upload(MultipartFile file) {
         validate(file);

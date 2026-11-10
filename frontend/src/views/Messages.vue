@@ -89,7 +89,7 @@
                       <span class="q-from">{{ m.replyFrom === meId ? '我' : (peer.name || '对方') }}</span>
                       <span class="q-txt">{{ m.replyText }}</span>
                     </div>
-                    <img v-if="m.kind === 'IMAGE'" :src="m.content" class="img" />
+                    <img v-if="m.kind === 'IMAGE'" :src="imgUrl(m) || BLANK_IMG" class="img" />
                     <DmContent v-else :text="m.content" />
                   </div>
                   <div class="row-acts">
@@ -171,9 +171,8 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
-import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings, dmRecall, dmArchiveConv, dmDeleteConv, dmArchivedConversations } from '../api/dm'
+import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings, dmRecall, dmArchiveConv, dmDeleteConv, dmArchivedConversations, uploadDmImage, dmAttachment } from '../api/dm'
 import { refreshDmUnread } from '../store/dm'
-import { uploadFile } from '../api/file'
 import ReportDialog from '../components/ReportDialog.vue'
 import EmojiPanel from '../components/EmojiPanel.vue'
 import DmContent from '../components/DmContent.vue'
@@ -191,6 +190,38 @@ const showArchived = ref(false)
 const kw = ref('')
 const peer = ref(null)
 const msgs = ref([])
+
+// 私信图片：附件落在私有目录，必须带令牌取 blob，不能拿 content 直接当 <img src>
+const BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+const imgUrls = ref({})
+const imgInflight = new Set()
+function imgUrl(m) { return imgUrls.value[m.id] || '' }
+function releaseImages() {
+  Object.values(imgUrls.value).forEach((u) => u && URL.revokeObjectURL(u))
+  imgUrls.value = {}
+}
+function ensureImages() {
+  // 撤回 / 切会话后释放 objectURL，避免内存与旧图残留
+  const alive = new Set(msgs.value.filter((m) => m.kind === 'IMAGE' && m.content).map((m) => m.id))
+  const next = { ...imgUrls.value }
+  let dropped = false
+  for (const id of Object.keys(next)) {
+    if (!alive.has(Number(id))) { URL.revokeObjectURL(next[id]); delete next[id]; dropped = true }
+  }
+  if (dropped) imgUrls.value = next
+  for (const m of msgs.value) {
+    if (m.kind !== 'IMAGE' || !m.content || imgUrls.value[m.id] || imgInflight.has(m.id)) continue
+    imgInflight.add(m.id)
+    dmAttachment(m.content).then(({ data }) => {
+      const u = URL.createObjectURL(data)
+      // 请求回来时会话可能已切走：立即释放，别挂到新会话上
+      if (!msgs.value.some((x) => x.id === m.id && x.kind === 'IMAGE')) { URL.revokeObjectURL(u); return }
+      imgUrls.value = { ...imgUrls.value, [m.id]: u }
+    }).catch(() => { /* 无权/已撤回/文件已删：留占位图，不弹错误 */ })
+      .finally(() => imgInflight.delete(m.id))
+  }
+}
+watch(msgs, ensureImages, { deep: true })
 const draft = ref('')
 const quoteRef = ref(null)
 const loading = ref(false)
@@ -521,15 +552,15 @@ async function send() {
             ElMessage.warning('已达到 3 条上限，剩余图片未发送，等对方回复后可继续')
             break
           }
-          const { data: up } = await uploadFile(item.file)
-          const url = up?.data?.url || up?.url
-          if (!url) throw new Error('上传返回异常')
-          const { data: r } = await dmSend(pid, url, 'IMAGE', replyUsed ? null : replyId)
+          const { data: up } = await uploadDmImage(item.file)
+          const imgRef = up?.ref
+          if (!imgRef) throw new Error('上传返回异常')
+          const { data: r } = await dmSend(pid, imgRef, 'IMAGE', replyUsed ? null : replyId)
           replyUsed = true
           quoteRef.value = null
           removePendingImage(item.id)
           msgs.value.push({
-            id: r.id, fromId: meId.value, kind: 'IMAGE', content: url,
+            id: r.id, fromId: meId.value, kind: 'IMAGE', content: imgRef,
             createdAt: new Date().toISOString(), read: false,
           })
           if (r.quota) Object.assign(quota, r.quota)
@@ -608,7 +639,7 @@ async function onDmEvent(ev) {
     if (!msgs.value.some((m) => m.id === d.id)) {
       const atBottom = scroller.value && (scroller.value.scrollHeight - scroller.value.scrollTop - scroller.value.clientHeight < 80)
       msgs.value.push({
-        id: d.id, fromId: d.fromId, kind: 'TEXT', content: d.content,
+        id: d.id, fromId: d.fromId, kind: d.kind === 'IMAGE' ? 'IMAGE' : 'TEXT', content: d.content,
         createdAt: d.createdAt || new Date().toISOString(), read: true,
         replyId: d.replyId, replyFrom: d.replyFrom, replyText: d.replyText,
       })
@@ -636,6 +667,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopPoll()
   clearPendingImages()
+  releaseImages()
   window.removeEventListener('kb:dm', onDmEvent)
   window.removeEventListener('kb:dm-recall', onRecallEvent)
 })

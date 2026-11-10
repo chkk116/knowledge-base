@@ -10,12 +10,14 @@ import com.kb.kbplatform.domain.DmSetting;
 import com.kb.kbplatform.domain.User;
 import com.kb.kbplatform.repository.*;
 import com.kb.kbplatform.security.HtmlSanitizer;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -46,10 +48,11 @@ public class DmService {
     private final UserRepository users;
     private final AuditService audit;
     private final SseSessionRegistry sse;
+    private final FileService files;
 
     public DmService(DmMessageRepository msgs, DmSettingRepository settings, DmConvStateRepository convStates,
                      FollowRepository follows, UserRepository users,
-                     SseSessionRegistry sse, AuditService audit) {
+                     SseSessionRegistry sse, AuditService audit, FileService files) {
         this.msgs = msgs;
         this.settings = settings;
         this.convStates = convStates;
@@ -57,6 +60,29 @@ public class DmService {
         this.users = users;
         this.sse = sse;
         this.audit = audit;
+        this.files = files;
+    }
+
+    /** 私信图片上传：落私有目录，返回存进 content 的引用（dm:<name>，不含可直接访问的 URL） */
+    public String uploadAttachment(MultipartFile file) {
+        return "dm:" + files.uploadDmImage(file);
+    }
+
+    /**
+     * 私信附件读取前的归属校验：必须存在一条 IMAGE 类型、未撤回、且当前用户是发送方或接收方的消息
+     * 引用该附件。仅凭 UUID 猜到文件名也不行——这是「拿到链接的人都能打开」的根治点。
+     */
+    public Path attachmentPath(Long me, String ref) {
+        if (ref == null || ref.isBlank()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
+        boolean allowed = false;
+        for (DmMessage m : msgs.findByContent(ref)) {
+            if (!"IMAGE".equals(m.getKind()) || "RECALL".equals(m.getKind())) continue;
+            if (me.equals(m.getFromId()) || me.equals(m.getToId())) { allowed = true; break; }
+        }
+        if (!allowed) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在或无权访问");
+        Path p = files.resolveDmRef(ref);
+        if (p == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
+        return p;
     }
 
     public boolean allowDm(Long userId) {
@@ -154,6 +180,7 @@ public class DmService {
             ev.put("id", m.getId());
             ev.put("fromId", me);
             ev.put("content", text);
+            ev.put("kind", m.getKind());
             ev.put("createdAt", m.getCreatedAt());
             if (m.getReplyId() != null) {
                 ev.put("replyId", m.getReplyId());
@@ -303,9 +330,12 @@ public class DmService {
         if (age > RECALL_WINDOW_MS) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "超过 2 分钟，无法撤回");
         }
+        String oldContent = m.getContent();
         m.setKind("RECALL");
         m.setContent("");
         msgs.save(m);
+        // 撤回即让附件彻底不可取：私有目录文件同步删除（读取端点还会因 content 已清空而拒绝）
+        files.deleteDmRef(oldContent);
         // 撤回属敏感动作（内容会从对方视野消失），进操作审计留痕
         try {
             audit.log(me, String.valueOf(me), "RECALL_DM", "DM", m.getId(), "消息 " + m.getId(), null);

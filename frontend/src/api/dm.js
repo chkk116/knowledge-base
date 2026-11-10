@@ -16,3 +16,14 @@ export const dmSettings = () => api.get('/dm/settings')
 export const dmSaveSettings = (allowDm) => api.put('/dm/settings', { allowDm })
 export const dmUnread = () => api.get('/dm/unread')
 export const dmRecall = (id) => api.delete('/dm/messages/' + encodeURIComponent(id))
+
+// 私信图片：上传到私有目录，返回 dm:<name> 引用（不含可直接访问的 /uploads URL）
+export const uploadDmImage = (file) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return api.post('/dm/attachment', fd, { timeout: 120000 })
+}
+
+// 私信图片读取：私有目录已 404，只能带令牌走鉴权接口取 blob
+export const dmAttachment = (ref) =>
+  api.get('/dm/attachment', { params: { key: ref }, responseType: 'blob', timeout: 30000, silent: true })

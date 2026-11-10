@@ -30,4 +30,7 @@ public interface DmMessageRepository extends JpaRepository<DmMessage, Long> {
     List<DmMessage> findTop500ByFromIdOrToIdOrderByIdDesc(Long fromId, Long toId);
 
     long deleteByCreatedAtBefore(LocalDateTime time);
+
+    /** 私信附件鉴权：按 content 引用找出所有引用它的消息，判定当前用户是否为会话双方之一 */
+    List<DmMessage> findByContent(String content);
 }

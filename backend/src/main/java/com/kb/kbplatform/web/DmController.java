@@ -6,10 +6,17 @@ package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.DmService;
+import com.kb.kbplatform.service.FileService;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -28,9 +35,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class DmController {
 
     private final DmService svc;
+    private final FileService files;
 
-    public DmController(DmService svc) {
+    public DmController(DmService svc, FileService files) {
         this.svc = svc;
+        this.files = files;
     }
 
     private Long uid(TokenClaims c) {
@@ -77,6 +86,36 @@ public class DmController {
         String kind = body.get("kind") == null ? "TEXT" : String.valueOf(body.get("kind"));
         Long replyId = body.get("replyId") instanceof Number n2 ? n2.longValue() : null;
         return svc.send(uid(c), to, content, kind, replyId);
+    }
+
+    /**
+     * 私信图片上传（需登录）：落私有目录，返回 dm:<name> 引用交给发送接口存进消息。
+     * 不返回任何可直接访问的 /uploads URL。
+     */
+    @PostMapping("/attachment")
+    public Map<String, Object> uploadAttachment(@RequestAttribute("kbUser") TokenClaims c,
+                                                @RequestParam("file") MultipartFile file) {
+        uid(c);
+        return Map.of("ok", true, "ref", svc.uploadAttachment(file));
+    }
+
+    /**
+     * 私信图片读取（需登录）：校验当前用户是该消息发送方/接收方后才出图。
+     * noindex + no-store：不被搜索引擎收录、不被浏览器/CDN 缓存成公开副本。
+     */
+    @GetMapping("/attachment")
+    public ResponseEntity<byte[]> attachment(@RequestAttribute("kbUser") TokenClaims c,
+                                             @RequestParam String key) throws IOException {
+        Path p = svc.attachmentPath(uid(c), key);
+        // 前端限 8MB，这里再兜一层：避免异常大文件把整张图读进堆内存
+        if (Files.size(p) > 10L * 1024 * 1024) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
+        }
+        return ResponseEntity.ok()
+                .header("X-Robots-Tag", "noindex, nofollow, noarchive")
+                .header("Cache-Control", "private, no-store, max-age=0")
+                .contentType(MediaType.parseMediaType(files.contentTypeOf(p)))
+                .body(Files.readAllBytes(p));
     }
 
     /** 撤回自己发的消息（2 分钟内） */
