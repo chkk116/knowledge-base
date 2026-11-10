@@ -10,6 +10,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3-brightgreen)](https://vuejs.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-blue)](https://www.postgresql.org)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F)](https://www.electronjs.org)
+[![Inspired by Khazix Skills](https://img.shields.io/badge/Inspired%20by-Khazix%20Skills-7C3AED)](https://github.com/KKKKhazix/Khazix-Skills)
 
 </div>
 
@@ -154,6 +155,7 @@ Web 全功能 + Electron 桌面客户端 + Capacitor Android + **Kotlin 原生�
 - **实时**：SSE 长连接推送，消息秒到（30 秒兜底对账）
 - **消息类型**：文字、图片（≤8MB）、引用回复；桌面与移动端都支持一次选最多 9 张图、**先预览确认再点发送**（不会选完即发）
 - **礼仪**：2 分钟内可撤回（双方同步消失）、已读回执
+- **附件安全**：图片单独落在私有目录，消息里只存不可直接访问的引用；只有会话双方登录后按消息归属鉴权读取（noindex / no-store），撤回同步删除磁盘附件；历史公开目录里的旧图也改走鉴权读取（已外发的旧裸链无法收回）
 - **反骚扰**：未互相关注且对方未回复时，最多先发 3 条；对方回一条即解锁；可整体关闭私信
 - **治理**：侧栏未读红点、举报入口直达后台
 - **会话管理**：右滑归档、左滑删除（仅删自己这一侧、对方不受影响），可切换查看归档会话
@@ -499,6 +501,14 @@ App 壳内走 WebView 需在 preferences 里写死后端地址，不能用相对
 | 后端 | SpotBugs（空指针/资源泄漏/并发误用） | `mvn spotbugs:check` |
 
 > 存量代码告警全部为 warning（不阻塞构建），新增代码请逐步收紧。
+
+## 借鉴与致谢
+
+本项目的**文档组织与 Agent 协作规范**借鉴了 [Khazix Skills](https://github.com/KKKKhazix/Khazix-Skills)（数字生命卡兹克开源的 AI Skills 合集），主要是 neat-freak「洁癖」那套收尾思路：每次迭代后把项目文档、AI 规则文件与 Agent 记忆三层对齐，并回头核查规则是否真被落地，避免「代码迭代七八轮、文档还停在最初版」的知识脑腐。头部那枚 `Inspired by` 标识即指向该仓库。
+
+该仓库是 Skill 指令集，本项目是知识库平台，**代码、依赖与协议均无关联**；这里只借鉴文档与知识收尾的工作方法，未引入其任何 Skill 代码或资源。
+
+---
 
 ## 开源许可与商业授权
 
