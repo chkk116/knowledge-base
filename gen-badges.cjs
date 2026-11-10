@@ -35,7 +35,6 @@ const badges = [
   ['vue.svg',             'Vue',          '3',              '059669'],
   ['postgresql.svg',      'PostgreSQL',   '18',             '8B5CF6'],
   ['electron.svg',        'Electron',     '33',             '47848F'],
-  ['inspired-khazix.svg', 'Inspired by',  'Khazix Skills',  '8B5CF6'],
 ];
 
 for (const [file, label, msg, color] of badges) {

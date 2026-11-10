@@ -10,7 +10,6 @@
 [![Vue 3](docs/badges/vue.svg)](https://vuejs.org)
 [![PostgreSQL 18](docs/badges/postgresql.svg)](https://www.postgresql.org)
 [![Electron 33](docs/badges/electron.svg)](https://www.electronjs.org)
-[![Inspired by Khazix Skills](docs/badges/inspired-khazix.svg)](https://github.com/KKKKhazix/Khazix-Skills)
 
 </div>
 
@@ -516,7 +515,7 @@ App 壳内走 WebView 需在 preferences 里写死后端地址，不能用相对
 
 ## 借鉴与致谢
 
-本项目的**文档组织与 Agent 协作规范**借鉴了 [Khazix Skills](https://github.com/KKKKhazix/Khazix-Skills)（数字生命卡兹克开源的 AI Skills 合集），主要是 neat-freak「洁癖」那套收尾思路：每次迭代后把项目文档、AI 规则文件与 Agent 记忆三层对齐，并回头核查规则是否真被落地，避免「代码迭代七八轮、文档还停在最初版」的知识脑腐。头部那枚 `Inspired by` 标识即指向该仓库。
+本项目的**文档组织与 Agent 协作规范**借鉴了 [Khazix Skills](https://github.com/KKKKhazix/Khazix-Skills)（数字生命卡兹克开源的 AI Skills 合集），主要是 neat-freak「洁癖」那套收尾思路：每次迭代后把项目文档、AI 规则文件与 Agent 记忆三层对齐，并回头核查规则是否真被落地，避免「代码迭代七八轮、文档还停在最初版」的知识脑腐。
 
 该仓库是 Skill 指令集，本项目是知识库平台，**代码、依赖与协议均无关联**；这里只借鉴文档与知识收尾的工作方法，未引入其任何 Skill 代码或资源。
 
