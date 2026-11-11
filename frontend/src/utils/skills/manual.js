@@ -17,6 +17,13 @@ const HEADER = `可用工具（需要时输出一行 TOOL 调用，格式严格�
 TOOL: {"tool":"工具名","args":{...}}
 工具列表：`
 
+/** 站点路径速查：回答「在哪找 / 怎么下载 / 怎么设置」类问题时用真实路径，避免模型编造地址 */
+export const SITE_GUIDE = `站点路径速查（回答「在哪找 / 怎么下载 / 怎么设置」时用下面这些真实路径，不要编造）：
+- 客户端下载：桌面 /download，手机 /m/download；页脚、右上角头像菜单、「我的 → 工具」里都有「客户端下载」入口。
+- 下载页会列 Windows 桌面端安装包与 Android APK，并给出当前版本、更新说明和 SHA-256 校验值。
+- 管理员开关客户端下载入口：站点设置 → 客户端下载（/admin/download），可关总开关或单独隐藏某个平台。
+- 个人资料 /profile、偏好设置 /preferences、帮助中心在顶部「?」按钮、AI 问答 /ai/chat。`
+
 /**
  * 按启用的技能组拼手册。
  * @param {Array} tools  registry 里的工具（保持声明顺序）
@@ -30,7 +37,7 @@ export function buildManual(tools, enabledGroupIds = null) {
   // 编号按本次实际可用的工具重排（老手册里 8/9 各出现两次，模型容易选错）
   const lines = enabled.map((t, i) => `${i + 1}. ${t.manual}`)
   return {
-    text: [HEADER, ...lines, '', WORK_RULES].join('\n'),
+    text: [HEADER, ...lines, '', WORK_RULES, '', SITE_GUIDE].join('\n'),
     tools: enabled
   }
 }

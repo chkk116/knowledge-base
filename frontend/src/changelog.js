@@ -10,6 +10,15 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.60',
+    date: '2026-11-11',
+    title: '客户端下载入口与 AI 指南',
+    items: [
+      '普通用户入口补齐：右上角头像菜单、移动端「我的 → 工具」、帮助中心新增「客户端下载」',
+      'AI 问答补充站点路径速查（下载页 /download、/m/download，后台开关 /admin/download）',
+    ],
+  },
+  {
     version: '1.3.59',
     date: '2026-11-11',
     title: '客户端下载中心',

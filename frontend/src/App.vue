@@ -895,6 +895,14 @@ const helpData = [
   <li>「个人资料」：修改头像、简介、登录密码。</li>
   <li>「我的收藏」「浏览历史」「消息中心」：管理你的内容与消息（私信与通知在同一处切换）。</li>
 </ul>` },
+  { key: 'download', title: '客户端下载', html: `<h3>客户端下载</h3>
+<p>想把知识库装到电脑或手机上用？打开<strong>下载中心</strong>就行：桌面网址是 <code>/download</code>，手机端是 <code>/m/download</code>；页面底部和右上角头像菜单里也都有「客户端下载」入口。</p>
+<ul>
+  <li><strong>Windows 桌面端</strong>：下载安装包（如 <code>kb-desktop-1.0.0.exe</code>）双击安装，装好后登录即连本站。</li>
+  <li><strong>Android App</strong>：下载 APK 安装；手机扫下载页的二维码也能直接下。</li>
+  <li>下载页会显示<strong>版本号、更新说明和 SHA-256 校验值</strong>，可自行核对。</li>
+  <li>管理员可在「站点设置 → 客户端下载」开关入口，或单独隐藏某个平台。</li>
+</ul>` },
   { key: 'rule', title: '使用规范', html: `<h3>使用规范与社区公约</h3>
 <ul>
   <li>发布内容须<strong>合法合规</strong>，禁止传播违法违规、谣言、色情、暴力等信息。</li>
@@ -1071,6 +1079,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                     </el-dropdown-item>
                     <el-dropdown-item disabled>积分：{{ auth.user?.points || 0 }}</el-dropdown-item>
                     <el-dropdown-item divided @click="fbOpen = true">意见反馈</el-dropdown-item>
+                    <el-dropdown-item v-if="download.visible" @click="router.push('/download')">客户端下载</el-dropdown-item>
                     <el-dropdown-item @click="router.push('/preferences')">偏好设置</el-dropdown-item>
                     <el-dropdown-item @click="goProfile">个人资料</el-dropdown-item>
                     <el-dropdown-item @click="onLogout">退出登录</el-dropdown-item>

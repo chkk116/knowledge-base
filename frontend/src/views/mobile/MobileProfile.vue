@@ -17,9 +17,11 @@ import { studyPlanSummary } from '../../api/studyPlan'
 import { applyTheme } from '../../utils/theme'
 import { resolveUrl } from '../../utils/runtimeBase'
 import SiteFooter from '../../components/SiteFooter.vue'
+import { useDownloadStore } from '../../store/download'
 
 const router = useRouter()
 const auth = useAuthStore()
+const download = useDownloadStore()
 
 const spaceCount = ref(0)
 const docCount = ref(0)
@@ -106,7 +108,8 @@ const TOOL_GROUP = {
     { label: '我的文件', icon: 'FolderOpened', color: 'blue', to: '/files' },
     { label: 'AI 问答', icon: 'ChatDotRound', color: 'green', to: '/ai' },
     { label: '发现文章', icon: 'Compass', color: 'blue', to: '/discover' },
-    { label: '我的数据', icon: 'TrendCharts', color: 'green', to: '/stats' }
+    { label: '我的数据', icon: 'TrendCharts', color: 'green', to: '/stats' },
+    { label: '客户端下载', icon: 'Download', color: 'blue', to: '/download' }
   ]
 }
 // 设置统一收敛到「设置」页（个性化 / 通用 / 关于 / 账号安全都在里面），
@@ -157,7 +160,9 @@ const maintainItems = computed(() => byPerm(MAINTAIN_ITEMS))
 
 // 分组顺序：我的内容 / 工具 / 管理（折叠）/ 核心维护（折叠）/ 设置
 const groups = computed(() => {
-  const list = [MY_GROUP, GROWTH_GROUP, TOOL_GROUP]
+  // 客户端下载入口受后台开关控制：关闭时从「工具」组里隐藏
+  const toolItems = TOOL_GROUP.items.filter((it) => it.to !== '/download' || download.visible)
+  const list = [MY_GROUP, GROWTH_GROUP, { ...TOOL_GROUP, items: toolItems }]
   if (adminItems.value.length) list.push({ title: '管理', collapsible: true, items: adminItems.value, hint: '日常常用' })
   if (maintainItems.value.length) list.push({ title: '核心维护', collapsible: true, items: maintainItems.value, hint: '站点配置' })
   list.push(SETTING_GROUP)
