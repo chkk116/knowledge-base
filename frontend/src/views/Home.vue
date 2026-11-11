@@ -90,6 +90,8 @@ const visibleTags = computed(() => {
   return top
 })
 const hiddenTagCount = computed(() => Math.max(0, tagOptions.value.length - 10))
+// 展开后也只放进固定高度滚动区，几百上千个标签都不会把整页撑爆
+const displayTags = computed(() => showAllTags.value ? sortedTags.value : visibleTags.value)
 
 // ---- 卡片分类徽章：按分类关键词映射图标与配色（视觉锚点）----
 const CAT_RULES = [
@@ -295,9 +297,11 @@ onMounted(async () => {
       </div>
       <div class="tagcloud" v-if="tagOptions.length">
         <span class="lbl">标签</span>
-        <button type="button" v-for="t in visibleTags" :key="t.tag"
-                class="chip" :class="{ on: tag === t.tag }"
-                @click="onTagClick(t.tag)">{{ t.tag }}<i v-if="t.count">·{{ t.count }}</i></button>
+        <span class="chipwrap" :class="{ expanded: showAllTags }">
+          <button type="button" v-for="t in displayTags" :key="t.tag"
+                  class="chip" :class="{ on: tag === t.tag }"
+                  @click="onTagClick(t.tag)">{{ t.tag }}<i v-if="t.count">·{{ t.count }}</i></button>
+        </span>
         <button v-if="hiddenTagCount > 0 || showAllTags" type="button"
                 class="chip more" @click="showAllTags = !showAllTags">
           {{ showAllTags ? '收起' : '更多 ' + hiddenTagCount }}
@@ -398,9 +402,11 @@ onMounted(async () => {
 .go { flex: none; white-space: nowrap; padding: 12px 18px; border: none; border-radius: 10px; background: #4f46e5; color: #fff; font-size: 15px; cursor: pointer; }
 .go.ghost { background: #e2e8f0; color: #334155; }
 .filters { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
-.tagcloud { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 2px; }
-.tagcloud .lbl { color: #94a3b8; font-size: 13px; }
-.tagcloud .chip.more { border: 1px dashed #cbd5e1; background: transparent; color: #94a3b8; }
+.tagcloud { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 8px; margin: 4px 0 2px; }
+.tagcloud .lbl { color: #94a3b8; font-size: 13px; flex-shrink: 0; line-height: 26px; }
+.tagcloud .chipwrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.tagcloud .chipwrap.expanded { max-height: 172px; overflow-y: auto; padding: 2px 6px 2px 0; }
+.tagcloud .chip.more { border: 1px dashed #cbd5e1; background: transparent; color: #94a3b8; flex-shrink: 0; }
 .tagcloud .chip.more:hover { color: #6366f1; border-color: #c7d2fe; }
 /* 轻量数据概览条 */
 .ov-bar { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; font-size: 13px; color: #64748b; }
