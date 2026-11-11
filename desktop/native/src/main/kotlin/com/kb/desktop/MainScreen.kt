@@ -27,31 +27,84 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.BoxWithConstraints
 import java.net.URI
 
 enum class MenuKind(val label: String) {
     HOME("首页"), DOCS("文章"), CHAT("AI 问答"), FILES("我的文件"), SETTINGS("设置")
 }
 
+/** 侧栏收成图标栏的宽度阈值（低于它窗口放不下完整侧栏+内容） */
+private val RAIL_BREAK = 880.dp
+
 @Composable
 fun MainScreen(session: Session, onLogout: () -> Unit) {
     var selected by remember { mutableStateOf(MenuKind.HOME) }
     val host = remember(session) { runCatching { URI(session.server).host }.getOrNull() ?: session.server }
 
-    Row(Modifier.fillMaxSize().background(KbBg)) {
-        // ------- 侧栏 -------
-        Column(
-            Modifier
-                .width(216.dp)
-                .fillMaxHeight()
-                .background(Color.White)
-        ) {
-            Spacer(Modifier.height(14.dp))
-            // 品牌行
-            Row(
-                Modifier.padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(KbBg)) {
+        val narrow = maxWidth < RAIL_BREAK
+
+        Row(Modifier.fillMaxSize()) {
+            Sidebar(
+                session = session,
+                selected = selected,
+                onSelect = { selected = it },
+                rail = narrow,
+                onLogout = onLogout,
+            )
+            if (!narrow) {
+                Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
+            }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                Header(selected, host, showHost = !narrow)
+                Box(Modifier.fillMaxSize().padding(if (narrow) 10.dp else 20.dp)) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White)
+                            .border(1.dp, KbBorder, RoundedCornerShape(12.dp)),
+                    ) {
+                        when (selected) {
+                            MenuKind.HOME -> HomePanel(session)
+                            else -> PlaceholderPanel(selected)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Sidebar(
+    session: Session,
+    selected: MenuKind,
+    onSelect: (MenuKind) -> Unit,
+    rail: Boolean,
+    onLogout: () -> Unit,
+) {
+    Column(
+        Modifier
+            .width(if (rail) 60.dp else 216.dp)
+            .fillMaxHeight()
+            .background(Color.White)
+    ) {
+        Spacer(Modifier.height(14.dp))
+        // 品牌行：窄栏只留图标
+        if (rail) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
+                    contentAlignment = Alignment.Center,
+                ) { BrandGlyphMini(Color.White, Modifier.size(19.dp)) }
+            }
+        } else {
+            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
                         .size(32.dp)
@@ -62,118 +115,143 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                 Spacer(Modifier.width(10.dp))
                 Text("知识库", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
             }
-            Spacer(Modifier.height(14.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(8.dp))
+        }
+        Spacer(Modifier.height(14.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(8.dp))
 
-            Column(Modifier.padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                for (kind in MenuKind.entries) {
-                    val sel = kind == selected
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(if (sel) KbSidebarSelected else Color.Transparent)
-                            .clickable { selected = kind }
-                            .padding(horizontal = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val tile = when (kind) {
-                            MenuKind.HOME -> KbTileBlue
-                            MenuKind.DOCS -> KbTileViolet
-                            MenuKind.CHAT -> KbTileGreen
-                            MenuKind.FILES -> KbTileAmber
-                            MenuKind.SETTINGS -> KbTileBlue
-                        }
-                        Box(
-                            Modifier
-                                .size(24.dp)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(KbIconGradient(tile.first, tile.second)),
-                            contentAlignment = Alignment.Center,
-                        ) { MenuGlyph(kind, Color.White, Modifier.size(14.dp)) }
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            kind.label,
-                            fontSize = 13.sp,
-                            color = if (sel) KbTextMain else KbTextSub,
-                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                    }
-                }
+        Column(
+            Modifier.padding(horizontal = if (rail) 8.dp else 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            for (kind in MenuKind.entries) {
+                MenuItem(kind, sel = kind == selected, rail = rail) { onSelect(kind) }
             }
+        }
 
-            Spacer(Modifier.weight(1f))
-            HorizontalDivider()
-            // 用户区
-            Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(KbIconGradient(KbTileBlue.first, KbTileBlue.second)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        session.username.take(1).uppercase(),
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+        Spacer(Modifier.weight(1f))
+        HorizontalDivider()
+
+        // 用户区：窄栏只留头像（点击即退出）
+        if (rail) {
+            Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                UserAvatar(session.username, onClick = onLogout)
+            }
+        } else {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                UserAvatar(session.username)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Text(session.username, fontSize = 12.5.sp, color = KbTextMain, maxLines = 1)
-                    Text(host, fontSize = 10.sp, color = KbTextSub, maxLines = 1)
+                    Text(hostLabel(session), fontSize = 10.sp, color = KbTextSub, maxLines = 1)
                 }
                 TextButton(onClick = onLogout, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     Text("退出", fontSize = 11.sp)
                 }
             }
-            Spacer(Modifier.height(6.dp))
         }
+        Spacer(Modifier.height(6.dp))
+    }
+}
 
-        // ------- 右侧 1px 分隔 -------
-        Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
+private fun hostLabel(session: Session): String =
+    runCatching { URI(session.server).host }.getOrNull() ?: session.server
 
-        // ------- 内容 -------
-        Column(Modifier.weight(1f).fillMaxHeight()) {
-            // 头部
-            Row(
+@Composable
+private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, onClick: () -> Unit) {
+    val tile = when (kind) {
+        MenuKind.HOME -> KbTileBlue
+        MenuKind.DOCS -> KbTileViolet
+        MenuKind.CHAT -> KbTileGreen
+        MenuKind.FILES -> KbTileAmber
+        MenuKind.SETTINGS -> KbTileBlue
+    }
+    if (rail) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(44.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
                 Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .background(Color.White)
-                    .padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(selected.label, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
-                Spacer(Modifier.weight(1f))
-                Text("已连接 $host", fontSize = 11.sp, color = KbTextSub)
-            }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(KbBorder))
-
-            // 卡片内容区
-            Box(Modifier.fillMaxSize().padding(20.dp)) {
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White)
-                        .border(1.dp, KbBorder, RoundedCornerShape(12.dp)),
-                ) {
-                    when (selected) {
-                        MenuKind.HOME -> HomePanel(session)
-                        else -> PlaceholderPanel(selected)
-                    }
-                }
-            }
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (sel) KbSidebarSelected else Color.Transparent)
+                    .clickable(onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) { IconTile(kind, tile, 24.dp) }
+        }
+    } else {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(if (sel) KbSidebarSelected else Color.Transparent)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconTile(kind, tile, 24.dp)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                kind.label,
+                fontSize = 13.sp,
+                color = if (sel) KbTextMain else KbTextSub,
+                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+            )
         }
     }
+}
+
+@Composable
+private fun IconTile(kind: MenuKind, tile: Pair<Color, Color>, size: androidx.compose.ui.unit.Dp) {
+    Box(
+        Modifier
+            .size(size)
+            .clip(RoundedCornerShape(7.dp))
+            .background(KbIconGradient(tile.first, tile.second)),
+        contentAlignment = Alignment.Center,
+    ) { MenuGlyph(kind, Color.White, Modifier.size(size * 0.58f)) }
+}
+
+@Composable
+private fun UserAvatar(username: String, onClick: (() -> Unit)? = null) {
+    Box(
+        Modifier
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(KbIconGradient(KbTileBlue.first, KbTileBlue.second))
+            .let { m -> if (onClick != null) m.clickable(onClick = onClick) else m },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            username.take(1).uppercase(),
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun Header(kind: MenuKind, host: String, showHost: Boolean) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .background(Color.White)
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(kind.label, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+        Spacer(Modifier.weight(1f))
+        if (showHost) {
+            Text("已连接 $host", fontSize = 11.sp, color = KbTextSub)
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(KbBorder))
 }
 
 @Composable

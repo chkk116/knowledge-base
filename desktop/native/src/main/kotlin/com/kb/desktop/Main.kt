@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ApplicationScope
@@ -13,9 +14,12 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.awt.LocalAwtWindow
 import kotlinx.coroutines.delay
+import java.awt.Dimension
 import kotlin.system.exitProcess
 
+@OptIn(ExperimentalComposeUiApi::class)
 fun main() = application {
     // 冒烟模式：KB_SMOKE=1 时启动 5 秒后自动退出（供构建/运行验证，不弹窗等人点）
     val smoke = System.getenv("KB_SMOKE") == "1"
@@ -49,6 +53,12 @@ fun main() = application {
         title = "知识库",
         state = windowState,
     ) {
+        // 窗口最小尺寸随状态切换：登录 400×480，主界面 960×620，防止用户缩太小挤破布局
+        val awtWindow = LocalAwtWindow.current
+        LaunchedEffect(session) {
+            awtWindow?.minimumSize = if (session == null) Dimension(400, 480) else Dimension(960, 620)
+        }
+
         KbTheme {
             val s = session
             if (s == null) {
