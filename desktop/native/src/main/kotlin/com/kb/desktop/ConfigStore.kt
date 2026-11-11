@@ -7,9 +7,9 @@ import java.nio.file.Paths
 /** 本机配置：存服务器地址与上次用户名。仅存非敏感信息，token 不落盘。 */
 object ConfigStore {
 
-    /** 仓库默认值禁止私人域名 → 默认指向本机后端；换环境用登录框修改或设 KB_DESKTOP_SERVER。 */
+    /** 默认连生产服务器；本地开发/换环境用 KB_DESKTOP_SERVER 环境变量或 config.json 的 server 覆盖。 */
     val defaultServer: String =
-        System.getenv("KB_DESKTOP_SERVER")?.takeIf { it.isNotBlank() } ?: "http://localhost:8080"
+        System.getenv("KB_DESKTOP_SERVER")?.takeIf { it.isNotBlank() } ?: "https://chkk116.cn"
 
     private val file: Path by lazy {
         val appData = System.getenv("APPDATA")?.takeIf { it.isNotBlank() }

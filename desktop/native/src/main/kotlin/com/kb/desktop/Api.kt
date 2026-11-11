@@ -52,6 +52,16 @@ data class DocDetail(
     val views: Int,
 )
 
+/** 服务端版本通道信息（GET /api/public/app-version?channel=desktop）。 */
+data class AppVersionInfo(
+    val versionCode: Int,
+    val versionName: String,
+    val url: String,
+    val notes: String,
+    val checksum: String,
+    val force: Boolean,
+)
+
 /** 我的文件项（GET /api/files/mine）。 */
 data class FileItem(
     val id: Long,
@@ -242,6 +252,19 @@ class ApiClient(private val base: String) {
                 createdAt = j.str("createdAt").orEmpty(),
             )
         }
+    }
+
+    /** GET /api/public/app-version?channel=desktop → 最新版本信息（免登录） */
+    suspend fun appVersion(channel: String = AppInfo.channel): AppVersionInfo = withContext(Dispatchers.IO) {
+        val o = parse(get("/api/public/app-version?channel=$channel")) ?: throw ApiError("版本信息响应异常")
+        AppVersionInfo(
+            versionCode = o.int("versionCode") ?: 0,
+            versionName = o.str("versionName").orEmpty(),
+            url = o.str("url").orEmpty(),
+            notes = o.str("notes").orEmpty(),
+            checksum = o.str("checksum").orEmpty(),
+            force = o.bool("force") ?: false,
+        )
     }
 }
 

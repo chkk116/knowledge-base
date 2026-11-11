@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -16,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +39,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import io.github.kdroidfilter.webview.web.WebContent
 import io.github.kdroidfilter.webview.web.WebView
 import io.github.kdroidfilter.webview.web.WebViewState
+import kotlinx.coroutines.launch
 import java.net.URI
 
 enum class MenuKind(val label: String) {
@@ -48,7 +52,15 @@ private val RAIL_BREAK = 880.dp
 @Composable
 fun MainScreen(session: Session, onLogout: () -> Unit) {
     var selected by remember { mutableStateOf(MenuKind.HOME) }
+    var update by remember { mutableStateOf<AppVersionInfo?>(null) }
     val host = remember(session) { runCatching { URI(session.server).host }.getOrNull() ?: session.server }
+
+    // 启动后静默检查更新：发现更高 versionCode 就在顶部提示（不打断使用）
+    LaunchedEffect(Unit) {
+        runCatching { ApiClient(session.server).appVersion(AppInfo.channel) }
+            .getOrNull()
+            ?.let { if (it.versionCode > AppInfo.versionCode) update = it }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(KbBg)) {
         val narrow = maxWidth < RAIL_BREAK
@@ -66,6 +78,14 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
             }
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Header(selected, host, showHost = !narrow)
+                val u = update
+                if (u != null) {
+                    UpdateBanner(
+                        info = u,
+                        onOpen = { selected = MenuKind.SETTINGS },
+                        onDismiss = { update = null },
+                    )
+                }
                 Box(Modifier.fillMaxSize().padding(if (narrow) 10.dp else 20.dp)) {
                     Column(
                         Modifier
@@ -78,7 +98,8 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                             MenuKind.HOME -> HomePanel(session)
                             MenuKind.DOCS -> DocsPanel(session)
                             MenuKind.FILES -> FilesPanel(session)
-                            else -> PlaceholderPanel(selected)
+                            MenuKind.SETTINGS -> SettingsPanel(session)
+                            MenuKind.CHAT -> PlaceholderPanel(selected)
                         }
                     }
                 }
@@ -305,6 +326,113 @@ private fun HomePanel(session: Session) {
             }
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+@Composable
+private fun UpdateBanner(info: AppVersionInfo, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFFFFF7E6)).padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("发现新版本 ${info.versionName}", fontSize = 12.sp, color = Color(0xFF92400E), fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            "查看更新", fontSize = 11.5.sp, color = Color(0xFFB45309), fontWeight = FontWeight.Medium,
+            modifier = Modifier.clickable(onClick = onOpen),
+        )
+        Spacer(Modifier.weight(1f))
+        Text("关闭", fontSize = 11.sp, color = KbTextSub, modifier = Modifier.clickable(onClick = onDismiss))
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFFDE68A)))
+}
+
+@Composable
+private fun SettingsPanel(session: Session) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var checked by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var remote by remember { mutableStateOf<AppVersionInfo?>(null) }
+
+    Column(Modifier.fillMaxSize().padding(26.dp)) {
+        Text("设置", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+        Spacer(Modifier.height(16.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
+                .border(1.dp, KbBorder, RoundedCornerShape(12.dp))
+                .padding(20.dp),
+        ) {
+            Text("关于", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+            Spacer(Modifier.height(12.dp))
+            SettingRow("服务器", session.server)
+            SettingRow("当前版本", "${AppInfo.versionName}（${AppInfo.versionCode}）")
+            SettingRow("更新通道", AppInfo.channel)
+            Spacer(Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    if (checking) return@Button
+                    checking = true
+                    error = null
+                    scope.launch {
+                        try {
+                            remote = api.appVersion(AppInfo.channel)
+                            checked = true
+                        } catch (e: Exception) {
+                            error = e.message ?: "检查失败"
+                        } finally {
+                            checking = false
+                        }
+                    }
+                },
+                enabled = !checking,
+                shape = RoundedCornerShape(9.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = KbPrimary, contentColor = Color.White),
+            ) { Text(if (checking) "检查中…" else "检查更新", fontSize = 13.sp) }
+
+            Spacer(Modifier.height(14.dp))
+            val e = error
+            val r = remote
+            when {
+                e != null -> Text(e, fontSize = 12.sp, color = Color(0xFFDC2626))
+                checked && r != null -> {
+                    if (r.versionCode > AppInfo.versionCode) {
+                        Text(
+                            "发现新版本 ${r.versionName}", fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold, color = Color(0xFFB45309),
+                        )
+                        if (r.notes.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(r.notes, fontSize = 12.sp, color = KbTextSub)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        if (r.url.isNotBlank()) {
+                            Button(
+                                onClick = { openInBrowser(session.server, r.url) },
+                                shape = RoundedCornerShape(9.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = KbPrimary, contentColor = Color.White),
+                            ) { Text("下载更新", fontSize = 13.sp) }
+                        } else {
+                            Text("安装包尚未上传，请联系管理员", fontSize = 12.sp, color = KbTextSub)
+                        }
+                    } else {
+                        Text("已是最新版本", fontSize = 12.sp, color = Color(0xFF059669))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 12.5.sp, color = KbTextSub, modifier = Modifier.width(84.dp))
+        Text(value, fontSize = 12.5.sp, color = KbTextMain)
     }
 }
 

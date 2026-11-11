@@ -192,8 +192,8 @@ public class PublicConfigController {
         return readVersion(key);
     }
 
-    /** 允许的版本通道（channel 参数值）。新增原生/平板等独立发版通道时在这里登记 */
-    private static final java.util.Set<String> APP_VERSION_CHANNELS = java.util.Set.of("native");
+    /** 允许的版本通道（channel 参数值）。新增原生/平板/桌面等独立发版通道时在这里登记 */
+    private static final java.util.Set<String> APP_VERSION_CHANNELS = java.util.Set.of("native", "desktop");
 
     private Map<String, Object> emptyVersion() {
         Map<String, Object> r = new java.util.LinkedHashMap<>();

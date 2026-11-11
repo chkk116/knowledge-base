@@ -17,9 +17,18 @@
   进入面板先检测系统 WebView2 运行时，缺失时显示安装提示）
 - **我的文件**：原生列表（`GET /api/files/mine`），点击在系统浏览器打开
 - **服务器地址不进界面**（用户要求）：读 `%APPDATA%\kb-desktop\config.json` 的 `server` 字段
-  （或环境变量 `KB_DESKTOP_SERVER`），默认 `http://localhost:8080`；token 不落盘
+  （或环境变量 `KB_DESKTOP_SERVER`），默认 `https://chkk116.cn`；token 不落盘
 - **打包**（jpackage 双产物，已实测）：免安装自包含目录（捆绑 JRE，冒烟 exit 0）+
   Exe 安装包（按用户安装、开始菜单组「知识库」+ 桌面快捷方式；安装/卸载零残留）
+
+## 更新渠道
+
+- 服务端通道：`GET /api/public/app-version?channel=desktop`（后端白名单 `APP_VERSION_CHANNELS` 已登记 `desktop`），
+  数据源 `kb_sys_setting` 的 `app_version_desktop`（JSON：`versionCode/versionName/url/notes/checksum/force`）。
+- 客户端：启动后静默拉取该接口，`versionCode` 大于本地 `AppInfo.versionCode` 时顶部提示；
+  「设置」页可手动检查更新，发现新版本给出更新说明与「下载更新」（浏览器打开安装包地址）。
+- 发版流程：改 `AppInfo.versionCode/versionName` + `build.gradle.kts` 的 `packageVersion` →
+  `packageExe` → 上传 exe 到服务器 → 更新 `app_version_desktop` 的 `versionCode/url/checksum`。
 
 ## 本机运行
 
@@ -54,5 +63,5 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # Exe 安装包
 
 ## 约定
 
-- 仓库默认值不写私人域名/密钥；换服务器一律用登录框或 `KB_DESKTOP_SERVER` 环境变量
+- 默认连生产 `https://chkk116.cn`；本地/换环境用 `KB_DESKTOP_SERVER` 环境变量或 config.json 的 server 覆盖
 - 版本号独立于 Web 端（`package.json`/`changelog.js` 是 Web 的，别混）
