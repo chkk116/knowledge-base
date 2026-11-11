@@ -922,7 +922,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
   <!-- 混合双列：顶部通栏一级导航（logo + 一级菜单），左侧双列在它下方 -->
   <nav v-if="isMixedNav" class="top-nav top-nav--mixed top-nav--global">
     <div class="brand-top" @click="goHome">
-      <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
+      <img class="brand-ico" :src="siteLogo || '/logo.png?v=2'" alt="" />
       <span v-if="showBrandText" class="brand-txt">{{ brandName }}</span>
     </div>
     <div class="mixed-bar">
@@ -944,7 +944,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                         'dark-menu': prefs.state.sidebarDark, dual: isMixedNav }"
               @mouseenter="hoveringAside = true" @mouseleave="hoveringAside = false">
       <div v-if="!isMixedNav" class="brand" :title="menuCollapsed ? brandName : ''" @click="goHome">
-        <img class="brand-ico" :src="siteLogo || '/logo.png'" alt="" />
+        <img class="brand-ico" :src="siteLogo || '/logo.png?v=2'" alt="" />
         <span v-if="showBrandText" v-show="!menuCollapsed" class="brand-txt">{{ brandName }}</span>
       </div>
 
@@ -1202,9 +1202,9 @@ body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "M
 .top-nav--global { display: flex; align-items: center; gap: 12px; padding: 0 12px; flex: none; }
 .brand-top { display: flex; align-items: center; gap: 8px; padding-right: 10px; cursor: pointer; flex: none; }
 .brand-top .brand-ico { width: 26px; height: 26px; object-fit: contain; }
-.brand-top .brand-txt { font-size: 15px; font-weight: 700; color: #4f46e5; white-space: nowrap; }
+.brand-top .brand-txt { font-size: 15px; font-weight: 700; color: #1D2129; white-space: nowrap; }
 .top-nav--global .mixed-bar { flex: 1 1 auto; height: 52px; }
-html.dark .brand-top .brand-txt { color: #a5b4fc; }
+html.dark .brand-top .brand-txt { color: #E6F1FB; }
 .aside { background: #fff; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; }
 /* 深色菜单（偏好设置 · 布局 → 深色菜单）：只换侧栏底色与菜单文字，不影响内容区 */
 .aside.dark-menu { background: #1e1b4b; border-right-color: #2b2a4a; }

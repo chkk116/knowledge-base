@@ -10,6 +10,15 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.56',
+    date: '2026-11-11',
+    title: '侧栏旧 Logo 与紫字修复',
+    items: [
+      '侧栏仍显示旧紫色 Logo：默认图标有 7 天 HTTP 缓存且 favicon 被 Service Worker 预缓存，给所有图标引用加版本号破缓存',
+      '侧栏品牌文字由紫色改为深墨（暗色模式改浅色），与青蓝云图标协调；补齐 PWA maskable 图标',
+    ],
+  },
+  {
     version: '1.3.55',
     date: '2026-11-11',
     title: '默认图标统一为云中文档',
