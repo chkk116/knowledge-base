@@ -59,6 +59,25 @@ fun main() = application {
             awtWindow?.minimumSize = if (session == null) Dimension(640, 540) else Dimension(960, 620)
         }
 
+        // 调试截图（KB_SHOT=路径）：UI 验收用，抓窗口区域存 PNG 后退出；不设该变量时完全不影响正常使用
+        val shotPath = System.getenv("KB_SHOT")
+        LaunchedEffect(shotPath) {
+            if (!shotPath.isNullOrBlank()) {
+                delay(1600)
+                runCatching {
+                    awtWindow?.isAlwaysOnTop = true
+                    awtWindow?.setLocation(0, 0)
+                    awtWindow?.toFront()
+                    awtWindow?.requestFocus()
+                    delay(900)
+                    val b = awtWindow!!.bounds
+                    val img = java.awt.Robot().createScreenCapture(b)
+                    javax.imageio.ImageIO.write(img, "png", java.io.File(shotPath))
+                }
+                exitProcess(0)
+            }
+        }
+
         KbTheme {
             val s = session
             if (s == null) {

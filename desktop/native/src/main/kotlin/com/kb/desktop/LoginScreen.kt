@@ -2,6 +2,8 @@ package com.kb.desktop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,8 +12,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,15 +29,16 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.decodeToImageBitmap
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -46,15 +47,17 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import java.awt.Desktop
+import java.net.URI
 
 // 滑块验证码几何（与后端/登录页一致）：基准图 320×160，拼块 45×45
 private const val CAP_BASE_W = 320
@@ -63,20 +66,40 @@ private const val CAP_PIECE = 45
 private const val CAP_HANDLE = 40
 private val CAP_PIECE_MAX = (CAP_BASE_W - CAP_PIECE).toFloat()
 
-// 登录页专属配色（Claude 式暖底 + ChatGPT 式墨色主按钮）：
-private val LoginBgTop = Color(0xFFF7F5F1)     // 暖奶油底（上）
-private val LoginBgBottom = Color(0xFFEFEBE3)  // 暖底（下，轻渐变加深度）
-private val FieldFill = Color(0xFFFEFEFD)      // 输入框白
-private val FieldBorder = Color(0xFFE5E1D8)    // 暖灰描边
-private val InkBtn = Color(0xFF26292F)         // 墨色主按钮
-private val InkBtnPressed = Color(0xFF383D45)
+// 登录页配色（对齐飞书/钉钉桌面端：品牌渐变 + 白底表单）
+private val BrandStart = Color(0xFF4F46E5)
+private val BrandEnd = Color(0xFF7C3AED)
+private val PageBg = Color(0xFFF6F7FB)
+private val FieldFill = Color(0xFFF7F8FA)
+private val FieldBorder = Color(0xFFE6E8EB)
+private val Placeholder = Color(0xFFA8AEB8)
+private val InkBtn = Color(0xFF26292F)      // 验证码滑块把手（深色）
 private val ErrRed = Color(0xFFDC2626)
+private val LinkColor = Color(0xFF4F46E5)
+
+/**
+ * 兼容当前 Compose 版本的 clickable。
+ * 新版 foundation 要求 LocalIndication 是 IndicationNodeFactory，但 Material3 默认给的仍是旧
+ * Indication 实例；直接用 clickable{} 会在组合期抛 IllegalArgumentException。这里改走
+ * 「带 indication 参数」的重载并显式传 LocalIndication.current，规避该问题。
+ */
+@Composable
+private fun Modifier.kbClickable(enabled: Boolean = true, onClick: () -> Unit): Modifier {
+    val interaction = remember { MutableInteractionSource() }
+    return this.clickable(
+        interactionSource = interaction,
+        indication = LocalIndication.current,
+        enabled = enabled,
+        onClick = onClick,
+    )
+}
 
 @Composable
 fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
     val server = initialServer.trim() // 界面不再暴露服务器地址：从配置/环境变量来
     var username by remember { mutableStateOf(ConfigStore.read()["username"] ?: "") }
     var password by remember { mutableStateOf("") }
+    var showPwd by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var captcha by remember { mutableStateOf<CaptchaImg?>(null) } // 非 null = 验证码浮层展开
@@ -140,8 +163,8 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
         busy = true
         scope.launch {
             try {
-                // 先拉取新验证码并弹出（与 Web 端 Login.vue 行为一致）
-                ApiClient(server) // 仅校验 server 字符串合法（URI 异常即提示）
+                // 先校验 server 字符串合法（URI 异常即提示）
+                ApiClient(server)
             } catch (e: Exception) {
                 error = "服务器地址无效"
                 busy = false
@@ -157,7 +180,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(LoginBgTop, LoginBgBottom)))
+            .background(PageBg)
             .onPreviewKeyEvent { e ->
                 // 登录页任意处按 Enter 即提交（验证码浮层开着时不抢）
                 if (e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) && captcha == null && !busy) {
@@ -166,57 +189,126 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
                 } else false
             },
     ) {
-        // 大厂构成：大留白背景 + 居中 400dp 白卡（细暖边 + 软阴影，卡内左对齐编辑式排版）
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(
-                Modifier
-                    .width(400.dp)
-                    .shadow(
-                        elevation = 14.dp,
-                        shape = RoundedCornerShape(16.dp),
-                        clip = false,
-                        ambientColor = Color(0x24000000),
-                        spotColor = Color(0x2E000000),
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val wide = maxWidth >= 820.dp
+            val narrow = !wide
+
+            // 表单内容（宽屏放右侧白底区，窄屏放居中白卡里）
+            val fields: @Composable ColumnScope.() -> Unit = {
+                if (narrow) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(40.dp).clip(RoundedCornerShape(11.dp))
+                                .background(Brush.linearGradient(listOf(BrandStart, BrandEnd))),
+                            contentAlignment = Alignment.Center,
+                        ) { BrandGlyph(Color.White, Modifier.size(22.dp)) }
+                        Spacer(Modifier.width(10.dp))
+                        Text("知识库", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+                    }
+                    Spacer(Modifier.height(22.dp))
+                }
+
+                Text("欢迎回来", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+                Spacer(Modifier.height(8.dp))
+                Text("登录知识库，继续整理与查阅", fontSize = 13.sp, color = KbTextSub)
+                Spacer(Modifier.height(26.dp))
+
+                LoginField(
+                    value = username,
+                    onChange = { username = it; error = "" },
+                    hint = "请输入用户名",
+                    focusRequester = userFocus,
+                    leading = { FieldGlyph(FieldIconKind.USER, Placeholder, Modifier.size(17.dp)) },
+                )
+                Spacer(Modifier.height(14.dp))
+                LoginField(
+                    value = password,
+                    onChange = { password = it; error = "" },
+                    hint = "请输入密码",
+                    obscure = !showPwd,
+                    leading = { FieldGlyph(FieldIconKind.LOCK, Placeholder, Modifier.size(17.dp)) },
+                    trailing = {
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape)
+                                .kbClickable { showPwd = !showPwd },
+                            contentAlignment = Alignment.Center,
+                        ) { EyeGlyph(showPwd, if (showPwd) KbPrimary else Placeholder, Modifier.size(18.dp)) }
+                    },
+                )
+
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Text(
+                        "忘记密码？", fontSize = 12.sp, color = LinkColor,
+                        modifier = Modifier.kbClickable { openWeb(server, "/reset-password") },
                     )
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White)
-                    .border(1.dp, Color(0xFFE9E5DC), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 32.dp, vertical = 30.dp),
-            ) {
+                }
+                Spacer(Modifier.height(14.dp))
+
+                // 主按钮：品牌渐变（大厂桌面端常见）
                 Box(
                     Modifier
-                        .size(44.dp)
+                        .fillMaxWidth()
+                        .height(46.dp)
                         .clip(RoundedCornerShape(11.dp))
-                        .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
+                        .background(Brush.horizontalGradient(listOf(BrandStart, BrandEnd)))
+                        .alpha(if (busy || capBusy) 0.55f else 1f)
+                        .kbClickable(enabled = !busy && !capBusy) { tryLogin() },
                     contentAlignment = Alignment.Center,
-                ) { BrandGlyph(Color.White, Modifier.size(24.dp)) }
-                Spacer(Modifier.height(14.dp))
-                Text("欢迎回来", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
-                Spacer(Modifier.height(5.dp))
-                Text("登录知识库，继续整理与查阅", fontSize = 12.5.sp, color = KbTextSub)
-                Spacer(Modifier.height(24.dp))
-
-                LoginField(username, { username = it; error = "" }, "用户名", focusRequester = userFocus)
-                Spacer(Modifier.height(12.dp))
-                LoginField(password, { password = it; error = "" }, "密码", isPassword = true)
-                Spacer(Modifier.height(22.dp))
-
-                Button(
-                    onClick = { tryLogin() },
-                    enabled = !busy && !capBusy,
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = InkBtn,
-                        disabledContainerColor = InkBtn.copy(alpha = 0.45f),
-                        contentColor = Color.White,
-                        disabledContentColor = Color.White.copy(alpha = 0.8f),
-                    ),
-                ) { Text(if (busy) "连接中…" else "登 录", fontSize = 14.5.sp, fontWeight = FontWeight.Medium) }
+                ) {
+                    Text(
+                        if (busy) "连接中…" else "登 录",
+                        color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                    )
+                }
 
                 if (error.isNotEmpty()) {
                     Spacer(Modifier.height(10.dp))
-                    Text(error, color = ErrRed, fontSize = 12.sp, textAlign = TextAlign.Left)
+                    Text(error, color = ErrRed, fontSize = 12.sp)
+                }
+
+                Spacer(Modifier.height(22.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("登录即表示同意", fontSize = 11.5.sp, color = Placeholder)
+                    Text(
+                        "《隐私政策》", fontSize = 11.5.sp, color = LinkColor,
+                        modifier = Modifier.kbClickable { openWeb(server, "/privacy") },
+                    )
+                    Text("与", fontSize = 11.5.sp, color = Placeholder)
+                    Text(
+                        "《免责声明》", fontSize = 11.5.sp, color = LinkColor,
+                        modifier = Modifier.kbClickable { openWeb(server, "/disclaimer") },
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("v${AppInfo.versionName} · 桌面端", fontSize = 11.sp, color = Placeholder)
+            }
+
+            if (wide) {
+                Row(Modifier.fillMaxSize()) {
+                    BrandPanel(Modifier.weight(0.46f).fillMaxHeight(), server)
+                    Box(
+                        Modifier.weight(0.54f).fillMaxHeight().background(Color.White),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(Modifier.width(376.dp), content = fields)
+                    }
+                }
+            } else {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        Modifier
+                            .width(400.dp)
+                            .shadow(18.dp, RoundedCornerShape(20.dp), clip = false)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.White)
+                            .padding(horizontal = 34.dp, vertical = 32.dp),
+                        content = fields,
+                    )
                 }
             }
         }
@@ -225,7 +317,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
         if (captcha != null) {
             val scrimInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             Box(
-                Modifier.fillMaxSize().background(Color(0x59000000))
+                Modifier.fillMaxSize().background(Color(0x66000000))
                     .clickable(interactionSource = scrimInteraction, indication = null) {},
                 contentAlignment = Alignment.Center,
             ) {
@@ -233,7 +325,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
                     Modifier
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color.White)
-                        .border(1.dp, Color(0xFFEDEAE2), RoundedCornerShape(16.dp))
+                        .border(1.dp, FieldBorder, RoundedCornerShape(16.dp))
                         .padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -247,7 +339,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
                             Modifier
                                 .size(24.dp)
                                 .clip(CircleShape)
-                                .clickable(enabled = !capBusy) { closeCaptcha() },
+                                .kbClickable(enabled = !capBusy) { closeCaptcha() },
                             contentAlignment = Alignment.Center,
                         ) { CloseGlyph(KbTextSub, Modifier.size(11.dp)) }
                     }
@@ -275,7 +367,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
                                 .clip(CircleShape)
                                 .background(Color(0xF2FFFFFF))
                                 .border(1.dp, FieldBorder, CircleShape)
-                                .clickable(enabled = !capBusy) { scope.launch { loadCaptcha() } },
+                                .kbClickable(enabled = !capBusy) { scope.launch { loadCaptcha() } },
                             contentAlignment = Alignment.Center,
                         ) { RefreshGlyph(KbTextMain, Modifier.size(13.dp)) }
                     }
@@ -295,14 +387,120 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
     LaunchedEffect(Unit) { runCatching { userFocus.requestFocus() } }
 }
 
-/** Claude/ChatGPT 式输入框：无浮动标签，白底暖描边，聚焦描边转品牌色 */
+/** 左侧品牌区：品牌渐变 + 产品名 + 卖点（对齐飞书/钉钉桌面登录的左栏） */
+@Composable
+private fun BrandPanel(modifier: Modifier, server: String) {
+    Box(modifier.background(Brush.linearGradient(listOf(BrandStart, BrandEnd)))) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawCircle(Color.White.copy(alpha = 0.07f), radius = size.minDimension * 0.62f,
+                center = Offset(size.width * 0.92f, size.height * 0.08f))
+            drawCircle(Color.White.copy(alpha = 0.05f), radius = size.minDimension * 0.46f,
+                center = Offset(size.width * 0.02f, size.height * 0.94f))
+            drawCircle(Color.White.copy(alpha = 0.045f), radius = size.minDimension * 0.22f,
+                center = Offset(size.width * 0.74f, size.height * 0.78f))
+        }
+        Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 44.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(46.dp).clip(RoundedCornerShape(13.dp))
+                        .background(Color.White.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) { BrandGlyph(Color.White, Modifier.size(26.dp)) }
+                Spacer(Modifier.width(12.dp))
+                Text("知识库", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+
+            Spacer(Modifier.weight(1f))
+            Text(
+                "让知识有序沉淀", fontSize = 32.sp, fontWeight = FontWeight.Bold,
+                color = Color.White, lineHeight = 42.sp,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text("一处检索，随时协作，多端同步", fontSize = 15.sp, color = Color.White.copy(alpha = 0.82f))
+            Spacer(Modifier.height(30.dp))
+            listOf(
+                "统一检索 · 一处找到所有资料",
+                "多人协作 · 实时同步编辑",
+                "多端同步 · 桌面与手机无缝衔接",
+            ).forEach {
+                Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.75f)))
+                    Spacer(Modifier.width(10.dp))
+                    Text(it, fontSize = 13.5.sp, color = Color.White.copy(alpha = 0.9f))
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                runCatching { URI(server).host }.getOrNull() ?: server,
+                fontSize = 11.sp, color = Color.White.copy(alpha = 0.55f),
+            )
+        }
+    }
+}
+
+private enum class FieldIconKind { USER, LOCK }
+
+/** 输入框前置线性图标（自绘，免引入 material-icons-extended） */
+@Composable
+private fun FieldGlyph(kind: FieldIconKind, tint: Color, modifier: Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val s = minOf(w, h)
+        val stroke = Stroke(width = s * 0.1f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        when (kind) {
+            FieldIconKind.USER -> {
+                drawCircle(tint, radius = s * 0.2f, center = Offset(w / 2, h * 0.33f), style = stroke)
+                val p = Path()
+                p.moveTo(w * 0.2f, h * 0.87f)
+                p.quadraticBezierTo(w / 2, h * 0.52f, w * 0.8f, h * 0.87f)
+                drawPath(p, tint, style = stroke)
+            }
+            FieldIconKind.LOCK -> {
+                drawRoundRect(
+                    tint, topLeft = Offset(w * 0.22f, h * 0.46f),
+                    size = Size(w * 0.56f, h * 0.4f),
+                    cornerRadius = CornerRadius(s * 0.1f), style = stroke,
+                )
+                val p = Path()
+                p.moveTo(w * 0.34f, h * 0.46f)
+                p.lineTo(w * 0.34f, h * 0.34f)
+                p.quadraticBezierTo(w / 2, h * 0.12f, w * 0.66f, h * 0.34f)
+                p.lineTo(w * 0.66f, h * 0.46f)
+                drawPath(p, tint, style = stroke)
+            }
+        }
+    }
+}
+
+/** 密码可见性眼睛（显示时无斜杠，隐藏时加一道斜杠） */
+@Composable
+private fun EyeGlyph(visible: Boolean, tint: Color, modifier: Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val p = Path()
+        p.moveTo(0f, h / 2)
+        p.quadraticBezierTo(w / 2, 0f, w, h / 2)
+        p.quadraticBezierTo(w / 2, h, 0f, h / 2)
+        drawPath(p, tint, style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawCircle(tint, radius = w * 0.13f, center = Offset(w / 2, h / 2))
+        if (!visible) {
+            drawLine(tint, Offset(w * 0.14f, h * 0.86f), Offset(w * 0.86f, h * 0.14f), w * 0.08f, StrokeCap.Round)
+        }
+    }
+}
+
+/** 大厂式输入框：浅灰底、圆角、聚焦品牌描边、前后可带图标 */
 @Composable
 private fun LoginField(
     value: String,
     onChange: (String) -> Unit,
     hint: String,
-    isPassword: Boolean = false,
+    obscure: Boolean = false,
     focusRequester: FocusRequester? = null,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     BasicTextField(
@@ -310,25 +508,27 @@ private fun LoginField(
         onValueChange = onChange,
         singleLine = true,
         textStyle = TextStyle(fontSize = 14.sp, color = KbTextMain),
-        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+        visualTransformation = if (obscure) PasswordVisualTransformation() else VisualTransformation.None,
         cursorBrush = SolidColor(KbPrimary),
         modifier = Modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(48.dp)
             .let { m -> if (focusRequester != null) m.focusRequester(focusRequester) else m }
             .onFocusChanged { focused = it.isFocused }
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(11.dp))
             .background(FieldFill)
-            .border(1.dp, if (focused) KbPrimary else FieldBorder, RoundedCornerShape(10.dp)),
+            .border(1.dp, if (focused) KbPrimary else FieldBorder, RoundedCornerShape(11.dp)),
         decorationBox = { inner ->
-            Box(
-                Modifier.padding(horizontal = 14.dp),
-                contentAlignment = Alignment.CenterStart,
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (value.isEmpty()) {
-                    Text(hint, fontSize = 13.5.sp, color = Color(0xFFA8A29E))
+                if (leading != null) { leading(); Spacer(Modifier.width(10.dp)) }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty()) Text(hint, fontSize = 13.5.sp, color = Placeholder)
+                    inner()
                 }
-                inner()
+                if (trailing != null) { Spacer(Modifier.width(8.dp)); trailing() }
             }
         },
     )
@@ -380,7 +580,7 @@ private fun CaptchaStage(
             Text(
                 "拖动滑块完成拼图",
                 fontSize = 11.5.sp,
-                color = Color(0xFFA8A29E),
+                color = Placeholder,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .alpha(1f - 0.85f * (pieceLeft / CAP_PIECE_MAX)),
@@ -466,4 +666,9 @@ private fun BrandGlyph(tint: Color, modifier: Modifier) {
         // 书架线
         drawLine(tint, Offset(s * 0.10f, s * 0.97f), Offset(s * 0.94f, s * 0.97f), s * 0.075f, StrokeCap.Round)
     }
+}
+
+/** 用系统浏览器打开站内页面（忘记密码 / 隐私 / 免责） */
+private fun openWeb(server: String, path: String) {
+    runCatching { Desktop.getDesktop().browse(URI(server.trimEnd('/') + path)) }
 }
