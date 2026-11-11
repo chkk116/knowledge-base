@@ -289,7 +289,7 @@ private fun HomePanel(session: Session) {
         val lines = listOf(
             "原生 UI：Compose Multiplatform（Kotlin），非 WebView 套壳",
             "登录：滑块验证码 + 账号密码，与 Web 端同一套接口",
-            "文章：原生列表 + WebView 阅读视图（图片走服务器）",
+            "文章：原生列表 + WebView 阅读；新建/编辑用 Web 端编辑器",
             "我的文件：原生列表，双击在系统浏览器打开",
         )
         lines.forEach { line ->
@@ -349,7 +349,16 @@ private fun DocsPanel(session: Session) {
     var detailError by remember { mutableStateOf<String?>(null) }
     var detailTick by remember { mutableStateOf(0) }
     var wv2Ok by remember { mutableStateOf<Boolean?>(null) }
-    val webState = remember { WebViewState(WebContent.Data(BLANK_READER, null)) }
+    var editing by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<Long?>(null) }
+    val webState = remember(session) {
+        WebViewState(WebContent.Data(BLANK_READER, null)).apply {
+            // 编辑视图加载 Web 端 SPA 页：页面脚本执行前注入 token（会话内存值，匿名档案不落盘）
+            webSettings.desktopWebSettings.incognito = true
+            webSettings.desktopWebSettings.initScript =
+                "try{localStorage.setItem('kb_token',${jsStr(session.token)})}catch(e){}"
+        }
+    }
 
     LaunchedEffect(refresh) {
         loading = true
@@ -389,6 +398,15 @@ private fun DocsPanel(session: Session) {
         wv2Ok = hasWebView2Runtime()
     }
 
+    LaunchedEffect(editing, editTarget) {
+        if (editing) {
+            val root = session.server.trimEnd('/')
+            webState.content = WebContent.Url(
+                if (editTarget == null) "$root/write" else "$root/write/edit/$editTarget"
+            )
+        }
+    }
+
     Row(Modifier.fillMaxSize()) {
         // 左：文章列表
         Column(Modifier.width(280.dp).fillMaxHeight()) {
@@ -402,6 +420,9 @@ private fun DocsPanel(session: Session) {
                     Text("$total", fontSize = 10.5.sp, color = KbTextSub)
                 }
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = { editing = true; editTarget = null }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("新建", fontSize = 11.sp)
+                }
                 TextButton(onClick = { refresh++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     Text("刷新", fontSize = 11.sp)
                 }
@@ -429,29 +450,59 @@ private fun DocsPanel(session: Session) {
             }
         }
         Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
-        // 右：阅读视图
-        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-            val s = selected
+        // 右：阅读视图 / 编辑视图（编辑加载 Web 端 SPA 页，token 由 initScript 注入）
+        Column(Modifier.weight(1f).fillMaxHeight()) {
             when {
-                s == null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(13.dp))
-                            .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
-                        contentAlignment = Alignment.Center,
-                    ) { MenuGlyph(MenuKind.DOCS, Color.White, Modifier.size(26.dp)) }
-                    Spacer(Modifier.height(12.dp))
-                    Text("在左侧选择文章查看", fontSize = 13.sp, color = KbTextSub)
+                editing -> {
+                    Row(
+                        Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(
+                            onClick = { editing = false; detailTick++; refresh++ },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) { Text("← 返回阅读", fontSize = 11.sp) }
+                        Text("在页面内保存后点返回，列表会自动刷新", fontSize = 10.5.sp, color = KbTextSub)
+                    }
+                    HorizontalDivider()
                 }
-                detailError != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(detailError ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { detailTick++ }) { Text("重试", fontSize = 12.sp) }
+                selected != null -> {
+                    Row(
+                        Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spacer(Modifier.weight(1f))
+                        TextButton(
+                            onClick = { editing = true; editTarget = selected?.id },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) { Text("编辑", fontSize = 11.sp) }
+                    }
+                    HorizontalDivider()
                 }
-                detailLoading -> PanelHint("加载中…")
-                wv2Ok == false -> PanelHint("缺少 WebView2 运行时：请安装微软 Edge WebView2 Evergreen Runtime 后重试")
-                else -> WebView(webState, Modifier.fillMaxSize())
+            }
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                val s = selected
+                when {
+                    !editing && s == null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(13.dp))
+                                .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
+                            contentAlignment = Alignment.Center,
+                        ) { MenuGlyph(MenuKind.DOCS, Color.White, Modifier.size(26.dp)) }
+                        Spacer(Modifier.height(12.dp))
+                        Text("在左侧选择文章查看", fontSize = 13.sp, color = KbTextSub)
+                    }
+                    wv2Ok == false -> PanelHint("缺少 WebView2 运行时：请安装微软 Edge WebView2 Evergreen Runtime 后重试")
+                    !editing && detailError != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(detailError ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { detailTick++ }) { Text("重试", fontSize = 12.sp) }
+                    }
+                    !editing && detailLoading -> PanelHint("加载中…")
+                    else -> WebView(webState, Modifier.fillMaxSize())
+                }
             }
         }
     }
@@ -623,6 +674,10 @@ h1{font-size:23px;line-height:1.45;margin:0 0 10px;color:#1f2329;font-family:"Mi
 <div class="content">${d.content}</div>
 </div></body></html>""").replace("\n", "")
 }
+
+/** JS 字符串字面量转义（token 注入 initScript 用）。 */
+private fun jsStr(s: String): String =
+    "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\r", "\\r").replace("\n", "\\n") + "'"
 
 private fun esc(s: String): String =
     s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
