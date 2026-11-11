@@ -283,7 +283,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
 
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
-                    BrandPanel(Modifier.weight(0.46f).fillMaxHeight(), server)
+                    BrandPanel(Modifier.weight(0.46f).fillMaxHeight())
                     Box(
                         Modifier.weight(0.54f).fillMaxHeight().background(Color.White),
                         contentAlignment = Alignment.Center,
@@ -382,7 +382,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
 
 /** 左侧品牌区：品牌渐变 + 产品名 + 卖点（对齐飞书/钉钉桌面登录的左栏） */
 @Composable
-private fun BrandPanel(modifier: Modifier, server: String) {
+private fun BrandPanel(modifier: Modifier) {
     Box(modifier.background(Brush.linearGradient(listOf(BrandStart, BrandEnd)))) {
         Canvas(Modifier.fillMaxSize()) {
             drawCircle(Color.White.copy(alpha = 0.07f), radius = size.minDimension * 0.62f,
@@ -424,11 +424,6 @@ private fun BrandPanel(modifier: Modifier, server: String) {
                     Text(it, fontSize = 13.5.sp, color = Color.White.copy(alpha = 0.9f))
                 }
             }
-            Spacer(Modifier.weight(1f))
-            Text(
-                runCatching { URI(server).host }.getOrNull() ?: server,
-                fontSize = 11.sp, color = Color.White.copy(alpha = 0.55f),
-            )
         }
     }
 }

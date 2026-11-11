@@ -53,7 +53,6 @@ private val RAIL_BREAK = 880.dp
 fun MainScreen(session: Session, onLogout: () -> Unit) {
     var selected by remember { mutableStateOf(MenuKind.HOME) }
     var update by remember { mutableStateOf<AppVersionInfo?>(null) }
-    val host = remember(session) { runCatching { URI(session.server).host }.getOrNull() ?: session.server }
 
     // 启动后静默检查更新：发现更高 versionCode 就在顶部提示（不打断使用）
     LaunchedEffect(Unit) {
@@ -77,7 +76,7 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                 Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
             }
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                Header(selected, host, showHost = !narrow)
+                Header(selected)
                 val u = update
                 if (u != null) {
                     UpdateBanner(
@@ -174,7 +173,6 @@ private fun Sidebar(
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Text(session.username, fontSize = 12.5.sp, color = KbTextMain, maxLines = 1)
-                    Text(hostLabel(session), fontSize = 10.sp, color = KbTextSub, maxLines = 1)
                 }
                 TextButton(onClick = onLogout, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     Text("退出", fontSize = 11.sp)
@@ -184,9 +182,6 @@ private fun Sidebar(
         Spacer(Modifier.height(6.dp))
     }
 }
-
-private fun hostLabel(session: Session): String =
-    runCatching { URI(session.server).host }.getOrNull() ?: session.server
 
 @Composable
 private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, onClick: () -> Unit) {
@@ -267,7 +262,7 @@ private fun UserAvatar(username: String, onClick: (() -> Unit)? = null) {
 }
 
 @Composable
-private fun Header(kind: MenuKind, host: String, showHost: Boolean) {
+private fun Header(kind: MenuKind) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -277,10 +272,6 @@ private fun Header(kind: MenuKind, host: String, showHost: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(kind.label, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
-        Spacer(Modifier.weight(1f))
-        if (showHost) {
-            Text("已连接 $host", fontSize = 11.sp, color = KbTextSub)
-        }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(KbBorder))
 }
@@ -369,7 +360,6 @@ private fun SettingsPanel(session: Session) {
         ) {
             Text("关于", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
             Spacer(Modifier.height(12.dp))
-            SettingRow("服务器", session.server)
             SettingRow("当前版本", "${AppInfo.versionName}（${AppInfo.versionCode}）")
             SettingRow("更新通道", AppInfo.channel)
             Spacer(Modifier.height(16.dp))
