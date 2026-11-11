@@ -26,7 +26,7 @@ fun main() = application {
 
     var session by remember { mutableStateOf<Session?>(null) }
     val windowState = rememberWindowState(
-        size = DpSize(400.dp, 520.dp),
+        size = DpSize(960.dp, 640.dp),
         position = WindowPosition.Aligned(Alignment.Center),
     )
 
@@ -41,7 +41,7 @@ fun main() = application {
         if (session != null) {
             windowState.size = DpSize(1280.dp, 800.dp)
         } else {
-            windowState.size = DpSize(400.dp, 520.dp)
+            windowState.size = DpSize(960.dp, 640.dp)
         }
         windowState.position = WindowPosition.Aligned(Alignment.Center)
     }
@@ -53,10 +53,10 @@ fun main() = application {
         title = "知识库",
         state = windowState,
     ) {
-        // 窗口最小尺寸随状态切换：登录 400×480，主界面 960×620，防止用户缩太小挤破布局
+        // 窗口最小尺寸随状态切换：登录 640×540（保住居中卡构图），主界面 960×620，防止用户缩太小挤破布局
         val awtWindow = LocalAwtWindow.current
         LaunchedEffect(session) {
-            awtWindow?.minimumSize = if (session == null) Dimension(400, 480) else Dimension(960, 620)
+            awtWindow?.minimumSize = if (session == null) Dimension(640, 540) else Dimension(960, 620)
         }
 
         KbTheme {

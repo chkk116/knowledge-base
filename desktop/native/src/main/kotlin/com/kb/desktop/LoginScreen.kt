@@ -9,12 +9,10 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,38 +23,59 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-// 滑块验证码几何（与后端/登录页一致）：基准图 320×160，拼块 45×45，把手宽 44
+// 滑块验证码几何（与后端/登录页一致）：基准图 320×160，拼块 45×45
 private const val CAP_BASE_W = 320
 private const val CAP_BASE_H = 160
 private const val CAP_PIECE = 45
-private const val CAP_HANDLE = 44
+private const val CAP_HANDLE = 40
 private val CAP_PIECE_MAX = (CAP_BASE_W - CAP_PIECE).toFloat()
+
+// 登录页专属配色（Claude 式暖底 + ChatGPT 式墨色主按钮）：
+private val LoginBgTop = Color(0xFFF7F5F1)     // 暖奶油底（上）
+private val LoginBgBottom = Color(0xFFEFEBE3)  // 暖底（下，轻渐变加深度）
+private val FieldFill = Color(0xFFFEFEFD)      // 输入框白
+private val FieldBorder = Color(0xFFE5E1D8)    // 暖灰描边
+private val InkBtn = Color(0xFF26292F)         // 墨色主按钮
+private val InkBtnPressed = Color(0xFF383D45)
+private val ErrRed = Color(0xFFDC2626)
 
 @Composable
 fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
     val server = initialServer.trim() // 界面不再暴露服务器地址：从配置/环境变量来
-    var username by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf(ConfigStore.read()["username"] ?: "") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
@@ -69,6 +88,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
     var capBusy by remember { mutableStateOf(false) }
     val trace = remember { mutableStateListOf<Pair<Int, Long>>() }
     val scope = rememberCoroutineScope()
+    val userFocus = remember { FocusRequester() }
 
     fun closeCaptcha() {
         captcha = null
@@ -110,7 +130,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
     }
 
     fun tryLogin() {
-        if (busy) return
+        if (busy || captcha != null) return
         val u = username.trim()
         if (u.isEmpty() || password.isEmpty()) {
             error = "请输入用户名和密码"
@@ -134,121 +154,183 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.White)) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(Modifier.height(56.dp))
-
-            // 品牌：渐变圆角方块 + 名称
-            Box(
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(LoginBgTop, LoginBgBottom)))
+            .onPreviewKeyEvent { e ->
+                // 登录页任意处按 Enter 即提交（验证码浮层开着时不抢）
+                if (e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) && captcha == null && !busy) {
+                    tryLogin()
+                    true
+                } else false
+            },
+    ) {
+        // 大厂构成：大留白背景 + 居中 400dp 白卡（细暖边 + 软阴影，卡内左对齐编辑式排版）
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(
                 Modifier
-                    .size(60.dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
-                contentAlignment = Alignment.Center,
-            ) { BrandGlyph(Color.White, Modifier.size(32.dp)) }
-            Spacer(Modifier.height(12.dp))
-            Text("知识库", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
-            Text("桌面端", fontSize = 12.sp, color = KbTextSub)
-            Spacer(Modifier.height(26.dp))
+                    .width(400.dp)
+                    .shadow(
+                        elevation = 14.dp,
+                        shape = RoundedCornerShape(16.dp),
+                        clip = false,
+                        ambientColor = Color(0x24000000),
+                        spotColor = Color(0x2E000000),
+                    )
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.White)
+                    .border(1.dp, Color(0xFFE9E5DC), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 32.dp, vertical = 30.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
+                    contentAlignment = Alignment.Center,
+                ) { BrandGlyph(Color.White, Modifier.size(24.dp)) }
+                Spacer(Modifier.height(14.dp))
+                Text("欢迎回来", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                Spacer(Modifier.height(5.dp))
+                Text("登录知识库，继续整理与查阅", fontSize = 12.5.sp, color = KbTextSub)
+                Spacer(Modifier.height(24.dp))
 
-            Field(username, { username = it }, "用户名")
-            Spacer(Modifier.height(10.dp))
-            Field(password, { password = it }, "密码", visualTransformation = PasswordVisualTransformation())
-            Spacer(Modifier.height(18.dp))
+                LoginField(username, { username = it; error = "" }, "用户名", focusRequester = userFocus)
+                Spacer(Modifier.height(12.dp))
+                LoginField(password, { password = it; error = "" }, "密码", isPassword = true)
+                Spacer(Modifier.height(22.dp))
 
-            Button(
-                onClick = { tryLogin() },
-                enabled = !busy && !capBusy,
-                modifier = Modifier.fillMaxWidth().height(44.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = KbPrimary),
-            ) { Text(if (busy) "连接中…" else "登 录", fontSize = 15.sp) }
+                Button(
+                    onClick = { tryLogin() },
+                    enabled = !busy && !capBusy,
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = InkBtn,
+                        disabledContainerColor = InkBtn.copy(alpha = 0.45f),
+                        contentColor = Color.White,
+                        disabledContentColor = Color.White.copy(alpha = 0.8f),
+                    ),
+                ) { Text(if (busy) "连接中…" else "登 录", fontSize = 14.5.sp, fontWeight = FontWeight.Medium) }
 
-            if (error.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                Text(error, color = Color(0xFFDC2626), fontSize = 12.sp, textAlign = TextAlign.Center)
+                if (error.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(error, color = ErrRed, fontSize = 12.sp, textAlign = TextAlign.Left)
+                }
             }
-
-            Spacer(Modifier.weight(1f))
         }
 
-        // 验证码浮层
+        // 验证码浮层（安全验证卡：头部标题 + 关闭，舞台右上角换一张）
         if (captcha != null) {
+            val scrimInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             Box(
-                Modifier.fillMaxSize().background(Color(0x66000000)).clickable(enabled = false) {},
+                Modifier.fillMaxSize().background(Color(0x59000000))
+                    .clickable(interactionSource = scrimInteraction, indication = null) {},
                 contentAlignment = Alignment.Center,
             ) {
                 Column(
                     Modifier
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(Color.White)
-                        .padding(16.dp),
+                        .border(1.dp, Color(0xFFEDEAE2), RoundedCornerShape(16.dp))
+                        .padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    CaptchaStage(
-                        captcha = captcha!!,
-                        pieceLeft = pieceLeft,
-                        onDrag = { dx ->
-                            if (capBusy) return@CaptchaStage
-                            val before = pieceLeft
-                            pieceLeft = (pieceLeft + dx).coerceIn(0f, CAP_PIECE_MAX)
-                            if (pieceLeft != before) trace.add(pieceLeft.toInt() to System.currentTimeMillis())
-                        },
-                        onRelease = {
-                            if (!capBusy && captcha != null) scope.launch { submitCaptcha() }
-                        },
-                    )
+                    Row(
+                        Modifier.width(CAP_BASE_W.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("安全验证", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                        Spacer(Modifier.weight(1f))
+                        Box(
+                            Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .clickable(enabled = !capBusy) { closeCaptcha() },
+                            contentAlignment = Alignment.Center,
+                        ) { CloseGlyph(KbTextSub, Modifier.size(11.dp)) }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Box {
+                        CaptchaStage(
+                            captcha = captcha!!,
+                            pieceLeft = pieceLeft,
+                            onDrag = { dx ->
+                                if (capBusy) return@CaptchaStage
+                                val before = pieceLeft
+                                pieceLeft = (pieceLeft + dx).coerceIn(0f, CAP_PIECE_MAX)
+                                if (pieceLeft != before) trace.add(pieceLeft.toInt() to System.currentTimeMillis())
+                            },
+                            onRelease = {
+                                if (!capBusy && captcha != null) scope.launch { submitCaptcha() }
+                            },
+                        )
+                        // 换一张：舞台右上角小圆钮
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(6.dp)
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xF2FFFFFF))
+                                .border(1.dp, FieldBorder, CircleShape)
+                                .clickable(enabled = !capBusy) { scope.launch { loadCaptcha() } },
+                            contentAlignment = Alignment.Center,
+                        ) { RefreshGlyph(KbTextMain, Modifier.size(13.dp)) }
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text(
                         capMsg,
                         fontSize = 12.sp,
-                        color = if (capErr) Color(0xFFDC2626) else KbTextSub,
+                        color = if (capErr) ErrRed else KbTextSub,
                         textAlign = TextAlign.Center,
+                        modifier = Modifier.width(CAP_BASE_W.dp),
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        TextButton(onClick = { scope.launch { loadCaptcha() } }, enabled = !capBusy) {
-                            Text("换一张", fontSize = 12.sp)
-                        }
-                        TextButton(onClick = { closeCaptcha() }, enabled = !capBusy) {
-                            Text("取消", fontSize = 12.sp)
-                        }
-                    }
                 }
             }
         }
     }
+
+    LaunchedEffect(Unit) { runCatching { userFocus.requestFocus() } }
 }
 
+/** Claude/ChatGPT 式输入框：无浮动标签，白底暖描边，聚焦描边转品牌色 */
 @Composable
-private fun Field(
+private fun LoginField(
     value: String,
     onChange: (String) -> Unit,
-    label: String,
-    singleLine: Boolean = true,
-    fontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
-    visualTransformation: androidx.compose.ui.text.input.VisualTransformation =
-        androidx.compose.ui.text.input.VisualTransformation.None,
+    hint: String,
+    isPassword: Boolean = false,
+    focusRequester: FocusRequester? = null,
 ) {
-    OutlinedTextField(
+    var focused by remember { mutableStateOf(false) }
+    BasicTextField(
         value = value,
         onValueChange = onChange,
-        label = { Text(label, fontSize = 12.sp) },
-        singleLine = singleLine,
-        visualTransformation = visualTransformation,
-        textStyle = androidx.compose.ui.text.TextStyle(fontSize = fontSize),
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = Color.White,
-            unfocusedContainerColor = Color(0xFFF9FAFB),
-            disabledContainerColor = Color(0xFFF9FAFB),
-            focusedIndicatorColor = KbPrimary,
-            unfocusedIndicatorColor = KbBorder,
-        ),
+        singleLine = true,
+        textStyle = TextStyle(fontSize = 14.sp, color = KbTextMain),
+        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+        cursorBrush = SolidColor(KbPrimary),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .let { m -> if (focusRequester != null) m.focusRequester(focusRequester) else m }
+            .onFocusChanged { focused = it.isFocused }
+            .clip(RoundedCornerShape(10.dp))
+            .background(FieldFill)
+            .border(1.dp, if (focused) KbPrimary else FieldBorder, RoundedCornerShape(10.dp)),
+        decorationBox = { inner ->
+            Box(
+                Modifier.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (value.isEmpty()) {
+                    Text(hint, fontSize = 13.5.sp, color = Color(0xFFA8A29E))
+                }
+                inner()
+            }
+        },
     )
 }
 
@@ -267,7 +349,7 @@ private fun CaptchaStage(
         Box(
             Modifier
                 .size(CAP_BASE_W.dp, CAP_BASE_H.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(10.dp))
                 .background(Color(0xFFEDEFF3)),
         ) {
             if (bgBmp != null) {
@@ -286,21 +368,29 @@ private fun CaptchaStage(
         }
         Spacer(Modifier.height(10.dp))
 
-        // 滑条
+        // 滑条：全圆角药丸，墨色把手，提示文字随拖动淡出
         Box(
             Modifier
-                .size(CAP_BASE_W.dp, 32.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFF3F4F6))
-                .border(1.dp, KbBorder, RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center,
+                .size(CAP_BASE_W.dp, 34.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(Color.White)
+                .border(1.dp, FieldBorder, RoundedCornerShape(17.dp)),
+            contentAlignment = Alignment.CenterStart,
         ) {
+            Text(
+                "拖动滑块完成拼图",
+                fontSize = 11.5.sp,
+                color = Color(0xFFA8A29E),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .alpha(1f - 0.85f * (pieceLeft / CAP_PIECE_MAX)),
+            )
             Box(
                 Modifier
                     .offset { IntOffset((pieceLeft / CAP_PIECE_MAX * (CAP_BASE_W - CAP_HANDLE)).toInt(), 0) }
-                    .size(CAP_HANDLE.dp, 24.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (pieceLeft >= CAP_PIECE_MAX) KbPrimary else Color(0xFF9CA3AF))
+                    .size(CAP_HANDLE.dp, 26.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (pieceLeft >= CAP_PIECE_MAX) KbPrimary else InkBtn)
                     .pointerInput(captcha) {
                         detectDragGestures(
                             onDragEnd = { onRelease() },
@@ -321,8 +411,44 @@ private fun CaptchaStage(
                     }
                 }
             }
-            Text("拖动滑块拼合图片", fontSize = 11.sp, color = Color(0xFF9CA3AF))
         }
+    }
+}
+
+/** 关闭 × */
+@Composable
+private fun CloseGlyph(tint: Color, modifier: Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        drawLine(tint, Offset(0f, 0f), Offset(w, w), 1.8f, StrokeCap.Round)
+        drawLine(tint, Offset(w, 0f), Offset(0f, w), 1.8f, StrokeCap.Round)
+    }
+}
+
+/** 换一张 ↻（270° 圆弧 + 箭头三角，顺时针到 9 点钟方向朝上） */
+@Composable
+private fun RefreshGlyph(tint: Color, modifier: Modifier) {
+    Canvas(modifier) {
+        val s = size.width
+        val r = s * 0.36f
+        val c = s / 2f
+        drawArc(
+            color = tint,
+            startAngle = -90f,
+            sweepAngle = 270f,
+            useCenter = false,
+            topLeft = Offset(c - r, c - r),
+            size = androidx.compose.ui.geometry.Size(r * 2, r * 2),
+            style = Stroke(width = s * 0.14f, cap = StrokeCap.Round),
+        )
+        // 弧末端在 9 点钟位置（x = c - r），顺时针运动方向朝上 → 箭头朝上
+        val ex = c - r
+        val path = Path()
+        path.moveTo(ex, c - s * 0.24f)
+        path.lineTo(ex - s * 0.13f, c + s * 0.02f)
+        path.lineTo(ex + s * 0.13f, c + s * 0.02f)
+        path.close()
+        drawPath(path, tint)
     }
 }
 
