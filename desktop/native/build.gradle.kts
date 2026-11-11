@@ -20,7 +20,7 @@ repositories {
 dependencies {
     implementation("org.jetbrains.compose.ui:ui:1.13.0-beta02")
     implementation("org.jetbrains.compose.foundation:foundation:1.13.0-beta02")
-    implementation("org.jetbrains.compose.material3:material3:1.5.0-beta02")
+    implementation("org.jetbrains.compose.material3:material3:1.13.0-beta02")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")

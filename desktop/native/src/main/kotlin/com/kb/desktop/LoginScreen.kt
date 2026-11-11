@@ -2,8 +2,6 @@ package com.kb.desktop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -81,21 +79,13 @@ private val ErrRed = Color(0xFFDC2626)
 private val LinkColor = Accent
 
 /**
- * 兼容当前 Compose 版本的 clickable。
- * 新版 foundation 要求 LocalIndication 是 IndicationNodeFactory，但 Material3 默认给的仍是旧
- * Indication 实例；直接用 clickable{} 会在组合期抛 IllegalArgumentException。这里改走
- * 「带 indication 参数」的重载并显式传 LocalIndication.current，规避该问题。
+ * 统一的点击入口：依赖版本对齐（foundation / material3 同为 1.13.0-beta02）后，
+ * material3 提供的 LocalIndication 已是 IndicationNodeFactory，标准 clickable 可以直接用。
+ * 保留这个函数只是为了让登录页各处调用点保持一致的 enabled 写法。
  */
 @Composable
-private fun Modifier.kbClickable(enabled: Boolean = true, onClick: () -> Unit): Modifier {
-    val interaction = remember { MutableInteractionSource() }
-    return this.clickable(
-        interactionSource = interaction,
-        indication = LocalIndication.current,
-        enabled = enabled,
-        onClick = onClick,
-    )
-}
+private fun Modifier.kbClickable(enabled: Boolean = true, onClick: () -> Unit): Modifier =
+    this.clickable(enabled = enabled, onClick = onClick)
 
 @Composable
 fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
