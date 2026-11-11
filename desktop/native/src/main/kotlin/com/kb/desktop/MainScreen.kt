@@ -56,9 +56,14 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
 
     // 启动后静默检查更新：发现更高 versionCode 就在顶部提示（不打断使用）
     LaunchedEffect(Unit) {
-        runCatching { ApiClient(session.server).appVersion(AppInfo.channel) }
-            .getOrNull()
-            ?.let { if (it.versionCode > AppInfo.versionCode) update = it }
+        try {
+            val v = ApiClient(session.server).appVersion(AppInfo.channel)
+            if (v.versionCode > AppInfo.versionCode) update = v
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e   // 协程取消必须继续传播，不能吞掉
+        } catch (e: Exception) {
+            // 静默：更新检查失败不打断主界面
+        }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(KbBg)) {
@@ -373,6 +378,9 @@ private fun SettingsPanel(session: Session) {
                             remote = api.appVersion(AppInfo.channel)
                             checked = true
                         } catch (e: Exception) {
+                            // 失败时清掉上一次结果，避免「已发现新版本」与新报错同时显示
+                            remote = null
+                            checked = false
                             error = e.message ?: "检查失败"
                         } finally {
                             checking = false

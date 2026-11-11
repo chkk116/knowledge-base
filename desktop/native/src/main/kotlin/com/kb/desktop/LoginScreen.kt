@@ -660,5 +660,8 @@ private fun BrandGlyph(tint: Color, modifier: Modifier) {
 
 /** 用系统浏览器打开站内页面（忘记密码 / 隐私 / 免责） */
 private fun openWeb(server: String, path: String) {
-    runCatching { Desktop.getDesktop().browse(URI(server.trimEnd('/') + path)) }
+    val base = server.trimEnd('/')
+    // 只放行 http/https：配置里的 javascript:/file: 等协议交给 Desktop.browse 行为不可控
+    if (!base.startsWith("http://", true) && !base.startsWith("https://", true)) return
+    runCatching { Desktop.getDesktop().browse(URI(base + path)) }
 }

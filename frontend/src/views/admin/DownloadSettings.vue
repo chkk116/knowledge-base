@@ -34,6 +34,12 @@ async function loadVersions() {
   }
 }
 
+/** 重新读取：开关文案与「当前版本」一起刷新，避免发版后只读卡片仍是旧值 */
+async function reloadAll() {
+  await dl.load()
+  await loadVersions()
+}
+
 /** 总开关拨动即保存，失败回滚 */
 async function onToggleEnabled(v) {
   toggling.value = true
@@ -117,7 +123,7 @@ onMounted(() => {
         </el-form-item>
         <div class="actions">
           <el-button type="primary" :loading="saving" @click="save">保存配置</el-button>
-          <el-button text @click="dl.load()">重新读取</el-button>
+          <el-button text @click="reloadAll">重新读取</el-button>
         </div>
       </el-form>
     </el-card>

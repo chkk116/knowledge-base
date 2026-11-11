@@ -15,6 +15,7 @@ import { Monitor, Cellphone, Download, Refresh, CopyDocument } from '@element-pl
 import api from '../api/request'
 import QRCode from 'qrcode'
 import { useDownloadStore } from '../store/download'
+import { openExternal } from '../utils/openExternal'
 
 const dl = useDownloadStore()
 const loading = ref(true)
@@ -36,13 +37,18 @@ async function fetchVersion(channel) {
 async function load() {
   loading.value = true
   err.value = ''
+  qr.value = ''   // 刷新时先清空，避免撤回安装包后仍显示上一次的二维码
   try {
     if (!dl.loaded) await dl.load()
     if (!dl.enabled) return
-    const [d, a] = await Promise.all([
+    // 单个通道失败不影响另一个平台展示（原来 Promise.all 会整组清空）
+    const [dr, ar] = await Promise.allSettled([
       dl.desktop ? fetchVersion('desktop') : Promise.resolve(null),
       dl.app ? loadAndroid() : Promise.resolve(null)
     ])
+    const d = dr.status === 'fulfilled' ? dr.value : null
+    const a = ar.status === 'fulfilled' ? ar.value : null
+    if (dr.status === 'rejected' && ar.status === 'rejected') err.value = '加载失败'
     desktop.value = d
     android.value = a
     if (a && a.url) {
@@ -63,8 +69,8 @@ async function loadAndroid() {
 }
 
 function openUrl(u) {
-  if (!u) return
-  window.open(u, '_blank', 'noopener')
+  // 走统一外链工具：只放行 http/https，避免站点配置里被写入 javascript:/file: 等协议
+  if (u) openExternal(u)
 }
 
 async function copyChecksum(v) {

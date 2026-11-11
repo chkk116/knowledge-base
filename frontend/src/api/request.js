@@ -34,7 +34,10 @@ api.interceptors.response.use(
       // 跳转到登录页（动态导入避免与 router 形成循环依赖）。
       // 公开页（隐私政策/免责声明/客户端下载等）不因 401 踢回登录：未登录访客本就没有令牌，
       // 匿名调用受保护接口返 401 是常态，踢走会导致「点客户端下载又回到登录」的死循环。
-      import('../router').then((m) => {
+      // 按当前入口选路由表：移动端 / 原生壳注册的是 router/mobile（base /m/ 或 /），
+      // 硬编码桌面 router 会把未登录用户推到 /login（移动端是 /m/login 或原生壳的根路径）→ 空白页。
+      const mobile = !!window.__KB_MOBILE__
+      import(mobile ? '../router/mobile' : '../router').then((m) => {
         // 用当前地址解析目标路由（首次导航未完成时 currentRoute 还停在 START_LOCATION，
         // 直接读 meta 会误判，所以按 pathname 重新 resolve 一次）
         const r = m.default.resolve(window.location.pathname)

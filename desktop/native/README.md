@@ -1,25 +1,27 @@
 # 知识库桌面端（原生 Compose）
 
-`knowledge-base/desktop/native/` — 用 **Kotlin + Compose Multiplatform Desktop** 写的原生 Windows 客户端骨架（非 WebView 套壳）。`desktop/` 上一层的 Electron 版保留不动。
+`knowledge-base/desktop/native/` — 用 **Kotlin + Compose Multiplatform Desktop** 写的原生 Windows 客户端（非 WebView 套壳），交付形态为单文件安装程序。`desktop/` 上一层的 Electron 版保留不动。
 
-## 已实现（骨架 v1 + 文章/文件）
+## 已实现（1.0.3）
 
 - 登录窗：账号密码 + 滑块验证码，与 Web 端同一套接口
   （`GET /api/auth/captcha` → `POST /api/auth/captcha/slide` → `POST /api/auth/login`）
 - 主窗：左侧原生侧栏（首页/文章/AI 问答/我的文件/设置）+ WPS 风白底卡内容区
 - 窗口：登录初始 960×640（下限 640×540）/ 主界面 1280×800（下限 960×620）；窗口 <880dp 时侧栏收成图标栏
-- **登录页**（对齐 Claude/ChatGPT 登录构成）：暖奶油底大留白 + 居中 400dp 白卡
-  （16dp 圆角、暖色细边、软阴影），卡内左对齐：品牌瓦片 →「欢迎回来」→ 无标签大输入框
+- **登录页**：左品牌渐变栏（黛青 + 月白 + 金点缀，产品名 / 卖点）+ 右表单；品牌瓦片 →「欢迎回来」→ 无标签大输入框
   （44 高/10 圆角/聚焦品牌描边）→ 墨色实心按钮；autofocus、Enter 提交、用户名预填上次账号；
   验证码为「安全验证」卡浮层（标题 + 关闭×，舞台右上角换一张圆钮，药丸滑条）
 - **文章页**：左侧原生列表（`GET /api/docs`，字段与 Web 端一致）+ 右侧 WebView2 阅读视图
   （详情 content 为服务端净化过的 HTML，正文注入 `<base href>` 使 `/uploads` 图片可达；
   进入面板先检测系统 WebView2 运行时，缺失时显示安装提示）
 - **我的文件**：原生列表（`GET /api/files/mine`），点击在系统浏览器打开
-- **服务器地址不进界面**（用户要求）：读 `%APPDATA%\kb-desktop\config.json` 的 `server` 字段
-  （或环境变量 `KB_DESKTOP_SERVER`），默认 `https://chkk116.cn`；token 不落盘
-- **打包**（jpackage 双产物，已实测）：免安装自包含目录（捆绑 JRE，冒烟 exit 0）+
-  Exe 安装包（按用户安装、开始菜单组「知识库」+ 桌面快捷方式；安装/卸载零残留）
+- **服务器地址不进界面**（用户要求）：侧栏用户名下、页面头、设置「关于」、登录页品牌栏共 4 处均不显示域名；
+  地址只读 `%APPDATA%\kb-desktop\config.json` 的 `server` 字段（或 `KB_DESKTOP_SERVER` 环境变量），
+  默认 `https://chkk116.cn`；token 不落盘
+- **打包**（已实测）：`createDistributable` 出开发态自包含目录（捆绑 JRE，仅开发验证用）；
+  `packageInnoSetup` 出**单文件中文安装程序** `kb-desktop-<版本>-setup.exe`（Inno Setup 6，可选安装位置、
+  开始菜单组「知识库」+ 桌面快捷方式、固定 AppId 支持覆盖升级）；打包前需先结束占用 app-image 的
+  `kb-desktop.exe` 进程，否则 Gradle 删不掉目录
 
 ## 更新渠道
 
@@ -27,8 +29,9 @@
   数据源 `kb_sys_setting` 的 `app_version_desktop`（JSON：`versionCode/versionName/url/notes/checksum/force`）。
 - 客户端：启动后静默拉取该接口，`versionCode` 大于本地 `AppInfo.versionCode` 时顶部提示；
   「设置」页可手动检查更新，发现新版本给出更新说明与「下载更新」（浏览器打开安装包地址）。
-- 发版流程：改 `AppInfo.versionCode/versionName` + `build.gradle.kts` 的 `packageVersion` →
-  `packageExe` → 上传 exe 到服务器 → 更新 `app_version_desktop` 的 `versionCode/url/checksum`。
+- 发版流程：改 `AppInfo.versionCode/versionName`（`packageVersion` 从它读取，勿再单独改一处）→
+  `packageInnoSetup` → 上传 setup.exe 到服务器 → 更新 `app_version_desktop` 的
+  `versionCode/url/checksum`（**新包必须重算 SHA-256**，旧值会让更新校验失败）。
 
 ## 本机运行
 
@@ -41,16 +44,21 @@ cd C:\chkk\知识库\knowledge-base\desktop\native
 C:\chkk\tools\gradle-8.14.3\bin\gradle.bat run          # 开发运行
 C:\chkk\tools\gradle-8.14.3\bin\gradle.bat build        # 编译校验
 $env:KB_SMOKE="1"; gradle.bat run                       # 冒烟：启动 5 秒自动退出
-C:\chkk\tools\gradle-8.14.3\bin\gradle.bat createDistributable   # 免安装自包含目录（捆绑 JRE）
-C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # Exe 安装包
-# 产物在 C:\chkk\tools\kbbuild\native\compose\binaries\main\{app,exe}\
+C:\chkk\tools\gradle-8.14.3\bin\gradle.bat createDistributable   # 开发态自包含目录（捆绑 JRE）
+C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageInnoSetup       # 单文件中文安装程序（需 Inno Setup 6 便携版）
+C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpackage Exe 安装包
+# 产物：C:\chkk\tools\kbbuild\native\compose\binaries\main\{app,exe}\ 与 ...\native\inno\*-setup.exe
 ```
 
 ## 技术锚点
 
-- Compose Multiplatform **1.13.0-beta02**（2026-11，用户拍板用 beta）+ Kotlin **2.4.20** + Gradle 8.14.3，JVM 工具链 21
-- 打包：`createDistributable`（免 WiX，出 app/kb-desktop 自包含目录）+ `packageExe`
-  （Exe 安装包，jpackage + 插件自动管理的 WiX 3.11.2，zip 缓存在 `~/.gradle/compose-jb/wix311.zip`）
+- Compose Multiplatform **1.13.0-beta02**（2026-11）+ Kotlin **2.4.20** + Gradle 8.14.3，JVM 工具链 21
+  ⚠️ `ui` / `foundation` / `material3` **必须同版本**：曾把 material3 写成 1.5.0-beta02，
+  它拖进旧 `material-ripple`（CommonRipple 是普通 `Indication`），而 1.13 的 `clickable` 要求
+  `IndicationNodeFactory`，导致进主界面组合期崩溃；对齐到 1.13.0-beta02 后修复
+- 打包：`createDistributable`（出 app/kb-desktop 自包含目录）+ `packageInnoSetup`
+  （单文件安装程序，Inno Setup 6 + `packaging/ChineseSimplified.isl`）；`packageExe` 作兜底
+  （jpackage + 插件自动管理的 WiX 3.11.2，zip 缓存在 `~/.gradle/compose-jb/wix311.zip`）
 - **构建目录重定向**（关键坑）：jlink/jpackage/WiX 在本机处理不了含中文的路径——
   jlink 对 `C:\chkk\知识库\...` 静默失败（exit 0 但不产出目录，Gradle 还会记住"无输出"从此永远
   UP-TO-DATE）；`build.gradle.kts` 已把构建输出指到 `C:/chkk/tools/kbbuild/native`，源码不动。

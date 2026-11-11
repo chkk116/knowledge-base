@@ -54,7 +54,7 @@ Meilisearch 毫秒级检索 + 数据库逐词兜底降级，检索结果与文�
 题库与在线考试、课程学习与证书、资产借还、积分徽章排行榜、实时通知中心，培训考核一站式闭环。
 
 **核心优势 6：三端覆盖！**
-Web 全功能 + Electron 桌面客户端 + Capacitor Android + **Kotlin 原生壳**（Jetpack Compose，`mobile/mobile-native`），内网 / 公网 HTTPS 部署模板齐备。
+Web 全功能 + Electron 桌面客户端 + **原生 Windows 桌面客户端**（Kotlin / Compose Multiplatform，`desktop/native`，单文件安装包）+ Capacitor Android + **Kotlin 原生壳**（Jetpack Compose，`mobile/mobile-native`），内网 / 公网 HTTPS 部署模板齐备；站内 `/download` 提供客户端下载中心。
 
 ---
 
@@ -216,6 +216,7 @@ Web 全功能 + Electron 桌面客户端 + Capacitor Android + **Kotlin 原生�
 | 搜索 | Meilisearch（可选，`docker-compose.yml`）· MySQL LIKE 降级兜底 |
 | AI | 标准 OpenAI 协议（`/chat/completions`）+ 自定义模型配置，RAG 检索增强 |
 | 桌面端 | Electron 33：纯 Node 本地托管 + 反代后端，零框架改动套壳 |
+| 原生桌面端 | Kotlin 2.4.20 + Compose Multiplatform 1.13.0（Windows）：原生侧栏 / 文章阅读（WebView2）/ 应用内更新，单文件安装包交付 |
 | 移动端 | Capacitor 8（Android），远端模式直连内网 / 线上后端 |
 | 工程与质量 | HikariCP 连接池 · Hibernate 7 · Logback 滚动日志（ERROR 分离）· ESLint 9（前端）· Checkstyle + SpotBugs（后端） |
 | 部署 | `deploy/`：env.prod / env.test + nginx 模板，HTTPS + 静态预压缩（.gz / .br） |
@@ -242,12 +243,14 @@ knowledge-base/
 │       ├── responsive.css    # 响应式基础设施（表格卡片化、浮层限宽、表单标签置顶）
 │       └── store/ api/
 ├── collab-relay/             # Hocuspocus 协同中继（Node）：verifyToken 校验 + Yjs 快照持久化到 PostgreSQL
-├── desktop/                  # Electron 桌面客户端（build-web.js 复用前端构建）
+├── desktop/                  # 桌面客户端
+│   ├── build-web.js / web/    # Electron 版：复用前端构建产物 + 反代后端
+│   └── native/               # 原生 Windows 版（Kotlin / Compose Multiplatform，独立 Gradle 工程）
 ├── mobile/
 │   ├── android/              # Capacitor 8 Android 工程（sync-web.js 同步前端产物）
 │   └── mobile-native/        # Kotlin 原生壳（Compose + WebView 混合，独立 Gradle 工程，不含 node_modules）
 ├── deploy/                   # 生产/测试部署：env.prod、env.test、nginx-example.conf
-├── db/                       # init.sql + v113~v123 增量 SQL（并发约束/回收站/版本/禁词库等）
+├── db/                       # init.sql + v113~v129 增量 SQL（并发约束/回收站/版本/空间邀请等）
 ├── docker-compose.yml        # 可选基础设施（Meilisearch 等，默认不启动）
 └── pom.xml                   # Maven 聚合工程
 ```
@@ -347,7 +350,9 @@ ws 地址跟随页面协议：HTTPS 同源走 `/collab/`，HTTP 走 `ws://主机
 | `zhangsan` | `Zhang@123` | USER |
 | `lisi` | `Li@123` | USER |
 
-## 桌面客户端（Electron）——实验性预览
+## 桌面客户端
+
+### Electron 版（实验性预览）
 
 > ⚠️ **状态：初步可用，尚未完整验证**。核心流程（登录 / 文档浏览 / 协同）已跑通，仅做了简单试用，不建议作为生产主力端。
 
@@ -360,6 +365,19 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 - 产物：`desktop/dist-electron/知识库 Setup 1.0.0.exe`（安装版）/ `win-unpacked/知识库.exe`（免安装）
 - 设计特性：自绘深蓝紫标题栏、原生登录框 + 安全验证弹窗、单实例锁、系统托盘常驻
 - 后端地址默认 `http://localhost:8080`，环境变量 `KB_BACKEND_URL` / `KB_BACKEND_WS` 可覆盖
+
+### 原生 Windows 版（Compose Multiplatform）
+
+`desktop/native/` 是**非 WebView 套壳**的原生客户端（Kotlin + Compose），交付形态为**一个安装程序 exe**：中文安装向导、可自选安装位置、开始菜单与桌面快捷方式，装完点图标即用，用户不必面对运行时目录。
+
+- 已实现：登录（含滑块验证码）、原生侧栏（首页 / 文章 / AI 问答 / 我的文件 / 设置）、文章列表 + WebView2 阅读视图、我的文件、应用内更新检查
+- **界面不展示服务器地址**：侧栏、页面头、设置「关于」、登录页均不显示域名；地址只从 `%APPDATA%\kb-desktop\config.json` 或 `KB_DESKTOP_SERVER` 环境变量读取，token 不落盘
+- 版本独立于 Web 端：`AppInfo.versionCode/versionName`，更新通道 `desktop`（`GET /api/public/app-version?channel=desktop`）
+- 构建：`gradle createDistributable` 出开发态自包含目录；`gradle packageInnoSetup` 出单文件安装包（详见 `desktop/native/README.md`）
+
+## 客户端下载中心
+
+站内 `/download`（移动端 `/m/download`）集中提供 Web / 桌面 / Android 客户端入口：后台 `/admin/download` 可开关各平台下载项与展示文案，普通用户从右上角头像菜单、移动端「我的 → 工具」及帮助中心均可进入；AI 问答内置站点路径速查，问「客户端在哪下载」能直接给出页面路径。
 
 ## 缓存与限流（可选 Redis）
 
@@ -533,7 +551,7 @@ App 壳内走 WebView 需在 preferences 里写死后端地址，不能用相对
 
 若上述开源义务与你的使用计划冲突——例如将本系统整合进**不愿开源的闭源商业产品**，或部署**修改版**但不履行开源义务——可联系作者购买**商业授权**（双许可模式，同一份代码两种许可任选，功能完全一致）。
 
-> 说明：项目处于快速迭代阶段，桌面端为实验性预览、移动端尚未验证，商业授权评估建议以 Web 端为基准。
+> 说明：项目处于快速迭代阶段，Electron 桌面端为实验性预览、移动端尚未验证，商业授权评估建议以 Web 端为基准；原生 Windows 桌面端已可打包交付。
 
 ### 联系作者
 

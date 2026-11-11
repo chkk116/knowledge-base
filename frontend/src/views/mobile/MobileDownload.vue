@@ -79,7 +79,7 @@ onMounted(load)
   <div class="page">
     <header class="m-header solid">
       <button class="m-header-act" @click="router.back()"><el-icon :size="20"><ArrowLeft /></el-icon></button>
-      <div class="h-title">客户端下载</div>
+      <div class="h-title">{{ dl.title || '客户端下载' }}</div>
       <span class="h-ph"></span>
     </header>
 
@@ -103,6 +103,10 @@ onMounted(load)
             <span v-if="p.v && p.v.versionName" class="dl-ver">v{{ p.v.versionName }}</span>
           </div>
           <p class="dl-note">{{ (p.v && p.v.notes) || p.fallback }}</p>
+          <div v-if="p.v && p.v.checksum" class="dl-hash">
+            <span>SHA-256</span>
+            <code>{{ p.v.checksum }}</code>
+          </div>
           <button class="dl-btn" :disabled="!(p.v && p.v.url)" @click="open(p.v && p.v.url)">
             {{ (p.v && p.v.url) ? '下载' : '暂未上传' }}
           </button>
@@ -133,6 +137,10 @@ onMounted(load)
   background: var(--m-primary-soft); border-radius: 6px; padding: 2px 8px; flex: none;
 }
 .dl-note { margin: 12px 0 14px; font-size: 13px; line-height: 1.7; color: var(--m-text-sub); }
+/* 页脚提示用户核对 SHA-256，移动端也要能看到校验值（长按可复制） */
+.dl-hash { margin: -4px 0 12px; font-size: 11px; color: var(--m-text-dim); }
+.dl-hash span { display: block; margin-bottom: 3px; }
+.dl-hash code { display: block; word-break: break-all; line-height: 1.5; user-select: all; color: var(--m-text-sub); }
 .dl-btn {
   width: 100%; height: 42px; border: none; border-radius: 11px; cursor: pointer;
   background: var(--m-primary); color: #fff; font-size: 15px; font-weight: 600;

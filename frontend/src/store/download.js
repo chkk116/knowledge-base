@@ -27,8 +27,8 @@ export const useDownloadStore = defineStore('download', {
   state: () => ({ ...DEFAULTS, loaded: false }),
 
   getters: {
-    /** 是否有可展示的入口：总开关打开且至少一个平台开启 */
-    visible: (s) => !!s.enabled && (!!s.app || !!s.desktop),
+    /** 是否有可展示的入口：配置拉取完成后再判定，避免后台已关闭但首帧仍闪出入口 */
+    visible: (s) => s.loaded && truthy(s.enabled) && (truthy(s.app) || truthy(s.desktop)),
     payload: (s) => JSON.stringify({
       enabled: s.enabled,
       app: s.app,
@@ -59,7 +59,8 @@ export const useDownloadStore = defineStore('download', {
     /** 保存（需 SITE_SETTINGS_MANAGE / CORE_MAINTAIN） */
     async save() {
       await api.put('/admin/settings/download_center', { value: this.payload })
-      this.loaded = true
+      // 回读后端落库值，避免表单里的非布尔值（如 'false'）留在 state 造成开关状态漂移
+      await this.load()
     }
   }
 })

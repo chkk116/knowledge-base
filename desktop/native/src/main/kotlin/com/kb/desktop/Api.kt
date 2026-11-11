@@ -256,7 +256,8 @@ class ApiClient(private val base: String) {
 
     /** GET /api/public/app-version?channel=desktop → 最新版本信息（免登录） */
     suspend fun appVersion(channel: String = AppInfo.channel): AppVersionInfo = withContext(Dispatchers.IO) {
-        val o = parse(get("/api/public/app-version?channel=$channel")) ?: throw ApiError("版本信息响应异常")
+        val q = java.net.URLEncoder.encode(channel, "UTF-8")
+        val o = parse(get("/api/public/app-version?channel=$q")) ?: throw ApiError("版本信息响应异常")
         AppVersionInfo(
             versionCode = o.int("versionCode") ?: 0,
             versionName = o.str("versionName").orEmpty(),

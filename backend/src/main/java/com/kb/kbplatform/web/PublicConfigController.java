@@ -192,9 +192,10 @@ public class PublicConfigController {
             Boolean de = bool(n, "desktop");
             if (de != null) r.put("desktop", de);
             String t = str(n, "title");
-            if (t != null) r.put("title", t);
+            // 公开接口对所有人可读：按后台输入框同样的上限裁剪，避免脏配置无限制外溢
+            if (t != null) r.put("title", t.length() > 30 ? t.substring(0, 30) : t);
             String d = str(n, "desc");
-            if (d != null) r.put("desc", d);
+            if (d != null) r.put("desc", d.length() > 120 ? d.substring(0, 120) : d);
         }
         return r;
     }

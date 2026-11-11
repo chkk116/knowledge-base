@@ -10,6 +10,12 @@ plugins {
 // 构建产物统一放纯 ASCII 目录（源码与项目目录不动，构建输出重定向）
 layout.buildDirectory.set(file("C:/chkk/tools/kbbuild/native"))
 
+// 版本号唯一真源：AppInfo.kt 的 versionName（jpackage 与 Inno 安装包共用，避免两处漂移）
+val kbAppVersion = Regex("versionName[\\w\\s:]*=\\s*\"([^\"]+)\"")
+    .find(file("src/main/kotlin/com/kb/desktop/AppInfo.kt").readText())
+    ?.groupValues?.get(1)
+    ?: error("AppInfo.kt 中未找到 versionName 常量")
+
 repositories {
     // 本机连不上 dl.google.com（androidx 系依赖只能从 Google Maven 拉）→ 阿里云镜像优先
     maven { url = uri("https://maven.aliyun.com/repository/google") }
@@ -37,10 +43,10 @@ compose.desktop {
         mainClass = "com.kb.desktop.MainKt"
 
         nativeDistributions {
-            // Windows 专用；安装包走 jpackage（JDK 自带）+ 插件自动管理的 WiX
+            // Windows 专用；安装包主推 Inno Setup（见下方 packageInnoSetup 任务），jpackage Exe 作兜底
             targetFormats(TargetFormat.Exe)
             packageName = "kb-desktop"
-            packageVersion = "1.0.3"
+            packageVersion = kbAppVersion
             vendor = "kb"
             // ⚠️ 打包的运行时镜像必须显式带上 HTTP 客户端与 EC 加密模块：
             // 否则 HTTPS 请求会 ClassNotFoundException: java.net.http.HttpClient
@@ -52,8 +58,25 @@ compose.desktop {
                 menuGroup = "知识库"
                 shortcut = true
                 perUserInstall = true
-                dirChooser = false
+                // 兜底安装器也规范化：允许用户选择安装位置
+                dirChooser = true
+                // 固定升级 UUID：MSI 覆盖升级时识别为同一产品（与 Inno AppId 同一个标识）
+                upgradeUuid = "B919BD52-4E07-45B2-AE2A-6BE675D2429F"
             }
         }
     }
+}
+
+// Inno Setup 安装程序（主推）：中文向导/安装位置可选/开始菜单卸载快捷方式/完成页立即运行。
+// 前置：Inno Setup 6 便携安装于 C:/chkk/tools/inno6，
+// 且 packaging/ChineseSimplified.isl 已复制到 C:/chkk/tools/inno6/Languages/。
+tasks.register<Exec>("packageInnoSetup") {
+    group = "compose desktop"
+    description = "用 Inno Setup 把 app-image 打成中文安装程序（kb-desktop-x.y.z-setup.exe）"
+    dependsOn("createDistributable")
+    val iss = file("packaging/kb-desktop.iss")
+    doFirst {
+        file("C:/chkk/tools/kbbuild/native/inno").mkdirs()
+    }
+    commandLine("C:/chkk/tools/inno6/ISCC.exe", "/DAppVer=$kbAppVersion", iss.absolutePath)
 }
