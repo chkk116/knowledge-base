@@ -67,15 +67,18 @@ private const val CAP_HANDLE = 40
 private val CAP_PIECE_MAX = (CAP_BASE_W - CAP_PIECE).toFloat()
 
 // 登录页配色（对齐飞书/钉钉桌面端：品牌渐变 + 白底表单）
-private val BrandStart = Color(0xFF4F46E5)
-private val BrandEnd = Color(0xFF7C3AED)
-private val PageBg = Color(0xFFF6F7FB)
-private val FieldFill = Color(0xFFF7F8FA)
-private val FieldBorder = Color(0xFFE6E8EB)
-private val Placeholder = Color(0xFFA8AEB8)
+// 黛青 + 月白 + 一点金：书院气，避开「AI 紫」
+private val BrandStart = Color(0xFF1E3A3C)   // 深黛
+private val BrandEnd = Color(0xFF2E5C55)     // 黛青
+private val Accent = Color(0xFF2F6F63)       // 松绿（按钮/链接/聚焦）
+private val Gold = Color(0xFFC9A96A)         // 点缀金
+private val PageBg = Color(0xFFF7F5EF)       // 月白
+private val FieldFill = Color(0xFFF8F7F2)
+private val FieldBorder = Color(0xFFE5E1D6)
+private val Placeholder = Color(0xFFA7A69D)
 private val InkBtn = Color(0xFF26292F)      // 验证码滑块把手（深色）
 private val ErrRed = Color(0xFFDC2626)
-private val LinkColor = Color(0xFF4F46E5)
+private val LinkColor = Accent
 
 /**
  * 兼容当前 Compose 版本的 clickable。
@@ -232,7 +235,7 @@ fun LoginScreen(initialServer: String, onLogin: (Session) -> Unit) {
                             Modifier.size(28.dp).clip(CircleShape)
                                 .kbClickable { showPwd = !showPwd },
                             contentAlignment = Alignment.Center,
-                        ) { EyeGlyph(showPwd, if (showPwd) KbPrimary else Placeholder, Modifier.size(18.dp)) }
+                        ) { EyeGlyph(showPwd, if (showPwd) Accent else Placeholder, Modifier.size(18.dp)) }
                     },
                 )
 
@@ -411,6 +414,8 @@ private fun BrandPanel(modifier: Modifier, server: String) {
             }
 
             Spacer(Modifier.weight(1f))
+            Box(Modifier.width(34.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(Gold))
+            Spacer(Modifier.height(18.dp))
             Text(
                 "让知识有序沉淀", fontSize = 32.sp, fontWeight = FontWeight.Bold,
                 color = Color.White, lineHeight = 42.sp,
@@ -509,7 +514,7 @@ private fun LoginField(
         singleLine = true,
         textStyle = TextStyle(fontSize = 14.sp, color = KbTextMain),
         visualTransformation = if (obscure) PasswordVisualTransformation() else VisualTransformation.None,
-        cursorBrush = SolidColor(KbPrimary),
+        cursorBrush = SolidColor(Accent),
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
@@ -517,7 +522,7 @@ private fun LoginField(
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(11.dp))
             .background(FieldFill)
-            .border(1.dp, if (focused) KbPrimary else FieldBorder, RoundedCornerShape(11.dp)),
+            .border(1.dp, if (focused) Accent else FieldBorder, RoundedCornerShape(11.dp)),
         decorationBox = { inner ->
             Row(
                 Modifier.fillMaxSize().padding(horizontal = 14.dp),
@@ -590,7 +595,7 @@ private fun CaptchaStage(
                     .offset { IntOffset((pieceLeft / CAP_PIECE_MAX * (CAP_BASE_W - CAP_HANDLE)).toInt(), 0) }
                     .size(CAP_HANDLE.dp, 26.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (pieceLeft >= CAP_PIECE_MAX) KbPrimary else InkBtn)
+                    .background(if (pieceLeft >= CAP_PIECE_MAX) Accent else InkBtn)
                     .pointerInput(captcha) {
                         detectDragGestures(
                             onDragEnd = { onRelease() },

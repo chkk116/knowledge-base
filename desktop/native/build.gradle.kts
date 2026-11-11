@@ -40,7 +40,7 @@ compose.desktop {
             // Windows 专用；安装包走 jpackage（JDK 自带）+ 插件自动管理的 WiX
             targetFormats(TargetFormat.Exe)
             packageName = "kb-desktop"
-            packageVersion = "1.0.1"
+            packageVersion = "1.0.2"
             vendor = "kb"
 
             windows {
