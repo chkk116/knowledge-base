@@ -30,7 +30,7 @@ class AiKeyCipherTest {
     @DisplayName("加解密往返：明文可解回，且不同次加密的密文不同（IV 随机）")
     void roundTrip() {
         AiKeyCipher c = new AiKeyCipher(STRONG_KEY, env());
-        String plain = "sk-abcdef1234567890";
+        String plain = "unit-test-placeholder-abcdef1234567890";
         String c1 = c.encrypt(plain);
         String c2 = c.encrypt(plain);
         assertEquals(plain, c.decrypt(c1));
