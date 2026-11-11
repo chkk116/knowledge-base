@@ -31,8 +31,16 @@ api.interceptors.response.use(
       //   发生一次 401（如 token_version 变更、弱网误判），登出逻辑就把整个 cache 表清空，
       //   用户下载的离线文档全部消失。IndexedDB 本身能跨版本存活，别的东西别再动它。
       window.dispatchEvent(new Event('kb-unauthorized'))
-      // 跳转到登录页（动态导入避免与 router 形成循环依赖）
-      import('../router').then((m) => m.default.push('/login')).catch(() => {})
+      // 跳转到登录页（动态导入避免与 router 形成循环依赖）。
+      // 公开页（隐私政策/免责声明/客户端下载等）不因 401 踢回登录：未登录访客本就没有令牌，
+      // 匿名调用受保护接口返 401 是常态，踢走会导致「点客户端下载又回到登录」的死循环。
+      import('../router').then((m) => {
+        // 用当前地址解析目标路由（首次导航未完成时 currentRoute 还停在 START_LOCATION，
+        // 直接读 meta 会误判，所以按 pathname 重新 resolve 一次）
+        const r = m.default.resolve(window.location.pathname)
+        if (r && r.meta && r.meta.public) return
+        m.default.push('/login')
+      }).catch(() => {})
       return Promise.reject(err)
     }
     // 演示账号写操作被拒（403 + demo:true）：给出统一、明确的「演示账户不能…」提示，

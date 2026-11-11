@@ -7,6 +7,7 @@ import { dmUnreadCount, refreshDmUnread } from './store/dm'
 import ReportDialog from './components/ReportDialog.vue'
 import { useWatermarkStore, buildContent } from './store/watermark'
 import { useSiteInfoStore } from './store/siteInfo'
+import { useDownloadStore } from './store/download'
 import { usePrefsStore, applyPrefs } from './store/prefs'
 import { useScenarioStore } from './store/scenario'
 import WornBadgeStrip from './components/WornBadgeStrip.vue'
@@ -26,6 +27,7 @@ const auth = useAuthStore()
 const notification = useNotificationStore()
 const wm = useWatermarkStore()
 const siteInfo = useSiteInfoStore()
+const download = useDownloadStore()
 
 // 界面偏好（布局 / 外观 / 密度）：本地持久化，改完即时生效（2026-10-22）
 const prefs = usePrefsStore()
@@ -72,6 +74,8 @@ onMounted(async () => {
   wm.dark = isDark.value   // 初始化水印主题状态（与当前页面主题一致）
   // 页脚配置走公开接口，**登录前也要拉**（登录页底部同样要展示备案信息）
   siteInfo.load()
+  // 客户端下载配置：决定页脚是否显示「客户端下载」入口，登录前也要拉
+  download.load()
   // 场景模板：登录后拉一次，侧栏菜单等术语随之切换（未配置回落通用）
   scenario.load()
   // 水印配置与 client-info 都要求登录态（匿名访问会 401），仅登录后拉取；
@@ -417,6 +421,7 @@ const menus = computed(() => {
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/login-qr', title: '登录页二维码', icon: 'Grid' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/appearance', title: '外观设置', icon: 'Brush' })
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/site-footer', title: '页脚设置', icon: 'Postcard' })
+  if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/download', title: '客户端下载', icon: 'Download' })
   // 场景模板：按部署单位选叫法（医院/学校/企业），只改菜单术语不动数据
   if (auth.hasPerm('SITE_SETTINGS_MANAGE|CORE_MAINTAIN')) siteConfig.push({ index: '/admin/scenario', title: '场景模板', icon: 'Collection' })
   // 系统状态：Redis / 第三方登录连通性 + Redis 开关

@@ -77,6 +77,7 @@ const ICONS = {
 
   // 我的文件：云朵描边 + 箭头
   Upload: `<path d="M7.4 18.6a4.2 4.2 0 0 1-.6-8.4A5.4 5.4 0 0 1 17 9.4a3.8 3.8 0 0 1 .4 7.6" fill="none" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 20.6v-7.4" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 12.6 15 15.6H9l3-3Z" fill="${X}"/>`,
+  Download: `<path d="M7.4 18.6a4.2 4.2 0 0 1-.6-8.4A5.4 5.4 0 0 1 17 9.4a3.8 3.8 0 0 1 .4 7.6" fill="none" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 11.6v7.4" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 19.6 9 16.6h6l-3 3Z" fill="${X}"/>`,
 
   // 消息中心：整个气泡 + 三点
   ChatDotRound: `<path d="M7.4 4.4h9.2a3 3 0 0 1 3 3v5.6a3 3 0 0 1-3 3H10l-4.2 3.1c-.5.4-1.2 0-1.2-.6V7.4a3 3 0 0 1 3-3Z" fill="url(#gd-B)"/><circle cx="9" cy="10.4" r="1.15" fill="#fff"/><circle cx="12.4" cy="10.4" r="1.15" fill="#fff"/><circle cx="15.8" cy="10.4" r="1.15" fill="${X}"/>`,

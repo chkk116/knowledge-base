@@ -12,6 +12,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './store/auth'
 import { useNotificationStore } from './store/notification'
 import { useSiteInfoStore } from './store/siteInfo'
+import { useDownloadStore } from './store/download'
 import { syncOnReconnect, pendingCount } from './utils/offlineStore'
 import { openExternal } from './utils/openExternal'
 import { downloadAndInstall, assertSafeAssetUrl, getCachedApk, installCachedApk } from './utils/appUpdate'
@@ -28,6 +29,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const siteInfo = useSiteInfoStore()
+const download = useDownloadStore()
 const notification = useNotificationStore()
 
 const online = ref(navigator.onLine)
@@ -380,6 +382,7 @@ onMounted(async () => {
   if (auth.loggedIn) notification.connect()
   // 页脚配置走公开接口，登录前也要拉（移动端登录页底部要展示备案信息）
   siteInfo.load()
+  download.load()
   refreshPending()
   if (navigator.onLine) doSync()
   checkBundle()

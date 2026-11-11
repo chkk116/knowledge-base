@@ -8,6 +8,7 @@ const routes = [
   // 隐私政策：公网免登录可读（合规要求，登录页也要能打开）
   { path: '/privacy', component: () => import('../views/Privacy.vue'), meta: { public: true, title: '隐私政策' } },
   { path: '/disclaimer', component: () => import('../views/Disclaimer.vue'), meta: { public: true, title: '免责声明' } },
+  { path: '/download', component: () => import('../views/Download.vue'), meta: { public: true, title: '客户端下载' } },
   // 开发调试页：生产构建不注册（免登录 public 路由不该出现在生产站点，外部复审 2026-10-09；
   // 外部审查 2026-10-11：补齐 mindmap/sheet/sheet-collab/vueflow 四个漏网的调试页）
   ...(import.meta.env.DEV ? [
@@ -119,6 +120,7 @@ const routes = [
   { path: '/admin/login-qr', component: () => import('../views/admin/LoginQrSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '登录页二维码' } },
   { path: '/admin/appearance', component: () => import('../views/admin/AppearanceSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '外观设置' } },
   { path: '/admin/site-footer', component: () => import('../views/admin/SiteFooterSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '页脚设置' } },
+  { path: '/admin/download', component: () => import('../views/admin/DownloadSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '客户端下载' } },
   { path: '/admin/scenario', component: () => import('../views/admin/ScenarioSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '场景模板' } },
   { path: '/admin/banned-words', component: () => import('../views/admin/BannedWordsManage.vue'), meta: { admin: true, perm: 'BANNED_WORDS_MANAGE', title: '违禁词管理' } },
   // AI 模型与 API Key 属敏感凭证：仅完全管理员（adminOnly），不给细粒度权限码，

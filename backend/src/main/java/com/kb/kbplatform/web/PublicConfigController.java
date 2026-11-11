@@ -166,6 +166,40 @@ public class PublicConfigController {
     }
 
     /**
+     * 下载中心配置：GET /api/public/download-config（免登录）
+     *
+     * 网站页脚/下载页要展示「客户端下载」入口，入口与平台的开关由管理员在后台控制。
+     * 数据源 SysSetting 的 download_center（JSON）：
+     *   { "enabled": true, "app": true, "desktop": true, "title": "客户端下载", "desc": "..." }
+     * 未配置时**默认启用**（三个开关都为 true），管理员关掉后页脚入口与下载页即隐藏。
+     * 具体版本信息仍走 /api/public/app-version 各通道，不在这里下发。
+     */
+    @GetMapping("/download-config")
+    public Map<String, Object> downloadConfig() {
+        Map<String, Object> r = new java.util.LinkedHashMap<>();
+        r.put("enabled", Boolean.TRUE);
+        r.put("app", Boolean.TRUE);
+        r.put("desktop", Boolean.TRUE);
+        r.put("title", "客户端下载");
+        r.put("desc", "下载知识库客户端，随时随地使用");
+        SysSetting s = settingRepo.findByKey("download_center").orElse(null);
+        if (s != null && s.getValue() != null && !s.getValue().isBlank()) {
+            JsonNode n = parse(s.getValue());
+            Boolean en = bool(n, "enabled");
+            if (en != null) r.put("enabled", en);
+            Boolean ap = bool(n, "app");
+            if (ap != null) r.put("app", ap);
+            Boolean de = bool(n, "desktop");
+            if (de != null) r.put("desktop", de);
+            String t = str(n, "title");
+            if (t != null) r.put("title", t);
+            String d = str(n, "desc");
+            if (d != null) r.put("desc", d);
+        }
+        return r;
+    }
+
+    /**
      * App 版本检查：GET /api/public/app-version（免登录）
      *
      * App 启动时拉取，用 versionCode 跟本地比对，决定是否提示升级。

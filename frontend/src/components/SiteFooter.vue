@@ -16,6 +16,7 @@
  */
 import { APP_NAME, APP_VERSION } from '../utils/appInfo'
 import { useSiteInfoStore, ICP_URL, policeUrl } from '../store/siteInfo'
+import { useDownloadStore } from '../store/download'
 
 defineProps({
   /** 移动端紧凑样式：字号更小、无上边框 */
@@ -30,6 +31,7 @@ defineProps({
 })
 
 const siteInfo = useSiteInfoStore()
+const download = useDownloadStore()
 
 /** 链接协议白名单：服务端已校验，这里是渲染端最后一道防线（防历史脏数据 / 直改缓存） */
 const safeHref = (u) => /^https?:\/\//i.test(String(u || '').trim())
@@ -45,6 +47,10 @@ const safeHref = (u) => /^https?:\/\//i.test(String(u || '').trim())
         <img class="sf-police-ico" src="/police.png" alt="公安备案" />
         <span>{{ siteInfo.policeNo }}</span>
       </a>
+    </div>
+
+    <div v-if="download.visible" class="sf-line">
+      <router-link class="sf-link" to="/download">客户端下载</router-link>
     </div>
 
     <div class="sf-line">
