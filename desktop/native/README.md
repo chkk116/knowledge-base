@@ -14,6 +14,8 @@
 - **我的文件**：原生列表（`GET /api/files/mine`），点击在系统浏览器打开
 - **服务器地址不进界面**（用户要求）：读 `%APPDATA%\kb-desktop\config.json` 的 `server` 字段
   （或环境变量 `KB_DESKTOP_SERVER`），默认 `http://localhost:8080`；token 不落盘
+- **打包**（jpackage 双产物，已实测）：免安装自包含目录（捆绑 JRE，冒烟 exit 0）+
+  Exe 安装包（按用户安装、开始菜单组「知识库」+ 桌面快捷方式；安装/卸载零残留）
 
 ## 本机运行
 
@@ -26,12 +28,22 @@ cd C:\chkk\知识库\knowledge-base\desktop\native
 C:\chkk\tools\gradle-8.14.3\bin\gradle.bat run          # 开发运行
 C:\chkk\tools\gradle-8.14.3\bin\gradle.bat build        # 编译校验
 $env:KB_SMOKE="1"; gradle.bat run                       # 冒烟：启动 5 秒自动退出
+C:\chkk\tools\gradle-8.14.3\bin\gradle.bat createDistributable   # 免安装自包含目录（捆绑 JRE）
+C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # Exe 安装包
+# 产物在 C:\chkk\tools\kbbuild\native\compose\binaries\main\{app,exe}\
 ```
 
 ## 技术锚点
 
 - Compose Multiplatform **1.13.0-beta02**（2026-11，用户拍板用 beta）+ Kotlin **2.4.20** + Gradle 8.14.3，JVM 工具链 21
-- 打包：Gradle `compose.desktop` 插件 `packageDistributionForCurrentOS`（jpackage，Exe 目标；MSI 需 WiX）
+- 打包：`createDistributable`（免 WiX，出 app/kb-desktop 自包含目录）+ `packageExe`
+  （Exe 安装包，jpackage + 插件自动管理的 WiX 3.11.2，zip 缓存在 `~/.gradle/compose-jb/wix311.zip`）
+- **构建目录重定向**（关键坑）：jlink/jpackage/WiX 在本机处理不了含中文的路径——
+  jlink 对 `C:\chkk\知识库\...` 静默失败（exit 0 但不产出目录，Gradle 还会记住"无输出"从此永远
+  UP-TO-DATE）；`build.gradle.kts` 已把构建输出指到 `C:/chkk/tools/kbbuild/native`，源码不动。
+  若换机器重建：插件要下 WiX 时 GitHub 直连会被重置，可先用代理预埋 zip 到缓存位，
+  或设 `WIX_PATH` 环境变量指向现成 WiX 目录
+- 应用图标暂用插件默认 .ico（TODO：出正式 .ico）
 - 编辑器/阅读区内嵌：`io.github.kdroidfilter:composewebview:1.0.0-beta-02`（已接入，阅读视图用），
   桌面端是 wry 绑定（Tauri 系），Windows 走系统自带 WebView2 运行时，不需要分发 CEF；
   注意桌面端 `loadHtml` 会忽略 baseUrl 参数，相对路径要靠 HTML 里的 `<base>` 标签

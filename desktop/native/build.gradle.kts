@@ -6,6 +6,10 @@ plugins {
     id("org.jetbrains.compose") version "1.13.0-beta02"
 }
 
+// 打包链上的原生工具（jlink/jpackage/WiX candle、light）在本机处理不了含中文的路径，
+// 构建产物统一放纯 ASCII 目录（源码与项目目录不动，构建输出重定向）
+layout.buildDirectory.set(file("C:/chkk/tools/kbbuild/native"))
+
 repositories {
     // 本机连不上 dl.google.com（androidx 系依赖只能从 Google Maven 拉）→ 阿里云镜像优先
     maven { url = uri("https://maven.aliyun.com/repository/google") }
@@ -33,10 +37,19 @@ compose.desktop {
         mainClass = "com.kb.desktop.MainKt"
 
         nativeDistributions {
-            // Windows 专用；出安装包需要 jpackage（JDK 自带）+ WiX
+            // Windows 专用；安装包走 jpackage（JDK 自带）+ 插件自动管理的 WiX
             targetFormats(TargetFormat.Exe)
             packageName = "kb-desktop"
             packageVersion = "1.0.0"
+            vendor = "kb"
+
+            windows {
+                menu = true
+                menuGroup = "知识库"
+                shortcut = true
+                perUserInstall = true
+                dirChooser = false
+            }
         }
     }
 }
