@@ -3,12 +3,14 @@ package com.kb.desktop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -25,7 +27,42 @@ data class CaptchaImg(val token: String, val pieceY: Int, val bg: ByteArray, val
 /** API 异常：message 直接展示给用户。 */
 class ApiError(message: String) : Exception(message)
 
-/** HTTP + JSON 访问层。登录三步：captcha → captcha/slide → login。 */
+/** 文章列表项（GET /api/docs 列表字段）。 */
+data class DocSummary(
+    val id: Long,
+    val title: String,
+    val ownerName: String,
+    val updatedAt: String,
+    val views: Int,
+    val category: String?,
+    val snippet: String?,
+)
+
+/** 文章分页（Spring Page 的 content/totalElements）。 */
+data class DocPage(val items: List<DocSummary>, val total: Long)
+
+/** 文章详情（GET /api/docs/{id}，content 为服务端净化过的 HTML）。 */
+data class DocDetail(
+    val id: Long,
+    val title: String,
+    val content: String,
+    val ownerName: String?,
+    val category: String?,
+    val updatedAt: String?,
+    val views: Int,
+)
+
+/** 我的文件项（GET /api/files/mine）。 */
+data class FileItem(
+    val id: Long,
+    val name: String,
+    val url: String,
+    val size: Long?,
+    val contentType: String?,
+    val createdAt: String,
+)
+
+/** HTTP + JSON 访问层。登录三步 + 文章/文件只读接口。 */
 class ApiClient(private val base: String) {
 
     private val http: HttpClient = HttpClient.newBuilder()
@@ -61,6 +98,25 @@ class ApiClient(private val base: String) {
             .GET()
             .build()).body()
 
+    private fun getAuth(path: String, token: String): String = try {
+        val resp = http.send(HttpRequest.newBuilder(uri(path))
+            .header("Authorization", "Bearer $token")
+            .timeout(Duration.ofSeconds(20))
+            .GET().build(), HttpResponse.BodyHandlers.ofString())
+        when {
+            resp.statusCode() == 401 -> throw ApiError("登录已过期，请重新登录")
+            resp.statusCode() >= 400 -> {
+                val msg = parse(resp.body())?.str("error")
+                throw ApiError(msg ?: "服务器返回 ${resp.statusCode()}")
+            }
+            else -> resp.body()
+        }
+    } catch (e: ApiError) {
+        throw e
+    } catch (e: Exception) {
+        throw ApiError("无法连接服务器：${e.message ?: "网络错误"}")
+    }
+
     private fun parse(text: String?): JsonObject? =
         text?.let { t ->
             runCatching { Json.parseToJsonElement(t).jsonObject }.getOrNull()
@@ -71,6 +127,9 @@ class ApiClient(private val base: String) {
 
     private fun JsonObject.int(key: String): Int? =
         (this[key] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull
+
+    private fun JsonObject.long(key: String): Long? =
+        (this[key] as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull
 
     private fun JsonObject.bool(key: String): Boolean? =
         (this[key] as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull
@@ -130,4 +189,62 @@ class ApiClient(private val base: String) {
         o.str("token")?.takeIf { it.isNotBlank() }
             ?: throw ApiError(o.str("error") ?: "登录失败，请检查账号或密码")
     }
+
+    /** GET /api/docs?page&size&sort → Spring Page {content[], totalElements} */
+    suspend fun docs(token: String, page: Int = 0, size: Int = 30, sort: String = "latest"): DocPage = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/docs?page=$page&size=$size&sort=$sort", token))
+            ?: throw ApiError("文章列表响应异常")
+        val arr = (o["content"] as? JsonArray) ?: throw ApiError("文章列表响应异常")
+        val items = arr.mapNotNull { e ->
+            val j = e as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            DocSummary(
+                id = id,
+                title = j.str("title").orEmpty(),
+                ownerName = j.str("ownerName").orEmpty(),
+                updatedAt = j.str("updatedAt").orEmpty(),
+                views = j.int("views") ?: 0,
+                category = j.str("category"),
+                snippet = j.str("snippet") ?: j.str("content")?.let { plainText(it) },
+            )
+        }
+        DocPage(items, (o["totalElements"] as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull ?: items.size.toLong())
+    }
+
+    /** GET /api/docs/{id} → 文章详情（content 为 HTML） */
+    suspend fun doc(token: String, id: Long): DocDetail = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/docs/$id", token)) ?: throw ApiError("文章响应异常")
+        DocDetail(
+            id = id,
+            title = o.str("title").orEmpty(),
+            content = o.str("content").orEmpty(),
+            ownerName = o.str("ownerName"),
+            category = o.str("category"),
+            updatedAt = o.str("updatedAt"),
+            views = o.int("views") ?: 0,
+        )
+    }
+
+    /** GET /api/files/mine → 数组 */
+    suspend fun myFiles(token: String): List<FileItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/files/mine", token)) }.getOrNull()
+            ?: throw ApiError("文件列表响应异常")
+        val arr = e as? JsonArray ?: throw ApiError("文件列表响应异常")
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            FileItem(
+                id = id,
+                name = j.str("name").orEmpty(),
+                url = j.str("url").orEmpty(),
+                size = j.long("size"),
+                contentType = j.str("contentType"),
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
 }
+
+/** HTML 串粗略去标签，仅作列表摘要兜底。 */
+private fun plainText(html: String): String =
+    html.replace(Regex("<[^>]*>"), " ").replace(Regex("\\s+"), " ").trim().take(80)

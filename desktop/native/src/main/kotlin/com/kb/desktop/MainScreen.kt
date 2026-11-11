@@ -5,11 +5,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,9 +28,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.BoxWithConstraints
+import io.github.kdroidfilter.webview.web.WebContent
+import io.github.kdroidfilter.webview.web.WebView
+import io.github.kdroidfilter.webview.web.WebViewState
 import java.net.URI
 
 enum class MenuKind(val label: String) {
@@ -68,6 +76,8 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                     ) {
                         when (selected) {
                             MenuKind.HOME -> HomePanel(session)
+                            MenuKind.DOCS -> DocsPanel(session)
+                            MenuKind.FILES -> FilesPanel(session)
                             else -> PlaceholderPanel(selected)
                         }
                     }
@@ -260,10 +270,17 @@ private fun HorizontalDivider() {
 }
 
 @Composable
+private fun PanelHint(text: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(text, fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
 private fun HomePanel(session: Session) {
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         Text(
-            "原生桌面端骨架已就绪",
+            "原生桌面端已接通文章与文件",
             style = androidx.compose.ui.text.TextStyle(brush = Brush.linearGradient(listOf(KbPrimaryLight, KbPrimaryDeep))),
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
@@ -272,7 +289,8 @@ private fun HomePanel(session: Session) {
         val lines = listOf(
             "原生 UI：Compose Multiplatform（Kotlin），非 WebView 套壳",
             "登录：滑块验证码 + 账号密码，与 Web 端同一套接口",
-            "下一步：接入 WebView2 内嵌区承载 Tiptap/Yjs 文档编辑器",
+            "文章：原生列表 + WebView 阅读视图（图片走服务器）",
+            "我的文件：原生列表，双击在系统浏览器打开",
         )
         lines.forEach { line ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -295,9 +313,7 @@ private fun PlaceholderPanel(kind: MenuKind) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             val tile = when (kind) {
-                MenuKind.DOCS -> KbTileViolet
                 MenuKind.CHAT -> KbTileGreen
-                MenuKind.FILES -> KbTileAmber
                 else -> KbTileBlue
             }
             Box(
@@ -310,9 +326,7 @@ private fun PlaceholderPanel(kind: MenuKind) {
             Spacer(Modifier.height(12.dp))
             Text(
                 when (kind) {
-                    MenuKind.DOCS -> "文档列表（下一步：左侧列表原生 + 编辑区 WebView2）"
                     MenuKind.CHAT -> "AI 问答（随后接入）"
-                    MenuKind.FILES -> "我的文件（随后接入）"
                     else -> "设置（随后接入）"
                 },
                 fontSize = 13.sp,
@@ -320,6 +334,339 @@ private fun PlaceholderPanel(kind: MenuKind) {
             )
         }
     }
+}
+
+@Composable
+private fun DocsPanel(session: Session) {
+    val api = remember(session) { ApiClient(session.server) }
+    var docs by remember { mutableStateOf<List<DocSummary>>(emptyList()) }
+    var total by remember { mutableStateOf(0L) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var refresh by remember { mutableStateOf(0) }
+    var selected by remember { mutableStateOf<DocSummary?>(null) }
+    var detailLoading by remember { mutableStateOf(false) }
+    var detailError by remember { mutableStateOf<String?>(null) }
+    var detailTick by remember { mutableStateOf(0) }
+    var wv2Ok by remember { mutableStateOf<Boolean?>(null) }
+    val webState = remember { WebViewState(WebContent.Data(BLANK_READER, null)) }
+
+    LaunchedEffect(refresh) {
+        loading = true
+        error = null
+        try {
+            val page = api.docs(session.token)
+            docs = page.items
+            total = page.total
+        } catch (e: Exception) {
+            error = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    LaunchedEffect(selected?.id, detailTick) {
+        val s = selected
+        if (s == null) {
+            detailError = null
+            detailLoading = false
+            return@LaunchedEffect
+        }
+        webState.content = WebContent.Data(BLANK_READER, null)
+        detailError = null
+        detailLoading = true
+        try {
+            val d = api.doc(session.token, s.id)
+            webState.content = WebContent.Data(readerHtml(d, session.server), null)
+        } catch (e: Exception) {
+            detailError = e.message ?: "加载失败"
+        } finally {
+            detailLoading = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        wv2Ok = hasWebView2Runtime()
+    }
+
+    Row(Modifier.fillMaxSize()) {
+        // 左：文章列表
+        Column(Modifier.width(280.dp).fillMaxHeight()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("全部文章", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                if (total > 0) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("$total", fontSize = 10.5.sp, color = KbTextSub)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { refresh++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("刷新", fontSize = 11.sp)
+                }
+            }
+            HorizontalDivider()
+            Box(Modifier.weight(1f)) {
+                when {
+                    loading -> PanelHint("加载中…")
+                    error != null -> Column(
+                        Modifier.fillMaxSize().padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(error ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { refresh++ }) { Text("重试", fontSize = 12.sp) }
+                    }
+                    docs.isEmpty() -> PanelHint("暂无文章")
+                    else -> LazyColumn(Modifier.fillMaxSize()) {
+                        items(docs, key = { it.id }) { d ->
+                            DocRow(d, sel = selected?.id == d.id) { selected = d }
+                        }
+                    }
+                }
+            }
+        }
+        Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
+        // 右：阅读视图
+        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            val s = selected
+            when {
+                s == null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
+                        contentAlignment = Alignment.Center,
+                    ) { MenuGlyph(MenuKind.DOCS, Color.White, Modifier.size(26.dp)) }
+                    Spacer(Modifier.height(12.dp))
+                    Text("在左侧选择文章查看", fontSize = 13.sp, color = KbTextSub)
+                }
+                detailError != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(detailError ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { detailTick++ }) { Text("重试", fontSize = 12.sp) }
+                }
+                detailLoading -> PanelHint("加载中…")
+                wv2Ok == false -> PanelHint("缺少 WebView2 运行时：请安装微软 Edge WebView2 Evergreen Runtime 后重试")
+                else -> WebView(webState, Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+@Composable
+private fun DocRow(d: DocSummary, sel: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .background(if (sel) KbSidebarSelected else Color.Transparent)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+    ) {
+        Text(
+            d.title.ifBlank { "（无标题）" },
+            fontSize = 13.sp,
+            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
+            color = KbTextMain,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            listOfNotNull(
+                d.ownerName.takeIf { it.isNotBlank() },
+                fmtTime(d.updatedAt).takeIf { it.isNotBlank() },
+                "${d.views} 浏览",
+            ).joinToString(" · "),
+            fontSize = 10.5.sp,
+            color = KbTextSub,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (!d.snippet.isNullOrBlank()) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                d.snippet,
+                fontSize = 11.sp,
+                color = KbTextSub,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilesPanel(session: Session) {
+    val api = remember(session) { ApiClient(session.server) }
+    var files by remember { mutableStateOf<List<FileItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var refresh by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refresh) {
+        loading = true
+        error = null
+        try {
+            files = api.myFiles(session.token)
+        } catch (e: Exception) {
+            error = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("全部文件", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { refresh++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                Text("刷新", fontSize = 11.sp)
+            }
+        }
+        HorizontalDivider()
+        Box(Modifier.weight(1f)) {
+            when {
+                loading -> PanelHint("加载中…")
+                error != null -> Column(
+                    Modifier.fillMaxSize().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(error ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { refresh++ }) { Text("重试", fontSize = 12.sp) }
+                }
+                files.isEmpty() -> PanelHint("暂无文件")
+                else -> LazyColumn(Modifier.fillMaxSize()) {
+                    items(files, key = { it.id }) { f ->
+                        FileRow(session, f)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileRow(session: Session, f: FileItem) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { openInBrowser(session.server, f.url) }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(KbIconGradient(KbTileAmber.first, KbTileAmber.second)),
+            contentAlignment = Alignment.Center,
+        ) { MenuGlyph(MenuKind.FILES, Color.White, Modifier.size(17.dp)) }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                f.name.ifBlank { "（未命名）" },
+                fontSize = 13.sp,
+                color = KbTextMain,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                listOfNotNull(
+                    humanSize(f.size).takeIf { it.isNotBlank() },
+                    fmtTime(f.createdAt).takeIf { it.isNotBlank() },
+                ).joinToString(" · "),
+                fontSize = 10.5.sp,
+                color = KbTextSub,
+                maxLines = 1,
+            )
+        }
+        TextButton(onClick = { openInBrowser(session.server, f.url) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+            Text("打开", fontSize = 11.sp)
+        }
+    }
+}
+
+private val BLANK_READER =
+    "<html><head><meta charset=\"utf-8\"><style>html,body{margin:0;background:#fff}</style></head><body></body></html>"
+
+/** 阅读视图：详情 HTML + <base> 指向服务器，让 /uploads 等相对路径可达。 */
+private fun readerHtml(d: DocDetail, server: String): String {
+    val base = server.trimEnd('/') + "/"
+    val owner = esc(d.ownerName.orEmpty())
+    return ("""<!DOCTYPE html><html><head><meta charset="utf-8"><base href="$base"><style>
+html,body{margin:0;padding:0;background:#fff}
+.wrap{max-width:780px;margin:0 auto;padding:30px 36px 60px;box-sizing:border-box}
+h1{font-size:23px;line-height:1.45;margin:0 0 10px;color:#1f2329;font-family:"Microsoft YaHei",system-ui,sans-serif}
+.meta{color:#8a9099;font-size:12.5px;margin-bottom:22px}
+.content{font-size:15px;line-height:1.8;color:#2b2f36;font-family:"Microsoft YaHei",system-ui,sans-serif;word-break:break-word}
+.content img{max-width:100%;height:auto;border-radius:6px}
+.content pre{background:#f5f6f8;padding:12px 14px;border-radius:8px;overflow:auto;font-size:13px;line-height:1.6}
+.content code{background:#f5f6f8;padding:1px 5px;border-radius:4px;font-size:13px}
+.content pre code{background:none;padding:0}
+.content blockquote{border-left:3px solid #e2e5ea;margin:10px 0;padding:2px 16px;color:#5c6470}
+.content table{border-collapse:collapse}
+.content td,.content th{border:1px solid #e2e5ea;padding:6px 10px}
+.content a{color:#3b6ff6}
+</style></head><body><div class="wrap">
+<h1>${esc(d.title)}</h1>
+<div class="meta">${if (owner.isBlank()) "" else "$owner · "}更新于 ${esc(fmtTime(d.updatedAt.orEmpty()))} · ${d.views} 次浏览</div>
+<div class="content">${d.content}</div>
+</div></body></html>""").replace("\n", "")
+}
+
+private fun esc(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+/** "2026-08-14T12:34:56" → "2026-08-14 12:34" */
+private fun fmtTime(raw: String): String = raw.replace("T", " ").take(16)
+
+private fun humanSize(bytes: Long?): String {
+    val b = bytes ?: return ""
+    if (b < 1024) return "$b B"
+    val kb = b / 1024.0
+    if (kb < 1024) return String.format("%.0f KB", kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return String.format("%.1f MB", mb)
+    return String.format("%.2f GB", mb / 1024.0)
+}
+
+private fun openInBrowser(server: String, url: String) {
+    val full = when {
+        url.startsWith("http://") || url.startsWith("https://") -> url
+        else -> server.trimEnd('/') + (if (url.startsWith("/")) url else "/$url")
+    }
+    runCatching { java.awt.Desktop.getDesktop().browse(URI(full)) }
+}
+
+private const val WV2_KEY = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+
+/** 检测系统 WebView2 运行时（Evergreen，查注册表 pv 值），Windows Server 不一定自带。 */
+private fun hasWebView2Runtime(): Boolean {
+    val roots = listOf(
+        "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\$WV2_KEY",
+        "HKLM\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\$WV2_KEY",
+        "HKCU\\Software\\Microsoft\\EdgeUpdate\\Clients\\$WV2_KEY",
+    )
+    for (root in roots) {
+        val out = runCatching {
+            ProcessBuilder("reg", "query", root, "/v", "pv")
+                .redirectErrorStream(true)
+                .start().inputStream.readBytes().toString(Charsets.UTF_8)
+        }.getOrNull() ?: continue
+        val v = Regex("pv\\s+REG_SZ\\s+(\\S+)").find(out)?.groupValues?.get(1)
+        if (!v.isNullOrBlank() && v != "0.0.0.0") return true
+    }
+    return false
 }
 
 /** 菜单线框图标（与 Web 1.3.51 细线风格一致：1.5px 线 + 圆角端点） */

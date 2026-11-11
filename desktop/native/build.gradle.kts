@@ -20,8 +20,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    // 下一步接入编辑器内嵌区时启用（Windows 走系统 WebView2，免分发运行时）：
-    // implementation("io.github.kdroidfilter:composewebview:1.0.0-beta-02")
+    // 阅读视图 WebView（Windows 走系统自带 WebView2 运行时，免分发 CEF）：
+    implementation("io.github.kdroidfilter:composewebview:1.0.0-beta-02")
 }
 
 kotlin {
