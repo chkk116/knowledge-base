@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img">
+  <title>知识库 · 云中文档（放大版）</title>
+  <desc>浅蓝圆角方底，青蓝渐变云与白色文档整体放大 1.32 倍，文字线加深为主色蓝</desc>
+  <defs>
+    <linearGradient id="gCloud" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0891B2"/><stop offset="1" stop-color="#2B6CF6"/></linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="11" fill="#E6F1FB"/>
+  <g transform="translate(24,23) scale(1.32) translate(-24,-24)">
+    <path d="M13 35a8 8 0 0 1 1.2-16 10.8 10.8 0 0 1 20.4 3.6 7 7 0 0 1-.6 12.4H13Z" fill="url(#gCloud)"/>
+    <rect x="19" y="21" width="12" height="18" rx="3.2" fill="#FFFFFF"/>
+    <path d="M22 26h6M22 31h4" stroke="#1677FF" stroke-width="2.3" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

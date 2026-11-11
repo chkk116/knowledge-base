@@ -922,7 +922,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
   <!-- 混合双列：顶部通栏一级导航（logo + 一级菜单），左侧双列在它下方 -->
   <nav v-if="isMixedNav" class="top-nav top-nav--mixed top-nav--global">
     <div class="brand-top" @click="goHome">
-      <img class="brand-ico" :src="siteLogo || '/logo.png?v=2'" alt="" />
+      <img class="brand-ico" :src="siteLogo || '/logo.png?v=3'" alt="" />
       <span v-if="showBrandText" class="brand-txt">{{ brandName }}</span>
     </div>
     <div class="mixed-bar">
@@ -944,7 +944,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                         'dark-menu': prefs.state.sidebarDark, dual: isMixedNav }"
               @mouseenter="hoveringAside = true" @mouseleave="hoveringAside = false">
       <div v-if="!isMixedNav" class="brand" :title="menuCollapsed ? brandName : ''" @click="goHome">
-        <img class="brand-ico" :src="siteLogo || '/logo.png?v=2'" alt="" />
+        <img class="brand-ico" :src="siteLogo || '/logo.png?v=3'" alt="" />
         <span v-if="showBrandText" v-show="!menuCollapsed" class="brand-txt">{{ brandName }}</span>
       </div>
 
