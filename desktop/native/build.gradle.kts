@@ -40,8 +40,12 @@ compose.desktop {
             // Windows 专用；安装包走 jpackage（JDK 自带）+ 插件自动管理的 WiX
             targetFormats(TargetFormat.Exe)
             packageName = "kb-desktop"
-            packageVersion = "1.0.2"
+            packageVersion = "1.0.3"
             vendor = "kb"
+            // ⚠️ 打包的运行时镜像必须显式带上 HTTP 客户端与 EC 加密模块：
+            // 否则 HTTPS 请求会 ClassNotFoundException: java.net.http.HttpClient
+            // （1.0.0/1.0.1/1.0.2 登录、更新失败的根因；开发用完整 JDK 所以不暴露）
+            modules("java.net.http", "jdk.crypto.ec")
 
             windows {
                 menu = true
