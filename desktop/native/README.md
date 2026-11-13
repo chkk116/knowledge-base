@@ -2,7 +2,7 @@
 
 `knowledge-base/desktop/native/` — 用 **Kotlin + Compose Multiplatform Desktop** 写的原生 Windows 客户端（非 WebView 套壳），交付形态为单文件安装程序。`desktop/` 上一层的 Electron 版保留不动。
 
-## 已实现（1.0.4）
+## 已实现（1.0.5）
 
 - 登录窗：账号密码 + 滑块验证码，与 Web 端同一套接口
   （`GET /api/auth/captcha` → `POST /api/auth/captcha/slide` → `POST /api/auth/login`）
@@ -21,7 +21,11 @@
   知识库/通用双模式、模型下拉（`GET /api/ai/models`，scope=user 的走 `userModelId`）；
   回答用轻量 markdown 渲染（标题/列表/代码块/粗体/行内码/链接文本），「引用来源」点击跳文章页打开对应文章；
   思考过程折叠展示；当前无会话时先建会话（标题取问题前 24 字）再提问；
-  尚未做：图片提问、Agent 模式、消息赞/踩、会话重命名
+  尚未做：图片提问、Agent 模式
+- **AI 反馈与会话重命名**：回答下方「👍 有帮助 / 👎 没帮助」（`POST /api/ai/feedback`，
+  rating 1=赞 -1=踩 **0=取消**，同一键再点一次即取消，与 Web 端一致）；仅本次会话新产生的回答可评
+  （历史消息接口不回传 qaId，与 Web 端口径一致）；反馈失败不回滚 UI；
+  会话列表行内重命名（✎ 进入编辑，Enter 提交 Esc 取消，`PUT /api/ai/conversations/{id} {title}`）
 - **服务器地址不进界面**（用户要求）：侧栏用户名下、页面头、设置「关于」、登录页品牌栏共 4 处均不显示域名；
   地址只读 `%APPDATA%\kb-desktop\config.json` 的 `server` 字段（或 `KB_DESKTOP_SERVER` 环境变量），
   默认值见 `ConfigStore.kt`（正式发版按部署目标替换）；token 不落盘
@@ -71,7 +75,11 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
   UP-TO-DATE）；`build.gradle.kts` 已把构建输出指到 `C:/chkk/tools/kbbuild/native`，源码不动。
   若换机器重建：插件要下 WiX 时 GitHub 直连会被重置，可先用代理预埋 zip 到缓存位，
   或设 `WIX_PATH` 环境变量指向现成 WiX 目录
-- 应用图标暂用插件默认 .ico（TODO：出正式 .ico）
+- **应用图标（1.0.5 起）**：`packaging/kb-desktop.ico`（由 `frontend/public/icons/icon-192.png` 生成，
+  全 BMP 条目 192/128/64/48/32/16）用于安装器本体 / 快捷方式 / 控制面板卸载入口（iss 三处 +
+  `{app}\kb-desktop.ico`）；exe 内嵌图标受 CMP 插件限制（1.13 windows DSL 无 iconFile）仍是默认，
+  运行时窗口/任务栏图标由 `Main.kt` 的 `Window(icon=…)` 提供：`Icon.kt` 的 `loadWindowIcon()`
+  从 classpath `kb-icon.png`（= icon-192 副本）经 `loadImageBitmap` 建 `Painter` 自绘，失败回退默认
 - 编辑器/阅读区内嵌：`io.github.kdroidfilter:composewebview:1.0.0-beta-02`（已接入，阅读视图用），
   桌面端是 wry 绑定（Tauri 系），Windows 走系统自带 WebView2 运行时，不需要分发 CEF；
   注意桌面端 `loadHtml` 会忽略 baseUrl 参数，相对路径要靠 HTML 里的 `<base>` 标签

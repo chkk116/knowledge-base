@@ -29,6 +29,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -80,7 +81,7 @@ private val ChatChipBg = Color(0xFFF3F6FD)
 private val ChatReasonBg = Color(0xFFF8F9FB)
 private val ChatErrRed = Color(0xFFDC2626)
 
-/** 一条渲染中的消息：流式期间 content/reasoning 递增，结束后补 sources。 */
+/** 一条渲染中的消息：流式期间 content/reasoning 递增，结束后补 sources/qaId。 */
 private data class ChatMsg(
     val role: String,
     val content: String = "",
@@ -88,6 +89,8 @@ private data class ChatMsg(
     val sources: List<AiSource> = emptyList(),
     val reasoning: String = "",
     val streaming: Boolean = false,
+    val qaId: Long? = null,
+    val fbRating: Int = 0,   // 1=赞 -1=踩 0=无（仅本会话新产生的回答可评价，历史消息没有 qaId）
 )
 
 /**
@@ -113,6 +116,9 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
     var input by remember { mutableStateOf("") }
     var streaming by remember { mutableStateOf(false) }
     val streamHandle = remember { mutableStateOf<ChatStream?>(null) }
+    // 会话重命名：rail 行内编辑
+    var editingConvId by remember { mutableStateOf<Long?>(null) }
+    var renameInput by remember { mutableStateOf("") }
 
     // 面板销毁（切菜单/退出登录）时断开还在生成的连接，避免后台空转
     DisposableEffect(Unit) { onDispose { streamHandle.value?.abort() } }
@@ -177,6 +183,48 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                     msgs = emptyList()
                 } catch (e: Exception) {
                     convError = e.message ?: "创建失败"
+                }
+            }
+        }
+    }
+
+    val startRename: (AiConversationItem) -> Unit = { c ->
+        editingConvId = c.id
+        renameInput = c.title
+    }
+
+    val submitRename: () -> Unit = {
+        val id = editingConvId
+        if (id != null) {
+            val t = renameInput.trim()
+            editingConvId = null
+            if (t.isNotEmpty()) {
+                scope.launch {
+                    try {
+                        val c = api.aiRenameConversation(session.token, id, t)
+                        convs = convs.map { if (it.id == id) c else it }
+                        if (currentConv?.id == id) currentConv = c
+                    } catch (e: Exception) {
+                        convError = e.message ?: "重命名失败"
+                    }
+                }
+            }
+        }
+    }
+
+    val cancelRename: () -> Unit = { editingConvId = null }
+
+    // 赞/踩：1=赞 -1=踩 0=取消（与 Web 端同语义）；同一个键再点一次即取消，失败不回滚 UI
+    val rateMsg: (ChatMsg, Int) -> Unit = { m, rating ->
+        val qaId = m.qaId
+        if (qaId != null) {
+            val next = if (m.fbRating == rating) 0 else rating
+            msgs = msgs.map { mm -> if (mm.role == "ai" && mm.qaId == m.qaId) mm.copy(fbRating = next) else mm }
+            scope.launch {
+                try {
+                    api.aiFeedback(session.token, qaId, next)
+                } catch (_: Exception) {
+                    // 评价是轻量行为：失败不回滚，下次进会话以服务端为准（历史消息不带评价，可重新点）
                 }
             }
         }
@@ -262,6 +310,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                             content = if (m.content.isBlank() && r != null) r.answer else m.content,
                             sources = r?.sources ?: m.sources,
                             reasoning = r?.reasoning ?: m.reasoning,
+                            qaId = r?.qaId ?: m.qaId,
                         ) else m
                     }
                     if (r != null && r.title.isNotBlank()) {
@@ -314,6 +363,12 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                     onOpen = openConv,
                     onDelete = deleteConv,
                     onRetry = reloadConvs,
+                    editingId = editingConvId,
+                    renameText = renameInput,
+                    onRenameText = { renameInput = it },
+                    onStartRename = startRename,
+                    onSubmitRename = submitRename,
+                    onCancelRename = cancelRename,
                 )
                 Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
             }
@@ -337,7 +392,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
-                            itemsIndexed(msgs) { _, m -> ChatMsgRow(m, onOpenDoc = onOpenDoc) }
+                            itemsIndexed(msgs) { _, m -> ChatMsgRow(m, onOpenDoc = onOpenDoc, rateMsg = rateMsg) }
                         }
                     }
                 }
@@ -394,7 +449,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
 }
 
 @Composable
-private fun ChatMsgRow(m: ChatMsg, onOpenDoc: (Long) -> Unit) {
+private fun ChatMsgRow(m: ChatMsg, onOpenDoc: (Long) -> Unit, rateMsg: (ChatMsg, Int) -> Unit) {
     if (m.role == "user") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Box(
@@ -429,6 +484,7 @@ private fun ChatMsgRow(m: ChatMsg, onOpenDoc: (Long) -> Unit) {
                     MdText(m.content)
                 }
                 if (m.sources.isNotEmpty()) SourcesRow(m.sources, onOpenDoc)
+                if (m.qaId != null && !m.streaming) FeedbackRow(m, rateMsg)
             }
         }
     }
@@ -499,6 +555,38 @@ private fun SourcesRow(sources: List<AiSource>, onOpenDoc: (Long) -> Unit) {
     }
 }
 
+/** 赞/踩行（本会话新产生的回答才有 qaId；再点同键取消，与 Web 端一致）。 */
+@Composable
+private fun FeedbackRow(m: ChatMsg, rateMsg: (ChatMsg, Int) -> Unit) {
+    Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        FbButton("👍 有帮助", m.fbRating == 1) { rateMsg(m, 1) }
+        Spacer(Modifier.width(6.dp))
+        FbButton("👎 没帮助", m.fbRating == -1) { rateMsg(m, -1) }
+        if (m.fbRating == 1) {
+            Spacer(Modifier.width(6.dp))
+            Text("已赞，再点一次可取消", fontSize = 10.sp, color = KbTextSub)
+        } else if (m.fbRating == -1) {
+            Spacer(Modifier.width(6.dp))
+            Text("已反馈，再点一次可取消", fontSize = 10.sp, color = KbTextSub)
+        }
+    }
+}
+
+@Composable
+private fun FbButton(label: String, sel: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 10.5.sp,
+        color = if (sel) KbPrimary else KbTextSub,
+        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (sel) ChatChipBg else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    )
+}
+
 @Composable
 private fun ConvRail(
     convs: List<AiConversationItem>,
@@ -509,6 +597,12 @@ private fun ConvRail(
     onOpen: (AiConversationItem) -> Unit,
     onDelete: (AiConversationItem) -> Unit,
     onRetry: () -> Unit,
+    editingId: Long?,
+    renameText: String,
+    onRenameText: (String) -> Unit,
+    onStartRename: (AiConversationItem) -> Unit,
+    onSubmitRename: () -> Unit,
+    onCancelRename: () -> Unit,
 ) {
     Column(Modifier.width(212.dp).fillMaxHeight().background(ChatRailBg)) {
         Box(Modifier.fillMaxWidth().padding(10.dp)) {
@@ -528,12 +622,22 @@ private fun ConvRail(
                 convs.isEmpty() -> ChatHint("还没有历史会话")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     itemsIndexed(convs, key = { _, c -> c.id }) { _, c ->
-                        ConvRow(
-                            c = c,
-                            sel = c.id == currentId,
-                            onOpen = { onOpen(c) },
-                            onDelete = { onDelete(c) },
-                        )
+                        if (editingId == c.id) {
+                            RenameRow(
+                                text = renameText,
+                                onText = onRenameText,
+                                onSubmit = onSubmitRename,
+                                onCancel = onCancelRename,
+                            )
+                        } else {
+                            ConvRow(
+                                c = c,
+                                sel = c.id == currentId,
+                                onOpen = { onOpen(c) },
+                                onDelete = { onDelete(c) },
+                                onRename = { onStartRename(c) },
+                            )
+                        }
                     }
                 }
             }
@@ -541,8 +645,63 @@ private fun ConvRail(
     }
 }
 
+/** 会话行内重命名：小输入框 + 确认/取消，Enter 提交、Esc 取消。 */
 @Composable
-private fun ConvRow(c: AiConversationItem, sel: Boolean, onOpen: () -> Unit, onDelete: () -> Unit) {
+private fun RenameRow(
+    text: String,
+    onText: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(KbSidebarSelected)
+            .padding(start = 8.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = onText,
+            modifier = Modifier.weight(1f).onPreviewKeyEvent { e ->
+                when {
+                    e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) -> {
+                        onSubmit(); true
+                    }
+                    e.type == KeyEventType.KeyDown && e.key == Key.Escape -> {
+                        onCancel(); true
+                    }
+                    else -> false
+                }
+            },
+            singleLine = true,
+            textStyle = LocalTextStyle.current.copy(fontSize = 11.5.sp, color = KbTextMain),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = KbPrimary,
+                unfocusedBorderColor = KbBorder,
+            ),
+        )
+        TextButton(
+            onClick = onSubmit,
+            modifier = Modifier.width(26.dp),
+            contentPadding = PaddingValues(0.dp),
+        ) { Text("✓", fontSize = 12.sp, color = KbPrimary, fontWeight = FontWeight.Bold) }
+        TextButton(
+            onClick = onCancel,
+            modifier = Modifier.width(26.dp),
+            contentPadding = PaddingValues(0.dp),
+        ) { Text("✕", fontSize = 11.sp, color = KbTextSub) }
+    }
+}
+
+@Composable
+private fun ConvRow(
+    c: AiConversationItem,
+    sel: Boolean,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+    onRename: () -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -560,6 +719,11 @@ private fun ConvRow(c: AiConversationItem, sel: Boolean, onOpen: () -> Unit, onD
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        TextButton(
+            onClick = onRename,
+            modifier = Modifier.width(26.dp),
+            contentPadding = PaddingValues(0.dp),
+        ) { Text("✎", fontSize = 10.5.sp, color = KbTextSub) }
         TextButton(
             onClick = onDelete,
             modifier = Modifier.width(30.dp),

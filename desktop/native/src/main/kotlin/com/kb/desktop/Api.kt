@@ -372,6 +372,19 @@ class ApiClient(private val base: String) {
         authReq("DELETE", "/api/ai/conversations/$id", token)
     }
 
+    /** PUT /api/ai/conversations/{id} {title} → 重命名会话（后端会截断清洗） */
+    suspend fun aiRenameConversation(token: String, id: Long, title: String) = withContext(Dispatchers.IO) {
+        val o = parse(authReq("PUT", "/api/ai/conversations/$id", token, """{"title":${jsonStr(title)}}"""))
+            ?: throw ApiError("重命名响应异常")
+        val id2 = o.long("id") ?: id
+        AiConversationItem(id = id2, title = o.str("title").orEmpty(), updatedAt = o.str("updatedAt").orEmpty())
+    }
+
+    /** POST /api/ai/feedback {qaId, rating}；rating：1=赞，-1=踩，0=取消 */
+    suspend fun aiFeedback(token: String, qaId: Long, rating: Int) = withContext(Dispatchers.IO) {
+        authReq("POST", "/api/ai/feedback", token, """{"qaId":$qaId,"rating":$rating,"reason":""}""")
+    }
+
     /** GET /api/ai/conversations/{id}/messages → 历史消息（按时间正序） */
     suspend fun aiMessages(token: String, id: Long): List<AiMsg> = withContext(Dispatchers.IO) {
         val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/ai/conversations/$id/messages", token)) }.getOrNull()

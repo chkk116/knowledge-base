@@ -10,7 +10,7 @@
 
 #ifndef AppVer
   ; 手动编译未传 /DAppVer 时的兜底（与 AppInfo.kt 的 versionName 保持一致）
-  #define AppVer "1.0.3"
+  #define AppVer "1.0.5"
 #endif
 
 #define MyAppName "知识库"
@@ -35,9 +35,11 @@ SolidCompression=yes
 WizardStyle=modern
 OutputDir=C:\chkk\tools\kbbuild\native\inno
 OutputBaseFilename=kb-desktop-{#AppVer}-setup
-; 占位图标（插件默认）；换成正式 .ico 后同时改 UninstallDisplayIcon
-SetupIconFile=C:\chkk\tools\kbbuild\native\compose\default-resources\1.13.0-beta02\default-icon-windows.ico
-UninstallDisplayIcon={app}\{#MyAppExe}.exe
+; 品牌图标：packaging\kb-desktop.ico（源 frontend/public/icons/icon-192.png，All-BMP 条目），
+; 安装器本体 + 快捷方式 + 控制面板卸载入口三处统一；应用 exe 内嵌图标受 CMP 插件限制仍是默认，
+; 运行时窗口/任务栏图标由 Main.kt 的 Window(icon=...) 提供
+SetupIconFile=kb-desktop.ico
+UninstallDisplayIcon={app}\kb-desktop.ico
 UninstallDisplayName={#MyAppName}
 
 [Languages]
@@ -49,12 +51,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; app-image 整目录打包（kb-desktop.exe + runtime）
 Source: "C:\chkk\tools\kbbuild\native\compose\binaries\main\app\kb-desktop\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; 品牌图标文件（快捷方式/卸载入口引用）
+Source: "kb-desktop.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; 开始菜单平铺两个入口：启动 + 卸载（卸载快捷方式让卸载入口一眼可见）
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}.exe"
-Name: "{autoprograms}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}.exe"; IconFilename: "{app}\kb-desktop.ico"
+Name: "{autoprograms}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"; IconFilename: "{app}\kb-desktop.ico"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}.exe"; IconFilename: "{app}\kb-desktop.ico"; Tasks: desktopicon
 
 [Run]
 ; 完成页「立即运行」；静默安装不自动启动

@@ -47,11 +47,14 @@ fun main() = application {
     }
 
     val apiServer = remember { ConfigStore.read()["server"]?.takeIf { it.isNotBlank() } ?: ConfigStore.defaultServer }
+    // 窗口/任务栏图标（品牌 icon-192；加载失败保持插件默认）
+    val appIcon = remember { loadWindowIcon() }
 
     Window(
         onCloseRequest = ::exitApplication,
         title = "知识库",
         state = windowState,
+        icon = appIcon,
     ) {
         // 窗口最小尺寸随状态切换：登录 640×540（保住居中卡构图），主界面 960×620，防止用户缩太小挤破布局
         val awtWindow = LocalAwtWindow.current
