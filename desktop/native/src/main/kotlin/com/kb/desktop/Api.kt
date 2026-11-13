@@ -110,6 +110,9 @@ data class AiAskResult(
     val reasoning: String?,
 )
 
+/** Agent 工具用的轻量文档项（检索/我的文档）。 */
+data class AgentDoc(val id: Long, val title: String, val snippet: String)
+
 /** HTTP + JSON 访问层。登录三步 + 文章/文件只读接口。 */
 class ApiClient(private val base: String) {
 
@@ -306,14 +309,14 @@ class ApiClient(private val base: String) {
         )
     }
 
-    /** 通用带认证请求（GET/POST/PUT/DELETE）。 */
-    private fun authReq(method: String, path: String, token: String, body: String? = null): String = try {
+    /** 通用带认证请求（GET/POST/PUT/DELETE）。[timeoutSeconds] 默认 20s；AI 单步推理等长任务可调大。 */
+    private fun authReq(method: String, path: String, token: String, body: String? = null, timeoutSeconds: Long = 20): String = try {
         val resp = http.send(HttpRequest.newBuilder(uri(path))
             .header("Authorization", "Bearer $token")
             .apply { if (body != null) header("Content-Type", "application/json") }
             .method(method, if (body != null) HttpRequest.BodyPublishers.ofString(body)
                 else HttpRequest.BodyPublishers.noBody())
-            .timeout(Duration.ofSeconds(20))
+            .timeout(Duration.ofSeconds(timeoutSeconds))
             .build(), HttpResponse.BodyHandlers.ofString())
         when {
             resp.statusCode() == 401 -> throw ApiError("登录已过期，请重新登录")
@@ -453,6 +456,49 @@ class ApiClient(private val base: String) {
             throw ApiError(msg ?: "服务器返回 ${resp.statusCode()}")
         }
         ChatStream(resp)
+    }
+
+    /** GET /api/search?q= → 检索结果（Agent 用）。 */
+    suspend fun searchDocs(token: String, query: String): List<AgentDoc> = withContext(Dispatchers.IO) {
+        val q = java.net.URLEncoder.encode(query, "UTF-8")
+        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/search?q=$q", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        val arr = e as? JsonArray ?: return@withContext emptyList()
+        arr.mapNotNull { item ->
+            val o = item as? JsonObject ?: return@mapNotNull null
+            val id = o.long("id") ?: return@mapNotNull null
+            AgentDoc(id, o.str("title").orEmpty(), o.str("snippet").orEmpty())
+        }
+    }
+
+    /** GET /api/docs/mine → 我的文档（Agent 用）。 */
+    suspend fun myDocs(token: String): List<AgentDoc> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/docs/mine", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        val arr = e as? JsonArray ?: return@withContext emptyList()
+        arr.mapNotNull { item ->
+            val o = item as? JsonObject ?: return@mapNotNull null
+            val id = o.long("id") ?: return@mapNotNull null
+            AgentDoc(id, o.str("title").orEmpty(), o.str("snippet").orEmpty())
+        }
+    }
+
+    /** POST /api/ai/agent/step → Agent 单步推理（不落库，避免刷爆会话列表）。 */
+    suspend fun aiAgentStep(token: String, prompt: String): String = withContext(Dispatchers.IO) {
+        val o = parse(
+            authReq("POST", "/api/ai/agent/step", token, """{"question":${jsonStr(prompt)}}""", timeoutSeconds = 110)
+        ) ?: throw ApiError("Agent 响应异常")
+        o.str("answer") ?: throw ApiError(o.str("error") ?: "Agent 无回答")
+    }
+
+    /** POST /api/ai/agent/save → 保存 Agent 最终问答（不触发模型调用）。 */
+    suspend fun aiAgentSave(token: String, conversationId: Long, question: String, answer: String) = withContext(Dispatchers.IO) {
+        runCatching {
+            authReq(
+                "POST", "/api/ai/agent/save", token,
+                """{"conversationId":$conversationId,"question":${jsonStr(question)},"answer":${jsonStr(answer)}}""",
+            )
+        }
     }
 }
 

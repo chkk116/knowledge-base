@@ -140,6 +140,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
     var mode by remember { mutableStateOf("kb") }
     var input by remember { mutableStateOf("") }
     var streaming by remember { mutableStateOf(false) }
+    var agentCancelled by remember { mutableStateOf(false) }
     val streamHandle = remember { mutableStateOf<ChatStream?>(null) }
     // 会话重命名：rail 行内编辑
     var editingConvId by remember { mutableStateOf<Long?>(null) }
@@ -285,6 +286,57 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
         }
     }
 
+    // Agent 模式：ReAct 循环；步骤写进 reasoning 折叠区，最终答案写 content，来源汇总到 sources
+    suspend fun runAgent(qText: String) {
+        agentCancelled = false
+        try {
+            var conv = currentConv
+            if (conv == null) {
+                conv = api.aiCreateConversation(session.token, qText.take(24).ifBlank { "新对话" })
+                currentConv = conv
+                try { convs = api.aiConversations(session.token) } catch (_: Exception) {}
+            }
+            val convId = conv.id
+            msgs = msgs + ChatMsg(role = "user", content = qText, mode = "agent")
+            val aiIdx = msgs.size
+            msgs = msgs + ChatMsg(role = "ai", mode = "agent", streaming = true)
+
+            val agent = DesktopAgent(
+                api = api,
+                token = session.token,
+                ask = { api.aiAgentStep(session.token, it) },
+                onStep = { step ->
+                    if (!agentCancelled) {
+                        msgs = msgs.mapIndexed { i, m ->
+                            if (i == aiIdx) {
+                                m.copy(reasoning = if (m.reasoning.isEmpty()) step else m.reasoning + "\n" + step)
+                            } else m
+                        }
+                    }
+                },
+                onOpenDoc = onOpenDoc,
+                shouldStop = { agentCancelled },
+            )
+            val r = agent.run(qText)
+            msgs = msgs.mapIndexed { i, m ->
+                if (i == aiIdx) m.copy(streaming = false, content = r.answer, sources = r.sources) else m
+            }
+            // 落库最终问答（不触发模型），失败不影响展示
+            runCatching { api.aiAgentSave(session.token, convId, qText, r.answer) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val at = msgs.indexOfFirst { it.streaming }
+            if (at >= 0) {
+                msgs = msgs.mapIndexed { i, m ->
+                    if (i == at) m.copy(streaming = false, content = "（出错：${e.message ?: "网络错误"}）") else m
+                }
+            }
+        } finally {
+            streaming = false
+        }
+    }
+
     val send: () -> Unit = {
         val q = input.trim()
         // 纯图无文字时按 Web 端口径自动补提问语
@@ -296,6 +348,10 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
             attachError = null
             streaming = true   // 先置位再起协程，双击不会发两问
             scope.launch {
+                if (mode == "agent") {
+                    runAgent(qText)
+                    return@launch
+                }
                 try {
                     var conv = currentConv
                     if (conv == null) {
@@ -536,7 +592,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                     )
                     if (streaming) {
                         Button(
-                            onClick = { streamHandle.value?.abort() },
+                            onClick = { streamHandle.value?.abort(); agentCancelled = true },
                             modifier = Modifier.height(38.dp),
                             shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF64748B), contentColor = Color.White),
@@ -920,6 +976,7 @@ private fun ModePills(mode: String, onMode: (String) -> Unit) {
     ) {
         ModePill("知识库", mode == "kb") { onMode("kb") }
         ModePill("通用", mode == "general") { onMode("general") }
+        ModePill("Agent", mode == "agent") { onMode("agent") }
     }
 }
 

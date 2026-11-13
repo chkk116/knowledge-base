@@ -110,6 +110,32 @@ public class AiConversationService {
         convRepo.delete(c);
     }
 
+    /**
+     * Agent 运行结束后落库一轮问答（不触发模型调用）。
+     *
+     * 前端 ReAct 循环的每步推理走 /api/ai/agent/step（不落库），只有最终结果在这里保存，
+     * 避免像「每步都调 /ask 且 conversationId=null」那样每次新建会话、把会话列表刷爆。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void saveAgentTurn(Long userId, Long conversationId, String question, String answer) {
+        AiConversation c = convRepo.findById(conversationId).orElse(null);
+        if (c == null || !c.getUserId().equals(userId)) return;
+        AiMessage u = new AiMessage();
+        u.setConversationId(conversationId);
+        u.setRole("user");
+        u.setContent(sanitizeMessage(question));
+        u.setMode("general");
+        msgRepo.save(u);
+        AiMessage a = new AiMessage();
+        a.setConversationId(conversationId);
+        a.setRole("ai");
+        a.setContent(sanitizeMessage(answer));
+        a.setMode("general");
+        msgRepo.save(a);
+        // @PreUpdate 会刷新 updatedAt，让会话回到列表顶部
+        convRepo.save(c);
+    }
+
     /** 批量删除会话：只删属于本人的，消息一并清理；单条失败不影响其它（这里用一次事务整体提交） */
     @org.springframework.transaction.annotation.Transactional
     public int deleteBatch(Long userId, List<Long> ids) {

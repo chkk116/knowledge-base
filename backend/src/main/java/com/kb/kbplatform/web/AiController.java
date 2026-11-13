@@ -80,6 +80,41 @@ public class AiController {
         return convService.ask(claims.userId(), conversationId, question, mode, modelId, userModelId, images);
     }
 
+    /**
+     * Agent 单步推理：不创建/污染会话、不检索知识库，仅供前端 ReAct 循环每步调用。
+     * 与 /ask 的区别是**不落库**——每步都落库会刷爆会话列表；最终问答由 /agent/save 统一保存。
+     */
+    @PostMapping("/agent/step")
+    public Map<String, Object> agentStep(@RequestAttribute("kbUser") TokenClaims claims,
+                                         @RequestBody Map<String, Object> body) {
+        // 限流：Agent 每问最多 6 步，单独给更宽松的额度（120 次/小时），不与 /ask 的 20 次共享
+        if (!rateLimit.allow("ai:agent:" + claims.userId(), 120, 60L * 60 * 1000)) {
+            return Map.of("answer", "Agent 调用太频繁，请稍后再试");
+        }
+        RagService svc = ragProvider.getIfAvailable();
+        if (svc == null) {
+            return Map.of("answer", "AI 问答暂不可用，请稍后再试或联系管理员。");
+        }
+        String question = body.get("question") == null ? "" : body.get("question").toString();
+        if (question.isBlank()) return Map.of("answer", "");
+        Map<String, Object> rag = svc.ask(question, List.of(), "", "", "general", null, null, claims.userId(), List.of());
+        Object answer = rag.get("answer");
+        return Map.of("answer", answer == null ? "" : answer.toString());
+    }
+
+    /** Agent 结束后保存一轮问答（不触发模型调用，仅落库）。 */
+    @PostMapping("/agent/save")
+    public Map<String, Object> agentSave(@RequestAttribute("kbUser") TokenClaims claims,
+                                         @RequestBody Map<String, Object> body) {
+        Long conversationId = parseLong(body.get("conversationId"));
+        String question = body.get("question") == null ? "" : body.get("question").toString();
+        String answer = body.get("answer") == null ? "" : body.get("answer").toString();
+        if (conversationId != null && !answer.isBlank()) {
+            convService.saveAgentTurn(claims.userId(), conversationId, question, answer);
+        }
+        return Map.of("ok", true);
+    }
+
     /** 对某条回答点赞/踩（qaId 来自 /ask 或 /ask/stream 的 done 事件）；只能评价自己的记录。 */
     @PostMapping("/feedback")
     public Map<String, Object> feedback(@RequestAttribute("kbUser") TokenClaims claims,
