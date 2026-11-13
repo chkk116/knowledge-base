@@ -113,6 +113,9 @@ data class AiAskResult(
 /** Agent 工具用的轻量文档项（检索/我的文档）。 */
 data class AgentDoc(val id: Long, val title: String, val snippet: String)
 
+/** Agent 工具用的共享空间项（流程图要落进共享文档的画布）。 */
+data class AgentSpace(val id: Long, val name: String, val type: String)
+
 /** HTTP + JSON 访问层。登录三步 + 文章/文件只读接口。 */
 class ApiClient(private val base: String) {
 
@@ -491,7 +494,7 @@ class ApiClient(private val base: String) {
         o.str("answer") ?: throw ApiError(o.str("error") ?: "Agent 无回答")
     }
 
-    /** POST /api/ai/agent/save → 保存 Agent 最终问答（不触发模型调用）。 */
+    /** POST /api/agent/save → 保存 Agent 最终问答（不触发模型调用）。 */
     suspend fun aiAgentSave(token: String, conversationId: Long, question: String, answer: String) = withContext(Dispatchers.IO) {
         runCatching {
             authReq(
@@ -499,6 +502,52 @@ class ApiClient(private val base: String) {
                 """{"conversationId":$conversationId,"question":${jsonStr(question)},"answer":${jsonStr(answer)}}""",
             )
         }
+    }
+
+    /**
+     * POST /api/docs → 新建普通文档（Agent create_doc）。
+     * 普通用户不能自发布：draft 存 DRAFT，其余一律 PENDING_REVIEW（后端也会强制纠正 PUBLISHED）。
+     * @return 文档 id 与实际状态
+     */
+    suspend fun createDoc(token: String, title: String, html: String, draft: Boolean): Pair<Long, String> = withContext(Dispatchers.IO) {
+        val status = if (draft) "DRAFT" else "PENDING_REVIEW"
+        val body = """{"title":${jsonStr(title)},"content":${jsonStr(html)},"status":"$status"}"""
+        val o = parse(authReq("POST", "/api/docs", token, body)) ?: throw ApiError("创建文档响应异常")
+        (o.long("id") ?: 0L) to o.str("status").orEmpty().ifBlank { status }
+    }
+
+    /** GET /api/doc-shares/my → 我的共享空间（优先 PERSONAL）。 */
+    suspend fun myShares(token: String): List<AgentSpace> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/doc-shares/my", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        val arr = e as? JsonArray ?: return@withContext emptyList()
+        arr.mapNotNull { item ->
+            val o = item as? JsonObject ?: return@mapNotNull null
+            val id = o.long("id") ?: return@mapNotNull null
+            AgentSpace(id, o.str("name").orEmpty(), o.str("type").orEmpty())
+        }
+    }
+
+    /** GET /api/doc-shares/{sid}/docs/{docId} → 取正文（追加流程图时用）。 */
+    suspend fun shareDocContent(token: String, shareId: Long, docId: Long): String = withContext(Dispatchers.IO) {
+        val o = parse(authReq("GET", "/api/doc-shares/$shareId/docs/$docId", token)) ?: return@withContext ""
+        o.str("content").orEmpty()
+    }
+
+    /** POST /api/doc-shares/{sid}/docs → 新建共享文档，返回文档 id。 */
+    suspend fun createShareDoc(token: String, shareId: Long, title: String, content: String): Long = withContext(Dispatchers.IO) {
+        val body = """{"title":${jsonStr(title)},"content":${jsonStr(content)}}"""
+        val o = parse(authReq("POST", "/api/doc-shares/$shareId/docs", token, body))
+            ?: throw ApiError("创建共享文档响应异常")
+        o.long("id") ?: throw ApiError("创建共享文档未返回 id")
+    }
+
+    /** PUT /api/doc-shares/{sid}/docs/{docId} → 覆盖正文（在已有文档追加流程图）。 */
+    suspend fun updateShareDoc(token: String, shareId: Long, docId: Long, content: String) = withContext(Dispatchers.IO) {
+        authReq(
+            "PUT", "/api/doc-shares/$shareId/docs/$docId", token,
+            """{"content":${jsonStr(content)}}""",
+        )
     }
 }
 

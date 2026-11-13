@@ -304,6 +304,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
             val agent = DesktopAgent(
                 api = api,
                 token = session.token,
+                server = session.server,
                 ask = { api.aiAgentStep(session.token, it) },
                 onStep = { step ->
                     if (!agentCancelled) {
@@ -315,6 +316,10 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                     }
                 },
                 onOpenDoc = onOpenDoc,
+                onOpenUrl = { url ->
+                    // 共享文档画布在桌面端没有原生页，拉系统浏览器打开 Web 端编辑器
+                    runCatching { java.awt.Desktop.getDesktop().browse(URI(url)) }
+                },
                 shouldStop = { agentCancelled },
             )
             val r = agent.run(qText)

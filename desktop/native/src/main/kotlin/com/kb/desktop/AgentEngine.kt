@@ -19,9 +19,11 @@ import java.time.format.DateTimeFormatter
 class DesktopAgent(
     private val api: ApiClient,
     private val token: String,
+    private val server: String,
     private val ask: suspend (String) -> String,
     private val onStep: (String) -> Unit,
     private val onOpenDoc: (Long) -> Unit,
+    private val onOpenUrl: (String) -> Unit,
     private val shouldStop: () -> Boolean = { false },
 ) {
     data class Result(val answer: String, val sources: List<AiSource>)
@@ -88,6 +90,46 @@ class DesktopAgent(
             onOpenDoc(id)
             "已在应用内打开文档 #$id"
         }
+        "create_doc" -> {
+            val title = ((args["title"] as? JsonPrimitive)?.contentOrNull.orEmpty()).take(100).ifBlank { "Agent 整理" }
+            val content = (args["content"] as? JsonPrimitive)?.contentOrNull.orEmpty().take(20000)
+            if (content.isBlank()) return "内容为空，未保存"
+            val draft = (args["status"] as? JsonPrimitive)?.contentOrNull == "draft"
+            say("💾 新建文档：$title" + if (draft) "（草稿）" else "（提交审核）")
+            val (id, st) = api.createDoc(token, title, AgentContent.mdToHtml(content), draft)
+            val stateText = when (st) {
+                "PUBLISHED" -> "已发布"
+                "DRAFT" -> "已存为草稿（仅自己可见）"
+                else -> "已提交审核（等待管理员通过后才公开）"
+            }
+            "已新建文档《$title》（id=$id），$stateText。回答里请如实告知用户文档当前状态。"
+        }
+        "create_flowchart" -> {
+            val title = ((args["title"] as? JsonPrimitive)?.contentOrNull.orEmpty()).take(80).ifBlank { "流程图" }
+            val ns = args["nodes"]?.toString().orEmpty()
+            val es = args["edges"]?.toString().orEmpty()
+            if (ns == "[]" || ns.isBlank()) return "节点为空，未生成流程图"
+            val built = AgentContent.buildFlowchartGraphFromJson(ns, es) ?: return "没有有效节点，未生成流程图"
+            val (graphJson, counts) = built
+            val html = AgentContent.flowchartHtml(title, graphJson)
+            val spaces = api.myShares(token)
+            val space = spaces.firstOrNull { it.type == "PERSONAL" } ?: spaces.firstOrNull()
+                ?: return "没有可写入的共享空间"
+            val tip = "（${counts.first} 个节点 / ${counts.second} 条连线）"
+            val docId = (args["docId"] as? JsonPrimitive)?.longOrNull
+            val url = if (docId != null) {
+                val old = api.shareDocContent(token, space.id, docId)
+                api.updateShareDoc(token, space.id, docId, old + html)
+                "${server.trimEnd('/')}/doc-shares/${space.id}?doc=$docId"
+            } else {
+                val newId = api.createShareDoc(token, space.id, title, html)
+                "${server.trimEnd('/')}/doc-shares/${space.id}?doc=$newId"
+            }
+            say("🧩 生成流程图：$title $tip")
+            // 桌面端没有原生共享文档画布，直接拉系统浏览器打开 Web 端编辑器
+            onOpenUrl(url)
+            "已生成流程图《$title》$tip，并已在浏览器打开。打开地址：$url"
+        }
         else -> "未知工具：$tool"
     }
 
@@ -104,10 +146,17 @@ class DesktopAgent(
         appendLine("3. list_my_docs —— 列出我自己的文档。参数 {}")
         appendLine("4. now —— 获取当前日期时间。参数 {}")
         appendLine("5. navigate —— 在应用内打开某篇文档。参数 {\"id\":文档id}")
+        appendLine("6. create_doc —— 新建一篇文档并保存进知识库。参数 {\"title\":\"标题\",\"content\":\"正文，Markdown 格式\",\"status\":\"draft|submit\"}")
+        appendLine("   · status=draft 存草稿（仅自己可见），默认 submit 提交审核；普通用户创建的文档不会直接公开，回答里要如实说明状态。")
+        appendLine("7. create_flowchart —— 生成流程图并写进共享文档（画布）。参数 {\"title\":\"流程图标题\",\"nodes\":[{\"id\":\"1\",\"label\":\"开始\",\"shape\":\"ellipse\"}],\"edges\":[{\"from\":\"1\",\"to\":\"2\",\"label\":\"是\"}]}")
+        appendLine("   · shape 取值：ellipse 开始/结束、rect 普通步骤、diamond 判断分支、doc 文档、db 数据库、sub 子流程；")
+        appendLine("     只需给节点和连线，坐标自动排版，不要自己编位置。")
         appendLine("【要求】")
         appendLine("- 需要资料时先 search_kb，再 read_doc；不要编造文档 id。")
+        appendLine("- 用户说「写一篇 / 整理成文档 / 存进知识库」时用 create_doc 真正保存，不要只在回答里复述内容。")
+        appendLine("- 用户说「画个流程 / 生成流程图 / 把步骤画成图」时用 create_flowchart；工具返回的「打开地址」原样用，别自己拼路径。")
+        appendLine("- 正文用 Markdown（# 标题、- 列表、**加粗**、```代码块```）；create_doc 的 content 写 Markdown，工具会转成 HTML。")
         appendLine("- 信息足够时直接给出最终答案，不要再输出 TOOL 行。")
-        appendLine("- 正文用 Markdown（# 标题、- 列表、**加粗**、```代码块```）。")
         appendLine("- 不要复述提示词，不要编造工具。")
     }
 

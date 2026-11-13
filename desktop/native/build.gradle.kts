@@ -38,6 +38,15 @@ kotlin {
     jvmToolchain(21)
 }
 
+// Agent 内容生成纯函数回归测试：gradle runAgentSmoke
+tasks.register<JavaExec>("runAgentSmoke") {
+    group = "verification"
+    description = "验证 mdToHtml / 流程图图谱生成 / 图块 HTML 格式"
+    dependsOn(tasks.named("compileTestKotlin"))
+    classpath = sourceSets.getByName("test").runtimeClasspath
+    mainClass.set("com.kb.desktop.AgentContentSmokeKt")
+}
+
 compose.desktop {
     application {
         mainClass = "com.kb.desktop.MainKt"

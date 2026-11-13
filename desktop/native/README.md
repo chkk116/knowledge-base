@@ -23,8 +23,12 @@
   思考过程折叠展示；当前无会话时先建会话（标题取问题前 24 字）再提问；
   **Agent 模式**（ReAct，第三个模式）：最多 6 步；每步走 `POST /api/ai/agent/step`（不落库，
   避免像 /ask 那样每步新建会话），工具在本地执行：`search_kb`（`GET /api/search?q=`）、
-  `read_doc`（`GET /api/docs/{id}`）、`list_my_docs`（`GET /api/docs/mine`）、`now`、`navigate`；
-  步骤写进「思考过程」折叠区，最终答案写正文并汇总引用来源；结束后 `POST /api/ai/agent/save` 落一轮问答
+  `read_doc`（`GET /api/docs/{id}`）、`list_my_docs`（`GET /api/docs/mine`）、`now`、`navigate`、
+  `create_doc`（`POST /api/docs`，Markdown 转 HTML，草稿/提交审核）、
+  `create_flowchart`（模型给 nodes/edges，本地规范化去重并自动分层排版，生成 TipTap
+  `flowchart-block` 图块写进共享文档，完成后在系统浏览器打开 Web 端画布）；
+  步骤写进「思考过程」折叠区，最终答案写正文并汇总引用来源；结束后 `POST /api/ai/agent/save` 落一轮问答。
+  纯函数回归测试：`gradle runAgentSmoke`（校验 mdToHtml / 图谱去重过滤 / 图块 HTML 格式）
 - **图片提问（vision）**：输入框 📎 选图（AWT FileDialog 多选，Windows 不认扩展名过滤器，
   按可解码性丢弃非图片）→ 本地压缩对齐 Web 端 compressImage（最长边 1280 / JPEG 0.82 / 白底防透明变黑）
   → dataURL 随 `POST /api/ai/ask/stream` 的 `images` 参数发送（后端硬限 ≤4 张、单张解码 ≤2MB）；
