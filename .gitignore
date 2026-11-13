@@ -88,9 +88,10 @@ parts/
 backend/**/*.jar
 # 构建产物不入库（曾误提交 86MB 的 kb-platform-1.3.3.jar）
 outputs/*.jar
-# 发布脚本与发版数据含服务器地址/凭据，只留本地（.gitignore 不支持行尾注释，注释必须独立成行）
+# 发布脚本、发版数据与图标素材含部署信息，只留本地（.gitignore 不支持行尾注释，注释必须独立成行）
 outputs/publish-*.sh
-outputs/seed/*.sql
+outputs/seed/
+outputs/logo/
 outputs/.deploykey
 .deploykey
 

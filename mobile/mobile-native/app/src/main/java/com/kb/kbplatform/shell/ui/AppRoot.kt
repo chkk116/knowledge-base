@@ -185,9 +185,20 @@ fun AppRoot() {
             composable("cards") { CardsScreen() }
             composable("practice") { ExamPracticeScreen(onBack = { nav.popBackStack() }) }
             composable("share-import") { ShareImportScreen(onDone = { nav.popBackStack() }) }
-            // 首页金刚区「扫一扫」：以 WebView 打开移动资产扫码页，自动起摄像头并复用登录态
+            // 首页金刚区「扫一扫」：CameraX + ML Kit 的原生实时取景扫码页。
+            // 识别结果回落到站内资产详情页（复用登录态与现成的资产卡片 UI）；
+            // 设备相机异常时仍可从页面里切回网页版拍照识别。
             composable("asset-scan") {
-                WebScreen(path = "/m/asset?scan=1", title = "扫一扫", onBack = { nav.popBackStack() })
+                com.kb.kbplatform.shell.ui.asset.AssetScanScreen(
+                    onBack = { nav.popBackStack() },
+                    onCode = { code ->
+                        val p = "/m/asset#code=" + Uri.encode(code)
+                        safeNav("web?path=${Uri.encode(p)}&title=${Uri.encode("资产详情")}")
+                    },
+                    onOpenWeb = {
+                        safeNav("web?path=${Uri.encode("/m/asset")}&title=${Uri.encode("扫一扫")}")
+                    }
+                )
             }
             composable("admin") {
                 AdminHomeScreen(
