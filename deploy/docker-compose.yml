@@ -6,7 +6,7 @@
 #   看状态：                          docker compose ps
 #   看日志：                          docker compose logs -f redis
 #
-# ⚠️ 本机（106.55.227.106）现状：**没装 Docker**，但宝塔已经装了 Redis
+# ⚠️ 生产机现状：**没装 Docker**，但宝塔已经装了 Redis
 #    （127.0.0.1:6379，无密码）。所以这里两条路二选一：
 #      A. 直接用宝塔的 Redis —— 什么都不用起，把后端 `spring.data.redis.port=6379` 指过去即可；
 #      B. 想用容器版（隔离、好升级）—— 先装 Docker，再 `docker compose up -d`，

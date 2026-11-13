@@ -1,9 +1,12 @@
 // 题库分类筛选 + 按分类一键组卷
 const { chromium } = require('playwright-core')
 const TOKEN = process.argv[2]
+// 冒烟目标由环境变量给出，仓库不写死任何真实域名/服务器地址
+const HOST = process.env.KB_SMOKE_HOST || 'your-domain.example'
+const IP = process.env.KB_SMOKE_IP || '127.0.0.1'
 
 ;(async () => {
-  const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--host-resolver-rules=MAP www.你的域名 106.55.227.106'] })
+  const b = await chromium.launch({ channel: 'chrome', headless: true, args: [`--host-resolver-rules=MAP ${HOST} ${IP}`] })
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } })
   await ctx.addInitScript(([t]) => {
     localStorage.setItem('kb_token', t)

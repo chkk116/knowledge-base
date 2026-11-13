@@ -17,7 +17,7 @@
 - **我的文件**：原生列表（`GET /api/files/mine`），点击在系统浏览器打开
 - **服务器地址不进界面**（用户要求）：侧栏用户名下、页面头、设置「关于」、登录页品牌栏共 4 处均不显示域名；
   地址只读 `%APPDATA%\kb-desktop\config.json` 的 `server` 字段（或 `KB_DESKTOP_SERVER` 环境变量），
-  默认 `https://chkk116.cn`；token 不落盘
+  默认值见 `ConfigStore.kt`（正式发版按部署目标替换）；token 不落盘
 - **打包**（已实测）：`createDistributable` 出开发态自包含目录（捆绑 JRE，仅开发验证用）；
   `packageInnoSetup` 出**单文件中文安装程序** `kb-desktop-<版本>-setup.exe`（Inno Setup 6，可选安装位置、
   开始菜单组「知识库」+ 桌面快捷方式、固定 AppId 支持覆盖升级）；打包前需先结束占用 app-image 的
@@ -71,5 +71,5 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
 
 ## 约定
 
-- 默认连生产 `https://chkk116.cn`；本地/换环境用 `KB_DESKTOP_SERVER` 环境变量或 config.json 的 server 覆盖
+- 默认服务器地址见 `ConfigStore.kt`；本地/换环境用 `KB_DESKTOP_SERVER` 环境变量或 config.json 的 server 覆盖
 - 版本号独立于 Web 端（`package.json`/`changelog.js` 是 Web 的，别混）
