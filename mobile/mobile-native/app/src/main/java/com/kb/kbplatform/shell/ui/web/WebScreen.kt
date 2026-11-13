@@ -40,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -90,11 +89,13 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
     }
     var captureUri by remember { mutableStateOf<Uri?>(null) }
 
-    // 资产扫码页用 getUserMedia 调后置摄像头：运行时授权 + WebView 放行，缺一不可
+    // 只有用户主动点「改用实时预览取景」时才会走到 onPermissionRequest，届时按需申请。
+    // 扫码页默认走 <input capture> 的系统相机（不需要 CAMERA 运行时权限），进页面就弹权限框
+    // 既多余又会因为用户拒绝而误报「扫码不可用」。
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (!granted) Toast.makeText(ctx, "未授予相机权限，扫码不可用", Toast.LENGTH_SHORT).show()
+        if (!granted) Toast.makeText(ctx, "未授予相机权限，实时预览不可用；可用「拍照识别」", Toast.LENGTH_SHORT).show()
     }
 
     val chooserLauncher = rememberLauncherForActivityResult(
@@ -122,16 +123,6 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
 
     BackHandler(enabled = canGoBack) {
         webView.view?.goBack()
-    }
-
-    // 进扫码页就先申请，避免点「开始扫码」时才弹系统框导致首次失败。
-    // 必须放 LaunchedEffect（组合完成后执行）：launch() 若在组合阶段（如 AndroidView factory）
-    // 调用，launcher 尚未注册，会抛 IllegalStateException: Launcher has not been initialized
-    LaunchedEffect(path) {
-        if (path.contains("/m/asset") &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -229,7 +220,7 @@ fun WebScreen(path: String, title: String, onBack: () -> Unit) {
                                 progress = newProgress
                             }
 
-                            /** 只放行扫码页的摄像头请求，其余一律拒绝，别给任意网页开相机 */
+                            /** 只放行扫码页「实时预览」的摄像头请求，其余一律拒绝；默认拍照识别不走这里 */
                             override fun onPermissionRequest(request: PermissionRequest) {
                                 val wantsCamera = request.resources.any {
                                     it == PermissionRequest.RESOURCE_VIDEO_CAPTURE
