@@ -2,7 +2,7 @@
 
 `knowledge-base/desktop/native/` — 用 **Kotlin + Compose Multiplatform Desktop** 写的原生 Windows 客户端（非 WebView 套壳），交付形态为单文件安装程序。`desktop/` 上一层的 Electron 版保留不动。
 
-## 已实现（1.0.6）
+## 已实现（1.0.8）
 
 - 登录窗：账号密码 + 滑块验证码，与 Web 端同一套接口
   （`GET /api/auth/captcha` → `POST /api/auth/captcha/slide` → `POST /api/auth/login`）
@@ -45,6 +45,13 @@
   `packageInnoSetup` 出**单文件中文安装程序** `kb-desktop-<版本>-setup.exe`（Inno Setup 6，可选安装位置、
   开始菜单组「知识库」+ 桌面快捷方式、固定 AppId 支持覆盖升级）；打包前需先结束占用 app-image 的
   `kb-desktop.exe` 进程，否则 Gradle 删不掉目录
+
+## 本轮加固（代码已同步，安装包待下次发版）
+
+- **失败原因透出**：模型列表 / 会话列表 / 历史消息加载失败时保留真实原因（登录已过期、网络错误不再被统一替换成「响应异常」）。
+- **发送失败兜底**：新建会话等在 AI 气泡出现之前就失败时，补一条错误气泡并还原输入与已选图片，问题不再凭空消失、界面不再毫无提示。
+- **会话列表**：删除会话改为二次点击确认（首次点击按钮变「确认?」），避免误触连带删光历史；增删改的瞬时失败只在列表顶部显示小提示，不再把已有会话整列替换成错误页。
+- **Agent**：工具执行不再吞掉协程取消异常，点「停止」能真正中断循环；打开 Web 画布前只放行 http/https 地址。
 
 ## 更新渠道
 

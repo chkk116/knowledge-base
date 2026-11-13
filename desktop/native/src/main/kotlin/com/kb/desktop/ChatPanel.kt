@@ -318,7 +318,9 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                 onOpenDoc = onOpenDoc,
                 onOpenUrl = { url ->
                     // 共享文档画布在桌面端没有原生页，拉系统浏览器打开 Web 端编辑器
-                    runCatching { java.awt.Desktop.getDesktop().browse(URI(url)) }
+                    if (url.startsWith("https://", true) || url.startsWith("http://", true)) {
+                        runCatching { java.awt.Desktop.getDesktop().browse(URI(url)) }
+                    }
                 },
                 shouldStop = { agentCancelled },
             )
@@ -336,6 +338,8 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                 msgs = msgs.mapIndexed { i, m ->
                     if (i == at) m.copy(streaming = false, content = "（出错：${e.message ?: "网络错误"}）") else m
                 }
+            } else {
+                msgs = msgs + ChatMsg(role = "ai", mode = "agent", content = "（出错：${e.message ?: "网络错误"}）")
             }
         } finally {
             streaming = false
@@ -348,6 +352,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
         val qText = q.ifBlank { if (atts.isNotEmpty()) "请识别并说明这些图片的内容" else "" }
         if (!streaming && qText.isNotEmpty()) {
             val images = atts.map { it.dataUrl }
+            val sentAtts = atts
             input = ""
             atts = emptyList()
             attachError = null
@@ -450,6 +455,12 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                         msgs = msgs.mapIndexed { i, mm ->
                             if (i == at) mm.copy(streaming = false, content = "$prefix（出错：${e.message ?: "网络错误"}）") else mm
                         }
+                    } else {
+                        // 失败发生在追加 AI 气泡之前（例如新建会话就失败）：
+                        // 补一条错误气泡并还原输入与附件，避免问题凭空消失、界面毫无提示
+                        msgs = msgs + ChatMsg(role = "ai", content = "（出错：${e.message ?: "网络错误"}）")
+                        input = q
+                        atts = sentAtts
                     }
                 } finally {
                     streaming = false
@@ -811,6 +822,7 @@ private fun ConvRail(
     onSubmitRename: () -> Unit,
     onCancelRename: () -> Unit,
 ) {
+    var pendingDeleteId by remember { mutableStateOf<Long?>(null) }
     Column(Modifier.width(212.dp).fillMaxHeight().background(ChatRailBg)) {
         Box(Modifier.fillMaxWidth().padding(10.dp)) {
             Button(
@@ -824,10 +836,20 @@ private fun ConvRail(
         HorizontalDivider()
         Box(Modifier.weight(1f)) {
             when {
-                loading -> ChatHint("加载中…")
-                error != null -> ChatHint("$error（点此重试）", onClick = onRetry)
+                loading && convs.isEmpty() -> ChatHint("加载中…")
+                error != null && convs.isEmpty() -> ChatHint("$error（点此重试）", onClick = onRetry)
                 convs.isEmpty() -> ChatHint("还没有历史会话")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
+                    if (error != null) {
+                        item {
+                            Text(
+                                "$error（点此重试）",
+                                fontSize = 11.sp,
+                                color = ChatErrRed,
+                                modifier = Modifier.padding(8.dp).clickable(onClick = onRetry),
+                            )
+                        }
+                    }
                     itemsIndexed(convs, key = { _, c -> c.id }) { _, c ->
                         if (editingId == c.id) {
                             RenameRow(
@@ -840,9 +862,17 @@ private fun ConvRail(
                             ConvRow(
                                 c = c,
                                 sel = c.id == currentId,
-                                onOpen = { onOpen(c) },
-                                onDelete = { onDelete(c) },
-                                onRename = { onStartRename(c) },
+                                confirming = pendingDeleteId == c.id,
+                                onOpen = { pendingDeleteId = null; onOpen(c) },
+                                onDelete = {
+                                    if (pendingDeleteId == c.id) {
+                                        pendingDeleteId = null
+                                        onDelete(c)
+                                    } else {
+                                        pendingDeleteId = c.id
+                                    }
+                                },
+                                onRename = { pendingDeleteId = null; onStartRename(c) },
                             )
                         }
                     }
@@ -905,6 +935,7 @@ private fun RenameRow(
 private fun ConvRow(
     c: AiConversationItem,
     sel: Boolean,
+    confirming: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     onRename: () -> Unit,
@@ -933,9 +964,15 @@ private fun ConvRow(
         ) { Text("✎", fontSize = 10.5.sp, color = KbTextSub) }
         TextButton(
             onClick = onDelete,
-            modifier = Modifier.width(30.dp),
+            modifier = Modifier.width(if (confirming) 46.dp else 30.dp),
             contentPadding = PaddingValues(0.dp),
-        ) { Text("✕", fontSize = 11.sp, color = KbTextSub) }
+        ) {
+            Text(
+                if (confirming) "确认?" else "✕",
+                fontSize = if (confirming) 10.sp else 11.sp,
+                color = if (confirming) ChatErrRed else KbTextSub,
+            )
+        }
     }
 }
 

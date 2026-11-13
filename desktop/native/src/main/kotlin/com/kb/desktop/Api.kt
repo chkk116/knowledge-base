@@ -337,7 +337,8 @@ class ApiClient(private val base: String) {
 
     /** GET /api/ai/models → 可选模型列表（不含 Key） */
     suspend fun aiModels(token: String): List<AiModelOption> = withContext(Dispatchers.IO) {
-        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/ai/models", token)) }.getOrNull()
+        val body = authReq("GET", "/api/ai/models", token)
+        val e = runCatching { Json.parseToJsonElement(body) }.getOrNull()
             ?: throw ApiError("模型列表响应异常")
         val arr = e as? JsonArray ?: throw ApiError("模型列表响应异常")
         arr.mapNotNull { item ->
@@ -355,7 +356,8 @@ class ApiClient(private val base: String) {
 
     /** GET /api/ai/conversations → 会话列表（后端按更新时间排序） */
     suspend fun aiConversations(token: String): List<AiConversationItem> = withContext(Dispatchers.IO) {
-        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/ai/conversations", token)) }.getOrNull()
+        val body = authReq("GET", "/api/ai/conversations", token)
+        val e = runCatching { Json.parseToJsonElement(body) }.getOrNull()
             ?: throw ApiError("会话列表响应异常")
         val arr = e as? JsonArray ?: throw ApiError("会话列表响应异常")
         arr.mapNotNull { item ->
@@ -393,7 +395,8 @@ class ApiClient(private val base: String) {
 
     /** GET /api/ai/conversations/{id}/messages → 历史消息（按时间正序） */
     suspend fun aiMessages(token: String, id: Long): List<AiMsg> = withContext(Dispatchers.IO) {
-        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/ai/conversations/$id/messages", token)) }.getOrNull()
+        val body = authReq("GET", "/api/ai/conversations/$id/messages", token)
+        val e = runCatching { Json.parseToJsonElement(body) }.getOrNull()
             ?: throw ApiError("历史消息响应异常")
         val arr = e as? JsonArray ?: throw ApiError("历史消息响应异常")
         arr.mapNotNull { item ->

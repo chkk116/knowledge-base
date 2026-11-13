@@ -38,8 +38,13 @@ class DesktopAgent(
             if (out.isEmpty()) break
             val call = parseToolCall(out) ?: return Result(out, sources.values.toList())
             val (tool, args) = call
-            val result = runCatching { exec(tool, args) }
-                .getOrElse { "工具执行失败：${it.message ?: "未知错误"}" }
+            val result = try {
+                exec(tool, args)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                "工具执行失败：${e.message ?: "未知错误"}"
+            }
             trace.add("[${step}] TOOL $tool $args\n结果：$result")
         }
         return Result("这次没在 $MAX_STEPS 步内完成，可以把问题拆小一点再试。", sources.values.toList())

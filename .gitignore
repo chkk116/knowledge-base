@@ -88,7 +88,8 @@ parts/
 backend/**/*.jar
 # 构建产物不入库（曾误提交 86MB 的 kb-platform-1.3.3.jar）
 outputs/*.jar
-# 发布脚本、发版数据与图标素材含部署信息，只留本地（.gitignore 不支持行尾注释，注释必须独立成行）
+# 发布脚本与发版数据含部署信息；图标素材为本机产物，两类都只留本地
+# （.gitignore 不支持行尾注释，注释必须独立成行）
 outputs/publish-*.sh
 outputs/seed/
 outputs/logo/
