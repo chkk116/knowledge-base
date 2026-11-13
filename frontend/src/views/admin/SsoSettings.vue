@@ -80,6 +80,48 @@
         </el-form-item>
       </el-form>
     </el-card>
+    <!-- WPS 365 登录（开放平台 OAuth2，三个端点可配） -->
+    <el-card shadow="never" style="margin-top: 16px">
+      <template #header>
+        <div class="hd">
+          <span>WPS 365 登录</span>
+          <el-tag v-if="wps.enabled" type="success" size="small">已启用</el-tag>
+          <el-tag v-else type="info" size="small">未启用</el-tag>
+        </div>
+      </template>
+      <p class="tip">
+        WPS 开放平台 OAuth2 授权码登录，不是标准 OIDC，用户信息要再调一次接口取。
+        三个端点按控制台文档填（留空使用默认值）；回调地址填：
+        <code>{{ shownCallback('wps') }}</code>，必须与后台登记完全一致。
+      </p>
+      <el-form label-width="130px" style="max-width: 720px">
+        <el-form-item label="启用 WPS 登录"><el-switch v-model="wps.enabled" /></el-form-item>
+        <el-form-item label="AppID"><el-input v-model="wps.clientId" placeholder="开放平台应用的 AppID" /></el-form-item>
+        <el-form-item label="AppKey">
+          <el-input v-model="wps.clientSecret" type="password" show-password
+                    :placeholder="wpsCfg.hasClientSecret ? '已配置（留空则不改）' : '应用密钥 AppKey'" />
+        </el-form-item>
+        <el-form-item label="授权页地址"><el-input v-model="wps.authorizeUrl" placeholder="https://openapi.wps.cn/oauth2/authorize" /></el-form-item>
+        <el-form-item label="Token 地址"><el-input v-model="wps.tokenUrl" placeholder="https://openapi.wps.cn/oauth2/token" /></el-form-item>
+        <el-form-item label="用户信息地址"><el-input v-model="wps.userinfoUrl" placeholder="https://openapi.wps.cn/oauth2/userinfo" /></el-form-item>
+        <el-form-item label="Scopes"><el-input v-model="wps.scope" placeholder="openid profile" /></el-form-item>
+        <el-form-item label="回调地址">
+          <el-input :model-value="shownCallback('wps')" readonly>
+            <template #append>
+              <el-button @click="copy('wps')">复制</el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item label="登录按钮文案"><el-input v-model="wps.buttonLabel" placeholder="WPS 登录" /></el-form-item>
+        <el-form-item label="首次登录自动注册">
+          <el-switch v-model="wps.autoRegister" />
+          <div class="hint">关闭时只有已绑定的账号能登录；开启时任何人授权后自动开一个 USER 账号。</div>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="wpsSaving" @click="saveWps">保存</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
     <!-- 第三方扫码登录（微信 / QQ / GitHub） -->
     <el-card v-for="sp in socials" :key="sp.key" shadow="never" style="margin-top: 16px">
       <template #header>
@@ -144,6 +186,15 @@ const cfg = ref({ enabled: false, hasBindPassword: false })
 const oidcCfg = ref({ hasClientSecret: false })
 const oidc = ref({ enabled: false, authUrl: '', tokenUrl: '', userinfoUrl: '', clientId: '', clientSecret: '', scopes: 'openid profile email', userField: 'preferred_username', buttonLabel: '企业单点登录' })
 const oidcSaving = ref(false)
+const wpsCfg = ref({ hasClientSecret: false })
+const wps = ref({
+  enabled: false, clientId: '', clientSecret: '',
+  authorizeUrl: 'https://openapi.wps.cn/oauth2/authorize',
+  tokenUrl: 'https://openapi.wps.cn/oauth2/token',
+  userinfoUrl: 'https://openapi.wps.cn/oauth2/userinfo',
+  scope: 'openid profile', buttonLabel: 'WPS 登录', autoRegister: false
+})
+const wpsSaving = ref(false)
 const origin = typeof window !== 'undefined' ? window.location.origin : ''
 // 回调地址脱敏：开启后界面只显示 https://••••••/api/…，但「复制」拿到的仍是真实地址。
 // 用途：截图、录屏、对外演示时不暴露生产域名。状态存 localStorage，刷新后保持。
@@ -344,9 +395,42 @@ function copy(key) {
   }
 }
 
+async function loadWps() {
+  try {
+    const { data } = await api.get('/admin/sso/wps')
+    wpsCfg.value = data || {}
+    wps.value = {
+      enabled: !!data.enabled,
+      clientId: data.clientId || '',
+      clientSecret: '',
+      authorizeUrl: data.authorizeUrl || 'https://openapi.wps.cn/oauth2/authorize',
+      tokenUrl: data.tokenUrl || 'https://openapi.wps.cn/oauth2/token',
+      userinfoUrl: data.userinfoUrl || 'https://openapi.wps.cn/oauth2/userinfo',
+      scope: data.scope || 'openid profile',
+      buttonLabel: data.buttonLabel || 'WPS 登录',
+      autoRegister: !!data.autoRegister
+    }
+  } catch (e) { ElMessage.error(errMsg(e, '读取 WPS 配置失败')) }
+}
+
+async function saveWps() {
+  wpsSaving.value = true
+  try {
+    const { data } = await api.put('/admin/sso/wps', { ...wps.value, clientSecret: wps.value.clientSecret || null })
+    wpsCfg.value = data
+    wps.value.clientSecret = ''
+    ElMessage.success('已保存')
+  } catch (e) {
+    ElMessage.error(errMsg(e, '保存失败'))
+  } finally {
+    wpsSaving.value = false
+  }
+}
+
 onMounted(load)
 onMounted(loadOidc)
 onMounted(loadSocials)
+onMounted(loadWps)
 </script>
 
 <style scoped>

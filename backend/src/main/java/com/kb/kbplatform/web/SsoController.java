@@ -36,6 +36,7 @@ public class SsoController {
     private final com.kb.kbplatform.service.QqAuthService qq;
     private final com.kb.kbplatform.service.GithubAuthService github;
     private final com.kb.kbplatform.service.GiteeAuthService gitee;
+    private final com.kb.kbplatform.service.WpsAuthService wps;
     private final com.kb.kbplatform.repository.UserIdentityRepository identities;
     private final AuthService auth;
     private final com.kb.kbplatform.service.LoginLogService loginLogService;
@@ -46,6 +47,7 @@ public class SsoController {
                          com.kb.kbplatform.service.QqAuthService qq,
                          com.kb.kbplatform.service.GithubAuthService github,
                          com.kb.kbplatform.service.GiteeAuthService gitee,
+                         com.kb.kbplatform.service.WpsAuthService wps,
                          com.kb.kbplatform.repository.UserIdentityRepository identities,
                          AuthService auth, RateLimitService rateLimit,
                          com.kb.kbplatform.service.LoginLogService loginLogService) {
@@ -55,6 +57,7 @@ public class SsoController {
         this.qq = qq;
         this.github = github;
         this.gitee = gitee;
+        this.wps = wps;
         this.identities = identities;
         this.auth = auth;
         this.loginLogService = loginLogService;
@@ -75,6 +78,8 @@ public class SsoController {
         ret.put("githubLabel", github.buttonLabel());
         ret.put("gitee", gitee.enabled());
         ret.put("giteeLabel", gitee.buttonLabel());
+        ret.put("wps", wps.enabled());
+        ret.put("wpsLabel", wps.buttonLabel());
         return ret;
     }
 
@@ -258,6 +263,26 @@ public class SsoController {
         }
     }
 
+    // WPS 365：开放平台 OAuth2 授权码。不是标准 OIDC，用户标识取一次即可，不做 token 刷新。
+    @GetMapping("/api/auth/sso/wps/start")
+    public org.springframework.http.ResponseEntity<Void> wpsStart(@RequestParam(required = false) String origin) {
+        return found(wps.authorizeUrl(base(origin), null));
+    }
+
+    @GetMapping("/api/auth/sso/wps/callback")
+    public org.springframework.http.ResponseEntity<Void> wpsCallback(@RequestParam(required = false) String code,
+                                                                    @RequestParam(required = false) String state,
+                                                                    @RequestParam(required = false) String origin) {
+        String b = base(origin);
+        try {
+            var u = wps.callback(code, state);
+            return finish(b, "wps", u.externalId(), u.externalId(), null, u.nickname(), u.avatar(), u.email(),
+                    u.bindUserId(), wps.autoRegister(), "WPS");
+        } catch (Exception e) {
+            return failAndLog(b, "wps", e.getMessage());
+        }
+    }
+
     /** 已登录用户在「个人中心」点「绑定微信/QQ/GitHub/Gitee」：返回一次性授权地址（state 里带 userId） */
     @GetMapping("/api/auth/sso/bind/start")
     public Map<String, Object> bindStart(@RequestAttribute("kbUser") TokenClaims c,
@@ -271,6 +296,7 @@ public class SsoController {
             case "qq" -> qq.authorizeUrl(b, uid);
             case "github" -> github.authorizeUrl(b, uid);
             case "gitee" -> gitee.authorizeUrl(b, uid);
+            case "wps" -> wps.authorizeUrl(b, uid);
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的身份源");
         };
         Map<String, Object> ret = new LinkedHashMap<>();
@@ -434,6 +460,18 @@ public class SsoController {
         return github.save(body);
     }
 
+    @GetMapping("/api/admin/sso/wps")
+    public Map<String, Object> getWps(@RequestAttribute("kbUser") TokenClaims c) {
+        requireAdmin(c);
+        return wps.config();
+    }
+
+    @PutMapping("/api/admin/sso/wps")
+    public Map<String, Object> saveWps(@RequestAttribute("kbUser") TokenClaims c, @RequestBody Map<String, Object> body) {
+        requireAdmin(c);
+        return wps.save(body);
+    }
+
     /**
      * 第三方连通性诊断（管理员）。
      *
@@ -461,6 +499,9 @@ public class SsoController {
         }
         if ("all".equals(t) || "qq".equals(t)) {
             out.put("qq_graph", com.kb.kbplatform.service.HttpFetch.probe("https://graph.qq.com/oauth2.0/me"));
+        }
+        if ("all".equals(t) || "wps".equals(t)) {
+            out.put("wps_token", com.kb.kbplatform.service.HttpFetch.probe("https://openapi.wps.cn/oauth2/token"));
         }
         return out;
     }

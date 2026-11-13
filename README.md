@@ -262,6 +262,7 @@ knowledge-base/
 - **OIDC / 单点登录**：标准授权码流程，兼容 Keycloak / Azure AD / 企业微信 / 钉钉 / 飞书（回调地址见配置页）
 - **GitHub / Gitee 登录**：GitHub App 或 Gitee 第三方应用，配置 App ID + Client secret 即启用
 - **微信 / QQ 扫码登录**：走各自开放平台授权码流程，后台未配置时登录页不显示对应图标
+- **WPS 365 登录**：开放平台 OAuth2 授权码，兼容标准与老版两种响应形态；授权页、换 token、取用户信息三个端点可在后台改，默认走通用地址
 
 > 所有第三方登录都复用同一套会话签发（`AuthService.loginExternal`）：首次登录自动建号（角色 USER），
 > 已存在账号只同步昵称/邮箱/头像，不会覆盖角色与密码。配置入口统一在「管理 → 企业登录」。
