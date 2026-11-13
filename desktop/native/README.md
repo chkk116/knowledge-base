@@ -136,6 +136,16 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
   阅读已改原生 DocHtml/DocReader），桌面端是 wry 绑定（Tauri 系），Windows 走系统自带 WebView2 运行时，
   不需要分发 CEF；注意桌面端 `loadHtml` 会忽略 baseUrl 参数，相对路径要靠 HTML 里的 `<base>` 标签
 
+## 近期修复（2026-11-13）
+
+- `ConfigStore` 的 config.json 读写改用 kotlinx.serialization 标准序列化（原手写正则解析在值含
+  转义序列时会出错）；`AgentEngine` 的 TOOL: 行改括号配对提取首个完整 JSON（原行内贪婪正则遇到
+  同行多余大括号会解析失败），`create_flowchart` 结果消息注明写入的共享空间名
+- App 壳 `TokenStore` 改 AndroidKeyStore AES/GCM 加密持久化（enc1: 前缀，旧明文读取沿用、
+  下次写入自动升级）；底部导航补 `navigationBarsPadding`，「文档库」Tab 补线面切换
+- 主界面去掉外层 20dp + 白卡边框（框套框冗余），文章侧栏补浅底与会话侧栏一致；
+  登录页保留书院风配色（用户拍板 2026-11-13）
+
 ## 约定
 
 - 默认服务器地址见 `ConfigStore.kt`；本地/换环境用 `KB_DESKTOP_SERVER` 环境变量或 config.json 的 server 覆盖

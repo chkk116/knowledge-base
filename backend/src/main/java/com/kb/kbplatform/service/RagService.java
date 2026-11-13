@@ -30,6 +30,10 @@ import java.util.*;
 @Service
 public class RagService {
 
+    /** 类级共享 mapper（与 AiConversationService 同为 Jackson 3），避免每次调用都新建 */
+    private static final tools.jackson.databind.json.JsonMapper PERSONA_MAPPER =
+            tools.jackson.databind.json.JsonMapper.builder().build();
+
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
     private static final int TOP_K = 3;
     private static final int FRAG_LEN = 400;
@@ -299,7 +303,7 @@ public class RagService {
         try {
             // 标准 JSON 解析：custom 里可能含逗号/冒号，手撕 split 会把整段偏好切碎
             StringBuilder sb = new StringBuilder();
-            Map<?, ?> json = new com.fasterxml.jackson.databind.ObjectMapper().readValue(persona, Map.class);
+            Map<?, ?> json = PERSONA_MAPPER.readValue(persona, Map.class);
             for (Map.Entry<?, ?> e : json.entrySet()) {
                 String k = String.valueOf(e.getKey()).trim();
                 String v = e.getValue() == null ? "" : String.valueOf(e.getValue()).trim();

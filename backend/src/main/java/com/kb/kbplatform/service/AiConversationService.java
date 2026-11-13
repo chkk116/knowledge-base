@@ -21,6 +21,10 @@ import java.util.*;
 @Service
 public class AiConversationService {
 
+    /** 类级共享 mapper（Jackson 3，配置后线程安全），避免每次调用都新建 */
+    private static final tools.jackson.databind.json.JsonMapper JSON_MAPPER =
+            tools.jackson.databind.json.JsonMapper.builder().build();
+
     private static final int MAX_CONVERSATIONS = 100;   // 每个用户最多保留 100 条会话
     private static final int MAX_HISTORY = 20;          // 每次上下文携带最近 20 轮
 
@@ -179,7 +183,7 @@ public class AiConversationService {
     private Object parseSources(String json) {
         if (json == null || json.isBlank()) return null;
         try {
-            return tools.jackson.databind.json.JsonMapper.builder().build().readValue(json, List.class);
+            return JSON_MAPPER.readValue(json, List.class);
         } catch (Exception e) {
             return null;
         }
@@ -289,7 +293,7 @@ public class AiConversationService {
         aiMsg.setMode(mode);
         if (sources instanceof List && !((List<?>) sources).isEmpty()) {
             try {
-                aiMsg.setSources(tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(sources));
+                aiMsg.setSources(JSON_MAPPER.writeValueAsString(sources));
             } catch (Exception ignore) { /* 序列化失败不影响回答 */ }
         }
         msgRepo.save(aiMsg);
@@ -355,7 +359,7 @@ public class AiConversationService {
         m.put("custom", "");
         try {
             // 标准 JSON 解析：custom 里可能含逗号/冒号，手撕 split 会把整段偏好切碎
-            Map<?, ?> json = new com.fasterxml.jackson.databind.ObjectMapper().readValue(persona, Map.class);
+            Map<?, ?> json = JSON_MAPPER.readValue(persona, Map.class);
             for (Map.Entry<?, ?> e : json.entrySet()) {
                 String k = String.valueOf(e.getKey()).trim();
                 String v = e.getValue() == null ? "" : String.valueOf(e.getValue()).trim();
@@ -378,7 +382,9 @@ public class AiConversationService {
     }
 
     private String escapeJson(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        // 控制字符不转义会让生成的 JSON 非法（严格解析会失败），custom 里常见换行
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
     private String str(Object o) {

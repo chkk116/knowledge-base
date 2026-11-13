@@ -184,7 +184,7 @@ public class WpsAuthService {
             String email = str(u.get("email"));
             Long bindUserId = st[2] == null || st[2].isBlank() ? null : Long.valueOf(st[2]);
             return new WpsUser(
-                    "wps_" + id,
+                    id,
                     nvl(nick),
                     nvl(nick),
                     avatar,

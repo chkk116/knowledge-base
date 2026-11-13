@@ -41,6 +41,7 @@ public class SsoController {
     private final AuthService auth;
     private final com.kb.kbplatform.service.LoginLogService loginLogService;
     private final RateLimitService rateLimit;
+    private final com.kb.kbplatform.service.KvStore kv;
 
     public SsoController(LdapAuthService ldap, com.kb.kbplatform.service.OidcAuthService oidc,
                          com.kb.kbplatform.service.WeChatAuthService wechat,
@@ -50,7 +51,8 @@ public class SsoController {
                          com.kb.kbplatform.service.WpsAuthService wps,
                          com.kb.kbplatform.repository.UserIdentityRepository identities,
                          AuthService auth, RateLimitService rateLimit,
-                         com.kb.kbplatform.service.LoginLogService loginLogService) {
+                         com.kb.kbplatform.service.LoginLogService loginLogService,
+                         com.kb.kbplatform.service.KvStore kv) {
         this.ldap = ldap;
         this.oidc = oidc;
         this.wechat = wechat;
@@ -62,6 +64,7 @@ public class SsoController {
         this.auth = auth;
         this.loginLogService = loginLogService;
         this.rateLimit = rateLimit;
+        this.kv = kv;
     }
 
     @GetMapping("/api/auth/sso/options")
@@ -286,25 +289,25 @@ public class SsoController {
     /**
      * 一次性登录票据：SSO 回调不再把长期 token 放进跳转 URL（会留在 nginx 日志 / 浏览器历史里），
      * 前端 /sso 页面拿到 ticket 后用下面的 exchange 接口换取正式 token，票据即用即毁、30 秒过期。
+     * 与 SSO state 一样存 KvStore（Redis 可用时多实例共享，TTL 到期自动清理）。
      */
-    private static final java.util.concurrent.ConcurrentHashMap<String, Object[]> LOGIN_TICKETS = new java.util.concurrent.ConcurrentHashMap<>();
-
     private String issueTicket(String token) {
-        long now = System.currentTimeMillis();
-        LOGIN_TICKETS.entrySet().removeIf(e -> ((long) e.getValue()[1]) < now);
         String t = java.util.UUID.randomUUID().toString().replace("-", "");
-        LOGIN_TICKETS.put(t, new Object[]{token, now + 30_000L});
+        kv.put("sso:ticket:" + t, token, java.time.Duration.ofSeconds(30));
         return t;
     }
 
     @PostMapping("/api/auth/sso/ticket/exchange")
     public Map<String, Object> ticketExchange(@RequestBody Map<String, Object> body) {
         String ticket = body.get("ticket") == null ? "" : String.valueOf(body.get("ticket")).trim();
-        Object[] v = ticket.isEmpty() ? null : LOGIN_TICKETS.remove(ticket);
-        if (v == null || (long) v[1] < System.currentTimeMillis()) {
+        if (ticket.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "登录票据无效或已过期，请重新登录");
+        String key = "sso:ticket:" + ticket;
+        String token = kv.get(key);
+        if (token == null || token.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "登录票据无效或已过期，请重新登录");
         }
-        return Map.of("token", String.valueOf(v[0]));
+        kv.delete(key);
+        return Map.of("token", token);
     }
 
     /** 已登录用户在「个人中心」点「绑定微信/QQ/GitHub/Gitee」：返回一次性授权地址（state 里带 userId） */
