@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
@@ -106,12 +108,13 @@ fun MainScaffold(
                 ) {
                     Row(
                         Modifier
+                            .navigationBarsPadding()
                             .widthIn(max = 640.dp)
                             .fillMaxWidth()
                             .padding(vertical = 7.dp)
                     ) {
                         TabItem("首页", Icons.Filled.Home, Icons.Outlined.Home, tab == 0, unread = -1) { tab = 0 }
-                        TabItem("文档库", Icons.Filled.List, Icons.Filled.List, tab == 1, unread = -1) { tab = 1 }
+                        TabItem("文档库", Icons.Filled.List, Icons.AutoMirrored.Outlined.List, tab == 1, unread = -1) { tab = 1 }
                         // 中间 ＋（对标 .tab.center .fab：46px 圆、上移 14dp、发光）
                         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                             CenterFab { tab = 4 }

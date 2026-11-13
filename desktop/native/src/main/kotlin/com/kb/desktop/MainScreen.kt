@@ -48,6 +48,7 @@ enum class MenuKind(val label: String) {
 
 /** 侧栏收成图标栏的宽度阈值（低于它窗口放不下完整侧栏+内容） */
 private val RAIL_BREAK = 880.dp
+private val KbRailBg = Color(0xFFFAFBFC)   // 侧栏浅底（与 ChatPanel 会话侧栏同色）
 
 @Composable
 fun MainScreen(session: Session, onLogout: () -> Unit) {
@@ -92,14 +93,9 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                         onDismiss = { update = null },
                     )
                 }
-                Box(Modifier.fillMaxSize().padding(if (narrow) 10.dp else 20.dp)) {
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White)
-                            .border(1.dp, KbBorder, RoundedCornerShape(12.dp)),
-                    ) {
+                // 2026-11-13：去掉外层 20dp + 白卡 1dp 边框（框套框冗余），内容区直接铺开，留白由各 Panel 自理
+                Box(Modifier.fillMaxSize().background(Color.White)) {
+                    Column(Modifier.fillMaxSize()) {
                         when (selected) {
                             MenuKind.HOME -> HomePanel(session)
                             MenuKind.DOCS -> DocsPanel(session, jumpDocId) { jumpDocId = null }
@@ -527,8 +523,8 @@ private fun DocsPanel(
     }
 
     Row(Modifier.fillMaxSize()) {
-        // 左：文章列表
-        Column(Modifier.width(280.dp).fillMaxHeight()) {
+        // 左：文章列表（浅底侧栏，与 ChatPanel 会话侧栏同款；与右侧已有 1dp 分隔线）
+        Column(Modifier.width(280.dp).fillMaxHeight().background(KbRailBg)) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
