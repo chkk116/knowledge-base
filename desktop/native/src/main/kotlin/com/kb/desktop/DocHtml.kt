@@ -401,6 +401,7 @@ object DocHtml {
     /** 链接白名单：站内相对地址与 http(s)，拦截 javascript:/data: 等伪协议 */
     private fun isSafeLink(href: String): Boolean {
         val h = href.trim()
+        if (h.startsWith("//")) return false   // 协议相对地址会跳到站外，不当站内链接处理
         return !h.contains(':') || h.startsWith("http://", true) || h.startsWith("https://", true)
     }
 }
@@ -408,7 +409,16 @@ object DocHtml {
 // ---------- 图片加载（站内 uploads 走 /api/thumb 缩略，data: 直接解码） ----------
 
 private object DocImgCache {
-    val map = java.util.Collections.synchronizedMap(LinkedHashMap<String, ImageBitmap>())
+    private const val MAX = 60
+
+    // 按访问顺序淘汰（accessOrder=true）：长文档逐张加载、多篇之间来回翻时，
+    // 位图不会无限累积（每张解码后都在堆里，没有上限迟早爆内存）。
+    val map: MutableMap<String, ImageBitmap> = java.util.Collections.synchronizedMap(
+        object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean =
+                size > MAX
+        }
+    )
 }
 
 private val docImgHttp: HttpClient by lazy {

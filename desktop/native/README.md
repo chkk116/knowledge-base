@@ -68,7 +68,7 @@
 - **会话列表**：删除会话改为二次点击确认（首次点击按钮变「确认?」），避免误触连带删光历史；增删改的瞬时失败只在列表顶部显示小提示，不再把已有会话整列替换成错误页。
 - **Agent**：工具执行不再吞掉协程取消异常，点「停止」能真正中断循环；打开 Web 画布前只放行 http/https 地址。
 
-### 本轮：文章原生阅读 + AI 问答 UI 美化（未升版本号，发版时改 AppInfo → 1.0.10/code 11）
+### 1.1.0：文章原生阅读 + 评论回复 + AI 问答 UI 美化（已发版，versionCode 11）
 
 - **阅读视图去 WebView**：`readerHtml`/`BLANK_READER` 阅读链路删除，正文由 `DocHtml.kt` 原生解析渲染
   （JDK ParserDelegator → 块模型 → Compose），新增 `DocReader.kt`（ArticleView 三栏页：操作栏/正文/目录 + 评论区）；

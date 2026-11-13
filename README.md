@@ -370,7 +370,7 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 
 `desktop/native/` 是**非 WebView 套壳**的原生客户端（Kotlin + Compose），交付形态为**一个安装程序 exe**：中文安装向导、可自选安装位置、开始菜单与桌面快捷方式，装完点图标即用，用户不必面对运行时目录。
 
-- 已实现：登录（含滑块验证码）、原生侧栏（首页 / 文章 / AI 问答 / 我的文件 / 设置）、文章列表 + WebView2 阅读视图、我的文件、应用内更新检查
+- 已实现：登录（含滑块验证码）、原生侧栏（首页 / 文章 / AI 问答 / 我的文件 / 设置）、文章列表 + **原生阅读页**（正文/目录/评论点赞收藏，不再走 WebView2）、我的文件、应用内更新检查
 - **AI 问答**：会话列表 + SSE 流式回答（思考过程可折叠、引用来源可跳文章），知识库 / 通用 / Agent 三种模式；Agent 在本地执行检索、读文档、新建文档、生成流程图等工具，最多 6 步、可随时停止；支持多张图片提问（本地压缩后随流发送）、回答赞/踩反馈与会话重命名
 - **界面不展示服务器地址**：侧栏、页面头、设置「关于」、登录页均不显示域名；地址只从 `%APPDATA%\kb-desktop\config.json` 或 `KB_DESKTOP_SERVER` 环境变量读取，token 不落盘
 - 版本独立于 Web 端：`AppInfo.versionCode/versionName`，更新通道 `desktop`（`GET /api/public/app-version?channel=desktop`）
