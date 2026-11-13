@@ -2,7 +2,7 @@
 
 `knowledge-base/desktop/native/` — 用 **Kotlin + Compose Multiplatform Desktop** 写的原生 Windows 客户端（非 WebView 套壳），交付形态为单文件安装程序。`desktop/` 上一层的 Electron 版保留不动。
 
-## 已实现（1.0.3）
+## 已实现（1.0.4）
 
 - 登录窗：账号密码 + 滑块验证码，与 Web 端同一套接口
   （`GET /api/auth/captcha` → `POST /api/auth/captcha/slide` → `POST /api/auth/login`）
@@ -15,6 +15,13 @@
   （详情 content 为服务端净化过的 HTML，正文注入 `<base href>` 使 `/uploads` 图片可达；
   进入面板先检测系统 WebView2 运行时，缺失时显示安装提示）
 - **我的文件**：原生列表（`GET /api/files/mine`），点击在系统浏览器打开
+- **AI 问答**：左侧会话列表（`GET/POST/DELETE /api/ai/conversations`）+ 右侧流式对话
+  （`POST /api/ai/ask/stream`，SSE 逐段 `{"delta"}/{"reasoning"}`，`done` 事件带 qaId/sources/conversationId；
+  「停止」断开连接、已生成内容保留，口径与 Web 端 ai.js 一致）；
+  知识库/通用双模式、模型下拉（`GET /api/ai/models`，scope=user 的走 `userModelId`）；
+  回答用轻量 markdown 渲染（标题/列表/代码块/粗体/行内码/链接文本），「引用来源」点击跳文章页打开对应文章；
+  思考过程折叠展示；当前无会话时先建会话（标题取问题前 24 字）再提问；
+  尚未做：图片提问、Agent 模式、消息赞/踩、会话重命名
 - **服务器地址不进界面**（用户要求）：侧栏用户名下、页面头、设置「关于」、登录页品牌栏共 4 处均不显示域名；
   地址只读 `%APPDATA%\kb-desktop\config.json` 的 `server` 字段（或 `KB_DESKTOP_SERVER` 环境变量），
   默认值见 `ConfigStore.kt`（正式发版按部署目标替换）；token 不落盘

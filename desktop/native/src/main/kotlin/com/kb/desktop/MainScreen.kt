@@ -53,6 +53,8 @@ private val RAIL_BREAK = 880.dp
 fun MainScreen(session: Session, onLogout: () -> Unit) {
     var selected by remember { mutableStateOf(MenuKind.HOME) }
     var update by remember { mutableStateOf<AppVersionInfo?>(null) }
+    // AI 问答里点「引用来源」→ 跳到文章面板并打开对应文章（DocsPanel 读一次后消费掉）
+    var jumpDocId by remember { mutableStateOf<Long?>(null) }
 
     // 启动后静默检查更新：发现更高 versionCode 就在顶部提示（不打断使用）
     LaunchedEffect(Unit) {
@@ -100,10 +102,16 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                     ) {
                         when (selected) {
                             MenuKind.HOME -> HomePanel(session)
-                            MenuKind.DOCS -> DocsPanel(session)
+                            MenuKind.DOCS -> DocsPanel(session, jumpDocId) { jumpDocId = null }
                             MenuKind.FILES -> FilesPanel(session)
                             MenuKind.SETTINGS -> SettingsPanel(session)
-                            MenuKind.CHAT -> PlaceholderPanel(selected)
+                            MenuKind.CHAT -> ChatPanel(
+                                session,
+                                onOpenDoc = { id ->
+                                    jumpDocId = id
+                                    selected = MenuKind.DOCS
+                                },
+                            )
                         }
                     }
                 }
@@ -435,35 +443,11 @@ private fun SettingRow(label: String, value: String) {
 }
 
 @Composable
-private fun PlaceholderPanel(kind: MenuKind) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val tile = when (kind) {
-                MenuKind.CHAT -> KbTileGreen
-                else -> KbTileBlue
-            }
-            Box(
-                Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(KbIconGradient(tile.first, tile.second)),
-                contentAlignment = Alignment.Center,
-            ) { MenuGlyph(kind, Color.White, Modifier.size(26.dp)) }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                when (kind) {
-                    MenuKind.CHAT -> "AI 问答（随后接入）"
-                    else -> "设置（随后接入）"
-                },
-                fontSize = 13.sp,
-                color = KbTextSub,
-            )
-        }
-    }
-}
-
-@Composable
-private fun DocsPanel(session: Session) {
+private fun DocsPanel(
+    session: Session,
+    jumpDocId: Long? = null,
+    onJumpConsumed: () -> Unit = {},
+) {
     val api = remember(session) { ApiClient(session.server) }
     var docs by remember { mutableStateOf<List<DocSummary>>(emptyList()) }
     var total by remember { mutableStateOf(0L) }
@@ -477,6 +461,13 @@ private fun DocsPanel(session: Session) {
     var wv2Ok by remember { mutableStateOf<Boolean?>(null) }
     var editing by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<Long?>(null) }
+
+    // 外部跳转（AI 问答引用来源）：只拿到 id 时也直接打开详情
+    LaunchedEffect(jumpDocId) {
+        val id = jumpDocId ?: return@LaunchedEffect
+        selected = DocSummary(id = id, title = "", ownerName = "", updatedAt = "", views = 0, category = null, snippet = null)
+        onJumpConsumed()
+    }
     val webState = remember(session) {
         WebViewState(WebContent.Data(BLANK_READER, null)).apply {
             // 编辑视图加载 Web 端 SPA 页：页面脚本执行前注入 token（会话内存值，匿名档案不落盘）

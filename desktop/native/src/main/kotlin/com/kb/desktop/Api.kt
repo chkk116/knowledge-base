@@ -11,6 +11,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
+import java.io.BufferedReader
+import java.io.InputStream
+import java.io.InputStreamReader
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -70,6 +73,41 @@ data class FileItem(
     val size: Long?,
     val contentType: String?,
     val createdAt: String,
+)
+
+/** AI 可选模型（GET /api/ai/models）。scope=system 时请求发 modelId，scope=user 时发 userModelId。 */
+data class AiModelOption(
+    val id: Long,
+    val name: String,
+    val provider: String,
+    val scope: String,
+    val isDefault: Boolean,
+)
+
+/** AI 会话列表项（GET /api/ai/conversations）。 */
+data class AiConversationItem(val id: Long, val title: String, val updatedAt: String)
+
+/** 引用来源（RAG 检索命中，id = 文章 id）。 */
+data class AiSource(val id: Long, val title: String, val snippet: String)
+
+/** AI 历史消息（GET /api/ai/conversations/{id}/messages）。role 为 user/ai。 */
+data class AiMsg(
+    val id: Long,
+    val role: String,
+    val content: String,
+    val mode: String,
+    val sources: List<AiSource>,
+)
+
+/** 流式回答的 done 事件载荷（一次问答的收尾信息）。 */
+data class AiAskResult(
+    val conversationId: Long,
+    val title: String,
+    val answer: String,
+    val qaId: Long?,
+    val sources: List<AiSource>,
+    val modelName: String?,
+    val reasoning: String?,
 )
 
 /** HTTP + JSON 访问层。登录三步 + 文章/文件只读接口。 */
@@ -267,7 +305,180 @@ class ApiClient(private val base: String) {
             force = o.bool("force") ?: false,
         )
     }
+
+    /** 通用带认证请求（GET/POST/PUT/DELETE）。 */
+    private fun authReq(method: String, path: String, token: String, body: String? = null): String = try {
+        val resp = http.send(HttpRequest.newBuilder(uri(path))
+            .header("Authorization", "Bearer $token")
+            .apply { if (body != null) header("Content-Type", "application/json") }
+            .method(method, if (body != null) HttpRequest.BodyPublishers.ofString(body)
+                else HttpRequest.BodyPublishers.noBody())
+            .timeout(Duration.ofSeconds(20))
+            .build(), HttpResponse.BodyHandlers.ofString())
+        when {
+            resp.statusCode() == 401 -> throw ApiError("登录已过期，请重新登录")
+            resp.statusCode() >= 400 -> {
+                val msg = parse(resp.body())?.str("error")
+                throw ApiError(msg ?: "服务器返回 ${resp.statusCode()}")
+            }
+            else -> resp.body()
+        }
+    } catch (e: ApiError) {
+        throw e
+    } catch (e: Exception) {
+        throw ApiError("无法连接服务器：${e.message ?: "网络错误"}")
+    }
+
+    /** GET /api/ai/models → 可选模型列表（不含 Key） */
+    suspend fun aiModels(token: String): List<AiModelOption> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/ai/models", token)) }.getOrNull()
+            ?: throw ApiError("模型列表响应异常")
+        val arr = e as? JsonArray ?: throw ApiError("模型列表响应异常")
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AiModelOption(
+                id = id,
+                name = j.str("name").orEmpty(),
+                provider = j.str("provider").orEmpty(),
+                scope = j.str("scope") ?: "system",
+                isDefault = j.bool("isDefault") ?: false,
+            )
+        }
+    }
+
+    /** GET /api/ai/conversations → 会话列表（后端按更新时间排序） */
+    suspend fun aiConversations(token: String): List<AiConversationItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/ai/conversations", token)) }.getOrNull()
+            ?: throw ApiError("会话列表响应异常")
+        val arr = e as? JsonArray ?: throw ApiError("会话列表响应异常")
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AiConversationItem(id = id, title = j.str("title").orEmpty(), updatedAt = j.str("updatedAt").orEmpty())
+        }
+    }
+
+    /** POST /api/ai/conversations {title} → 新建会话 */
+    suspend fun aiCreateConversation(token: String, title: String): AiConversationItem = withContext(Dispatchers.IO) {
+        val o = parse(authReq("POST", "/api/ai/conversations", token, """{"title":${jsonStr(title)}}"""))
+            ?: throw ApiError("创建会话响应异常")
+        val id = o.long("id") ?: throw ApiError("创建会话响应异常")
+        AiConversationItem(id = id, title = o.str("title").orEmpty(), updatedAt = o.str("updatedAt").orEmpty())
+    }
+
+    /** DELETE /api/ai/conversations/{id}（连带消息） */
+    suspend fun aiDeleteConversation(token: String, id: Long) = withContext(Dispatchers.IO) {
+        authReq("DELETE", "/api/ai/conversations/$id", token)
+    }
+
+    /** GET /api/ai/conversations/{id}/messages → 历史消息（按时间正序） */
+    suspend fun aiMessages(token: String, id: Long): List<AiMsg> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(authReq("GET", "/api/ai/conversations/$id/messages", token)) }.getOrNull()
+            ?: throw ApiError("历史消息响应异常")
+        val arr = e as? JsonArray ?: throw ApiError("历史消息响应异常")
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            AiMsg(
+                id = j.long("id") ?: 0L,
+                role = j.str("role").orEmpty(),
+                content = j.str("content").orEmpty(),
+                mode = j.str("mode") ?: "kb",
+                sources = parseSourceList(j["sources"]),
+            )
+        }
+    }
+
+    /**
+     * POST /api/ai/ask/stream（SSE）：发起流式问答，返回可逐行读取的句柄。
+     * 用户点「停止」时调 [ChatStream.abort] 断开连接，已生成内容保留（后端口径同 Web 端）。
+     */
+    suspend fun askStreamStart(
+        token: String,
+        question: String,
+        conversationId: Long?,
+        mode: String,
+        modelId: Long?,
+        userModelId: Long?,
+    ): ChatStream = withContext(Dispatchers.IO) {
+        val body = buildString {
+            append("""{"question":""").append(jsonStr(question))
+            if (conversationId != null) append(""","conversationId":$conversationId""")
+            append(""","mode":""").append(jsonStr(mode))
+            if (modelId != null) append(""","modelId":$modelId""")
+            if (userModelId != null) append(""","userModelId":$userModelId""")
+            append("}")
+        }
+        val req = HttpRequest.newBuilder(uri("/api/ai/ask/stream"))
+            .header("Authorization", "Bearer $token")
+            .header("Content-Type", "application/json")
+            // 只约束拿到响应头（含较慢的鉴权）；流式正文不设超时，靠用户停止/服务端结束收尾
+            .timeout(Duration.ofSeconds(30))
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build()
+        val resp = try {
+            http.send(req, HttpResponse.BodyHandlers.ofInputStream())
+        } catch (e: Exception) {
+            throw ApiError("无法连接服务器：${e.message ?: "网络错误"}")
+        }
+        if (resp.statusCode() == 401) {
+            resp.body().close()
+            throw ApiError("登录已过期，请重新登录")
+        }
+        if (resp.statusCode() >= 400) {
+            val msg = parse(resp.body().readBytes().toString(Charsets.UTF_8))?.str("error")
+            resp.body().close()
+            throw ApiError(msg ?: "服务器返回 ${resp.statusCode()}")
+        }
+        ChatStream(resp)
+    }
 }
+
+/**
+ * 流式问答句柄：[nextLine] 在 IO 线程逐行读 SSE；[abort] 关闭底层连接令下一次读取失败退出
+ * （用户停止/界面销毁时调用），已生成内容保留。仅暴露行读取，事件解析归 UI 层。
+ */
+class ChatStream internal constructor(resp: HttpResponse<InputStream>) {
+    private val body: InputStream = resp.body()
+    private val reader = BufferedReader(InputStreamReader(body, Charsets.UTF_8))
+
+    @Volatile
+    internal var aborted = false
+        private set
+
+    /** 读一行；流结束或连接被断开返回 null。 */
+    fun nextLine(): String? = try {
+        reader.readLine()
+    } catch (e: Exception) {
+        null
+    }
+
+    /** 主动停止：关闭连接。 */
+    fun abort() {
+        aborted = true
+        runCatching { body.close() }
+    }
+
+    /** 静默收尾（正常结束后关闭连接）。 */
+    fun close() {
+        runCatching { body.close() }
+    }
+}
+
+/** sources 字段兼容数组/缺省两种形态（历史消息里存的是 JSON 串，服务端已解析成数组）。 */
+internal fun parseSourceList(raw: kotlinx.serialization.json.JsonElement?): List<AiSource> =
+    (raw as? JsonArray)?.mapNotNull { e ->
+        val s = e as? JsonObject ?: return@mapNotNull null
+        val id = s.long("id") ?: return@mapNotNull null
+        AiSource(id = id, title = s.str("title").orEmpty(), snippet = s.str("snippet").orEmpty())
+    } ?: emptyList()
+
+/** 顶层 JSON 小工具（ApiClient 内同名成员扩展只在类内可见）。 */
+private fun JsonObject.str(key: String): String? =
+    (this[key] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+
+private fun JsonObject.long(key: String): Long? =
+    (this[key] as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull
 
 /** HTML 串粗略去标签，仅作列表摘要兜底。 */
 private fun plainText(html: String): String =
