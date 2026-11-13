@@ -1,5 +1,6 @@
 package com.kb.desktop
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,15 +44,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.awt.LocalAwtWindow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -59,8 +65,22 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.awt.FileDialog
+import java.awt.Frame
+import java.awt.RenderingHints
+import java.awt.image.BufferedImage
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.net.URI
+import java.util.Base64
+import javax.imageio.IIOImage
+import javax.imageio.ImageIO
+import javax.imageio.ImageWriteParam
+import javax.imageio.stream.MemoryCacheImageOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -71,7 +91,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
-import java.net.URI
+
 
 /** 侧栏高亮底/内容面板等常量来自 Theme.kt；这里是聊天面板局部色。 */
 private val ChatRailBg = Color(0xFFFAFBFC)
@@ -91,7 +111,11 @@ private data class ChatMsg(
     val streaming: Boolean = false,
     val qaId: Long? = null,
     val fbRating: Int = 0,   // 1=赞 -1=踩 0=无（仅本会话新产生的回答可评价，历史消息没有 qaId）
+    val images: List<String> = emptyList(),   // 用户随问附带的图片 dataURL（仅当次可见，后端不落历史）
 )
+
+/** 一条待发送的图片附件（本地已压缩成 dataURL）。 */
+private data class Att(val name: String, val dataUrl: String)
 
 /**
  * AI 问答面板：左侧会话列表 + 右侧流式对话。
@@ -99,6 +123,7 @@ private data class ChatMsg(
  * {"delta"}/{"reasoning"}，done 事件带 qaId/sources/conversationId；用户「停止」断开连接、
  * 已生成内容保留；当前会话为空时先建会话（标题取问题前 24 字）再提问。
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
     val api = remember(session) { ApiClient(session.server) }
@@ -119,6 +144,9 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
     // 会话重命名：rail 行内编辑
     var editingConvId by remember { mutableStateOf<Long?>(null) }
     var renameInput by remember { mutableStateOf("") }
+    // 图片附件（vision）：本地压缩成 dataURL，随问发送
+    var atts by remember { mutableStateOf<List<Att>>(emptyList()) }
+    var attachError by remember { mutableStateOf<String?>(null) }
 
     // 面板销毁（切菜单/退出登录）时断开还在生成的连接，避免后台空转
     DisposableEffect(Unit) { onDispose { streamHandle.value?.abort() } }
@@ -230,31 +258,64 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
         }
     }
 
+    // 图片附件：原生文件对话框多选（Windows 不认 FilenameFilter，按可解码性过滤），本地压缩后入列
+    // 注意：LocalAwtWindow.current 只能在组合期读，先捕获成普通变量再进点击回调
+    val awtFrame = LocalAwtWindow.current as? Frame
+    val pickImages: () -> Unit = {
+        if (awtFrame != null) {
+            val fd = FileDialog(awtFrame, "选择图片（最多 4 张）", FileDialog.LOAD)
+            fd.isMultipleMode = true
+            fd.isVisible = true   // 模态阻塞至用户确认/取消
+            val files = fd.files
+            attachError = when {
+                files.isEmpty() -> null
+                atts.size >= 4 -> "最多 4 张图片"
+                else -> {
+                    var skipped = 0
+                    val picked = ArrayList<Att>()
+                    for (f in files.take(4 - atts.size)) {
+                        val du = compressImageFile(f.absolutePath)
+                        if (du != null) picked.add(Att(f.name, du)) else skipped++
+                    }
+                    if (files.size > 4 - atts.size) skipped += files.size - (4 - atts.size)
+                    atts = atts + picked
+                    if (skipped > 0) "已忽略 $skipped 个无法识别的文件" else null
+                }
+            }
+        }
+    }
+
     val send: () -> Unit = {
         val q = input.trim()
-        if (!streaming && q.isNotEmpty()) {
+        // 纯图无文字时按 Web 端口径自动补提问语
+        val qText = q.ifBlank { if (atts.isNotEmpty()) "请识别并说明这些图片的内容" else "" }
+        if (!streaming && qText.isNotEmpty()) {
+            val images = atts.map { it.dataUrl }
             input = ""
+            atts = emptyList()
+            attachError = null
             streaming = true   // 先置位再起协程，双击不会发两问
             scope.launch {
                 try {
                     var conv = currentConv
                     if (conv == null) {
-                        conv = api.aiCreateConversation(session.token, q.take(24).ifBlank { "新对话" })
+                        conv = api.aiCreateConversation(session.token, qText.take(24).ifBlank { "新对话" })
                         currentConv = conv
                         try { convs = api.aiConversations(session.token) } catch (_: Exception) {}
                     }
                     val convId = conv.id
-                    msgs = msgs + ChatMsg(role = "user", content = q, mode = mode)
+                    msgs = msgs + ChatMsg(role = "user", content = q, mode = mode, images = images)
                     val aiIdx = msgs.size
                     msgs = msgs + ChatMsg(role = "ai", mode = mode, streaming = true)
 
                     val handle = api.askStreamStart(
                         token = session.token,
-                        question = q,
+                        question = qText,
                         conversationId = convId,
                         mode = mode,
                         modelId = selModel?.takeIf { it.scope == "system" }?.id,
                         userModelId = selModel?.takeIf { it.scope == "user" }?.id,
+                        images = images,
                     )
                     streamHandle.value = handle
 
@@ -397,11 +458,57 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                     }
                 }
                 HorizontalDivider()
+                // 附件条：已选图片缩略图 + 移除；选择失败原因（attachError）也在这行提示
+                if (atts.isNotEmpty() || attachError != null) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (attachError != null) {
+                            Text(attachError.orEmpty(), fontSize = 11.sp, color = ChatErrRed)
+                        }
+                        for (a in atts) {
+                            Row(
+                                Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(ChatChipBg)
+                                    .border(1.dp, Color(0xFFE2E6EE), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 5.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AttThumb(a.dataUrl, 26.dp)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    a.name,
+                                    fontSize = 10.5.sp,
+                                    color = KbTextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 90.dp),
+                                )
+                                Text(
+                                    " ✕",
+                                    fontSize = 10.sp,
+                                    color = KbTextSub,
+                                    modifier = Modifier.clickable { atts = atts.filterNot { it == a } },
+                                )
+                            }
+                        }
+                    }
+                }
                 Row(
                     Modifier.fillMaxWidth().padding(12.dp),
                     verticalAlignment = Alignment.Bottom,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    TextButton(
+                        onClick = pickImages,
+                        enabled = !streaming,
+                        modifier = Modifier.height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = KbTextMain),
+                    ) { Text("📎", fontSize = 15.sp) }
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
@@ -412,7 +519,13 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                                 true
                             } else false
                         },
-                        placeholder = { Text("输入问题，Enter 发送，Shift+Enter 换行", fontSize = 12.sp, color = KbTextSub) },
+                        placeholder = {
+                            Text(
+                                if (atts.isEmpty()) "输入问题，Enter 发送，Shift+Enter 换行" else "输入问题（可留空，Enter 直接看图）",
+                                fontSize = 12.sp,
+                                color = KbTextSub,
+                            )
+                        },
                         shape = RoundedCornerShape(10.dp),
                         minLines = 1,
                         maxLines = 4,
@@ -431,7 +544,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                     } else {
                         Button(
                             onClick = send,
-                            enabled = input.isNotBlank(),
+                            enabled = input.isNotBlank() || atts.isNotEmpty(),
                             modifier = Modifier.height(38.dp),
                             shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(
@@ -452,14 +565,23 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
 private fun ChatMsgRow(m: ChatMsg, onOpenDoc: (Long) -> Unit, rateMsg: (ChatMsg, Int) -> Unit) {
     if (m.role == "user") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Box(
-                Modifier
-                    .widthIn(max = 460.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(KbPrimary)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Text(m.content, fontSize = 13.sp, lineHeight = 20.sp, color = Color.White)
+            Column(Modifier.widthIn(max = 460.dp), horizontalAlignment = Alignment.End) {
+                if (m.images.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (du in m.images.take(4)) AttThumb(du, 84.dp)
+                    }
+                    if (m.content.isNotBlank()) Spacer(Modifier.height(6.dp))
+                }
+                if (m.content.isNotBlank()) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(KbPrimary)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(m.content, fontSize = 13.sp, lineHeight = 20.sp, color = Color.White)
+                    }
+                }
             }
         }
     } else {
@@ -486,6 +608,30 @@ private fun ChatMsgRow(m: ChatMsg, onOpenDoc: (Long) -> Unit, rateMsg: (ChatMsg,
                 if (m.sources.isNotEmpty()) SourcesRow(m.sources, onOpenDoc)
                 if (m.qaId != null && !m.streaming) FeedbackRow(m, rateMsg)
             }
+        }
+    }
+}
+
+/** 图片缩略图（dataURL 解码；解码失败显示占位）。附件条与用户气泡共用。 */
+@Composable
+private fun AttThumb(dataUrl: String, size: Dp) {
+    val bmp = remember(dataUrl) { decodeDataUrlImage(dataUrl) }
+    Box(
+        Modifier
+            .size(size)
+            .clip(RoundedCornerShape(6.dp))
+            .background(ChatCodeBg),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bmp != null) {
+            Image(
+                bitmap = bmp,
+                contentDescription = null,
+                modifier = Modifier.size(size),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text("图", fontSize = 9.sp, color = KbTextSub)
         }
     }
 }
@@ -975,6 +1121,37 @@ private fun MdText(content: String, modifier: Modifier = Modifier) {
 }
 
 // ---------- 小工具 ----------
+
+/** 本地压缩图片为 dataURL（对齐 Web 端 compressImage：最长边 1280 / JPEG 0.82 / 白底），失败返回 null。 */
+internal fun compressImageFile(path: String, maxEdge: Int = 1280, quality: Float = 0.82f): String? = runCatching {
+    val src = ImageIO.read(File(path)) ?: return null   // 非图片（Windows 对话框不认扩展名过滤）→ 丢弃
+    val scale = minOf(1f, maxEdge.toFloat() / maxOf(src.width, src.height))
+    val w = maxOf(1, (src.width * scale).toInt())
+    val h = maxOf(1, (src.height * scale).toInt())
+    val out = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
+    val g = out.createGraphics()
+    g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+    g.color = java.awt.Color.WHITE
+    g.fillRect(0, 0, w, h)   // PNG 透明区转 JPEG 会变黑，先铺白底（同 Web 端）
+    g.drawImage(src, 0, 0, w, h, null)
+    g.dispose()
+    val jpg = ByteArrayOutputStream()
+    val writer = ImageIO.getImageWritersByFormatName("jpg").next()
+    val p = writer.defaultWriteParam
+    p.compressionMode = ImageWriteParam.MODE_EXPLICIT
+    p.compressionQuality = quality
+    writer.output = MemoryCacheImageOutputStream(jpg)
+    writer.write(null, IIOImage(out, null, null), null)
+    writer.dispose()
+    "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpg.toByteArray())
+}.getOrNull()
+
+/** dataURL → Compose ImageBitmap（仅当次渲染用；失败返回 null）。 */
+internal fun decodeDataUrlImage(dataUrl: String): ImageBitmap? = runCatching {
+    val b64 = dataUrl.substringAfter("base64,", "")
+    if (b64.isEmpty()) return null
+    loadImageBitmap(ByteArrayInputStream(Base64.getDecoder().decode(b64)))
+}.getOrNull()
 
 private fun JsonObject.jStr(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
 

@@ -2,7 +2,7 @@
 
 `knowledge-base/desktop/native/` — 用 **Kotlin + Compose Multiplatform Desktop** 写的原生 Windows 客户端（非 WebView 套壳），交付形态为单文件安装程序。`desktop/` 上一层的 Electron 版保留不动。
 
-## 已实现（1.0.5）
+## 已实现（1.0.6）
 
 - 登录窗：账号密码 + 滑块验证码，与 Web 端同一套接口
   （`GET /api/auth/captcha` → `POST /api/auth/captcha/slide` → `POST /api/auth/login`）
@@ -21,7 +21,12 @@
   知识库/通用双模式、模型下拉（`GET /api/ai/models`，scope=user 的走 `userModelId`）；
   回答用轻量 markdown 渲染（标题/列表/代码块/粗体/行内码/链接文本），「引用来源」点击跳文章页打开对应文章；
   思考过程折叠展示；当前无会话时先建会话（标题取问题前 24 字）再提问；
-  尚未做：图片提问、Agent 模式
+  尚未做：Agent 模式（Web 端是前端本地引擎 utils/localAgent 的 ReAct 编排，移植是千行级工程，暂缓）
+- **图片提问（vision）**：输入框 📎 选图（AWT FileDialog 多选，Windows 不认扩展名过滤器，
+  按可解码性丢弃非图片）→ 本地压缩对齐 Web 端 compressImage（最长边 1280 / JPEG 0.82 / 白底防透明变黑）
+  → dataURL 随 `POST /api/ai/ask/stream` 的 `images` 参数发送（后端硬限 ≤4 张、单张解码 ≤2MB）；
+  纯图无文字自动补「请识别并说明这些图片的内容」；附件条可缩略图预览/✕ 移除；用户气泡内渲染缩略图；
+  与 Web 一致：图片只在当次可见（历史消息不落盘），识文字/OCR 与 PDF/Office 解析未做（Web 端专用）
 - **AI 反馈与会话重命名**：回答下方「👍 有帮助 / 👎 没帮助」（`POST /api/ai/feedback`，
   rating 1=赞 -1=踩 **0=取消**，同一键再点一次即取消，与 Web 端一致）；仅本次会话新产生的回答可评
   （历史消息接口不回传 qaId，与 Web 端口径一致）；反馈失败不回滚 UI；

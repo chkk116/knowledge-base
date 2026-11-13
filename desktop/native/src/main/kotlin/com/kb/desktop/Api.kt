@@ -404,6 +404,7 @@ class ApiClient(private val base: String) {
 
     /**
      * POST /api/ai/ask/stream（SSE）：发起流式问答，返回可逐行读取的句柄。
+     * [images] 为本地压缩好的 dataURL（data:image/jpeg;base64,…），后端硬限 ≤4 张、单张解码 ≤2MB。
      * 用户点「停止」时调 [ChatStream.abort] 断开连接，已生成内容保留（后端口径同 Web 端）。
      */
     suspend fun askStreamStart(
@@ -413,6 +414,7 @@ class ApiClient(private val base: String) {
         mode: String,
         modelId: Long?,
         userModelId: Long?,
+        images: List<String> = emptyList(),
     ): ChatStream = withContext(Dispatchers.IO) {
         val body = buildString {
             append("""{"question":""").append(jsonStr(question))
@@ -420,7 +422,14 @@ class ApiClient(private val base: String) {
             append(""","mode":""").append(jsonStr(mode))
             if (modelId != null) append(""","modelId":$modelId""")
             if (userModelId != null) append(""","userModelId":$userModelId""")
-            append("}")
+            if (images.isNotEmpty()) {
+                append(""","images":[""")
+                append(images.joinToString(",") { jsonStr(it) })
+                append("]")
+                append("}")
+            } else {
+                append("}")
+            }
         }
         val req = HttpRequest.newBuilder(uri("/api/ai/ask/stream"))
             .header("Authorization", "Bearer $token")

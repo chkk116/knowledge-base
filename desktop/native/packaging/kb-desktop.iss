@@ -10,7 +10,7 @@
 
 #ifndef AppVer
   ; 手动编译未传 /DAppVer 时的兜底（与 AppInfo.kt 的 versionName 保持一致）
-  #define AppVer "1.0.5"
+  #define AppVer "1.0.6"
 #endif
 
 #define MyAppName "知识库"
