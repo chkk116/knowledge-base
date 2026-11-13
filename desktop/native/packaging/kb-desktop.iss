@@ -1,7 +1,7 @@
 ﻿; 知识库桌面端 Windows 安装程序脚本（Inno Setup 6.7.4）
 ;
 ; 编译入口：gradle packageInnoSetup（自动先 createDistributable，再 ISCC /DAppVer=<版本>）
-; 手动编译：C:\chkk\tools\inno6\ISCC.exe /DAppVer=1.0.3 packaging\kb-desktop.iss
+; 手动编译：C:\chkk\tools\inno6\ISCC.exe /DAppVer=1.0.9 packaging\kb-desktop.iss
 ; 输入：createDistributable 产出的 app-image（构建目录已重定向到纯 ASCII 路径，见 build.gradle.kts）
 ; 中文向导依赖 packaging\ChineseSimplified.isl，需复制到 C:\chkk\tools\inno6\Languages\（编译时经 compiler: 前缀读取）
 ;
@@ -10,7 +10,7 @@
 
 #ifndef AppVer
   ; 手动编译未传 /DAppVer 时的兜底（与 AppInfo.kt 的 versionName 保持一致）
-  #define AppVer "1.0.6"
+  #define AppVer "1.0.9"
 #endif
 
 #define MyAppName "知识库"
@@ -27,6 +27,11 @@ AppPublisher={#MyAppPublisher}
 ; VS Code 式用户级安装位置：免 UAC，默认 {localappdata}\Programs\kb-desktop，向导里可改
 DefaultDirName={localappdata}\Programs\kb-desktop
 DirExistsWarning=no
+; ⚠️ 必须显式 no：Inno 6 默认 auto，检测到同 AppId 已安装（升级）会自动跳过
+; 「选择目标位置」页，导致老用户永远改不了安装位置。no = 每次安装/升级都显示该页。
+DisableDirPage=no
+; 准备安装页回显目标目录，便于升级时确认改没改成功
+AlwaysShowDirOnReadyPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 CloseApplications=yes
