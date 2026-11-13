@@ -103,7 +103,9 @@ function goLogin() {
 
 // ---------- 摄像头扫码 ----------
 const videoRef = ref(null)
+const captureRef = ref(null)
 const scanning = ref(false)
+const decoding = ref(false)
 const scanErr = ref('')
 const scanTip = ref('')
 let stream = null
@@ -111,19 +113,118 @@ let timer = 0
 let canvas = null
 let ctx = null
 let jsQRLoading = null
+const forceLive = ref(false)
 
-/** 只在点「开始扫码」时加载 128KB 解码库，别拖慢其它页面 */
+/**
+ * App 内优先走「系统相机拍照 + 静态图解码」。
+ * 拍照建档用的 <input type=file capture> 已经验证可调起相机（WebView 的文件选择桥，
+ * 不需要 CAMERA 运行时权限）；而 getUserMedia 实时视频流要 WebView onPermissionRequest
+ * 放行 + App 声明并申请 CAMERA 权限，Capacitor 版两者都没有，点了只会一片黑。
+ * 原生壳同样优先拍照，避免不同机型 WebView 表现不一致；想用实时预览可点页面上的入口。
+ */
+const preferCapture = (() => {
+  try {
+    if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' &&
+        window.Capacitor.isNativePlatform()) return true
+    if (typeof window.__KB_NATIVE_TOKEN !== 'undefined') return true
+  } catch { /* 浏览器：按普通 Web 处理 */ }
+  return false
+})()
+
+/** 解码库：新构建带 jsQR.min.js，旧 App 内置资源只有 jsqr.js，两个都挂 window.jsQR */
+const JSQR_SRCS = ['/vendor/jsQR.min.js', '/vendor/jsqr.js']
 function loadJsQR() {
   if (window.jsQR) return Promise.resolve(window.jsQR)
   if (jsQRLoading) return jsQRLoading
   jsQRLoading = new Promise((resolve, reject) => {
-    const s = document.createElement('script')
-    s.src = '/vendor/jsQR.min.js'
-    s.onload = () => window.jsQR ? resolve(window.jsQR) : reject(new Error('解码库加载失败'))
-    s.onerror = () => reject(new Error('解码库加载失败'))
-    document.head.appendChild(s)
-  })
+    let i = 0
+    const tryNext = () => {
+      if (window.jsQR) return resolve(window.jsQR)
+      if (i >= JSQR_SRCS.length) return reject(new Error('解码库加载失败'))
+      const s = document.createElement('script')
+      s.src = JSQR_SRCS[i++]
+      s.onload = () => window.jsQR ? resolve(window.jsQR) : tryNext()
+      s.onerror = () => tryNext()
+      document.head.appendChild(s)
+    }
+    tryNext()
+  }).catch((e) => { jsQRLoading = null; throw e })
   return jsQRLoading
+}
+
+function ensureCanvas() {
+  if (!canvas) canvas = document.createElement('canvas')
+  if (!ctx) ctx = canvas.getContext('2d', { willReadFrequently: true })
+}
+
+/** 相机拍回来的文件 → 可绘制的位图；老 WebView 没有 createImageBitmap 时回退 Image */
+function loadBitmap(file) {
+  if (window.createImageBitmap) {
+    return createImageBitmap(file).then((bmp) => ({
+      image: bmp, width: bmp.width, height: bmp.height,
+      release: () => { try { bmp.close() } catch {} }
+    })).catch(() => loadBitmapByImage(file))
+  }
+  return loadBitmapByImage(file)
+}
+
+function loadBitmapByImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => resolve({
+      image: img, width: img.naturalWidth, height: img.naturalHeight,
+      release: () => URL.revokeObjectURL(url)
+    })
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片读取失败')) }
+    img.src = url
+  })
+}
+
+/** 多尺度试解码：拍照时二维码占比不定，缩一点/放一点命中率明显更高 */
+async function decodeFile(file) {
+  await loadJsQR()
+  ensureCanvas()
+  const bmp = await loadBitmap(file)
+  try {
+    const base = Math.min(bmp.width, 1600)
+    for (const s of [1, 0.6, 1.6]) {
+      const w = Math.max(1, Math.round(base * s))
+      const h = Math.max(1, Math.round(w * bmp.height / bmp.width))
+      if (w > 2400 || h > 2400) continue
+      canvas.width = w; canvas.height = h
+      ctx.clearRect(0, 0, w, h)
+      ctx.drawImage(bmp.image, 0, 0, w, h)
+      let img
+      try { img = ctx.getImageData(0, 0, w, h) } catch { break }
+      const res = window.jsQR(img.data, w, h, { inversionAttempts: 'attemptBoth' })
+      if (res && res.data) return res.data
+    }
+  } finally { bmp.release() }
+  return ''
+}
+
+async function onCaptureFile(e) {
+  const f = (e.target.files || [])[0]
+  e.target.value = ''   // 允许连续拍同一张标签
+  if (!f) return
+  scanErr.value = ''
+  decoding.value = true
+  scanTip.value = '正在识别二维码…'
+  try {
+    const raw = await decodeFile(f)
+    if (!raw) {
+      scanErr.value = '没识别出二维码：把标签二维码拍清楚、尽量占满画面再试一次，也可以在下方手动输入编号。'
+      return
+    }
+    input.value = parseScanned(raw)
+    queryInput()
+  } catch (err) {
+    scanErr.value = '识别失败：' + ((err && err.message) || '未知错误') + '；可手动输入编号查询。'
+  } finally {
+    decoding.value = false
+    scanTip.value = ''
+  }
 }
 
 function stopScan() {
@@ -157,11 +258,12 @@ function tick() {
   timer = window.setTimeout(() => requestAnimationFrame(tick), 160)
 }
 
-async function startScan() {
+/** 实时取景扫码：手机浏览器可用；App 内作为备用入口 */
+async function startLive() {
   if (scanning.value) return
   scanErr.value = ''
   if (!navigator.mediaDevices?.getUserMedia) {
-    scanErr.value = '当前环境无法调用摄像头：可用手机相机/微信直接扫资产标签二维码（会自动打开本页），或在下方手动输入编号。'
+    scanErr.value = '当前环境无法调用摄像头：请点「拍照识别」用系统相机，或手机相机/微信直接扫资产标签二维码（会自动打开本页），也可以在下方手动输入编号。'
     return
   }
   try {
@@ -169,8 +271,7 @@ async function startScan() {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment' }, audio: false
     })
-    canvas = document.createElement('canvas')
-    ctx = canvas.getContext('2d', { willReadFrequently: true })
+    ensureCanvas()
     scanning.value = true
     scanTip.value = '把资产标签二维码放进框内'
     await nextTick()
@@ -184,9 +285,21 @@ async function startScan() {
     stopScan()
     const denied = e && (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError')
     scanErr.value = denied
-      ? '摄像头权限被拒绝：请在浏览器或系统设置里允许，也可以用手机相机/微信扫标签二维码。'
-      : '无法启动摄像头：' + ((e && e.message) || '未知错误') + '；也可手动输入编号查询。'
+      ? '摄像头权限被拒绝：请点「拍照识别」用系统相机，或在系统设置里允许浏览器使用摄像头。'
+      : '无法启动摄像头：' + ((e && e.message) || '未知错误') + '；也可以点「拍照识别」或手动输入编号。'
   }
+}
+
+/** 主按钮：App 内直接调系统相机，Web 内走实时取景 */
+function startScan() {
+  if (scanning.value) { stopScan(); return }
+  if (preferCapture && !forceLive.value) { captureRef.value?.click(); return }
+  startLive()
+}
+
+function useLive() {
+  forceLive.value = true
+  startLive()
 }
 
 let autoScanTimer = null
@@ -194,9 +307,14 @@ onMounted(() => {
   const c = codeFromRoute()
   if (c) load(c)
   else if (String(route.query.scan || '') === '1') {
-    // 先让页面把 header / 卡片渲染出来，再申请摄像头。
-    // 原生 WebView 在首帧就创建 video+getUserMedia 时，个别机型会把整个 WebView 刷成白屏。
-    autoScanTimer = setTimeout(() => { autoScanTimer = null; startScan().catch(() => {}) }, 600)
+    // 进页面就自动弹相机需要先有用户手势，App 内会被 WebView 静默拦掉 → 显示明确按钮等用户点
+    if (preferCapture) {
+      scanTip.value = '点「拍照识别」，对准资产标签二维码拍一张即可自动查询'
+    } else {
+      // 先让页面把 header / 卡片渲染出来，再申请摄像头。
+      // 原生 WebView 在首帧就创建 video+getUserMedia 时，个别机型会把整个 WebView 刷成白屏。
+      autoScanTimer = setTimeout(() => { autoScanTimer = null; startScan() }, 600)
+    }
   }
 })
 onBeforeUnmount(() => {
@@ -218,18 +336,23 @@ onBeforeUnmount(() => {
         <div class="as-scan-head">
           <div>
             <div class="as-scan-title">扫一扫</div>
-            <div class="as-scan-sub">扫描资产标签二维码，自动读取编号并查询</div>
+            <div class="as-scan-sub">{{ preferCapture ? '拍一张资产标签二维码，自动读取编号并查询' : '扫描资产标签二维码，自动读取编号并查询' }}</div>
           </div>
-          <button class="as-btn primary" @click="scanning ? stopScan() : startScan()">
-            {{ scanning ? '停止' : '开始扫码' }}
+          <button class="as-btn primary" :disabled="decoding" @click="startScan">
+            {{ scanning ? '停止' : decoding ? '识别中…' : ((preferCapture && !forceLive) ? '拍照识别' : '开始扫码') }}
           </button>
         </div>
+        <!-- 系统相机通道：App 内唯一稳定可用的摄像头入口（拍照建档同款） -->
+        <input ref="captureRef" class="as-hidden" type="file" accept="image/*"
+               capture="environment" @change="onCaptureFile" />
         <div v-if="scanning" class="as-camera">
           <video ref="videoRef" playsinline muted autoplay></video>
           <div class="as-frame"></div>
           <div class="as-camera-tip">{{ scanTip }}</div>
         </div>
+        <div v-if="!scanning && scanTip" class="as-hint">{{ scanTip }}</div>
         <div v-if="scanErr" class="as-scan-err">{{ scanErr }}</div>
+        <button v-if="preferCapture && !scanning && !forceLive" class="as-link" @click="useLive">改用实时预览取景</button>
       </div>
 
       <div class="as-tip">标签二维码也可用手机相机/微信直接扫，会自动打开本页；旧标签可在下方手动输入编号查询。</div>
@@ -338,6 +461,12 @@ html.dark .as-tag.warn { background: #3a2a17; color: #ffb26b; }
   color: #fff; font-size: 12px; text-shadow: 0 1px 3px rgba(0,0,0,.7); pointer-events: none;
 }
 .as-scan-err { margin-top: 10px; font-size: 12px; color: var(--m-danger); line-height: 1.6; }
+.as-hidden { display: none; }
+.as-hint { margin-top: 10px; font-size: 12px; color: var(--m-text-sub); line-height: 1.6; }
+.as-link {
+  margin-top: 10px; padding: 0; border: 0; background: none;
+  color: var(--m-primary); font-size: 12px; text-decoration: underline;
+}
 
 .as-search-title { font-size: 13px; color: var(--m-text-sub); margin-bottom: 10px; }
 .as-input-row { display: flex; gap: 8px; }
