@@ -1,7 +1,7 @@
 ﻿; 知识库桌面端 Windows 安装程序脚本（Inno Setup 6.7.4）
 ;
 ; 编译入口：gradle packageInnoSetup（自动先 createDistributable，再 ISCC /DAppVer=<版本>）
-; 手动编译：C:\chkk\tools\inno6\ISCC.exe /DAppVer=1.0.9 packaging\kb-desktop.iss
+; 手动编译：C:\chkk\tools\inno6\ISCC.exe /DAppVer=1.1.1 packaging\kb-desktop.iss
 ; 输入：createDistributable 产出的 app-image（构建目录已重定向到纯 ASCII 路径，见 build.gradle.kts）
 ; 中文向导依赖 packaging\ChineseSimplified.isl，需复制到 C:\chkk\tools\inno6\Languages\（编译时经 compiler: 前缀读取）
 ;
@@ -10,7 +10,7 @@
 
 #ifndef AppVer
   ; 手动编译未传 /DAppVer 时的兜底（与 AppInfo.kt 的 versionName 保持一致）
-  #define AppVer "1.1.0"
+  #define AppVer "1.1.1"
 #endif
 
 #define MyAppName "知识库"
