@@ -17,6 +17,27 @@ import { buildManual } from './skills/manual'
 
 const MAX_STEPS = 6
 
+// 从模型输出提取第一个 TOOL: {...}：逐个出现点做括号配对（处理字符串与转义），
+// 替换旧的贪婪正则——模型在 TOOL 行后多输出内容时会把整个匹配撑爆导致 JSON.parse 失败
+function extractToolJson(text) {
+  const s = String(text || '')
+  for (let i = s.indexOf('TOOL:'); i !== -1; i = s.indexOf('TOOL:', i + 1)) {
+    const start = s.indexOf('{', i)
+    if (start === -1) continue
+    let depth = 0, inStr = false, esc = false
+    for (let j = start; j < s.length; j++) {
+      const ch = s[j]
+      if (esc) { esc = false; continue }
+      if (ch === '\\') { esc = true; continue }
+      if (ch === '"') { inStr = !inStr; continue }
+      if (inStr) continue
+      if (ch === '{') depth++
+      else if (ch === '}') { depth--; if (depth === 0) return s.slice(start, j + 1) }
+    }
+  }
+  return null
+}
+
 /** 剥掉模型回复里的思考块（<think>…</think> / reasoning 字段），只留正式回答 */
 function stripThink(t) {
   return String(t || '')
@@ -86,11 +107,11 @@ export async function runLocalAgent({
       break
     }
 
-    const m = out.match(/^\s*TOOL:\s*(\{[\s\S]*\})\s*$/m)
-    if (!m) { answer = out || '（未得到回答）'; break }
+    const raw = extractToolJson(out)
+    if (!raw) { answer = out || '（未得到回答）'; break }
 
     let call
-    try { call = JSON.parse(m[1]) } catch { answer = out; break }
+    try { call = JSON.parse(raw) } catch { answer = out; break }
     const tool = String(call.tool || '')
     const args = call.args || {}
     let result = ''

@@ -171,6 +171,9 @@ public class AuthService {
             userRepo.save(u);
         } else {
             if (!u.isEnabled()) throw new BizException("账号已被禁用，请联系管理员");
+            // 防撞库接管：OIDC 的 userField 可能配成用户可自助修改的字段、LDAP 域账号也可能与本地管理员重名，
+            // 外部身份源按用户名免密匹配的链路一律不允许进入管理员账号
+            if ("ADMIN".equals(u.getRole())) throw new BizException("管理员账号请使用账号密码登录");
             boolean dirty = false;
             if ((u.getDisplayName() == null || u.getDisplayName().isBlank())
                     && displayName != null && !displayName.isBlank()) { u.setDisplayName(displayName); dirty = true; }

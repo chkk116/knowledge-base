@@ -354,12 +354,11 @@ public class AiConversationService {
         m.put("focus", "");
         m.put("custom", "");
         try {
-            String[] parts = persona.replaceAll("[{}\\[\\]\"]", "").split(",");
-            for (String p : parts) {
-                String[] kv = p.split(":", 2);
-                if (kv.length != 2) continue;
-                String k = kv[0].trim();
-                String v = kv[1].trim();
+            // 标准 JSON 解析：custom 里可能含逗号/冒号，手撕 split 会把整段偏好切碎
+            Map<?, ?> json = new com.fasterxml.jackson.databind.ObjectMapper().readValue(persona, Map.class);
+            for (Map.Entry<?, ?> e : json.entrySet()) {
+                String k = String.valueOf(e.getKey()).trim();
+                String v = e.getValue() == null ? "" : String.valueOf(e.getValue()).trim();
                 if (m.containsKey(k)) m.put(k, v);
             }
         } catch (Exception ignored) {}

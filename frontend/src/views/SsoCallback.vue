@@ -21,7 +21,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
-import { me } from '../api/auth'
+import { me, ssoExchange } from '../api/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,7 +29,7 @@ const auth = useAuthStore()
 const error = ref('')
 
 onMounted(async () => {
-  const { token, error: err, bound } = route.query
+  const { token, ticket, error: err, bound } = route.query
   if (err) { error.value = String(err); return }
   // 绑定流程：后端回调后跳 /sso?bound=微信（此时会话已存在，不需要再落 token）
   if (bound) {
@@ -37,9 +37,15 @@ onMounted(async () => {
     router.replace('/profile')
     return
   }
-  if (!token) { error.value = '缺少登录令牌，请重新登录'; return }
+  if (!token && !ticket) { error.value = '缺少登录凭证，请重新登录'; return }
   try {
-    auth.applySession({ token: String(token) })
+    let finalToken = token
+    if (ticket) {
+      // 一次性票据换正式 token：SSO 回调不再把长期 token 放进跳转 URL
+      const r = await ssoExchange(String(ticket))
+      finalToken = r.token
+    }
+    auth.applySession({ token: String(finalToken) })
     // 拉一次用户信息补齐权限/昵称（applySession 只落了 token 与缓存字段）
     await auth.fetchMe()
     ElMessage.success('登录成功')

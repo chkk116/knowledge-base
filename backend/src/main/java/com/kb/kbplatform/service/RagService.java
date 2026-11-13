@@ -297,14 +297,12 @@ public class RagService {
     /** 从用户习惯 JSON 中提取可读提示，失败则原样返回 */
     private String extractPersonaHint(String persona) {
         try {
-            // 极简解析：不需要引入 JSON 库，逐行提取 key-value
+            // 标准 JSON 解析：custom 里可能含逗号/冒号，手撕 split 会把整段偏好切碎
             StringBuilder sb = new StringBuilder();
-            String[] parts = persona.replaceAll("[{}\\[\\]\"]", "").split(",");
-            for (String p : parts) {
-                String[] kv = p.split(":", 2);
-                if (kv.length != 2) continue;
-                String k = kv[0].trim();
-                String v = kv[1].trim();
+            Map<?, ?> json = new com.fasterxml.jackson.databind.ObjectMapper().readValue(persona, Map.class);
+            for (Map.Entry<?, ?> e : json.entrySet()) {
+                String k = String.valueOf(e.getKey()).trim();
+                String v = e.getValue() == null ? "" : String.valueOf(e.getValue()).trim();
                 if (v.isEmpty() || "null".equals(v)) continue;
                 switch (k) {
                     case "tone" -> sb.append("回答语气：").append(v).append("。");

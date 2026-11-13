@@ -41,6 +41,7 @@ export const pointsLogPaged = (page = 0, size = 20, type = '') =>
 // ---- 企业身份源（LDAP/AD）----
 export const ssoOptions = () => api.get('/auth/sso/options')
 export const ssoLdapLogin = (username, password) => api.post('/auth/sso/ldap/login', { username, password })
+export const ssoExchange = (ticket) => api.post('/auth/sso/ticket/exchange', { ticket })
 
 // ---- 个人数据导出（隐私政策「你的权利」）----
 // 返回 JSON 附件（blob）；后端每用户每小时限 3 次
