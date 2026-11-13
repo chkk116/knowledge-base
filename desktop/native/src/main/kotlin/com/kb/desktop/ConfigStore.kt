@@ -3,9 +3,13 @@ package com.kb.desktop
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /** 本机配置：存服务器地址与上次用户名。仅存非敏感信息，token 不落盘。 */
 object ConfigStore {
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     /** 默认连生产服务器；本地开发/换环境用 KB_DESKTOP_SERVER 环境变量或 config.json 的 server 覆盖。 */
     val defaultServer: String =
@@ -18,11 +22,7 @@ object ConfigStore {
     }
 
     fun read(): Map<String, String> = try {
-        val text = Files.readString(file)
-        val entries = Regex("""\"([A-Za-z]+)\"\s*:\s*\"((?:[^\"\\]|\\.)*)\"""")
-            .findAll(text)
-            .associate { it.groupValues[1] to it.groupValues[2].replace("\\\"", "\"").replace("\\\\", "\\") }
-        entries
+        json.decodeFromString<Map<String, String>>(Files.readString(file))
     } catch (e: Exception) {
         emptyMap()
     }
@@ -30,20 +30,9 @@ object ConfigStore {
     fun write(server: String, username: String) {
         try {
             Files.createDirectories(file.parent)
-            val json = """{"server":${escape(server)},"username":${escape(username)}}"""
-            Files.writeString(file, json)
+            Files.writeString(file, json.encodeToString(mapOf("server" to server, "username" to username)))
         } catch (e: Exception) {
             // 配置写失败不阻塞使用
         }
-    }
-
-    private fun escape(v: String): String = buildString {
-        append('"')
-        for (ch in v) when (ch) {
-            '"' -> append("\\\"")
-            '\\' -> append("\\\\")
-            else -> append(ch)
-        }
-        append('"')
     }
 }

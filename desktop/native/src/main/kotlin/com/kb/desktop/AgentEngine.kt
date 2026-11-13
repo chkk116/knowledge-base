@@ -52,9 +52,36 @@ class DesktopAgent(
 
     private fun say(s: String) = onStep(s)
 
+    /** 从模型输出提取第一个 TOOL: {...}：逐个出现点做括号配对（处理字符串与转义）。
+     *  旧行内贪婪正则 (\\{.*\\}) 在同行后段还有大括号内容时会吞到最后一个 } 导致解析失败。 */
+    private fun extractToolJson(out: String): String? {
+        var i = out.indexOf("TOOL:")
+        while (i != -1) {
+            val start = out.indexOf('{', i)
+            if (start != -1) {
+                var depth = 0
+                var inStr = false
+                var esc = false
+                for (j in start until out.length) {
+                    val ch = out[j]
+                    when {
+                        esc -> esc = false
+                        ch == '\\' -> esc = true
+                        ch == '"' -> inStr = !inStr
+                        inStr -> {}
+                        ch == '{' -> depth++
+                        ch == '}' -> { depth--; if (depth == 0) return out.substring(start, j + 1) }
+                    }
+                }
+            }
+            i = out.indexOf("TOOL:", i + 1)
+        }
+        return null
+    }
+
     private fun parseToolCall(out: String): Pair<String, JsonObject>? {
-        val m = Regex("""(?m)^\s*TOOL:\s*(\{.*\})\s*$""").find(out) ?: return null
-        val o = runCatching { Json.parseToJsonElement(m.groupValues[1]).jsonObject }.getOrNull() ?: return null
+        val raw = extractToolJson(out) ?: return null
+        val o = runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
         val tool = (o["tool"] as? JsonPrimitive)?.contentOrNull.orEmpty()
         if (tool.isBlank()) return null
         val args = o["args"] as? JsonObject ?: JsonObject(emptyMap())
@@ -133,7 +160,7 @@ class DesktopAgent(
             say("🧩 生成流程图：$title $tip")
             // 桌面端没有原生共享文档画布，直接拉系统浏览器打开 Web 端编辑器
             onOpenUrl(url)
-            "已生成流程图《$title》$tip，并已在浏览器打开。打开地址：$url"
+            "已生成流程图《$title》$tip，已写入共享空间「${space.name}」，并已在浏览器打开。打开地址：$url"
         }
         else -> "未知工具：$tool"
     }
@@ -153,7 +180,8 @@ class DesktopAgent(
         appendLine("5. navigate —— 在应用内打开某篇文档。参数 {\"id\":文档id}")
         appendLine("6. create_doc —— 新建一篇文档并保存进知识库。参数 {\"title\":\"标题\",\"content\":\"正文，Markdown 格式\",\"status\":\"draft|submit\"}")
         appendLine("   · status=draft 存草稿（仅自己可见），默认 submit 提交审核；普通用户创建的文档不会直接公开，回答里要如实说明状态。")
-        appendLine("7. create_flowchart —— 生成流程图并写进共享文档（画布）。参数 {\"title\":\"流程图标题\",\"nodes\":[{\"id\":\"1\",\"label\":\"开始\",\"shape\":\"ellipse\"}],\"edges\":[{\"from\":\"1\",\"to\":\"2\",\"label\":\"是\"}]}")
+        appendLine("7. create_flowchart —— 生成流程图并写进共享文档（画布）。参数 {\"title\":\"流程图标题\",\"nodes\":[{\"id\":\"1\",\"label\":\"开始\",\"shape\":\"ellipse\"}],\"edges\":[{\"from\":\"1\",\"to\":\"2\",\"label\":\"是\"}],\"docId\":可选}")
+        appendLine("   · 默认写入用户的个人空间；用户明确要追加到某篇共享文档时传该文档的 docId。")
         appendLine("   · shape 取值：ellipse 开始/结束、rect 普通步骤、diamond 判断分支、doc 文档、db 数据库、sub 子流程；")
         appendLine("     只需给节点和连线，坐标自动排版，不要自己编位置。")
         appendLine("【要求】")
