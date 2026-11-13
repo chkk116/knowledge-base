@@ -314,7 +314,7 @@ private fun HomePanel(session: Session) {
         val lines = listOf(
             "原生 UI：Compose Multiplatform（Kotlin），非 WebView 套壳",
             "登录：滑块验证码 + 账号密码，与 Web 端同一套接口",
-            "文章：原生列表 + WebView 阅读；新建/编辑用 Web 端编辑器",
+            "文章：原生列表 + 原生阅读（正文/目录/评论原生渲染）；新建/编辑用 Web 端编辑器",
             "我的文件：原生列表，双击在系统浏览器打开",
         )
         lines.forEach { line ->
@@ -455,6 +455,7 @@ private fun DocsPanel(
     var error by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableStateOf(0) }
     var selected by remember { mutableStateOf<DocSummary?>(null) }
+    var detail by remember { mutableStateOf<DocDetail?>(null) }
     var detailLoading by remember { mutableStateOf(false) }
     var detailError by remember { mutableStateOf<String?>(null) }
     var detailTick by remember { mutableStateOf(0) }
@@ -491,19 +492,20 @@ private fun DocsPanel(
         }
     }
 
+    // 阅读详情：原生渲染（2026-11-13 起不再喂 WebView；WebView 只服务编辑视图）
     LaunchedEffect(selected?.id, detailTick) {
         val s = selected
         if (s == null) {
+            detail = null
             detailError = null
             detailLoading = false
             return@LaunchedEffect
         }
-        webState.content = WebContent.Data(BLANK_READER, null)
+        detail = null
         detailError = null
         detailLoading = true
         try {
-            val d = api.doc(session.token, s.id)
-            webState.content = WebContent.Data(readerHtml(d, session.server), null)
+            detail = api.doc(session.token, s.id)
         } catch (e: Exception) {
             detailError = e.message ?: "加载失败"
         } finally {
@@ -597,28 +599,50 @@ private fun DocsPanel(
                     HorizontalDivider()
                 }
             }
-            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).fillMaxHeight()) {
                 val s = selected
+                val d = detail
                 when {
-                    !editing && s == null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            Modifier
-                                .size(52.dp)
-                                .clip(RoundedCornerShape(13.dp))
-                                .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
-                            contentAlignment = Alignment.Center,
-                        ) { MenuGlyph(MenuKind.DOCS, Color.White, Modifier.size(26.dp)) }
-                        Spacer(Modifier.height(12.dp))
-                        Text("在左侧选择文章查看", fontSize = 13.sp, color = KbTextSub)
+                    !editing && s == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                Modifier
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(13.dp))
+                                    .background(KbIconGradient(KbTileViolet.first, KbTileViolet.second)),
+                                contentAlignment = Alignment.Center,
+                            ) { MenuGlyph(MenuKind.DOCS, Color.White, Modifier.size(26.dp)) }
+                            Spacer(Modifier.height(12.dp))
+                            Text("在左侧选择文章查看", fontSize = 13.sp, color = KbTextSub)
+                        }
                     }
-                    wv2Ok == false -> PanelHint("缺少 WebView2 运行时：请安装微软 Edge WebView2 Evergreen Runtime 后重试")
-                    !editing && detailError != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(detailError ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = { detailTick++ }) { Text("重试", fontSize = 12.sp) }
+                    editing -> when {
+                        wv2Ok == false -> PanelHint("缺少 WebView2 运行时：请安装微软 Edge WebView2 Evergreen Runtime 后重试")
+                        else -> WebView(webState, Modifier.fillMaxSize())
                     }
-                    !editing && detailLoading -> PanelHint("加载中…")
-                    else -> WebView(webState, Modifier.fillMaxSize())
+                    detailError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(detailError ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { detailTick++ }) { Text("重试", fontSize = 12.sp) }
+                        }
+                    }
+                    detailLoading -> PanelHint("加载中…")
+                    d != null -> ArticleView(
+                        api = api,
+                        token = session.token,
+                        server = session.server,
+                        username = session.username,
+                        doc = d,
+                        onOpenDoc = { id ->
+                            selected = DocSummary(
+                                id = id, title = "", ownerName = "", updatedAt = "",
+                                views = 0, category = null, snippet = null,
+                            )
+                        },
+                        onEdit = { editing = true; editTarget = d.id },
+                    )
+                    else -> PanelHint("加载中…")
                 }
             }
         }
@@ -767,37 +791,9 @@ private fun FileRow(session: Session, f: FileItem) {
 private val BLANK_READER =
     "<html><head><meta charset=\"utf-8\"><style>html,body{margin:0;background:#fff}</style></head><body></body></html>"
 
-/** 阅读视图：详情 HTML + <base> 指向服务器，让 /uploads 等相对路径可达。 */
-private fun readerHtml(d: DocDetail, server: String): String {
-    val base = server.trimEnd('/') + "/"
-    val owner = esc(d.ownerName.orEmpty())
-    return ("""<!DOCTYPE html><html><head><meta charset="utf-8"><base href="$base"><style>
-html,body{margin:0;padding:0;background:#fff}
-.wrap{max-width:780px;margin:0 auto;padding:30px 36px 60px;box-sizing:border-box}
-h1{font-size:23px;line-height:1.45;margin:0 0 10px;color:#1f2329;font-family:"Microsoft YaHei",system-ui,sans-serif}
-.meta{color:#8a9099;font-size:12.5px;margin-bottom:22px}
-.content{font-size:15px;line-height:1.8;color:#2b2f36;font-family:"Microsoft YaHei",system-ui,sans-serif;word-break:break-word}
-.content img{max-width:100%;height:auto;border-radius:6px}
-.content pre{background:#f5f6f8;padding:12px 14px;border-radius:8px;overflow:auto;font-size:13px;line-height:1.6}
-.content code{background:#f5f6f8;padding:1px 5px;border-radius:4px;font-size:13px}
-.content pre code{background:none;padding:0}
-.content blockquote{border-left:3px solid #e2e5ea;margin:10px 0;padding:2px 16px;color:#5c6470}
-.content table{border-collapse:collapse}
-.content td,.content th{border:1px solid #e2e5ea;padding:6px 10px}
-.content a{color:#3b6ff6}
-</style></head><body><div class="wrap">
-<h1>${esc(d.title)}</h1>
-<div class="meta">${if (owner.isBlank()) "" else "$owner · "}更新于 ${esc(fmtTime(d.updatedAt.orEmpty()))} · ${d.views} 次浏览</div>
-<div class="content">${d.content}</div>
-</div></body></html>""").replace("\n", "")
-}
-
 /** JS 字符串字面量转义（token 注入 initScript 用）。 */
 private fun jsStr(s: String): String =
     "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\r", "\\r").replace("\n", "\\n") + "'"
-
-private fun esc(s: String): String =
-    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
 /** "2026-08-14T12:34:56" → "2026-08-14 12:34" */
 private fun fmtTime(raw: String): String = raw.replace("T", " ").take(16)

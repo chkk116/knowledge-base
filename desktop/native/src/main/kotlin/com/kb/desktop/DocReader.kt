@@ -1,0 +1,694 @@
+package com.kb.desktop
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+// 原生文章阅读页（2026-11-13 取代 WebView 阅读壳）：对齐 Web 端 PostDetail 的三栏布局
+//   左：点赞 / 收藏 / 评论 / 返回顶部（悬浮操作栏）
+//   中：面包屑 → 标题 → 元信息（分类/标签/作者/时间/浏览）→ 工具条 → 原生渲染正文 → 评论区
+//   右：目录（h1~h6 + 编号段落，点击定位）
+// 正文渲染见 DocHtml.kt；编辑仍走 Web 端 SPA（能力全，不重写编辑器）。
+
+@Composable
+fun ArticleView(
+    api: ApiClient,
+    token: String,
+    server: String,
+    username: String,
+    doc: DocDetail,
+    onOpenDoc: (Long) -> Unit,
+    onEdit: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+
+    val blocks = remember(doc.id, doc.content) { DocHtml.parse(doc.content) }
+    val toc = remember(blocks) { DocHtml.tocOf(blocks) }
+    var tocOpen by remember(doc.id) { mutableStateOf(true) }
+
+    var crumbs by remember(doc.id) { mutableStateOf(emptyList<CrumbItem>()) }
+    var liked by remember(doc.id) { mutableStateOf(false) }
+    var favorited by remember(doc.id) { mutableStateOf(false) }
+    var likeCount by remember(doc.id) { mutableStateOf(doc.likes) }
+    var comments by remember(doc.id) { mutableStateOf(emptyList<CommentItem>()) }
+    var commentLikes by remember(doc.id) { mutableStateOf(emptySet<Long>()) }
+    var commentText by remember(doc.id) { mutableStateOf("") }
+    var posting by remember(doc.id) { mutableStateOf(false) }
+    var commentErr by remember(doc.id) { mutableStateOf<String?>(null) }
+    var pendingDel by remember(doc.id) { mutableStateOf<Long?>(null) }
+    var toast by remember(doc.id) { mutableStateOf<String?>(null) }
+
+    // 打开文章：面包屑 + 评论 + 我的赞/收藏标记（一次拉齐，失败静默降级为未点赞态）
+    LaunchedEffect(doc.id) {
+        crumbs = runCatching { api.docBreadcrumb(token, doc.id) }.getOrDefault(emptyList())
+        comments = runCatching { api.docComments(token, doc.id) }.getOrDefault(emptyList())
+        likeCount = doc.likes
+        runCatching { liked = doc.id in api.myLikeIds(token) }
+        runCatching { favorited = doc.id in api.myFavoriteIds(token) }
+        runCatching { commentLikes = api.myCommentLikes(token) }
+    }
+    LaunchedEffect(toast) {
+        if (toast != null) {
+            delay(2600)
+            toast = null
+        }
+    }
+
+    // 顶层评论按时间正序，回复紧跟其父（Web 端 commentTree 同序）
+    val commentRows = remember(comments) {
+        val tops = comments.filter { it.parentId == null }.sortedBy { it.createdAt }
+        val out = ArrayList<CommentItem>(comments.size)
+        for (t in tops) {
+            out.add(t)
+            out.addAll(comments.filter { it.parentId == t.id }.sortedBy { it.createdAt })
+        }
+        // 脏数据兜底：父评论不在列表里的孤儿回复也带上
+        out.addAll(comments.filter { c -> c.parentId != null && comments.none { it.id == c.parentId } })
+        out
+    }
+    val parentNames = remember(comments) {
+        comments.associate { c ->
+            val name = c.displayName?.takeIf { it.isNotBlank() } ?: c.username
+            c.id to name
+        }
+    }
+
+    fun toggleLike() {
+        scope.launch {
+            val was = liked
+            val wasCount = likeCount
+            liked = !was
+            likeCount = if (was) (likeCount - 1).coerceAtLeast(0) else likeCount + 1
+            try {
+                val r = api.toggleLike(token, doc.id)
+                liked = r.first
+                likeCount = r.second
+            } catch (e: Exception) {
+                liked = was
+                likeCount = wasCount
+                toast = e.message ?: "点赞失败"
+            }
+        }
+    }
+
+    fun toggleFav() {
+        scope.launch {
+            val was = favorited
+            favorited = !was
+            try {
+                favorited = api.toggleFavorite(token, doc.id)
+                toast = if (favorited) "已收藏" else "已取消收藏"
+            } catch (e: Exception) {
+                favorited = was
+                toast = e.message ?: "收藏失败"
+            }
+        }
+    }
+
+    fun postComment() {
+        val text = commentText.trim()
+        if (text.isEmpty() || posting) return
+        scope.launch {
+            posting = true
+            commentErr = null
+            try {
+                val c = api.addDocComment(token, doc.id, text)
+                comments = comments + c
+                commentText = ""
+                toast = "评论成功"
+                // 新评论（顶层、最新）滚到视野内：评论区头部 + 输入行 + 旧列表长度
+                listState.animateScrollToItem(commentHeaderIndex(blocks.size) + 1 + commentRows.size)
+            } catch (e: Exception) {
+                commentErr = e.message ?: "评论失败"
+            } finally {
+                posting = false
+            }
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth
+        Box(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxSize()) {
+                // 左：悬浮操作栏（Web 端 CSDN 风）
+                ActionRail(
+                    liked = liked,
+                    likeCount = likeCount,
+                    favorited = favorited,
+                    commentCount = commentRows.size,
+                    showTop = listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120,
+                    onLike = ::toggleLike,
+                    onFav = ::toggleFav,
+                    onComment = {
+                        scope.launch { listState.animateScrollToItem(commentHeaderIndex(blocks.size)) }
+                    },
+                    onTop = { scope.launch { listState.animateScrollToItem(0) } },
+                )
+                Spacer(Modifier.width(4.dp))
+
+                // 中：正文滚动列
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    contentPadding = PaddingValues(start = 20.dp, end = 24.dp, top = 14.dp, bottom = 40.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    // 头部（面包屑/标题/元信息/工具条）收进单个 item：块索引与 LazyColumn 索引保持 +1 恒定
+                    item {
+                        ArticleHeader(
+                            doc = doc,
+                            crumbs = crumbs,
+                            onOpenDoc = onOpenDoc,
+                            onEdit = onEdit,
+                        )
+                    }
+                    itemsIndexed(blocks) { _, b ->
+                        DocBlockView(b, server, Modifier.fillMaxWidth())
+                    }
+                    if (blocks.isEmpty()) {
+                        item { Text("正文为空", fontSize = 13.sp, color = DocSub, modifier = Modifier.padding(top = 20.dp)) }
+                    }
+
+                    // ---- 评论区 ----
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(top = 26.dp)) {
+                            androidx.compose.material3.HorizontalDivider(color = KbBorder)
+                            Spacer(Modifier.height(14.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "评论（${commentRows.size}）",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = KbTextMain,
+                                )
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = commentText,
+                                onValueChange = { commentText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("写下你的评论…", fontSize = 12.5.sp, color = KbTextSub) },
+                                minLines = 2,
+                                maxLines = 5,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = KbPrimary,
+                                    unfocusedBorderColor = KbBorder,
+                                ),
+                            )
+                            if (commentErr != null) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(commentErr ?: "", fontSize = 11.sp, color = ReaderErrRed)
+                            }
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                Button(
+                                    onClick = { postComment() },
+                                    enabled = commentText.isNotBlank() && !posting,
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = KbPrimary,
+                                        disabledContainerColor = Color(0xFFC7CBDA),
+                                    ),
+                                ) { Text(if (posting) "发送中…" else "发表评论", fontSize = 12.sp) }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                        }
+                    }
+                    if (commentRows.isEmpty()) {
+                        item {
+                            Text(
+                                "还没有评论，快来抢沙发",
+                                fontSize = 12.5.sp,
+                                color = KbTextSub,
+                                modifier = Modifier.padding(vertical = 14.dp),
+                            )
+                        }
+                    }
+                    itemsIndexed(commentRows, key = { _, c -> c.id }) { _, c ->
+                        CommentRow(
+                            c = c,
+                            server = server,
+                            isReply = c.parentId != null,
+                            parentName = c.parentId?.let { parentNames[it] },
+                            liked = c.id in commentLikes,
+                            mine = c.username.isNotBlank() && c.username == username,
+                            confirming = pendingDel == c.id,
+                            onLike = {
+                                scope.launch {
+                                    try {
+                                        val r = api.toggleCommentLike(token, c.id)
+                                        commentLikes = if (r.first) commentLikes + c.id else commentLikes - c.id
+                                        comments = comments.map { x -> if (x.id == c.id) x.copy(likes = r.second) else x }
+                                    } catch (e: Exception) {
+                                        toast = e.message ?: "操作失败"
+                                    }
+                                }
+                            },
+                            onDelete = {
+                                if (pendingDel == c.id) {
+                                    pendingDel = null
+                                    scope.launch {
+                                        try {
+                                            api.deleteComment(token, c.id)
+                                            comments = comments.filterNot { it.id == c.id || it.parentId == c.id }
+                                        } catch (e: Exception) {
+                                            toast = e.message ?: "删除失败"
+                                        }
+                                    }
+                                } else {
+                                    pendingDel = c.id
+                                }
+                            },
+                        )
+                    }
+                    item { Spacer(Modifier.height(30.dp)) }
+                }
+
+                // 右：目录（窄窗口收起，给正文让位）
+                if (wide >= 1080.dp && toc.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    TocPane(
+                        toc = toc,
+                        open = tocOpen,
+                        onToggle = { tocOpen = !tocOpen },
+                        onPick = { idx ->
+                            scope.launch { listState.animateScrollToItem(1 + idx) }
+                        },
+                        modifier = Modifier.width(216.dp).padding(top = 14.dp),
+                    )
+                }
+            }
+
+            // 轻提示（评论成功 / 操作失败）：顶部悬浮条
+            val t = toast
+            if (t != null) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 18.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF323232))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    Text(t, fontSize = 12.sp, color = Color.White, maxLines = 2)
+                }
+            }
+        }
+    }
+}
+
+private val ReaderErrRed = Color(0xFFDC2626)
+
+/** 评论区头部在 LazyColumn 里的稳定索引：0=文章头部 item，之后是 blocks（或空正文占位） */
+private fun commentHeaderIndex(blockCount: Int): Int = 1 + maxOf(blockCount, 1)
+
+// ---------- 左侧操作栏 ----------
+
+@Composable
+private fun ActionRail(
+    liked: Boolean,
+    likeCount: Int,
+    favorited: Boolean,
+    commentCount: Int,
+    showTop: Boolean,
+    onLike: () -> Unit,
+    onFav: () -> Unit,
+    onComment: () -> Unit,
+    onTop: () -> Unit,
+) {
+    Column(
+        Modifier
+            .width(66.dp)
+            .padding(top = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        RailBtn(
+            glyph = "👍",
+            label = if (liked) "已赞" else "点赞",
+            count = likeCount,
+            active = liked,
+            activeColor = Color(0xFFEF4444),
+            onClick = onLike,
+        )
+        RailBtn(
+            glyph = "★",
+            label = if (favorited) "已藏" else "收藏",
+            count = null,
+            active = favorited,
+            activeColor = Color(0xFFF59E0B),
+            onClick = onFav,
+        )
+        RailBtn(glyph = "💬", label = "评论", count = commentCount, active = false, activeColor = KbPrimary, onClick = onComment)
+        if (showTop) {
+            RailBtn(glyph = "↑", label = "顶部", count = null, active = false, activeColor = KbTextSub, onClick = onTop)
+        }
+    }
+}
+
+@Composable
+private fun RailBtn(
+    glyph: String,
+    label: String,
+    count: Int?,
+    active: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit,
+) {
+    Column(
+        Modifier
+            .width(58.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) activeColor.copy(alpha = 0.07f) else Color.White)
+            .border(
+                1.dp,
+                if (active) activeColor.copy(alpha = 0.45f) else KbBorder,
+                RoundedCornerShape(12.dp),
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(glyph, fontSize = 17.sp)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            label,
+            fontSize = 11.sp,
+            color = if (active) activeColor else Color(0xFF475569),
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+        )
+        if (count != null) {
+            Text(
+                count.toString(),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (active) activeColor else KbTextMain,
+            )
+        }
+    }
+}
+
+// ---------- 文章头部 ----------
+
+@Composable
+private fun ArticleHeader(
+    doc: DocDetail,
+    crumbs: List<CrumbItem>,
+    onOpenDoc: (Long) -> Unit,
+    onEdit: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        if (crumbs.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                crumbs.forEachIndexed { i, c ->
+                    val isCur = c.id == doc.id
+                    Text(
+                        c.title.ifBlank { "未命名" } + if (i < crumbs.lastIndex) "  /" else "",
+                        fontSize = 12.5.sp,
+                        color = if (isCur) KbTextMain else DocLink,
+                        fontWeight = if (isCur) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .widthIn(max = 220.dp)
+                            .clickable(enabled = !isCur) { onOpenDoc(c.id) }
+                            .padding(horizontal = 3.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+
+        Text(
+            doc.title.ifBlank { "（无标题）" },
+            fontSize = 24.sp,
+            lineHeight = 34.sp,
+            fontWeight = FontWeight.Bold,
+            color = DocHeadInk,
+        )
+        Spacer(Modifier.height(10.dp))
+
+        // 元信息：分类/标签 + 作者 + 更新时间 + 浏览 + 状态（非发布态醒目提示）
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!doc.category.isNullOrBlank()) {
+                TagChip(doc.category!!, Color(0xFFEEF2FF), KbPrimary)
+            }
+            for (t in splitTags(doc.tags)) {
+                TagChip(t, Color(0xFFF3F4F6), Color(0xFF4B5563))
+            }
+            val owner = doc.ownerName
+            if (!owner.isNullOrBlank()) {
+                Text(owner, fontSize = 12.sp, color = DocSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(
+                "更新于 ${fmtDocTime(doc.updatedAt)}",
+                fontSize = 12.sp,
+                color = DocSub,
+                maxLines = 1,
+            )
+            Text("👁 ${doc.views}", fontSize = 12.sp, color = Color(0xFF94A3B8))
+            Spacer(Modifier.weight(1f))
+            val st = doc.status
+            if (st != null && st != "PUBLISHED") {
+                val (label, c) = when (st) {
+                    "PENDING_REVIEW" -> "待审核" to Color(0xFFF59E0B)
+                    "DRAFT" -> "草稿" to Color(0xFF64748B)
+                    else -> "已下架" to Color(0xFFEF4444)
+                }
+                TagChip(label, c.copy(alpha = 0.12f), c)
+            }
+        }
+
+        // 工具条：编辑（Web 端编辑器）等轻操作
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MiniAction("✎ 编辑", onEdit)
+            Spacer(Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(6.dp))
+        androidx.compose.material3.HorizontalDivider(color = KbBorder)
+        Spacer(Modifier.height(14.dp))
+    }
+}
+
+@Composable
+private fun TagChip(text: String, bg: Color, fg: Color) {
+    Text(
+        text,
+        fontSize = 11.sp,
+        color = fg,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .widthIn(max = 140.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(bg)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+@Composable
+private fun MiniAction(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 12.sp,
+        color = KbTextMain,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFFF5F6F8))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
+}
+
+// ---------- 目录 ----------
+
+@Composable
+private fun TocPane(
+    toc: List<TocEntry>,
+    open: Boolean,
+    onToggle: () -> Unit,
+    onPick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("目录", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+            Spacer(Modifier.weight(1f))
+            Text(if (open) "▾" else "▸", fontSize = 11.sp, color = KbTextSub)
+        }
+        androidx.compose.material3.HorizontalDivider(color = KbBorder)
+        if (open) {
+            LazyColumn(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                itemsIndexed(toc, key = { i, e -> "$i-${e.text}" }) { _, e ->
+                    Text(
+                        e.text,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                        color = KbTextSub,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp * (e.level - 1), top = 5.dp, bottom = 5.dp, end = 4.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onPick(e.blockIndex) }
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ---------- 评论行 ----------
+
+@Composable
+private fun CommentRow(
+    c: CommentItem,
+    server: String,
+    isReply: Boolean,
+    parentName: String?,
+    liked: Boolean,
+    mine: Boolean,
+    confirming: Boolean,
+    onLike: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = if (isReply) 34.dp else 0.dp, top = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        // 头像：昵称首字（Web 端有真头像，桌面端取首字足够辨识）
+        Box(
+            Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(if (isReply) Color(0xFFE5E7EB) else KbSidebarSelected),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                (c.displayName?.ifBlank { null } ?: c.username).take(1).ifBlank { "?" },
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isReply) KbTextSub else KbPrimary,
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    c.displayName?.takeIf { it.isNotBlank() } ?: c.username.ifBlank { "匿名" },
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = KbTextMain,
+                )
+                if (isReply && !parentName.isNullOrBlank()) {
+                    Text("回复 @$parentName", fontSize = 11.sp, color = DocLink)
+                }
+                Text(fmtDocTime(c.createdAt), fontSize = 11.sp, color = KbTextSub)
+                Spacer(Modifier.weight(1f))
+                // 评论正文是净化过的 HTML（可能带表情图片/粗体/链接），复用正文渲染器
+                // 操作：赞 / 删除（自己的）
+                Text(
+                    (if (liked) "❤ " else "🤍 ") + c.likes,
+                    fontSize = 11.5.sp,
+                    color = if (liked) Color(0xFFEF4444) else KbTextSub,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onLike).padding(horizontal = 5.dp, vertical = 2.dp),
+                )
+                if (mine) {
+                    Text(
+                        if (confirming) "确认删除?" else "删除",
+                        fontSize = 11.5.sp,
+                        color = if (confirming) ReaderErrRed else KbTextSub,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onDelete).padding(horizontal = 5.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(3.dp))
+            val parts = remember(c.content) { DocHtml.parse(c.content) }
+            if (parts.isEmpty()) {
+                Text(c.content, fontSize = 12.5.sp, lineHeight = 19.sp, color = Color(0xFF374151))
+            } else {
+                Column {
+                    for (b in parts) DocBlockView(b, server = server, Modifier.fillMaxWidth())
+                }
+            }
+        }
+    }
+}
+
+// ---------- 小工具 ----------
+
+/** 标签拆分：后端 tags 字段为逗号/空格分隔的自由文本 */
+private fun splitTags(raw: String?): List<String> {
+    if (raw.isNullOrBlank()) return emptyList()
+    return raw.split(Regex("[,，、;；\\s]+")).map { it.trim() }.filter { it.isNotEmpty() }.take(6)
+}
+
+/** "2026-11-13T12:34:56" → "2026-11-13 12:34"（缺省显示 —） */
+private fun fmtDocTime(raw: String?): String {
+    if (raw.isNullOrBlank()) return "—"
+    return raw.replace('T', ' ').take(16)
+}

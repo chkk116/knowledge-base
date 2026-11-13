@@ -112,6 +112,7 @@ private data class ChatMsg(
     val qaId: Long? = null,
     val fbRating: Int = 0,   // 1=赞 -1=踩 0=无（仅本会话新产生的回答可评价，历史消息没有 qaId）
     val images: List<String> = emptyList(),   // 用户随问附带的图片 dataURL（仅当次可见，后端不落历史）
+    val steps: List<String> = emptyList(),    // Agent 模式：已执行步骤（仅本地展示，不进后端）
 )
 
 /** 一条待发送的图片附件（本地已压缩成 dataURL）。 */
@@ -309,9 +310,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                 onStep = { step ->
                     if (!agentCancelled) {
                         msgs = msgs.mapIndexed { i, m ->
-                            if (i == aiIdx) {
-                                m.copy(reasoning = if (m.reasoning.isEmpty()) step else m.reasoning + "\n" + step)
-                            } else m
+                            if (i == aiIdx) m.copy(steps = m.steps + step) else m
                         }
                     }
                 },
@@ -475,8 +474,12 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
     LaunchedEffect(msgs.size) {
         if (msgs.isNotEmpty()) listState.scrollToItem(msgs.size - 1)
     }
-    // 流式内容增长时贴底跟随（用户上翻则不打扰）
-    LaunchedEffect(msgs.lastOrNull()?.content?.length, msgs.lastOrNull()?.reasoning?.length) {
+    // 流式内容增长时贴底跟随（用户上翻则不打扰）；Agent 步骤增长同样跟随
+    LaunchedEffect(
+        msgs.lastOrNull()?.content?.length,
+        msgs.lastOrNull()?.reasoning?.length,
+        msgs.lastOrNull()?.steps?.size,
+    ) {
         if (msgs.isNotEmpty()) {
             val near = (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= msgs.size - 2
             if (near) listState.scrollToItem(msgs.size - 1)
@@ -518,7 +521,10 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                 Box(Modifier.weight(1f)) {
                     when {
                         historyLoading -> ChatHint("加载中…")
-                        msgs.isEmpty() && currentConv == null -> ChatEmpty()
+                        msgs.isEmpty() && currentConv == null -> ChatEmpty(mode) { sug ->
+                            input = sug
+                            send()
+                        }
                         msgs.isEmpty() -> ChatHint("还没有消息，开始提问吧")
                         else -> LazyColumn(
                             state = listState,
@@ -574,13 +580,6 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                     verticalAlignment = Alignment.Bottom,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    TextButton(
-                        onClick = pickImages,
-                        enabled = !streaming,
-                        modifier = Modifier.height(38.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                        colors = ButtonDefaults.textButtonColors(contentColor = KbTextMain),
-                    ) { Text("📎", fontSize = 15.sp) }
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
@@ -593,12 +592,24 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                         },
                         placeholder = {
                             Text(
-                                if (atts.isEmpty()) "输入问题，Enter 发送，Shift+Enter 换行" else "输入问题（可留空，Enter 直接看图）",
+                                when {
+                                    atts.isNotEmpty() -> "输入问题（可留空，Enter 直接看图）"
+                                    mode == "agent" -> "描述一个任务，Enter 发送（Agent 会调用工具完成）"
+                                    mode == "kb" -> "向知识库提问，Enter 发送（Shift+Enter 换行）"
+                                    else -> "输入问题，Enter 发送（Shift+Enter 换行）"
+                                },
                                 fontSize = 12.sp,
                                 color = KbTextSub,
                             )
                         },
-                        shape = RoundedCornerShape(10.dp),
+                        trailingIcon = {
+                            TextButton(
+                                onClick = pickImages,
+                                enabled = !streaming,
+                                contentPadding = PaddingValues(0.dp),
+                            ) { Text("📎", fontSize = 15.sp) }
+                        },
+                        shape = RoundedCornerShape(12.dp),
                         minLines = 1,
                         maxLines = 4,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -667,10 +678,15 @@ private fun ChatMsgRow(m: ChatMsg, onOpenDoc: (Long) -> Unit, rateMsg: (ChatMsg,
             ) { MenuGlyph(MenuKind.CHAT, Color.White, Modifier.size(14.dp)) }
             Spacer(Modifier.width(9.dp))
             Column(Modifier.weight(1f)) {
+                if (m.mode == "agent" && m.steps.isNotEmpty()) StepsBox(m.steps, streaming = m.streaming)
                 if (m.reasoning.isNotBlank()) ReasoningBox(m.reasoning)
                 if (m.content.isBlank() && m.streaming) {
                     Text(
-                        if (m.reasoning.isNotBlank()) "生成中…" else "思考中…",
+                        when {
+                            m.steps.isNotEmpty() -> "正在执行…"
+                            m.reasoning.isNotBlank() -> "生成中…"
+                            else -> "思考中…"
+                        },
                         fontSize = 12.5.sp,
                         color = KbTextSub,
                     )
@@ -704,6 +720,41 @@ private fun AttThumb(dataUrl: String, size: Dp) {
             )
         } else {
             Text("图", fontSize = 9.sp, color = KbTextSub)
+        }
+    }
+}
+
+/** Agent 已执行步骤：执行中自动展开、完成后收起（数据保留，可点回看）。 */
+@Composable
+private fun StepsBox(steps: List<String>, streaming: Boolean) {
+    // streaming / 步骤数变化时重置：跑的时候始终展开，跑完自动收起
+    var open by remember(streaming, steps.size) { mutableStateOf(streaming) }
+    Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        Row(
+            Modifier.clickable { open = !open }.padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(if (open) "▾" else "▸", fontSize = 10.sp, color = KbTextSub)
+            Spacer(Modifier.width(4.dp))
+            Text(
+                if (streaming) "⚙ 执行中 · 已走 ${steps.size} 步" else "⚙ 已执行 ${steps.size} 步（点开回看）",
+                fontSize = 11.sp,
+                color = KbTextSub,
+            )
+        }
+        if (open) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(ChatReasonBg)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                for (s in steps) {
+                    Text(s, fontSize = 11.5.sp, lineHeight = 17.sp, color = KbTextSub)
+                }
+            }
         }
     }
 }
@@ -948,15 +999,20 @@ private fun ConvRow(
             .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            c.title.ifBlank { "新对话" },
-            fontSize = 12.sp,
-            color = if (sel) KbPrimary else KbTextMain,
-            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                c.title.ifBlank { "新对话" },
+                fontSize = 12.sp,
+                color = if (sel) KbPrimary else KbTextMain,
+                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val t = convTime(c.updatedAt)
+            if (t.isNotBlank()) {
+                Text(t, fontSize = 10.sp, color = if (sel) KbPrimary.copy(alpha = 0.7f) else KbTextSub, maxLines = 1)
+            }
+        }
         TextButton(
             onClick = onRename,
             modifier = Modifier.width(26.dp),
@@ -989,8 +1045,29 @@ private fun ChatHint(text: String, modifier: Modifier = Modifier, onClick: (() -
     }
 }
 
+/** 各模式的空状态文案与示例问题（点一下直接发问） */
+private fun emptyState(mode: String): Triple<String, String, List<String>> = when (mode) {
+    "general" -> Triple(
+        "直接向 AI 提问",
+        "不检索知识库，模型直接作答；需要查资料就切「知识库」",
+        listOf("用三句话解释什么是向量数据库", "帮我写一段周报开场白", "把这段话翻译成英文", "列5个提高效率的习惯"),
+    )
+    "agent" -> Triple(
+        "我是 Agent",
+        "说出目标，我会自己检索、读写文档、向你确认，逐步完成",
+        listOf("检索关于请假制度的文档并总结", "把我写的文章优化排版并保存", "新建一篇会议纪要存进知识库", "看看我最近写的文章"),
+    )
+    else -> Triple(
+        "向知识库提问",
+        "回答基于库内文章；切「通用」模式可直接作答",
+        listOf("如何修改文章的封面图？", "知识库支持哪些文件格式？", "新员工入职流程是什么？", "总结《员工手册》的要点"),
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChatEmpty() {
+private fun ChatEmpty(mode: String, onPick: (String) -> Unit) {
+    val (title, sub, sugs) = emptyState(mode)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
@@ -1001,9 +1078,32 @@ private fun ChatEmpty() {
                 contentAlignment = Alignment.Center,
             ) { MenuGlyph(MenuKind.CHAT, Color.White, Modifier.size(26.dp)) }
             Spacer(Modifier.height(12.dp))
-            Text("向知识库提问", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
             Spacer(Modifier.height(4.dp))
-            Text("回答基于库内文章；切「通用」模式可直接作答", fontSize = 11.5.sp, color = KbTextSub)
+            Text(sub, fontSize = 11.5.sp, color = KbTextSub)
+            Spacer(Modifier.height(16.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.widthIn(max = 560.dp),
+            ) {
+                for (s in sugs) {
+                    Text(
+                        s,
+                        fontSize = 12.sp,
+                        color = KbTextMain,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .widthIn(max = 250.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color.White)
+                            .border(1.dp, KbBorder, RoundedCornerShape(999.dp))
+                            .clickable { onPick(s) }
+                            .padding(horizontal = 13.dp, vertical = 7.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -1012,13 +1112,14 @@ private fun ChatEmpty() {
 private fun ModePills(mode: String, onMode: (String) -> Unit) {
     Row(
         Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(9.dp))
             .background(Color(0xFFF1F2F4))
-            .padding(2.dp),
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        ModePill("知识库", mode == "kb") { onMode("kb") }
-        ModePill("通用", mode == "general") { onMode("general") }
-        ModePill("Agent", mode == "agent") { onMode("agent") }
+        ModePill("📚 知识库", mode == "kb") { onMode("kb") }
+        ModePill("✨ 通用", mode == "general") { onMode("general") }
+        ModePill("🤖 Agent", mode == "agent") { onMode("agent") }
     }
 }
 
@@ -1026,14 +1127,14 @@ private fun ModePills(mode: String, onMode: (String) -> Unit) {
 private fun ModePill(label: String, sel: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(7.dp))
             .background(if (sel) Color.White else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 5.dp),
     ) {
         Text(
             label,
-            fontSize = 11.5.sp,
+            fontSize = 12.sp,
             color = if (sel) KbPrimary else KbTextSub,
             fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
         )
@@ -1220,6 +1321,16 @@ private fun MdText(content: String, modifier: Modifier = Modifier) {
 }
 
 // ---------- 小工具 ----------
+
+/** 会话行时间："2026-11-13T12:00:00" → "11-13 12:00"（同年省略，跨年带年份） */
+private fun convTime(raw: String?): String {
+    val s = raw.orEmpty().replace('T', ' ')
+    return when {
+        s.length >= 16 && s.take(4) == java.time.LocalDate.now().year.toString() -> s.substring(5, 16)
+        s.length >= 16 -> s.take(10)
+        else -> ""
+    }
+}
 
 /** 本地压缩图片为 dataURL（对齐 Web 端 compressImage：最长边 1280 / JPEG 0.82 / 白底），失败返回 null。 */
 internal fun compressImageFile(path: String, maxEdge: Int = 1280, quality: Float = 0.82f): String? = runCatching {

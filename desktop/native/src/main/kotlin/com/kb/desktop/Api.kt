@@ -50,9 +50,29 @@ data class DocDetail(
     val title: String,
     val content: String,
     val ownerName: String?,
+    val ownerId: Long?,
     val category: String?,
+    val tags: String?,
+    val status: String?,
     val updatedAt: String?,
+    val createdAt: String?,
     val views: Int,
+    val likes: Int,
+)
+
+/** 文档层级面包屑项（GET /api/docs/{id}/breadcrumb，根→…→自身）。 */
+data class CrumbItem(val id: Long, val title: String)
+
+/** 评论（GET /api/docs/{id}/comments；content 为 HTML，含表情图片）。 */
+data class CommentItem(
+    val id: Long,
+    val parentId: Long?,
+    val userId: Long?,
+    val username: String,
+    val displayName: String?,
+    val content: String,
+    val likes: Int,
+    val createdAt: String,
 )
 
 /** 服务端版本通道信息（GET /api/public/app-version?channel=desktop）。 */
@@ -265,7 +285,7 @@ class ApiClient(private val base: String) {
         DocPage(items, (o["totalElements"] as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull ?: items.size.toLong())
     }
 
-    /** GET /api/docs/{id} → 文章详情（content 为 HTML） */
+    /** GET /api/docs/{id} → 文章详情（content 为 HTML；后端每次打开会 +1 浏览量） */
     suspend fun doc(token: String, id: Long): DocDetail = withContext(Dispatchers.IO) {
         val o = parse(getAuth("/api/docs/$id", token)) ?: throw ApiError("文章响应异常")
         DocDetail(
@@ -273,10 +293,121 @@ class ApiClient(private val base: String) {
             title = o.str("title").orEmpty(),
             content = o.str("content").orEmpty(),
             ownerName = o.str("ownerName"),
+            ownerId = o.long("ownerId"),
             category = o.str("category"),
+            tags = o.str("tags"),
+            status = o.str("status"),
             updatedAt = o.str("updatedAt"),
+            createdAt = o.str("createdAt"),
             views = o.int("views") ?: 0,
+            likes = o.int("likes") ?: 0,
         )
+    }
+
+    /** GET /api/docs/{id}/breadcrumb → [{id,title}]（根→…→自身；平铺文档返回空） */
+    suspend fun docBreadcrumb(token: String, id: Long): List<CrumbItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/docs/$id/breadcrumb", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val cid = j.long("id") ?: return@mapNotNull null
+            CrumbItem(cid, j.str("title").orEmpty())
+        }
+    }
+
+    // ---- 点赞 / 收藏（POST 切换、GET 我的 id 集合；口径同 Web 端 api/kb.js）----
+
+    /** POST /api/likes/{id} → (是否已赞, 当前点赞数) */
+    suspend fun toggleLike(token: String, id: Long): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
+        val o = parse(authReq("POST", "/api/likes/$id", token)) ?: throw ApiError("点赞响应异常")
+        (o.bool("liked") ?: false) to (o.int("likes") ?: 0)
+    }
+
+    /** GET /api/likes/mine/ids → 我点过赞的文章 id 集合 */
+    suspend fun myLikeIds(token: String): Set<Long> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/likes/mine/ids", token)) }.getOrNull()
+        (e as? JsonArray).orEmpty().mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.toSet()
+    }
+
+    /** POST /api/favorites/{id} → 是否已收藏 */
+    suspend fun toggleFavorite(token: String, id: Long): Boolean = withContext(Dispatchers.IO) {
+        val o = parse(authReq("POST", "/api/favorites/$id", token)) ?: throw ApiError("收藏响应异常")
+        o.bool("favorited") ?: false
+    }
+
+    /** GET /api/favorites/mine/ids → 我收藏的文章 id 集合 */
+    suspend fun myFavoriteIds(token: String): Set<Long> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/favorites/mine/ids", token)) }.getOrNull()
+        (e as? JsonArray).orEmpty().mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.toSet()
+    }
+
+    // ---- 评论（列表公开；发表/点赞/删除需登录）----
+
+    /** GET /api/docs/{id}/comments → 评论列表（content 为 HTML） */
+    suspend fun docComments(token: String, id: Long): List<CommentItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/docs/$id/comments", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val cid = j.long("id") ?: return@mapNotNull null
+            CommentItem(
+                id = cid,
+                parentId = j.long("parentId"),
+                userId = j.long("userId"),
+                username = j.str("username").orEmpty(),
+                displayName = j.str("displayName"),
+                content = j.str("content").orEmpty(),
+                likes = j.int("likes") ?: 0,
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /**
+     * POST /api/docs/{id}/comments {content} → 新评论。
+     * [parentId] 非空表示回复；与 Web 端一致，回复统一挂到**顶层评论**（最多两层）。
+     */
+    suspend fun addDocComment(token: String, id: Long, content: String, parentId: Long? = null): CommentItem = withContext(Dispatchers.IO) {
+        val body = if (parentId != null) {
+            """{"content":${jsonStr(content)},"parentId":$parentId}"""
+        } else {
+            """{"content":${jsonStr(content)}}"""
+        }
+        val o = parse(authReq("POST", "/api/docs/$id/comments", token, body))
+            ?: throw ApiError("评论响应异常")
+        CommentItem(
+            id = o.long("id") ?: 0L,
+            parentId = o.long("parentId"),
+            userId = o.long("userId"),
+            username = o.str("username").orEmpty(),
+            displayName = o.str("displayName"),
+            content = o.str("content").orEmpty(),
+            likes = o.int("likes") ?: 0,
+            createdAt = o.str("createdAt").orEmpty(),
+        )
+    }
+
+    /** POST /api/comments/{id}/like → (是否已赞, 当前赞数) */
+    suspend fun toggleCommentLike(token: String, id: Long): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
+        val o = parse(authReq("POST", "/api/comments/$id/like", token)) ?: throw ApiError("点赞响应异常")
+        (o.bool("liked") ?: false) to (o.int("likes") ?: 0)
+    }
+
+    /** GET /api/comments/my-likes → 我点过赞的评论 id 集合 */
+    suspend fun myCommentLikes(token: String): Set<Long> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/comments/my-likes", token)) }.getOrNull()
+        (e as? JsonArray).orEmpty().mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.toSet()
+    }
+
+    /** DELETE /api/comments/{id}（仅自己的评论；失败信息直接透出） */
+    suspend fun deleteComment(token: String, id: Long) = withContext(Dispatchers.IO) {
+        authReq("DELETE", "/api/comments/$id", token)
+    }
+
+    /** GET /api/auth/me → (当前用户 id, 角色)，用于阅读页「编辑」按钮权限判定。 */
+    suspend fun me(token: String): Pair<Long, String> = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/auth/me", token)) ?: throw ApiError("登录状态读取失败")
+        (o.long("id") ?: 0L) to o.str("role").orEmpty()
     }
 
     /** GET /api/files/mine → 数组 */
