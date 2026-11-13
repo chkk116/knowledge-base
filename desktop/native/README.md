@@ -15,8 +15,10 @@
   （2026-11-13 起不再走 WebView，布局对齐 Web 端 PostDetail 三栏）：
   左操作栏（点赞/收藏/评论计数/返回顶部，`POST /api/likes|favorites/{id}` 切换、乐观更新失败回滚）；
   中栏面包屑（`GET /api/docs/{id}/breadcrumb`，点击跳转）→ 大标题 → 元信息（分类/标签/作者/更新时间/浏览/
-  非 PUBLISHED 状态徽标）→ 编辑按钮 → 正文 → 评论区（`GET/POST /api/docs/{id}/comments` 列表与发表、
-  `POST /api/comments/{id}/like` 赞、自己的评论可两击删除，回复缩进展示）；
+  非 PUBLISHED 状态徽标）→ 编辑按钮（仅管理员/作者，`GET /api/auth/me` 判定）→ 正文 →
+  评论区（`GET/POST /api/docs/{id}/comments` 列表与发表、`POST /api/comments/{id}/like` 赞、
+  自己的评论可两击删除、**可回复**：点「回复」显示「回复 @xxx」提示条并聚焦输入框，
+  回复统一挂到顶层评论最多两层，与 Web 端一致；Ctrl/Enter 发送）；
   右侧目录（真实 h1~h6 + 编号段落推断，点击平滑定位，窄窗口自动收起）；
   正文渲染在 `DocHtml.kt`：JDK 自带 ParserDelegator 解析为块（标题/段落/列表/代码块/引用/表格/图片/分隔线），
   行内粗体/斜体/删除线/行内码/链接（站内与 http(s) 白名单，点击开系统浏览器），站内图片走 `/api/thumb`
@@ -25,9 +27,9 @@
 - **AI 问答**：左侧会话列表（`GET/POST/DELETE /api/ai/conversations`）+ 右侧流式对话
   （`POST /api/ai/ask/stream`，SSE 逐段 `{"delta"}/{"reasoning"}`，`done` 事件带 qaId/sources/conversationId；
   「停止」断开连接、已生成内容保留，口径与 Web 端 ai.js 一致）；
-  知识库/通用双模式、模型下拉（`GET /api/ai/models`，scope=user 的走 `userModelId`）；
+  知识库/通用/Agent 三模式、模型下拉（`GET /api/ai/models`，scope=user 的走 `userModelId`）；
   回答用轻量 markdown 渲染（标题/列表/代码块/粗体/行内码/链接文本），「引用来源」点击跳文章页打开对应文章；
-  思考过程折叠展示；当前无会话时先建会话（标题取问题前 24 字）再提问；
+  思考过程折叠展示；各模式空状态带示例问题（点击直接发问）；会话列表显示更新时间；当前无会话时先建会话（标题取问题前 24 字）再提问；
   **Agent 模式**（ReAct，第三个模式）：最多 6 步；每步走 `POST /api/ai/agent/step`（不落库，
   避免像 /ask 那样每步新建会话），工具在本地执行：`search_kb`（`GET /api/search?q=`）、
   `read_doc`（`GET /api/docs/{id}`）、`list_my_docs`（`GET /api/docs/mine`）、`now`、`navigate`、

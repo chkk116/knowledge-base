@@ -1054,7 +1054,7 @@ private fun emptyState(mode: String): Triple<String, String, List<String>> = whe
     )
     "agent" -> Triple(
         "我是 Agent",
-        "说出目标，我会自己检索、读写文档、向你确认，逐步完成",
+        "说出目标，我会自己检索、读写文档、逐步完成",
         listOf("检索关于请假制度的文档并总结", "把我写的文章优化排版并保存", "新建一篇会议纪要存进知识库", "看看我最近写的文章"),
     )
     else -> Triple(

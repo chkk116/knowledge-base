@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -81,6 +82,11 @@ fun ArticleView(
     var commentText by remember(doc.id) { mutableStateOf("") }
     var posting by remember(doc.id) { mutableStateOf(false) }
     var commentErr by remember(doc.id) { mutableStateOf<String?>(null) }
+    // 回复目标：顶层评论 (id, 显示名)。与 Web 端口径一致——回复统一挂到顶层，最多两层
+    var replyTo by remember(doc.id) { mutableStateOf<Pair<Long, String>?>(null) }
+    val commentFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    // 编辑权限：管理员或作者本人（/api/auth/me）；拉取失败时保留按钮，由后端 updateOwn 兜底
+    var canEdit by remember(doc.id) { mutableStateOf(true) }
     var pendingDel by remember(doc.id) { mutableStateOf<Long?>(null) }
     var toast by remember(doc.id) { mutableStateOf<String?>(null) }
 
@@ -92,6 +98,10 @@ fun ArticleView(
         runCatching { liked = doc.id in api.myLikeIds(token) }
         runCatching { favorited = doc.id in api.myFavoriteIds(token) }
         runCatching { commentLikes = api.myCommentLikes(token) }
+        runCatching {
+            val (myId, role) = api.me(token)
+            canEdit = role.equals("ADMIN", ignoreCase = true) || (doc.ownerId != null && doc.ownerId == myId)
+        }
     }
     LaunchedEffect(toast) {
         if (toast != null) {
@@ -154,21 +164,42 @@ fun ArticleView(
     fun postComment() {
         val text = commentText.trim()
         if (text.isEmpty() || posting) return
+        val target = replyTo
         scope.launch {
             posting = true
             commentErr = null
             try {
-                val c = api.addDocComment(token, doc.id, text)
+                // 评论正文与 Web 端一致走 HTML（纯文本包一层 <p>，表情图片由用户输入/后端净化）
+                val c = api.addDocComment(token, doc.id, text, target?.first)
                 comments = comments + c
                 commentText = ""
-                toast = "评论成功"
-                // 新评论（顶层、最新）滚到视野内：评论区头部 + 输入行 + 旧列表长度
-                listState.animateScrollToItem(commentHeaderIndex(blocks.size) + 1 + commentRows.size)
+                replyTo = null
+                toast = if (target != null) "回复成功" else "评论成功"
+                // 顶层评论滚到末尾；回复滚到父评论附近（含其下所有子回复）
+                val idx = if (target == null) {
+                    commentHeaderIndex(blocks.size) + 1 + commentRows.size
+                } else {
+                    val parent = commentRows.indexOfFirst { it.id == target.first }
+                    if (parent >= 0) commentHeaderIndex(blocks.size) + 1 + parent
+                    else commentHeaderIndex(blocks.size)
+                }
+                listState.animateScrollToItem(idx)
             } catch (e: Exception) {
                 commentErr = e.message ?: "评论失败"
             } finally {
                 posting = false
             }
+        }
+    }
+
+    /** 点「回复」：归一化到顶层评论、滚到输入框并聚焦（Web 端 startReply 同口径） */
+    fun startReply(c: CommentItem) {
+        val topId = c.parentId ?: c.id
+        val name = parentNames[topId] ?: c.username
+        replyTo = topId to name
+        scope.launch {
+            listState.animateScrollToItem(commentHeaderIndex(blocks.size))
+            runCatching { commentFocus.requestFocus() }
         }
     }
 
@@ -204,6 +235,7 @@ fun ArticleView(
                         ArticleHeader(
                             doc = doc,
                             crumbs = crumbs,
+                            canEdit = canEdit,
                             onOpenDoc = onOpenDoc,
                             onEdit = onEdit,
                         )
@@ -229,14 +261,44 @@ fun ArticleView(
                                 )
                             }
                             Spacer(Modifier.height(10.dp))
+                            // 回复提示条：显示目标并支持取消（Web 端 reply-hint 同口径）
+                            val rt = replyTo
+                            if (rt != null) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFFF1F5FF))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("回复 @${rt.second}", fontSize = 11.5.sp, color = KbPrimary)
+                                    Spacer(Modifier.weight(1f))
+                                    Text(
+                                        "× 取消",
+                                        fontSize = 11.5.sp,
+                                        color = KbTextSub,
+                                        modifier = Modifier.clickable { replyTo = null }.padding(horizontal = 4.dp),
+                                    )
+                                }
+                                Spacer(Modifier.height(6.dp))
+                            }
                             OutlinedTextField(
                                 value = commentText,
                                 onValueChange = { commentText = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("写下你的评论…", fontSize = 12.5.sp, color = KbTextSub) },
+                                modifier = Modifier.fillMaxWidth().focusRequester(commentFocus),
+                                placeholder = {
+                                    Text(
+                                        if (rt != null) "回复 @${rt.second}…" else "写下你的评论…",
+                                        fontSize = 12.5.sp,
+                                        color = KbTextSub,
+                                    )
+                                },
                                 minLines = 2,
                                 maxLines = 5,
                                 shape = RoundedCornerShape(10.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { postComment() }),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = KbPrimary,
                                     unfocusedBorderColor = KbBorder,
@@ -283,6 +345,7 @@ fun ArticleView(
                             liked = c.id in commentLikes,
                             mine = c.username.isNotBlank() && c.username == username,
                             confirming = pendingDel == c.id,
+                            onReply = { startReply(c) },
                             onLike = {
                                 scope.launch {
                                     try {
@@ -444,6 +507,7 @@ private fun RailBtn(
 private fun ArticleHeader(
     doc: DocDetail,
     crumbs: List<CrumbItem>,
+    canEdit: Boolean,
     onOpenDoc: (Long) -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -484,8 +548,9 @@ private fun ArticleHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!doc.category.isNullOrBlank()) {
-                TagChip(doc.category!!, Color(0xFFEEF2FF), KbPrimary)
+            val cat = doc.category
+            if (!cat.isNullOrBlank()) {
+                TagChip(cat, Color(0xFFEEF2FF), KbPrimary)
             }
             for (t in splitTags(doc.tags)) {
                 TagChip(t, Color(0xFFF3F4F6), Color(0xFF4B5563))
@@ -513,14 +578,16 @@ private fun ArticleHeader(
             }
         }
 
-        // 工具条：编辑（Web 端编辑器）等轻操作
-        Row(
-            Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MiniAction("✎ 编辑", onEdit)
-            Spacer(Modifier.weight(1f))
+        // 工具条：编辑（仅管理员/作者，权限来自 /api/auth/me；Web 端 PostDetail 同口径）
+        if (canEdit) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MiniAction("✎ 编辑", onEdit)
+                Spacer(Modifier.weight(1f))
+            }
         }
         Spacer(Modifier.height(6.dp))
         androidx.compose.material3.HorizontalDivider(color = KbBorder)
@@ -612,6 +679,7 @@ private fun CommentRow(
     liked: Boolean,
     mine: Boolean,
     confirming: Boolean,
+    onReply: () -> Unit,
     onLike: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -650,7 +718,13 @@ private fun CommentRow(
                 Text(fmtDocTime(c.createdAt), fontSize = 11.sp, color = KbTextSub)
                 Spacer(Modifier.weight(1f))
                 // 评论正文是净化过的 HTML（可能带表情图片/粗体/链接），复用正文渲染器
-                // 操作：赞 / 删除（自己的）
+                // 操作：回复 / 赞 / 删除（自己的）
+                Text(
+                    "回复",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onReply).padding(horizontal = 5.dp, vertical = 2.dp),
+                )
                 Text(
                     (if (liked) "❤ " else "🤍 ") + c.likes,
                     fontSize = 11.5.sp,
