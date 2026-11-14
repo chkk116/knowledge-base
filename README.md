@@ -223,8 +223,17 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 | 原生桌面端（主推） | Kotlin 2.4.20 + Compose Multiplatform 1.13.0（Windows）：原生侧栏 / 文章阅读 / 应用内更新，单文件安装包交付 |
 | 移动端（归档兼容） | Capacitor 8（Android），远端模式直连后端，已停发、不再同步新 UI |
 | 原生移动端（主推） | Kotlin / Jetpack Compose 原生壳：首页、文档、AI 问答、考试等高频页原生实现，低频管理页走 WebScreen |
-| 工程与质量 | HikariCP 连接池 · Hibernate 7 · Logback 滚动日志（ERROR 分离）· ESLint 9（前端）· Checkstyle + SpotBugs（后端） |
+| 工程与质量 | HikariCP 连接池 · Hibernate 7 · Logback 滚动日志（ERROR 分离）· ESLint 9（前端）· Checkstyle + SpotBugs（后端）· 四步轻量 CI |
 | 部署 | `deploy/`：env.prod / env.test + nginx 模板，HTTPS + 静态预压缩（.gz / .br） |
+
+### 持续集成（最轻量四步）
+
+`.github/workflows/ci.yml` 在 push / PR 时并行跑两条链路，**不需要数据库或任何外部服务**：
+
+- 前端：`npm ci` → `eslint src`（存量规则按配置降级为 warn，不阻塞）→ `node --test` → `vite build`
+- 后端：`mvn test`（JDK 21，Mockito 允许动态挂载 agent）
+
+主仓在 Gitee，该文件随代码同步到 GitHub 镜像后由 GitHub Actions 执行；直接写在 GitHub 上会被定期强制镜像覆盖。后端单测覆盖权限、文档树规则、导入与压缩包校验等纯逻辑，前端单测覆盖工具函数与 Markdown 渲染。
 
 ## 目录结构
 

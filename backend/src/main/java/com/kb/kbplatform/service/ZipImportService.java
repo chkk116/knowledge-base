@@ -164,6 +164,18 @@ public class ZipImportService {
             String parent = docRel.contains("/") ? docRel.substring(0, docRel.lastIndexOf('/')) : "";
             String url = images.get(normalize(parent.isEmpty() ? src : parent + "/" + src));
             if (url == null) url = images.get(normalize(src)); // 部分导出包用仓库根目录相对路径
+            if (url == null) {
+                // Notion / 语雀导出常把中文图片名写成 %XX，而 zip 内条目是原始文件名
+                try {
+                    String decoded = java.net.URLDecoder.decode(src, StandardCharsets.UTF_8);
+                    if (!decoded.equals(src)) {
+                        url = images.get(normalize(parent.isEmpty() ? decoded : parent + "/" + decoded));
+                        if (url == null) url = images.get(normalize(decoded));
+                    }
+                } catch (Exception ignored) {
+                    // 非法百分号编码按原样处理，最多这一张图不改写
+                }
+            }
             if (url != null) img.attr("src", url);
         }
         return doc.body().html();

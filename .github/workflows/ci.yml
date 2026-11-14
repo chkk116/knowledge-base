@@ -8,9 +8,19 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 只读检出代码即可，收窄 GITHUB_TOKEN 权限（fork PR 也会跑本工作流）
+permissions:
+  contents: read
+
+# 镜像会强推 master、PR 更新也会连发：同 ref 上取消旧的运行，避免排队占 runner
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -27,10 +37,12 @@ jobs:
       - name: Node tests
         run: node --test
       - name: Vite build
-        run: node node_modules/vite/bin/vite.js build --outDir dist-ci --emptyOutDir true
+        # --emptyOutDir 是布尔开关，不带值；outDir 在仓库根目录内时默认就清空
+        run: node node_modules/vite/bin/vite.js build --outDir dist-ci --emptyOutDir
 
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

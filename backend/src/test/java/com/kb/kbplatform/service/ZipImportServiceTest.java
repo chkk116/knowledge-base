@@ -117,6 +117,22 @@ class ZipImportServiceTest {
     }
 
     @Test
+    @DisplayName("URL 编码的中文图片名也能匹配到 zip 内原始文件名")
+    void rewritesUrlEncodedImageName() throws Exception {
+        Map<String, byte[]> m = new LinkedHashMap<>();
+        m.put("guide/intro.md", "![配图](assets/%E9%85%8D%E5%9B%BE.png)\n".getBytes(StandardCharsets.UTF_8));
+        m.put("guide/assets/配图.png", PNG);
+
+        Map<String, Object> r = svc.importZip(1L, 7L, false, multipart(zip(m)));
+        assertEquals(1, r.get("created"));
+        assertEquals(1, r.get("images"));
+        ArgumentCaptor<String> content = ArgumentCaptor.forClass(String.class);
+        verify(shareSvc).createDoc(eq(1L), anyString(), content.capture(), eq(7L), eq(false));
+        assertTrue(content.getValue().contains("/uploads/"));
+        assertFalse(content.getValue().contains("%E9%85%8D"));
+    }
+
+    @Test
     @DisplayName("伪造扩展名的图片被魔数校验拒绝，文档仍可导入")
     void rejectsFakeImage() throws Exception {
         Map<String, byte[]> m = pack();
