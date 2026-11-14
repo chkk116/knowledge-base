@@ -207,7 +207,7 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 <div align="center">
 
 <a href="https://skillicons.dev">
-  <img src="https://skillicons.dev/icons?i=java,spring,postgres,vue,ts,vite,pinia,nodejs,electron,nginx,md&perline=11" alt="技术栈图标"/>
+  <img src="https://skillicons.dev/icons?i=java,spring,postgres,vue,ts,vite,pinia,nodejs,kotlin,nginx,md&perline=11" alt="技术栈图标"/>
 </a>
 
 </div>
@@ -449,9 +449,11 @@ cd mobile/mobile-native
   配上去反而会让插件拒收合法包。轮换密钥需发新 APK（公钥随包内置）。
 - 原生壳不消费热更包（WebView 直接加载站点），其应用内升级走 APK 的 SHA-256 校验。
 
-## 移动端（Capacitor / Android）
+## 移动端（Capacitor / Android · 归档兼容）
 
-> **状态：初具规模，已真机试用**。与早期"远端模式套壳"不同，App 现在加载**内置前端资源**（断网不白屏），并有独立的离线架构。
+> **状态：归档 / 兼容模式，不再同步新 UI、不再发新版**，本章节保留供已装用户过渡。主推形态为 Kotlin 原生壳 `mobile/mobile-native/`。
+
+> 历史状态（归档前）：初具规模，已真机试用。与早期"远端模式套壳"不同，App 曾加载**内置前端资源**（断网不白屏），并有独立的离线架构。
 
 ### 已实现
 
@@ -482,6 +484,8 @@ VITE_NATIVE_ORIGIN=https://kb.example.com npm run build
 ### 构建
 
 ```bash
+# 以下为归档兼容版（Electron / Capacitor）的出包步骤，仅供维护已装用户；新功能不再在此迭代。
+# 主推原生壳：desktop/native/（Windows）与 mobile/mobile-native/（Android）。
 # 1) 前端构建（双入口 main/mobile + SW 预缓存清单注入）
 cd frontend && npm run build
 # 2) 前端产物进 desktop/web（Electron 与移动端共用这份产物）
@@ -570,7 +574,7 @@ App 壳内走 WebView 需在 preferences 里写死后端地址，不能用相对
 
 若上述开源义务与你的使用计划冲突——例如将本系统整合进**不愿开源的闭源商业产品**，或部署**修改版**但不履行开源义务——可联系作者购买**商业授权**（双许可模式，同一份代码两种许可任选，功能完全一致）。
 
-> 说明：项目处于快速迭代阶段，Electron 桌面端为实验性预览、移动端尚未验证，商业授权评估建议以 Web 端为基准；原生 Windows 桌面端已可打包交付。
+> 说明：主推形态为 Web + Kotlin 原生壳（Windows / Android），Electron 与 Capacitor 为归档兼容版、不再发新版；商业授权评估建议以 Web 端与原生壳为基准。
 
 ### 联系作者
 
