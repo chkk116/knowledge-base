@@ -4,6 +4,8 @@
 同一套 API 契约（`OcrEngine.recognize() → OcrResult`）、同样的版面重排与数字后处理逻辑，
 全部在浏览器本地用 **ONNX Runtime Web (WASM)** 推理，**无需联网、无需服务端**。
 
+> **前置条件**：把 3 个 PP-OCRv3 `.onnx` 权重放到 `models/` 后即可运行。权重约 14MB，**本地保留、不入库**（主仓会镜像到公开 GitHub），仓库里只保留 `ppocr_keys.txt` 与代码。
+
 定位：替代当前 Web 端 `Tesseract.js` 兜底（中文准确率明显更高，且可完全离线、私有化部署）。
 
 ## 与 Python 端的行为对齐
@@ -66,10 +68,10 @@ console.log(result.text);
 
 ```
 web/
-├── models/                     # 与 Python/Android 共用的 ONNX 模型 + 字符表
-│   ├── ch_PP-OCRv3_det_infer.onnx
-│   ├── ch_PP-OCRv3_rec_infer.onnx
-│   ├── ch_ppocr_mobile_v2.0_cls_infer.onnx
+├── models/                     # 本地放置的 ONNX 权重（不入库）+ 字符表
+│   ├── ch_PP-OCRv3_det_infer.onnx        # 本地文件，不入库
+│   ├── ch_PP-OCRv3_rec_infer.onnx        # 本地文件，不入库
+│   ├── ch_ppocr_mobile_v2.0_cls_infer.onnx  # 本地文件，不入库
 │   └── ppocr_keys.txt          # 从 rec 模型元数据导出（6623 字）
 ├── src/
 │   ├── web.ts / node.ts        # 浏览器 / Node 入口（模型加载 + 图像解码）
@@ -81,7 +83,7 @@ web/
 │   ├── image.ts / types.ts / ort.ts / clipperUtil.ts
 │   └── align.ts                # 27 图对齐测试
 ├── demo/main.ts + index.html   # Vite 演示页
-└── vite.config.ts              # 把 models/ 与 .wasm 作为静态资源提供（不重复入库）
+└── vite.config.ts              # 把本地 models/ 与 .wasm 作为静态资源提供
 ```
 
 ## 实现要点 / 踩坑记录

@@ -35,7 +35,7 @@ cd android
 ```
 
 `runAlignment` 用桌面 JVM 版 `onnxruntime:1.20.0`（jar 内含 Windows/Linux/macOS native），
-加载 `../web/models/` 下的同一份 `.onnx` 与 `ppocr_keys.txt`，跑 `../../outputs/ocr-bench/dataset/`。
+加载 `../web/models/` 下本地放置的同一份 `.onnx`（不入库）与 `ppocr_keys.txt`，跑 `../../outputs/ocr-bench/dataset/`。
 `compileKotlin -Pkb.ort.androidJar=...` 会把依赖换成 Android 版 aar 的 `classes.jar` 重新编译，
 用于证明核心源码在 Android API 下同样可编译 —— 本项目已实测通过。
 

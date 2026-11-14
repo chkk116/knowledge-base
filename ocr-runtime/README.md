@@ -3,6 +3,8 @@
 > 一套 API、一套 ONNX 模型，跑遍 Android / iOS / 桌面 / Web / 后端 的**离线 OCR 运行时**。
 > 不重训模型——底层复用 PaddleOCR / RapidOCR 的 ONNX 模型 + ONNX Runtime 推理引擎，
 > 我们自建的是上面那层：**统一接口 + 版面阅读顺序修正 + 数字后处理 + 跨端 API 契约**。
+>
+> **模型权重本地保留、不入库**：`web/models/*.onnx` 需自行放置（见 `web/README.md`）。主仓推送后会由镜像工作流同步到公开 GitHub 仓库，任何进入仓库的大二进制资产都会公开。
 
 ## 为什么需要它
 
@@ -88,7 +90,7 @@ ocr-runtime/
 │   └── ocr_runtime/
 ├── web/               # Web(WASM) TS 实现：OcrEngine / det / rec / cls / layout / demo
 │   ├── src/           # 纯 TS 推理管线 + 浏览器/Node 双入口 + 对齐测试
-│   ├── models/        # 三端共用的 3 个 ONNX 模型 + 字符表
+│   ├── models/        # 本地放置 3 个 ONNX 权重（不入库）+ 字符表 ppocr_keys.txt
 │   └── demo/          # Vite 演示页
 ├── android/           # Android(Kotlin) 实现：纯 Kotlin/JVM 核心 + 接入层
 │   ├── src/main/kotlin/com/kb/ocr/   # 与 Web 同构的推理管线（无 Android SDK 依赖）
