@@ -40,7 +40,7 @@ public class AdminMailController {
     public AdminMailController(MailService mailService,
                                PasswordResetService passwordResetService,
                                UserRepository userRepository,
-                               @Value("${KB_PUBLIC_BASE_URL:https://chkk116.cn}") String siteBaseUrl) {
+                               @Value("${KB_PUBLIC_BASE_URL:https://kb.example.com}") String siteBaseUrl) {
         this.mailService = mailService;
         this.passwordResetService = passwordResetService;
         this.userRepository = userRepository;

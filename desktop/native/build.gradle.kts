@@ -38,6 +38,25 @@ kotlin {
     jvmToolchain(21)
 }
 
+// 出厂默认服务器地址：正式发版传 -PKB_DESKTOP_SERVER=https://<部署域名> 注入到内置资源，
+// 真实地址只存在于发版命令/云端配置，仓库里只有占位（与 Android 的 -PKB_BASE_URL 同一套做法）。
+val kbDesktopServer = (findProperty("KB_DESKTOP_SERVER") as? String)?.trim().orEmpty()
+val kbServerRes = layout.buildDirectory.dir("generated/kbServerRes")
+val generateKbServer by tasks.registering {
+    // 声明为输入：先注入再不注入时也必须重跑，避免残留上一次的真实地址
+    inputs.property("kbDesktopServer", kbDesktopServer)
+    outputs.dir(kbServerRes)
+    doLast {
+        val d = kbServerRes.get().asFile
+        d.mkdirs()
+        d.resolve("kb-default-server.txt").writeText(kbDesktopServer)
+    }
+}
+tasks.named<ProcessResources>("processResources") {
+    from(kbServerRes)
+    dependsOn(generateKbServer)
+}
+
 // Agent 内容生成纯函数回归测试：gradle runAgentSmoke
 tasks.register<JavaExec>("runAgentSmoke") {
     group = "verification"

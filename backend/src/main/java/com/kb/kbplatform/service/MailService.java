@@ -56,7 +56,7 @@ public class MailService {
     private final String siteBaseUrl;
 
     public MailService(SysSettingRepository settingRepo, AiKeyCipher cipher,
-                       @Value("${KB_PUBLIC_BASE_URL:https://chkk116.cn}") String siteBaseUrl) {
+                       @Value("${KB_PUBLIC_BASE_URL:https://kb.example.com}") String siteBaseUrl) {
         this.settingRepo = settingRepo;
         this.cipher = cipher;
         this.siteBaseUrl = siteBaseUrl.endsWith("/") ? siteBaseUrl.substring(0, siteBaseUrl.length() - 1) : siteBaseUrl;

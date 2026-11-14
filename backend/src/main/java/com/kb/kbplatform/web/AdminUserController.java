@@ -48,7 +48,7 @@ public class AdminUserController {
                                com.kb.kbplatform.service.PasswordResetService passwordResetService,
                                MailService mailService,
                                com.kb.kbplatform.service.SpaceAccessService spaceAccess,
-                               @Value("${KB_PUBLIC_BASE_URL:https://chkk116.cn}") String siteBaseUrl) {
+                               @Value("${KB_PUBLIC_BASE_URL:https://kb.example.com}") String siteBaseUrl) {
         this.svc = svc;
         this.authService = authService;
         this.audit = audit;

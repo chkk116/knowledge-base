@@ -11,9 +11,15 @@ object ConfigStore {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** 默认连生产服务器；本地开发/换环境用 KB_DESKTOP_SERVER 环境变量或 config.json 的 server 覆盖。 */
+    /**
+     * 出厂默认服务器：环境变量 KB_DESKTOP_SERVER → 发版时用 -PKB_DESKTOP_SERVER 注入的内置资源
+     * → 示例占位地址。仓库不存任何真实公网地址；正式发版必须注入，否则客户端会连到示例占位。
+     */
     val defaultServer: String =
-        System.getenv("KB_DESKTOP_SERVER")?.takeIf { it.isNotBlank() } ?: "https://chkk116.cn"
+        System.getenv("KB_DESKTOP_SERVER")?.takeIf { it.isNotBlank() }
+            ?: ConfigStore::class.java.getResourceAsStream("/kb-default-server.txt")
+                ?.bufferedReader()?.use { it.readText() }?.trim()?.takeIf { it.isNotBlank() }
+            ?: "https://kb.example.com"
 
     private val file: Path by lazy {
         val appData = System.getenv("APPDATA")?.takeIf { it.isNotBlank() }
