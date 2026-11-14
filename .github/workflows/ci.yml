@@ -1,0 +1,44 @@
+name: CI
+
+# 主仓在 Gitee，本文件随代码同步到 GitHub 镜像后由 GitHub Actions 执行。
+# 四道最轻量检查：lint / 前端单测 / 后端单测 / 前端构建，均不需要数据库或外部服务。
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: ESLint
+        run: npm run lint
+      - name: Node tests
+        run: node --test
+      - name: Vite build
+        run: node node_modules/vite/bin/vite.js build --outDir dist-ci --emptyOutDir true
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Maven tests
+        working-directory: backend
+        # -DargLine 让 Mockito 在 JDK 21+ 上可动态挂载 agent
+        run: mvn -B test -DargLine=-XX:+EnableDynamicAgentLoading

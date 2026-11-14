@@ -43,7 +43,7 @@ class AdminBootstrapTest {
     }
 
     @Test
-    @DisplayName("用户已存在 → 只提升为 ADMIN / 启用，绝不覆盖已有密码")
+    @DisplayName("用户已存在 → 不做任何变更（绝不提权 / 启用 / 覆盖密码）")
     void doesNotOverwritePassword() {
         UserRepository repo = repo();
         User existing = new User();
@@ -55,8 +55,10 @@ class AdminBootstrapTest {
 
         new AdminBootstrap(repo, "ops", "EnvPwd@999").run(null);
 
-        assertEquals("ADMIN", existing.getRole());
-        assertTrue(existing.isEnabled());
+        // 2026-10-06 安全审查后语义收敛：已存在账号一律不动，防开放注册抢注引导名后重启提权
+        assertEquals("USER", existing.getRole());
+        assertFalse(existing.isEnabled());
+        verify(repo, never()).save(any());
         assertTrue(PasswordUtil.matches("OriginalPwd@1", existing.getPassword()), "原密码必须保持不变");
         assertFalse(PasswordUtil.matches("EnvPwd@999", existing.getPassword()), "不得被环境变量里的密码覆盖");
     }
@@ -65,19 +67,19 @@ class AdminBootstrapTest {
     @DisplayName("未配置环境变量 → 不建号；但会检查是否存在管理员")
     void noEnvNoCreate() {
         UserRepository repo = repo();
-        when(repo.countByRole("ADMIN")).thenReturn(1L);
+        when(repo.countByRoleAndEnabled("ADMIN", true)).thenReturn(1L);
 
         new AdminBootstrap(repo, "", "").run(null);
 
         verify(repo, never()).save(any());
-        verify(repo).countByRole("ADMIN");
+        verify(repo).countByRoleAndEnabled("ADMIN", true);
     }
 
     @Test
     @DisplayName("未配置环境变量且库中无管理员 → 仍不建号（只提示），且不误调 save")
     void noEnvNoAdminStillNoCreate() {
         UserRepository repo = repo();
-        when(repo.countByRole("ADMIN")).thenReturn(0L);
+        when(repo.countByRoleAndEnabled("ADMIN", true)).thenReturn(0L);
 
         new AdminBootstrap(repo, "", "").run(null);
 

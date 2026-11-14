@@ -56,12 +56,13 @@ class OcrKeySourceTest {
     }
 
     @Test
-    @DisplayName("只有非智谱平台（如 DeepSeek）→ OCR 不可用，不误用其 Key")
-    void disabledWhenOnlyNonZhipu() {
+    @DisplayName("任意平台原生多模态模型（如 DeepSeek）也可用于 OCR")
+    void enabledWhenOtherVisionModelConfigured() {
         when(repo.findByEnabledTrueOrderBySortOrderAscIdAsc())
                 .thenReturn(List.of(model(AiModel.PROVIDER_DEEPSEEK, "https://api.deepseek.com/v1", "sk-ds-key")));
 
-        assertFalse(new OcrService(true, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class)).isEnabled());
+        // 多模型改造后 OCR 不再绑死智谱：能力配置 > 智谱 > 平台默认/首个启用模型
+        assertTrue(new OcrService(true, repo, cipher, org.mockito.Mockito.mock(AiCapabilityService.class)).isEnabled());
     }
 
     @Test

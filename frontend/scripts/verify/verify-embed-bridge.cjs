@@ -12,7 +12,7 @@ const fs = require('fs')
 const path = require('path')
 const { chromium } = require('playwright-core')
 
-const DIST = path.resolve(__dirname, 'dist-' + (process.env.DIST_VER || 'v203'))
+const DIST = path.resolve(__dirname, '../../dist-' + (process.env.DIST_VER || 'v203'))
 const TOKEN = process.env.KB_TOKEN || ''
 const KINDS = process.argv.slice(2).length ? process.argv.slice(2) : ['adminfooter', 'adminmaintain', 'adminstats']
 
