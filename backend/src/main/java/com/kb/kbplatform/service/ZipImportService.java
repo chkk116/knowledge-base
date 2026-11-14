@@ -82,7 +82,10 @@ public class ZipImportService {
         // 0) 落盘任何图片之前先过一次用户配额闸门：配额不足直接 413，
         //    否则会出现「图片都已写到 uploads、文档却因配额被拒」的孤儿文件
         long incoming = 0;
-        for (byte[] b : entries.values()) incoming += b.length;
+        for (Map.Entry<String, byte[]> e : entries.entrySet()) {
+            // 只有图片落盘、文档正文入库会占用用户配额；其它附件不入库，不该让预检误判 413
+            if (isImage(e.getKey()) || isDoc(e.getKey())) incoming += e.getValue().length;
+        }
         shareSvc.assertUserStorage(userId, incoming);
 
         // 1) 图片先落盘并建立「zip 内相对路径 → /uploads URL」映射
@@ -100,10 +103,11 @@ public class ZipImportService {
         }
 
         // 2) 同空间同标题跳过（重复传包不生成整套副本）；列不出来时不去重，宁可重复也不误跳过
-        Set<String> existing = new HashSet<>();
+        Set<String> dbTitles = new HashSet<>();
+        Set<String> usedTitles = new HashSet<>();
         try {
             for (SharedDocument d : shareSvc.listDocs(shareId, userId, sysAdmin)) {
-                if (d.getTitle() != null) existing.add(d.getTitle());
+                if (d.getTitle() != null) dbTitles.add(d.getTitle());
             }
         } catch (Exception e) {
             log.warn("导入前读取已有文档失败，本次跳过同名检查: {}", e.getMessage());
@@ -116,17 +120,24 @@ public class ZipImportService {
         List<String> skipped = new ArrayList<>();
         for (String name : names) {
             if (!isDoc(name)) continue;
-            String title = titleOf(name);
-            if (existing.contains(title)) {
-                skipped.add(title);
+            String base = titleOf(name);
+            // 与空间已有文档同名 = 重复传包，跳过；但同包内 intro.md / intro.txt 去扩展名后
+            // 也会撞名，那是两篇不同文档，必须加序号消歧而不是丢掉
+            if (dbTitles.contains(base)) {
+                skipped.add(base);
                 continue;
+            }
+            String title = base;
+            int seq = 2;
+            while (usedTitles.contains(title) || dbTitles.contains(title)) {
+                title = base + " (" + seq++ + ")";
             }
             try {
                 Map<String, String> draft = importSvc.parseToDraft(name, entries.get(name),
                         html -> rewriteImages(html, name, images));
                 shareSvc.createDoc(shareId, title, draft.get("content"), userId, sysAdmin);
                 created.add(title);
-                existing.add(title);
+                usedTitles.add(title);
             } catch (Exception ex) {
                 errors.add(title + "：" + (ex.getMessage() == null ? "导入失败" : ex.getMessage()));
             }
@@ -163,11 +174,19 @@ public class ZipImportService {
     private String rewriteImages(String html, String docRel, Map<String, String> images) {
         if (html == null || html.isBlank() || images.isEmpty()) return html;
         org.jsoup.nodes.Document doc = Jsoup.parseBodyFragment(html);
+        String parent = docRel.contains("/") ? docRel.substring(0, docRel.lastIndexOf('/')) : "";
         for (Element img : doc.select("img[src]")) {
             String src = img.attr("src").trim();
             if (src.isEmpty() || src.startsWith("/") || src.startsWith("http://")
                     || src.startsWith("https://") || src.startsWith("data:")) continue;
-            String parent = docRel.contains("/") ? docRel.substring(0, docRel.lastIndexOf('/')) : "";
+            // 导出包常给图片带 ?v=2 / #frag，去掉后再匹配 zip 内路径
+            int cut = src.length();
+            int q = src.indexOf('?');
+            int h = src.indexOf('#');
+            if (q >= 0) cut = Math.min(cut, q);
+            if (h >= 0) cut = Math.min(cut, h);
+            src = src.substring(0, cut);
+            if (src.isEmpty()) continue;
             String url = images.get(normalize(parent.isEmpty() ? src : parent + "/" + src));
             if (url == null) url = images.get(normalize(src)); // 部分导出包用仓库根目录相对路径
             if (url == null) {
@@ -194,7 +213,8 @@ public class ZipImportService {
             int n = 0;
             while ((e = zin.getNextEntry()) != null && n++ < MAX_ENTRIES) {
                 String name = e.getName();
-                if (name.indexOf('\uFFFD') >= 0 || name.contains("?")) {
+                // '?' 是合法文件名字符；UTF-8 解不动的 GBK 名字表现为 U+FFFD，只认这个信号
+                if (name.indexOf('\uFFFD') >= 0) {
                     garbled = true;
                     break;
                 }
@@ -231,7 +251,12 @@ public class ZipImportService {
                     }
                     bos.write(buf, 0, n);
                 }
-                out.put(normalize(raw), bos.toByteArray());
+                String key = normalize(raw);
+                // 归一化后同名（如反斜杠/正斜杠两种写法、zip 内合法的同名重复条目）
+                // 不能静默覆盖，否则一篇文档的内容会无声消失
+                if (out.putIfAbsent(key, bos.toByteArray()) != null) {
+                    throw new IllegalArgumentException("压缩包存在重复条目：" + key);
+                }
             }
         } catch (IllegalArgumentException ex) {
             throw ex;

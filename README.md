@@ -107,6 +107,7 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 - **复习卡片**：摘录 / 选中文字一键生成卡片，SM-2 间隔重复复习；学习计划带进度与复习提醒、首页每日回顾
 - **采集**：网页剪藏（抓正文 → 预览 → 存文档）、系统分享导入（含 zip 自动解压）、整库导出（zip）
 - **压缩包批量导入**：本地 Markdown 文件夹或 Notion / 语雀 / 飞书导出的 zip 一键导入共享空间，目录结构以完整相对路径作标题保留，包内相对引用的图片自动转存到 `uploads/` 并改写地址；同名文档跳过、逐篇独立提交、前端一次汇总结果
+- **离线 OCR 运行时（可选模块）**：`ocr-runtime/` 用同一套 `OcrEngine` API 覆盖 Python / Web（ONNX Runtime WASM）/ Android（Kotlin），复用 PaddleOCR PP-OCRv3 模型在端侧推理，无需联网或服务端；模型权重约 14MB **本地放置、不入库**（主仓会镜像到公开仓库），仓库只保留代码与字符表
 - **桌面命令面板**：Ctrl / ⌘ + K 快速跳转页面、搜索文档、执行常用动作
 
 ### 社区与互动
@@ -257,6 +258,7 @@ knowledge-base/
 │       ├── responsive.css    # 响应式基础设施（表格卡片化、浮层限宽、表单标签置顶）
 │       └── store/ api/
 ├── collab-relay/             # Hocuspocus 协同中继（Node）：verifyToken 校验 + Yjs 快照持久化到 PostgreSQL
+├── ocr-runtime/              # 离线 OCR 运行时（可选）：Python / Web(WASM) / Android 三端同构实现，权重本地放置
 ├── desktop/                  # 桌面客户端
 │   ├── build-web.js / web/    # Electron 版（归档兼容）：复用前端构建产物 + 反代后端
 │   └── native/               # 原生 Windows 版（Kotlin / Compose Multiplatform，独立 Gradle 工程）

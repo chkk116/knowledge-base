@@ -98,16 +98,22 @@ public class SharedDocRagService {
             candidates.sort((a, b) -> Integer.compare(b.score(), a.score()));
 
             List<Map<String, Object>> picked = new ArrayList<>();
+            int checked = 0;
+            // 被文档级权限拒绝的候选不能无限复核下去（每条最多 4 次查询），给次数设上界
+            int maxChecks = Math.max(limit * 3, limit + 2);
             for (Candidate c : candidates) {
-                if (picked.size() >= limit) break;
+                if (picked.size() >= limit || checked >= maxChecks) break;
+                checked++;
                 SharedDocumentRagRow row = c.row();
                 // 文档级权限可收窄空间权限，且索引/缓存与数据库可能不一致 —— 送入模型前用当前状态复核
                 if (docShareService.docPermission(row.getShareId(), row.getId(), userId, false) == null) continue;
                 Map<String, Object> s = new LinkedHashMap<>();
+                int hit = hitPos(c.text(), kws);
                 s.put("id", row.getId());
                 s.put("title", c.title());
-                s.put("snippet", window(c.text(), kws));
-                s.put("fullText", window(c.text(), kws));
+                s.put("snippet", window(c.text(), hit, FRAG_LEN));
+                // fullText 是喂给模型的上下文，给更长的窗口；只算一次命中位置，避免重复扫描
+                s.put("fullText", window(c.text(), hit, FRAG_LEN * 3));
                 s.put("docType", "share");
                 s.put("shareId", row.getShareId());
                 s.put("docId", row.getId());
@@ -117,14 +123,14 @@ public class SharedDocRagService {
             return picked;
         } catch (Exception e) {
             // 检索失败不阻断公开文章检索，也绝不放行任何未复核的私有内容
-            log.warn("共享文档检索失败，本次忽略共享来源: {}", e.getMessage());
+            log.warn("共享文档检索失败，本次忽略共享来源", e);
             return List.of();
         }
     }
 
-    /** 取覆盖关键词的窗口，避免把整篇长文塞进提示词 */
-    private String window(String text, List<String> keywords) {
-        if (text == null || text.isEmpty()) return "";
+    /** 找最早命中的关键词位置，供 snippet 与 fullText 两个窗口复用 */
+    private int hitPos(String text, List<String> keywords) {
+        if (text == null || text.isEmpty()) return -1;
         String lower = text.toLowerCase(Locale.ROOT);
         int hit = -1;
         for (String kw : keywords) {
@@ -133,9 +139,15 @@ public class SharedDocRagService {
             int i = lower.indexOf(k);
             if (i >= 0 && (hit < 0 || i < hit)) hit = i;
         }
-        if (hit < 0) return text.substring(0, Math.min(FRAG_LEN, text.length()));
-        int from = Math.max(0, hit - FRAG_LEN / 3);
-        int to = Math.min(text.length(), from + FRAG_LEN);
+        return hit;
+    }
+
+    /** 取覆盖关键词的窗口，避免把整篇长文塞进提示词 */
+    private String window(String text, int hit, int maxLen) {
+        if (text == null || text.isEmpty()) return "";
+        if (hit < 0) return text.substring(0, Math.min(maxLen, text.length()));
+        int from = Math.max(0, hit - maxLen / 3);
+        int to = Math.min(text.length(), from + maxLen);
         return (from > 0 ? "…" : "") + text.substring(from, to) + (to < text.length() ? "…" : "");
     }
 }

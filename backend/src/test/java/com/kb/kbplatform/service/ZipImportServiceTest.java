@@ -158,6 +158,65 @@ class ZipImportServiceTest {
     }
 
     @Test
+    @DisplayName("归一化后同名的条目明确拒绝，不静默覆盖文档内容")
+    void duplicateNormalizedEntryRejected() throws Exception {
+        Map<String, byte[]> m = new LinkedHashMap<>();
+        m.put("guide/a.md", "第一份".getBytes(StandardCharsets.UTF_8));
+        m.put("guide\\a.md", "第二份".getBytes(StandardCharsets.UTF_8));
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.importZip(1L, 7L, false, multipart(zip(m))));
+    }
+
+    @Test
+    @DisplayName("同目录不同扩展名撞标题时两篇都导入，第二篇加序号消歧")
+    void sameBasenameDifferentExtensionBothImported() throws Exception {
+        Map<String, byte[]> m = new LinkedHashMap<>();
+        m.put("guide/intro.md", "# Markdown 版".getBytes(StandardCharsets.UTF_8));
+        m.put("guide/intro.txt", "纯文本版".getBytes(StandardCharsets.UTF_8));
+
+        Map<String, Object> r = svc.importZip(1L, 7L, false, multipart(zip(m)));
+        assertEquals(2, r.get("created"));
+        ArgumentCaptor<String> titles = ArgumentCaptor.forClass(String.class);
+        verify(shareSvc, times(2)).createDoc(eq(1L), titles.capture(), anyString(), eq(7L), eq(false));
+        assertTrue(titles.getAllValues().contains("guide/intro"));
+        assertTrue(titles.getAllValues().contains("guide/intro (2)"));
+    }
+
+    @Test
+    @DisplayName("图片地址带查询串/片段仍能匹配并改写")
+    void imageSrcWithQueryStillRewritten() throws Exception {
+        Map<String, byte[]> m = new LinkedHashMap<>();
+        m.put("guide/intro.md", "![配图](assets/p.png?v=2#top)\n".getBytes(StandardCharsets.UTF_8));
+        m.put("guide/assets/p.png", PNG);
+
+        Map<String, Object> r = svc.importZip(1L, 7L, false, multipart(zip(m)));
+        assertEquals(1, r.get("images"));
+        ArgumentCaptor<String> content = ArgumentCaptor.forClass(String.class);
+        verify(shareSvc).createDoc(eq(1L), anyString(), content.capture(), eq(7L), eq(false));
+        assertTrue(content.getValue().contains("/uploads/"));
+        assertFalse(content.getValue().contains("p.png?v=2"));
+    }
+
+    @Test
+    @DisplayName("配额预检只统计会入库的图片与文档，不含其它附件")
+    void quotaPrecheckOnlyCountsStoredEntries() throws Exception {
+        Map<String, byte[]> m = pack();
+        m.put("assets/theme.css", new byte[5000]);
+        svc.importZip(1L, 7L, false, multipart(zip(m)));
+
+        ArgumentCaptor<Long> incoming = ArgumentCaptor.forClass(Long.class);
+        verify(shareSvc).assertUserStorage(eq(7L), incoming.capture());
+        long storedBytes = 0;
+        for (Map.Entry<String, byte[]> e : m.entrySet()) {
+            String n = e.getKey();
+            // pack() 里的 ../evil.md、__MACOSX/._junk 会被路径安全规则拒绝，不会进入预检
+            if (n.equals("guide/intro.md") || n.equals("guide/assets/p.png")
+                    || n.equals("readme.txt")) storedBytes += e.getValue().length;
+        }
+        assertEquals(storedBytes, incoming.getValue(), "css 附件不入库，不应计入配额预检");
+    }
+
+    @Test
     @DisplayName("空包与超大包直接拒绝")
     void rejectsEmptyAndOversized() {
         assertThrows(IllegalArgumentException.class,

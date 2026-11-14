@@ -8,6 +8,7 @@ import com.kb.kbplatform.domain.DocShare;
 import com.kb.kbplatform.repository.DocShareRepository;
 import com.kb.kbplatform.repository.SharedDocumentRagRow;
 import com.kb.kbplatform.repository.SharedDocumentRepository;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -161,6 +162,37 @@ class SharedDocRagServiceTest {
         List<Map<String, Object>> got = svc.search("报销", USER, List.of("报销"), 2);
         assertEquals(1, got.size());
         verify(docShareService, times(1)).docPermission(anyLong(), anyLong(), anyLong(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("fullText 上下文窗口比 snippet 更长，且共用一次命中位置计算")
+    void fullTextHasLargerWindow() {
+        when(shares.findByOwnerIdOrMemberUserIdOrderByUpdatedAtDesc(USER))
+                .thenReturn(List.of(space(1, "ACTIVE")));
+        when(docShareService.canReadSpace(1L, USER, false)).thenReturn(true);
+        String longBody = "<p>报销</p><p>" + "补充说明。".repeat(300) + "</p>";
+        when(docs.findRagRowsByShareIdIn(anyCollection(), any(Pageable.class)))
+                .thenReturn(List.of(row(1L, 11L, "报销制度", longBody)));
+        when(docShareService.docPermission(1L, 11L, USER, false)).thenReturn("READ");
+
+        Map<String, Object> s = svc.search("报销", USER, List.of("报销"), 2).get(0);
+        assertTrue(String.valueOf(s.get("fullText")).length()
+                > String.valueOf(s.get("snippet")).length());
+    }
+
+    @Test
+    @DisplayName("文档级权限全部拒绝时复核次数仍有上界")
+    void permissionChecksAreBounded() {
+        when(shares.findByOwnerIdOrMemberUserIdOrderByUpdatedAtDesc(USER))
+                .thenReturn(List.of(space(1, "ACTIVE")));
+        when(docShareService.canReadSpace(1L, USER, false)).thenReturn(true);
+        List<SharedDocumentRagRow> rows = new ArrayList<>();
+        for (long i = 1; i <= 10; i++) rows.add(row(1L, i, "报销" + i, "<p>报销流程</p>"));
+        when(docs.findRagRowsByShareIdIn(anyCollection(), any(Pageable.class))).thenReturn(rows);
+        when(docShareService.docPermission(anyLong(), anyLong(), anyLong(), anyBoolean())).thenReturn(null);
+
+        assertTrue(svc.search("报销", USER, List.of("报销"), 2).isEmpty());
+        verify(docShareService, atMost(8)).docPermission(anyLong(), anyLong(), anyLong(), anyBoolean());
     }
 
     @Test
