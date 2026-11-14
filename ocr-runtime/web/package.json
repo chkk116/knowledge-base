@@ -1,0 +1,26 @@
+{
+  "name": "kb-ocr-web",
+  "version": "0.1.0",
+  "description": "跨端统一离线 OCR 运行时的 Web(WASM) 端：基于 RapidOCR 的 ONNX 模型 + ONNX Runtime Web，与 Python 端共用同一套 API 契约。",
+  "type": "module",
+  "license": "Apache-2.0",
+  "main": "dist/node.js",
+  "module": "dist/web.js",
+  "types": "dist/types.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "vite",
+    "demo": "vite",
+    "test:align": "tsx src/align.ts"
+  },
+  "dependencies": {
+    "clipper-lib": "^6.4.2",
+    "onnxruntime-web": "1.20.1"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

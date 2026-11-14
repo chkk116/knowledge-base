@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.DS_Store
+outputs/
+
+# Web 端：依赖与构建产物不入库（模型 .onnx 属跨端共用资产，保留入库）
+web/node_modules/
+web/dist/
+web/dist-demo/
+web/.vite/
+web/*.tsbuildinfo
+
+# Android / Gradle 构建产物
+android/build/
+android/.gradle/
+android/.kotlin/
+android/*.iml
+.gradle/

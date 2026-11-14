@@ -1,0 +1,36 @@
+{
+  "overall_full": 0.915,
+  "overall_bare": 0.8286,
+  "per_category": {
+    "clean_line": {
+      "bare": 0.9554,
+      "runtime": 0.9554,
+      "python_runtime": 0.929,
+      "python_bare": 0.9286
+    },
+    "paragraph": {
+      "bare": 0.9727,
+      "runtime": 0.9727,
+      "python_runtime": 0.973,
+      "python_bare": 0.9727
+    },
+    "scanned": {
+      "bare": 0.976,
+      "runtime": 0.976,
+      "python_runtime": 0.984,
+      "python_bare": 0.984
+    },
+    "two_column": {
+      "bare": 0.5135,
+      "runtime": 0.9257,
+      "python_runtime": 0.946,
+      "python_bare": 0.527
+    },
+    "mixed": {
+      "bare": 0.7391,
+      "runtime": 0.7391,
+      "python_runtime": 0.746,
+      "python_bare": 0.7464
+    }
+  }
+}
