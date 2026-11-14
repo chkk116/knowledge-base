@@ -1,3 +1,5 @@
+# 注意：本工作流每 6 小时把 Gitee master 强推到公开 GitHub master，
+# 「只推 Gitee」不是隔离 —— 任何敏感信息 / 大二进制资产都不要进本仓库。
 name: Mirror from Gitee
 on:
   schedule:

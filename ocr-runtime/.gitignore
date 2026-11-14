@@ -8,7 +8,10 @@ venv/
 .DS_Store
 outputs/
 
-# Web 端：依赖与构建产物不入库（模型 .onnx 属跨端共用资产，保留入库）
+# Web 端：依赖与构建产物不入库
+# 模型权重（.onnx）本地保留、不入库：主仓推送后会由镜像工作流强推到公开 GitHub，
+# 任何进 Gitee 的内容都会公开；跨端共用模型请本地放置或走外链分发
+web/models/*.onnx
 web/node_modules/
 web/dist/
 web/dist-demo/
