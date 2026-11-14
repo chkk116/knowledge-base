@@ -73,13 +73,14 @@ public class SharedDocRagService {
             List<SharedDocumentRagRow> rows = docRepo.findRagRowsByShareIdIn(
                     readable.keySet(), PageRequest.of(0, MAX_SCAN));
 
-            List<Map<String, Object>> out = new ArrayList<>();
+            // 先做内存里的关键词筛选，再只对最终入选的候选查数据库权限：
+            // 未命中（不会送进模型）的文档根本不需要文档级复核，避免扫描 500 篇触发上千次查询
+            record Candidate(SharedDocumentRagRow row, String title, String text, int score) {}
+            List<Candidate> candidates = new ArrayList<>();
             for (SharedDocumentRagRow row : rows) {
                 if (row.getId() == null || row.getShareId() == null) continue;
                 // 只认本次确认可读的空间：防止 docId 跨空间串数据
                 if (!readable.containsKey(row.getShareId())) continue;
-                // 文档级权限可收窄空间权限，且索引/缓存与数据库可能不一致 —— 送入模型前复核
-                if (docShareService.docPermission(row.getShareId(), row.getId(), userId, false) == null) continue;
 
                 String title = row.getTitle() == null ? "" : row.getTitle();
                 String html = HtmlSanitizer.toText(row.getContent() == null ? "" : row.getContent());
@@ -92,25 +93,26 @@ public class SharedDocRagService {
                     if (!k.isEmpty() && hay.contains(k)) score++;
                 }
                 if (score == 0) continue;
+                candidates.add(new Candidate(row, title, text, score));
+            }
+            candidates.sort((a, b) -> Integer.compare(b.score(), a.score()));
 
+            List<Map<String, Object>> picked = new ArrayList<>();
+            for (Candidate c : candidates) {
+                if (picked.size() >= limit) break;
+                SharedDocumentRagRow row = c.row();
+                // 文档级权限可收窄空间权限，且索引/缓存与数据库可能不一致 —— 送入模型前用当前状态复核
+                if (docShareService.docPermission(row.getShareId(), row.getId(), userId, false) == null) continue;
                 Map<String, Object> s = new LinkedHashMap<>();
                 s.put("id", row.getId());
-                s.put("title", title);
-                s.put("snippet", window(text, kws));
-                s.put("fullText", window(text, kws));
+                s.put("title", c.title());
+                s.put("snippet", window(c.text(), kws));
+                s.put("fullText", window(c.text(), kws));
                 s.put("docType", "share");
                 s.put("shareId", row.getShareId());
                 s.put("docId", row.getId());
                 s.put("spaceName", readable.get(row.getShareId()));
-                s.put("_score", score);
-                out.add(s);
-            }
-            out.sort((a, b) -> Integer.compare((int) b.get("_score"), (int) a.get("_score")));
-            List<Map<String, Object>> picked = new ArrayList<>();
-            for (Map<String, Object> m : out) {
-                if (picked.size() >= limit) break;
-                m.remove("_score");
-                picked.add(m);
+                picked.add(s);
             }
             return picked;
         } catch (Exception e) {

@@ -146,6 +146,24 @@ class SharedDocRagServiceTest {
     }
 
     @Test
+    @DisplayName("未命中的候选不做文档级权限查询，避免扫描全表触发 N+1")
+    void onlyPickedCandidatesArePermissionChecked() {
+        when(shares.findByOwnerIdOrMemberUserIdOrderByUpdatedAtDesc(USER))
+                .thenReturn(List.of(space(1, "ACTIVE")));
+        when(docShareService.canReadSpace(1L, USER, false)).thenReturn(true);
+        when(docs.findRagRowsByShareIdIn(anyCollection(), any(Pageable.class)))
+                .thenReturn(List.of(
+                        row(1L, 11L, "无关一", "<p>没有目标词</p>"),
+                        row(1L, 12L, "无关二", "<p>也没有</p>"),
+                        row(1L, 13L, "报销制度", "<p>报销流程</p>")));
+        when(docShareService.docPermission(1L, 13L, USER, false)).thenReturn("READ");
+
+        List<Map<String, Object>> got = svc.search("报销", USER, List.of("报销"), 2);
+        assertEquals(1, got.size());
+        verify(docShareService, times(1)).docPermission(anyLong(), anyLong(), anyLong(), anyBoolean());
+    }
+
+    @Test
     @DisplayName("按命中词数排序并受 limit 约束")
     void sortedByScoreAndLimited() {
         when(shares.findByOwnerIdOrMemberUserIdOrderByUpdatedAtDesc(USER))
