@@ -1325,7 +1325,7 @@ watch(currentId, (id) => { if (id) localStorage.setItem(convStorageKey(), String
                   </div>
                   <div class="ai-source-list">
                     <button v-for="(s, si) in m.sources" :key="si" type="button" class="ai-source"
-                      :title="s.id != null ? '点击在新窗口阅读' : ''" @click="openSource(s.id)">
+                      :title="s.id != null ? '点击在新窗口阅读' : ''" @click="openSource(s)">
                       <span class="ai-source-title">{{ s.title }}</span>
                       <span class="ai-source-snippet">{{ s.snippet }}</span>
                     </button>

@@ -9,7 +9,7 @@
 [![Spring Boot 4.x](docs/badges/spring-boot.svg)](https://spring.io/projects/spring-boot)
 [![Vue 3](docs/badges/vue.svg)](https://vuejs.org)
 [![PostgreSQL 18](docs/badges/postgresql.svg)](https://www.postgresql.org)
-[![Electron 33](docs/badges/electron.svg)](https://www.electronjs.org)
+**主推客户端：Kotlin / Compose 原生壳（Windows + Android）**
 
 </div>
 
@@ -42,6 +42,7 @@
 
 **核心优势 2：AI 问答，答案有据可查！**
 RAG 检索增强——先检索知识库、核对可见性、再注入模型上下文，回答附带引用来源与思考过程；
+团队共享文档同样参与问答：按当前用户的空间权限逐条复核后独立检索，私有文档不进全局索引、不串空间，引用来源可点击直达所属协作空间；
 OpenAI 兼容三件套（端点 / Key / 模型名），DeepSeek、GLM、GPT、通义随意切换，管理页填 Key 即用、即时生效。
 
 **核心优势 3：毫秒级全文检索！**
@@ -54,7 +55,8 @@ Meilisearch 毫秒级检索 + 数据库逐词兜底降级，检索结果与文�
 题库与在线考试、课程学习与证书、资产借还、积分徽章排行榜、实时通知中心，培训考核一站式闭环。
 
 **核心优势 6：三端覆盖！**
-Web 全功能 + Electron 桌面客户端 + **原生 Windows 桌面客户端**（Kotlin / Compose Multiplatform，`desktop/native`，单文件安装包）+ Capacitor Android + **Kotlin 原生壳**（Jetpack Compose，`mobile/mobile-native`），内网 / 公网 HTTPS 部署模板齐备；站内 `/download` 提供客户端下载中心。
+Web 全功能 + **原生 Windows 桌面客户端**（Kotlin / Compose Multiplatform，`desktop/native`，单文件安装包）+ **Kotlin 原生 Android 壳**（Jetpack Compose，`mobile/mobile-native`），内网 / 公网 HTTPS 部署模板齐备；站内 `/download` 提供客户端下载中心。
+Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**归档 / 兼容模式**：保留代码与构建方式供已装用户过渡，但**不再同步新 UI、不再发新版**，新功能只在 Web + Kotlin 原生壳上迭代。
 
 ---
 
@@ -139,6 +141,7 @@ Web 全功能 + Electron 桌面客户端 + **原生 Windows 桌面客户端**（
 
 ### AI 问答
 - 标准 OpenAI 协议接入（管理页自定义端点 / Key / 模型名，DeepSeek、GLM、GPT、通义、OpenCode、小米 MiMo 等皆可）+ RAG 检索增强：Meili 命中 → 数据库可见性核对 → 注入模型上下文
+- **团队私有文档可问**：共享文档（DocShare）走独立的按用户检索，送入模型前用数据库当前权限逐条复核（空间级 + 文档级），与公开文章分开取额度；协同正文从 Yjs 快照提取，引用来源直达协作空间
 - **多模型管理**：管理员在后台自行添加 / 启停 / 设默认；API Key AES-GCM 加密落库、列表只回显脱敏值，**仓库零密钥**；未配置时 AI 模块自动降级，其余功能不受影响；对话页模型选择器带供应商品牌图标
 - **用户自定义模型**：普通用户可在「我的 → 我的 AI 模型」添加自己的模型（接口地址 / Key / 模型名 / 上下文长度），与系统模型完全隔离、每人最多 10 个；Key 同样 AES-GCM 加密、列表只回显脱敏值且不返回明文；问答时选了就用，未选回落系统模型。接口地址做 SSRF 防护（拒回环 / 内网 / 链路本地）
 - **流式回答（SSE）**：`POST /api/ai/ask/stream` 逐段下发，前端逐字渲染，首字即显示；沿用多模型降级链与「停止生成」；旧客户端自动回退一次性接口
@@ -215,9 +218,10 @@ Web 全功能 + Electron 桌面客户端 + **原生 Windows 桌面客户端**（
 | 实时协同 | Tiptap + Yjs · Hocuspocus 中继（`collab-relay/`，Node + pg，与后端共用 PostgreSQL） |
 | 搜索 | Meilisearch（可选，`docker-compose.yml`）· MySQL LIKE 降级兜底 |
 | AI | 标准 OpenAI 协议（`/chat/completions`）+ 自定义模型配置，RAG 检索增强 |
-| 桌面端 | Electron 33：纯 Node 本地托管 + 反代后端，零框架改动套壳 |
-| 原生桌面端 | Kotlin 2.4.20 + Compose Multiplatform 1.13.0（Windows）：原生侧栏 / 文章阅读（WebView2）/ 应用内更新，单文件安装包交付 |
-| 移动端 | Capacitor 8（Android），远端模式直连内网 / 线上后端 |
+| 桌面端（归档兼容） | Electron 33：纯 Node 本地托管 + 反代后端，零框架改动套壳，不再同步新 UI |
+| 原生桌面端（主推） | Kotlin 2.4.20 + Compose Multiplatform 1.13.0（Windows）：原生侧栏 / 文章阅读 / 应用内更新，单文件安装包交付 |
+| 移动端（归档兼容） | Capacitor 8（Android），远端模式直连后端，已停发、不再同步新 UI |
+| 原生移动端（主推） | Kotlin / Jetpack Compose 原生壳：首页、文档、AI 问答、考试等高频页原生实现，低频管理页走 WebScreen |
 | 工程与质量 | HikariCP 连接池 · Hibernate 7 · Logback 滚动日志（ERROR 分离）· ESLint 9（前端）· Checkstyle + SpotBugs（后端） |
 | 部署 | `deploy/`：env.prod / env.test + nginx 模板，HTTPS + 静态预压缩（.gz / .br） |
 
@@ -244,10 +248,10 @@ knowledge-base/
 │       └── store/ api/
 ├── collab-relay/             # Hocuspocus 协同中继（Node）：verifyToken 校验 + Yjs 快照持久化到 PostgreSQL
 ├── desktop/                  # 桌面客户端
-│   ├── build-web.js / web/    # Electron 版：复用前端构建产物 + 反代后端
+│   ├── build-web.js / web/    # Electron 版（归档兼容）：复用前端构建产物 + 反代后端
 │   └── native/               # 原生 Windows 版（Kotlin / Compose Multiplatform，独立 Gradle 工程）
 ├── mobile/
-│   ├── android/              # Capacitor 8 Android 工程（sync-web.js 同步前端产物）
+│   ├── android/              # Capacitor 8 Android 工程（归档兼容，sync-web.js 同步前端产物）
 │   └── mobile-native/        # Kotlin 原生壳（Compose + WebView 混合，独立 Gradle 工程，不含 node_modules）
 ├── deploy/                   # 生产/测试部署：env.prod、env.test、nginx-example.conf
 ├── db/                       # init.sql + v113~v129 增量 SQL（并发约束/回收站/版本/空间邀请等）
@@ -356,9 +360,9 @@ ws 地址跟随页面协议：HTTPS 同源走 `/collab/`，HTTP 走 `ws://主机
 
 ## 桌面客户端
 
-### Electron 版（实验性预览）
+### Electron 版（归档 / 兼容模式）
 
-> ⚠️ **状态：初步可用，尚未完整验证**。核心流程（登录 / 文档浏览 / 协同）已跑通，仅做了简单试用，不建议作为生产主力端。
+> ⚠️ **状态：不再同步新 UI、不再发新版**，仅供已安装用户过渡。新功能与主推形态见下节的 Kotlin 原生桌面端。
 
 ```bash
 cd desktop
@@ -421,7 +425,7 @@ cd mobile/mobile-native
   **Android 原生壳用独立的 `1.3.x-native`**（如 1.3.19-native / 10326），不与 Web 共用 versionName。
   两者共用 `applicationId=com.kb.kbplatform`，因此原生壳的 versionCode 必须**严格大于** Capacitor 版且高于线上历史值，
   否则覆盖安装会 `INSTALL_FAILED_VERSION_DOWNGRADE`、服务端也会误判「已是最新」而不推送更新。
-  Capacitor 套壳已停发（发版脚本默认拦截 `app_version`），当前唯一发版通道为 `KB_CHANNEL=app_version_native`；
+  Capacitor 套壳已停发、进入归档兼容模式（不再同步新 UI；发版脚本默认拦截 `app_version`），当前唯一发版通道为 `KB_CHANNEL=app_version_native`；
   `frontend/build-inject-sw.cjs` 在每次前端构建时校验上述规则
 
 ### 热更包签名（RS256）

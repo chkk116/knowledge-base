@@ -36,6 +36,8 @@ public class RagService {
 
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
     private static final int TOP_K = 3;
+    /** 共享文档单独占 2 条来源，不与公开文章抢 TOP_K（否则文章命中满 3 条时私有文档永远进不来） */
+    private static final int SHARED_TOP_K = 2;
     private static final int FRAG_LEN = 400;
 
     private final MeiliSearchClient meili;
@@ -43,18 +45,21 @@ public class RagService {
     // 统一多模型调用层：模型与 API Key 由管理员在「AI 模型管理」页维护，保存后即时生效、无需重启后端
     private final AiModelClient aiModelClient;
     private final RagIndexService ragIndex;
+    private final SharedDocRagService sharedDocRag;
     private final boolean enabled;   // kb.ai.enabled：总开关，false 时强制关闭 AI（默认 true）
 
     public RagService(MeiliSearchClient meili,
                       DocumentRepository repository,
                       @Value("${kb.ai.enabled:false}") boolean enabled,
                       AiModelClient aiModelClient,
-                      RagIndexService ragIndex) {
+                      RagIndexService ragIndex,
+                      SharedDocRagService sharedDocRag) {
         this.meili = meili;
         this.repository = repository;
         this.enabled = enabled;
         this.aiModelClient = aiModelClient;
         this.ragIndex = ragIndex;
+        this.sharedDocRag = sharedDocRag;
     }
 
     public String ask(String question) {
@@ -114,7 +119,7 @@ public class RagService {
     }
     /** 检索 + 组装 messages（ask 与 askStream 共用，避免两条链路提示词漂移） */
     private Prepared prepare(String question, List<Map<String, String>> history,
-                             String instructions, String persona, String mode, Long modelId,
+                             String instructions, String persona, String mode, Long modelId, Long userId,
                              List<String> imageUrls) {
         // 纯图片提问（question 为空但带了 imageUrls）是合法场景，只有两者都为空才拦
         boolean hasImages = imageUrls != null && imageUrls.stream().anyMatch(u -> u != null && !u.isBlank());
@@ -131,7 +136,8 @@ public class RagService {
         // 1. 检索相关知识片段（通用模式跳过检索）；多轮对话时检索词并入最近几轮用户消息，
         //    解决「怎么申请」「那个怎么弄」这类省略/指代单独检索必然跑偏的问题
         boolean general = "general".equalsIgnoreCase(mode);
-        List<Map<String, Object>> sources = general ? List.of() : retrieve(buildSearchQuery(question == null ? "" : question.trim(), history));
+        List<Map<String, Object>> sources = general ? List.of()
+                : retrieve(buildSearchQuery(question == null ? "" : question.trim(), history), userId);
         boolean hasContext = !sources.isEmpty();
 
         // 2. 组装 system prompt：身份 + （kb 模式）资料行为准则 + 对话条例 + 用户习惯
@@ -249,7 +255,7 @@ public class RagService {
                                    Long userModelId, Long userId, List<String> imageUrls) {
         String small = smallTalkReply(question);
         if (small != null) return Map.of("answer", small, "sources", List.of());
-        Prepared p = prepare(question, history, instructions, persona, mode, modelId, imageUrls);
+        Prepared p = prepare(question, history, instructions, persona, mode, modelId, userId, imageUrls);
         if (p.error() != null) return Map.of("answer", p.error(), "sources", List.of());
         AiModelClient.AiChatResult call = callModel(modelId, userModelId, userId, p.messages());
         return assemble(call, p.sources());
@@ -275,7 +281,7 @@ public class RagService {
             sink.accept(small, null);
             return Map.of("answer", small, "sources", List.of());
         }
-        Prepared p = prepare(question, history, instructions, persona, mode, modelId, imageUrls);
+        Prepared p = prepare(question, history, instructions, persona, mode, modelId, userId, imageUrls);
         if (p.error() != null) {
             sink.accept(p.error(), null);
             return Map.of("answer", p.error(), "sources", List.of());
@@ -392,7 +398,22 @@ public class RagService {
         return result.length() > 1200 ? result.substring(0, 1200) : result;
     }
 
-    private List<Map<String, Object>> retrieve(String q) {
+    /**
+     * 公开文章检索（原三级链路）+ 当前用户可读的共享文档。
+     * 共享文档由 SharedDocRagService 独立检索并逐条复核空间权限，两类来源分开取额度，
+     * 避免公开文章命中满 TOP_K 时私有文档永远进不了模型上下文。
+     */
+    private List<Map<String, Object>> retrieve(String q, Long userId) {
+        List<Map<String, Object>> out = new ArrayList<>(retrievePublic(q));
+        if (userId != null) {
+            List<String> keywords = splitKeywords(q);
+            if (keywords.isEmpty()) keywords = List.of(q);
+            out.addAll(sharedDocRag.search(q, userId, keywords, SHARED_TOP_K));
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> retrievePublic(String q) {
         // 语义检索优先（真·向量 RAG）：未启用 / 无索引 / 失败时自动落回 Meili / MySQL 全文检索
         if (ragIndex != null && ragIndex.isEnabled()) {
             try {

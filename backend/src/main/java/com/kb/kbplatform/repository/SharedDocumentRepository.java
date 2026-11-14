@@ -6,6 +6,7 @@
 package com.kb.kbplatform.repository;
 
 import com.kb.kbplatform.domain.SharedDocument;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -40,6 +41,16 @@ public interface SharedDocumentRepository extends JpaRepository<SharedDocument, 
     /** 列表正文检索：按 id 批量取完整正文（只对前 N 篇调用） */
     @Query("SELECT d.id AS id, d.content AS content FROM SharedDocument d WHERE d.id IN :ids")
     List<SharedDocumentSummary> findContentByIdIn(@org.springframework.data.repository.query.Param("ids") java.util.Collection<Long> ids);
+
+    /**
+     * RAG 检索专用：按可读空间批量取候选（含 Yjs 二进制正文），排除待整理箱。
+     * Pageable 控制单次扫描上限，避免把万级文档的 Yjs 快照一次性拉进堆内存。
+     */
+    @Query("SELECT d.id AS id, d.shareId AS shareId, d.title AS title, d.content AS content, d.yjsState AS yjsState " +
+            "FROM SharedDocument d WHERE d.shareId IN :shareIds AND d.inbox = false ORDER BY d.updatedAt DESC")
+    List<SharedDocumentRagRow> findRagRowsByShareIdIn(
+            @org.springframework.data.repository.query.Param("shareIds") java.util.Collection<Long> shareIds,
+            Pageable pageable);
 
     /** 待整理箱（2026-10-15）：本人收进但未归档的文档，跨空间、按更新时间倒序 */
     List<SharedDocument> findByOwnerIdAndInboxTrueOrderByUpdatedAtDesc(Long ownerId);

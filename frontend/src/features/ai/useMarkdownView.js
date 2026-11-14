@@ -30,8 +30,14 @@ export function fmtTokens(u) {
   return s
 }
 
-export function openSource(id) {
-  if (id != null && typeof window !== 'undefined') window.open('/reader/' + id, '_blank')
+export function openSource(idOrSource) {
+  if (idOrSource == null || typeof window === 'undefined') return
+  // 共享文档来源带 shareId/docId，必须走带空间鉴权的共享文档页，不能跳公开文章阅读页
+  if (typeof idOrSource === 'object' && idOrSource.shareId != null) {
+    window.open('/doc-shares/' + idOrSource.shareId + '?doc=' + idOrSource.docId, '_blank')
+    return
+  }
+  window.open('/reader/' + idOrSource, '_blank')
 }
 
 export function useMarkdownView({ highlight } = {}) {
