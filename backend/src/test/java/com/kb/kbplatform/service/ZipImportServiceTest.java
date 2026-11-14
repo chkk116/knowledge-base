@@ -145,6 +145,19 @@ class ZipImportServiceTest {
     }
 
     @Test
+    @DisplayName("用户配额不足时在落盘前直接拒绝，不产生孤儿图片")
+    void quotaRejectedBeforeStoringImages() throws Exception {
+        doThrow(new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE, "空间不足"))
+                .when(shareSvc).assertUserStorage(eq(7L), anyLong());
+
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> svc.importZip(1L, 7L, false, multipart(zip(pack()))));
+        verifyNoInteractions(fileRepo);
+        verify(shareSvc, never()).createDoc(anyLong(), anyString(), anyString(), anyLong(), anyBoolean());
+    }
+
+    @Test
     @DisplayName("空包与超大包直接拒绝")
     void rejectsEmptyAndOversized() {
         assertThrows(IllegalArgumentException.class,

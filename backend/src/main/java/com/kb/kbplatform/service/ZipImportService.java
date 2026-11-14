@@ -79,6 +79,12 @@ public class ZipImportService {
         // Windows 压缩工具常用 GBK 且未必置 UTF-8 flag：先按 UTF-8 扫一遍条目名，乱码则整体换 GBK
         Map<String, byte[]> entries = readEntries(zipBytes, detectCharset(zipBytes));
 
+        // 0) 落盘任何图片之前先过一次用户配额闸门：配额不足直接 413，
+        //    否则会出现「图片都已写到 uploads、文档却因配额被拒」的孤儿文件
+        long incoming = 0;
+        for (byte[] b : entries.values()) incoming += b.length;
+        shareSvc.assertUserStorage(userId, incoming);
+
         // 1) 图片先落盘并建立「zip 内相对路径 → /uploads URL」映射
         Map<String, String> images = new LinkedHashMap<>();
         List<String> errors = new ArrayList<>();
