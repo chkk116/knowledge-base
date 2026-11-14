@@ -187,6 +187,40 @@ public class FileService {
                 d.getYear(), d.getMonthValue(), d.getDayOfMonth(), name);
     }
 
+    /**
+     * zip 批量导入用：按扩展名 + 魔数校验图片字节，UUID 命名落到 uploads，返回可访问 URL。
+     * 不走 MultipartFile 路径但复用同一套白名单与目录结构，避免导入包绕过校验塞任意文件。
+     */
+    public String storeImageBytes(String filename, byte[] bytes) {
+        String ext = extOf(filename);
+        String ct = switch (ext) {
+            case ".png" -> "image/png";
+            case ".jpg", ".jpeg" -> "image/jpeg";
+            case ".gif" -> "image/gif";
+            case ".webp" -> "image/webp";
+            case ".bmp" -> "image/bmp";
+            default -> throw new IllegalArgumentException("不支持的图片类型：" + filename);
+        };
+        if (bytes == null || bytes.length < 4 || bytes.length > 20L * 1024 * 1024) {
+            throw new IllegalArgumentException("图片为空或过大：" + filename);
+        }
+        byte[] head = new byte[Math.min(12, bytes.length)];
+        System.arraycopy(bytes, 0, head, 0, head.length);
+        if (!magicMatches(ct, head)) throw new IllegalArgumentException("图片内容校验失败：" + filename);
+        LocalDate d = LocalDate.now();
+        Path dateDir = root.resolve(String.format("%d/%02d/%02d",
+                d.getYear(), d.getMonthValue(), d.getDayOfMonth()));
+        try {
+            Files.createDirectories(dateDir);
+            String name = UUID.randomUUID().toString().replace("-", "") + ext;
+            Files.write(dateDir.resolve(name), bytes);
+            return String.format("/uploads/%d/%02d/%02d/%s",
+                    d.getYear(), d.getMonthValue(), d.getDayOfMonth(), name);
+        } catch (IOException e) {
+            throw new RuntimeException("保存图片失败：" + e.getMessage(), e);
+        }
+    }
+
     private String extOf(String fn) {
         if (fn == null) return "";
         int i = fn.lastIndexOf('.');

@@ -14,6 +14,7 @@ import com.kb.kbplatform.service.DocShareCreateRequestService;
 import com.kb.kbplatform.service.DocShareService;
 import com.kb.kbplatform.service.DocumentImportService;
 import com.kb.kbplatform.service.OcrService;
+import com.kb.kbplatform.service.ZipImportService;
 import java.net.URLEncoder;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -41,10 +42,11 @@ public class DocShareController {
     private final DocShareCapacityRequestService capacityReqSvc;
     private final DocShareCreateRequestService createReqSvc;
     private final OcrService ocrSvc;
+    private final ZipImportService zipImportSvc;
 
     public DocShareController(DocShareService svc, UserRepository userRepo, AuditService audit, DocumentImportService importSvc,
                               DocShareCapacityRequestService capacityReqSvc, DocShareCreateRequestService createReqSvc,
-                              OcrService ocrSvc) {
+                              OcrService ocrSvc, ZipImportService zipImportSvc) {
         this.svc = svc;
         this.userRepo = userRepo;
         this.audit = audit;
@@ -52,6 +54,7 @@ public class DocShareController {
         this.capacityReqSvc = capacityReqSvc;
         this.createReqSvc = createReqSvc;
         this.ocrSvc = ocrSvc;
+        this.zipImportSvc = zipImportSvc;
     }
 
     @GetMapping("/my")
@@ -270,6 +273,21 @@ public class DocShareController {
         audit.log(c.userId(), c.username(), "CREATE_SHARE_DOC", "SHARE_DOC", d.getId(), d.getTitle(),
                 "从外部文件导入共享文档「" + d.getTitle() + "」（" + file.getOriginalFilename() + "）");
         return d;
+    }
+
+    /**
+     * 压缩包批量导入：zip 内 Markdown / HTML / Word / PDF 逐篇导入，目录结构以完整相对路径作标题保留；
+     * 包内相对引用的图片转存到 uploads 后改写地址。权限同单篇导入（空间写入权限）。
+     */
+    @PostMapping(value = "/{id}/docs/import-zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> importZip(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                         @RequestParam("file") MultipartFile file) {
+        Long uid = resolveUserId(c);
+        Map<String, Object> r = zipImportSvc.importZip(id, uid, isSysAdmin(c), file);
+        audit.log(c.userId(), c.username(), "IMPORT_SHARE_ZIP", "SHARE_DOC", id, file.getOriginalFilename(),
+                "批量导入压缩包（" + file.getOriginalFilename() + "）：新建 " + r.get("created")
+                        + " 篇 / 跳过 " + r.get("skipped") + " 篇 / 转存图片 " + r.get("images") + " 张");
+        return r;
     }
 
     /**

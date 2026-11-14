@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, FolderOpened, Plus, DataLine, Document, Files, Camera } from '@element-plus/icons-vue'
-import { listMyShares, importShareDoc, createShareDoc, getStorage, ocrImportShareDoc } from '../api/docShare'
+import { listMyShares, importShareDoc, importShareZip, createShareDoc, getStorage, ocrImportShareDoc } from '../api/docShare'
 import { useAuthStore } from '../store/auth'
 import { errMsg } from '../utils/errMsg'
 
@@ -53,6 +53,28 @@ onMounted(load)
 const ACCEPT = '.md,.txt,.html,.htm,.docx,.pdf,image/png,image/jpeg,image/webp,image/gif,image/bmp'
 const uploading = ref(false)
 const dragOver = ref(false)
+// ---- 压缩包批量导入（zip 内目录结构以相对路径作标题保留，包内图片转存 uploads） ----
+const zipInput = ref(null)
+const zipBusy = ref(false)
+const zipResult = ref(null)
+const pickZip = () => zipInput.value && zipInput.value.click()
+const onZipChange = async (e) => {
+  const file = (e.target.files || [])[0]
+  e.target.value = ''
+  if (!file) return
+  if (!shareId.value) { ElMessage.warning('请先选择目标空间'); return }
+  zipBusy.value = true
+  zipResult.value = null
+  try {
+    const { data } = await importShareZip(shareId.value, file)
+    zipResult.value = data
+    ElMessage.success(`压缩包导入完成：新建 ${data.created} 篇 / 跳过 ${data.skipped} 篇 / 转存图片 ${data.images} 张`)
+  } catch (err) {
+    ElMessage.error(err.response?.data?.error || '压缩包导入失败')
+  } finally {
+    zipBusy.value = false
+  }
+}
 // 本次导入结果卡片：带「打开文档」直达按钮，避免导入后用户不知道文档去哪了
 const doneList = ref([])   // { shareId, shareName, docId, title, ocr }
 const pushDone = (data, fallbackName, ocr) => {
@@ -197,10 +219,32 @@ const ocrOne = async (file) => {
       <div class="dz-tip">点击上传文档 / 文件夹或直接拖拽到此处</div>
       <div class="dz-btns">
         <el-button type="primary" :loading="uploading" @click.stop="pick">上传文档</el-button>
+        <el-button class="ghost-btn" :loading="zipBusy" @click.stop="pickZip">导入压缩包</el-button>
         <el-button class="ghost-btn" @click.stop="createBlank">新建文档</el-button>
       </div>
       <input ref="imgInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" multiple hidden @change="onImgChange" />
-    <input ref="fileInput" type="file" :accept="ACCEPT" multiple hidden @change="onFileChange" />
+      <input ref="fileInput" type="file" :accept="ACCEPT" multiple hidden @change="onFileChange" />
+      <input ref="zipInput" type="file" accept=".zip" hidden @change="onZipChange" />
+    </div>
+
+    <!-- 压缩包导入汇总：一次返回新建 / 跳过 / 失败计数与明细 -->
+    <div v-if="zipResult" class="done-panel">
+      <div class="done-head">
+        <span class="done-title">压缩包导入结果</span>
+        <el-button text size="small" class="done-clear" @click="zipResult = null">清空记录</el-button>
+      </div>
+      <div class="done-meta" style="padding: 8px 14px 4px">
+        新建 {{ zipResult.created }} 篇 · 跳过同名 {{ zipResult.skipped }} 篇 · 转存图片 {{ zipResult.images }} 张 · 失败 {{ zipResult.errors }} 项
+      </div>
+      <div v-if="zipResult.titles?.length" class="done-meta" style="padding: 0 14px 6px">
+        目录结构已保留在标题中，例如：{{ zipResult.titles.slice(0, 3).join('、') }}
+      </div>
+      <div v-for="(msg, i) in zipResult.errorList || []" :key="i" class="done-meta" style="padding: 0 14px 4px; color: #d03050">
+        {{ msg }}
+      </div>
+      <div v-if="zipResult.titles?.length" class="done-acts" style="padding: 4px 14px 12px">
+        <el-button size="small" @click="router.push(`/doc-shares/${shareId}`)">进入空间查看</el-button>
+      </div>
     </div>
 
     <!-- 本次导入结果：带一键打开，导入不再"失踪" -->

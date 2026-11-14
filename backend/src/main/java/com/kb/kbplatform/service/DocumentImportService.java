@@ -81,24 +81,39 @@ public class DocumentImportService {
                     + "，支持 " + String.join(" / ", SUPPORTED));
         }
         try {
-            byte[] bytes = file.getBytes();
-            String title = baseName(name);
-            String html = switch (ext) {
-                case "md", "markdown" -> parseMarkdown(new String(bytes, StandardCharsets.UTF_8));
-                case "txt", "text"    -> parseText(new String(bytes, StandardCharsets.UTF_8));
-                case "html", "htm"    -> HtmlSanitizer.sanitize(new String(bytes, StandardCharsets.UTF_8));
-                case "docx"           -> parseDocx(bytes);
-                case "pdf"            -> parsePdf(bytes);
-                default -> throw new IllegalArgumentException("不支持的类型：" + ext);
-            };
-            if (title.isBlank()) title = "导入的文档";
-            Map<String, String> r = new HashMap<>();
-            r.put("title", title);
-            r.put("content", HtmlSanitizer.sanitize(html));
-            return r;
+            return parseToDraft(name, file.getBytes(), java.util.function.UnaryOperator.identity());
         } catch (IOException e) {
             throw new RuntimeException("读取文档失败：" + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 按文件名 + 字节解析（zip 批量导入用）。
+     * transform 在最终净化之前执行：相对图片地址必须先换成 /uploads/ 开头的绝对地址，
+     * 否则 HtmlSanitizer 会因「无协议」把 src 剥掉，图片全裂。
+     */
+    public Map<String, String> parseToDraft(String filename, byte[] bytes,
+                                            java.util.function.UnaryOperator<String> transform) throws IOException {
+        if (bytes == null || bytes.length > 20L * 1024 * 1024) throw new IllegalArgumentException("文档过大，不能超过 20MB");
+        String ext = extOf(filename);
+        if (ext == null || !SUPPORTED.contains(ext)) {
+            throw new IllegalArgumentException("不支持的文档类型：" + (ext == null ? "(无扩展名)" : ext));
+        }
+        String title = baseName(filename);
+        String html = switch (ext) {
+            case "md", "markdown" -> parseMarkdown(new String(bytes, StandardCharsets.UTF_8));
+            case "txt", "text"    -> parseText(new String(bytes, StandardCharsets.UTF_8));
+            case "html", "htm"    -> new String(bytes, StandardCharsets.UTF_8);
+            case "docx"           -> parseDocx(bytes);
+            case "pdf"            -> parsePdf(bytes);
+            default -> throw new IllegalArgumentException("不支持的类型：" + ext);
+        };
+        html = transform.apply(html);
+        if (title.isBlank()) title = "导入的文档";
+        Map<String, String> r = new HashMap<>();
+        r.put("title", title);
+        r.put("content", HtmlSanitizer.sanitize(html));
+        return r;
     }
 
     // ---------------- Markdown ----------------
