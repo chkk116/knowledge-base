@@ -14,6 +14,7 @@ import com.kb.kbplatform.security.HtmlSanitizer;
 import com.kb.kbplatform.security.SensitiveWordFilter;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.DocumentService;
+import com.kb.kbplatform.service.DocumentDiscoveryService;
 import com.kb.kbplatform.service.DocumentImportService;
 import com.kb.kbplatform.service.DocSubscriptionService;
 import org.springframework.data.domain.Page;
@@ -46,16 +47,19 @@ public class DocumentController {
     private final DocumentImportService importSvc;
     private final DocSubscriptionService subSvc;
     private final SensitiveWordFilter sensitiveWordFilter;
+    /** 分类 / 标签 / 相关文档：只读发现能力，从 DocumentService 拆出的独立服务 */
+    private final DocumentDiscoveryService discovery;
 
     public DocumentController(DocumentService svc, UserRepository userRepo, DocumentRepository docRepo,
                               DocumentImportService importSvc, DocSubscriptionService subSvc,
-                              SensitiveWordFilter sensitiveWordFilter) {
+                              SensitiveWordFilter sensitiveWordFilter, DocumentDiscoveryService discovery) {
         this.svc = svc;
         this.userRepo = userRepo;
         this.docRepo = docRepo;
         this.importSvc = importSvc;
         this.subSvc = subSvc;
         this.sensitiveWordFilter = sensitiveWordFilter;
+        this.discovery = discovery;
     }
 
     /** 登录用户：首页轻量数据概览 —— 已发布文档总数 / 本周新增 / 启用成员数；管理员或 STATS_VIEW 附待审核数 */
@@ -87,11 +91,11 @@ public class DocumentController {
 
     /** 公开：分类列表 */
     @GetMapping("/categories")
-    public List<String> categories() { return svc.categories(); }
+    public List<String> categories() { return discovery.categories(); }
 
     /** 公开：标签聚合（去重 + 计数），用于标签云/筛选 */
     @GetMapping("/tags")
-    public List<Map<String, Object>> tags() { return svc.allTags(); }
+    public List<Map<String, Object>> tags() { return discovery.allTags(); }
 
     /** 登录用户：全局文档树（仅已发布文档，children 递归）。供知识库层级浏览与「父文档」选择器使用 */
     @GetMapping("/tree")
@@ -181,7 +185,7 @@ public class DocumentController {
     @GetMapping("/{id}/related")
     public List<Document> related(@PathVariable Long id,
                                   @RequestParam(required = false, defaultValue = "6") int limit) {
-        return svc.relatedDocs(id, limit);
+        return discovery.relatedDocs(id, limit);
     }
 
     /** 公开：文档详情。已发布任何人可看；非发布（草稿/待审核/封禁）仅作者本人或管理员可预览，用于审核/编辑前查看 */

@@ -39,6 +39,7 @@ class DocumentRulesTest {
     private LikeRepository likeRepo;
     private FavoriteRepository favoriteRepo;
     private DocumentService svc;
+    private DocumentDiscoveryService discovery;
 
     @BeforeEach
     void setUp() {
@@ -55,6 +56,7 @@ class DocumentRulesTest {
         favoriteRepo = Mockito.mock(FavoriteRepository.class);
         svc = new DocumentService(repo, authService, notificationService, userRepo, meili,
                 versionRepo, auditService, subRepo, commentRepo, likeRepo, favoriteRepo);
+        discovery = new DocumentDiscoveryService(repo);
         // 保存一律回传传入实体，模拟 JPA 持久化
         when(repo.save(any(Document.class))).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -181,7 +183,7 @@ class DocumentRulesTest {
         // score 由服务端计算：同分类 +2。三者同分 → 按 views 降序：201(100) → 202(100) → 203(1)
         when(repo.findRelatedCandidates(eq(100L), eq("教程"), any())).thenReturn(rows);
 
-        List<Document> out = svc.relatedDocs(100L, 3);
+        List<Document> out = discovery.relatedDocs(100L, 3);
         assertEquals(3, out.size());
         assertEquals(201L, out.get(0).getId());
         assertEquals(202L, out.get(1).getId());
