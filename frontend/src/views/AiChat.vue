@@ -10,11 +10,12 @@ import {
 import ProviderLogo from '../components/ProviderLogo.vue'
 import { useAuthStore } from '../store/auth'
 import {
-  aiAsk, aiAskStream, listAiModels, listConversations, createConversation, updateConversation,
+  aiAsk, aiAskStream, listConversations, createConversation, updateConversation,
   deleteConversation, batchDeleteConversations, listMessages
 , generateImage, createVideo, videoStatus } from '../api/ai'
 import { useMarkdownView } from '../features/ai/useMarkdownView'
 import { useAiFeedback } from '../features/ai/useAiFeedback'
+import { useAiModelSelection } from '../features/ai/useAiModelSelection'
 import { useRouter } from 'vue-router'
 import { runLocalAgent } from '../utils/localAgent'
 import { createMyDoc, updateMyDoc, listMyDocs } from '../api/kb'
@@ -113,32 +114,11 @@ function answerAgentAsk(val) {
   agentAskInput.value = ''
   a.resolve(ans)
 }
-// ---------- 模型选择（模型由管理员在「AI 模型管理」页配置，这里只选不配）----------
-// selectedModelId 为 '' 时不指定，走后端「默认模型」；选了具体 id 则本次请求强制用它
-const modelList = ref([])
-const selectedModelId = ref('')
-// 模型 key：系统模型 s:<id>、自己的模型 u:<id>（两类 id 各自自增可能重复，必须带前缀区分）
-
-function modelPayload() {
-  const v = String(selectedModelId.value || '')
-  if (!v) return { modelId: null }
-  if (v.startsWith('u:')) return { modelId: null, userModelId: Number(v.slice(2)) }
-  if (v.startsWith('s:')) return { modelId: Number(v.slice(2)) }
-  return { modelId: Number(v) }
-}
-async function loadModels() {
-  try {
-    const { data } = await listAiModels()
-    modelList.value = data || []
-    // 下拉里选过、但管理员把该模型停用了 → 回到默认模型
-    if (selectedModelId.value && !modelList.value.some((m) => mkey(m) === selectedModelId.value)) {
-      selectedModelId.value = ''
-    }
-  } catch {
-    modelList.value = []
-  }
-}
-
+const {
+  modelList, selectedModelId, modelPayload, loadModels, onModelChange,
+  currentModel, currentModelLabel, currentModelProvider, effectiveModel, modelMaxWindow,
+  ctxWindowSet, ctxWindow, ctxWindowLabel, loadCtxWindow, saveCtxWindow, think, pickModel
+} = useAiModelSelection()
 const { attachments, fileInput, attBusy, pickFiles, removeAttachment, toggleAttMode,
   onFilesPicked, clearAttachments } = useAiAttachments()
 // ---------- 调用可视化：本次实际用的模型 / 耗时 / token 用量，回答下方一行展示 ----------
@@ -152,63 +132,7 @@ function buildMeta(data) {
 
 /* ---------- 回答反馈：点击规则在 feedbackRules，状态与请求在 useAiFeedback ---------- */
 const { FB_REASONS, fbBusy, rateMsg, submitRate } = useAiFeedback()
-function onModelChange() {
-  // 只影响后续提问：切换模型不会改写已有回答（历史回答保留当时的模型与耗时）
-  ElMessage.info(selectedModelId.value ? '下一句将使用所选模型' : '下一句将使用默认模型')
-}
-
-// 顶部模型选择器（WorkBuddy 风格）：触发器显示当前模型 + 品牌图标，弹层列表带勾选
-const currentModel = computed(() =>
-  modelList.value.find((m) => mkey(m) === selectedModelId.value) || null)
-const currentModelLabel = computed(() => currentModel.value?.name || '默认模型')
-
-// ---------- 上下文预算 / 用量环 / 思考强度 / 压缩 ----------
-// 窗口大小由管理员在「AI 模型管理」里按模型配置（64K~1M 差得很远，写死只会两头不讨好）
-const effectiveModel = computed(() =>
-  currentModel.value || modelList.value.find((m) => m.isDefault) || modelList.value[0] || null)
-// 模型本身能吃的最大窗口（管理员配置，作为上限）
-const modelMaxWindow = computed(() => Number(effectiveModel.value?.contextWindow) || 128000)
-/**
- * 用户可把窗口「调小」用（模型 1M 但只想用 200K：省 token、控成本、避免长上下文变慢）。
- * 只能往下调、不能超过模型上限，所以取 min。0 / 空 = 跟随模型最大值。
- * 按模型 id 分别记，换模型不会互相污染。
- */
-const CTX_SET_KEY = 'kb_ai_ctx_window'
-const ctxWindowSet = ref(0)
-const ctxWindow = computed(() => {
-  const max = modelMaxWindow.value
-  const v = Number(ctxWindowSet.value) || 0
-  return v > 0 ? Math.min(Math.max(v, 8000), max) : max
-})
-// 窗口档位说明（对齐截图里的「1M 上下文·超长」那种语义）
-const ctxWindowLabel = computed(() => {
-  const w = ctxWindow.value
-  if (w >= modelMaxWindow.value) return '模型上限'
-  if (w >= 500000) return '超长'
-  if (w >= 128000) return '长'
-  if (w >= 32000) return '标准'
-  return '精简'
-})
-function loadCtxWindow() {
-  try {
-    const raw = localStorage.getItem(CTX_SET_KEY)
-    const map = raw ? JSON.parse(raw) : {}
-    const id = effectiveModel.value?.id || 'default'
-    ctxWindowSet.value = Number(map[id]) || 0
-  } catch { ctxWindowSet.value = 0 }
-}
-function saveCtxWindow() {
-  try {
-    const raw = localStorage.getItem(CTX_SET_KEY)
-    const map = raw ? JSON.parse(raw) : {}
-    const id = effectiveModel.value?.id || 'default'
-    if (ctxWindowSet.value > 0) map[id] = ctxWindowSet.value
-    else delete map[id]
-    localStorage.setItem(CTX_SET_KEY, JSON.stringify(map))
-  } catch { /* 存不了就算了，只影响下次进页面 */ }
-}
-watch(effectiveModel, () => loadCtxWindow())
-
+// ---------- 上下文用量 / 压缩（依赖会话消息，留在组件） ----------
 
 const activeMessages = computed(() => (currentId.value ? (convMessages.value[currentId.value] || []) : []))
 const historyTokens = computed(() => activeMessages.value.reduce((n, m) => n + estimateTokens(m.content), 0))
@@ -228,14 +152,6 @@ const ctxColor = computed(() => (ctxPct.value >= 85 ? '#dc2626' : ctxPct.value >
 const ctxRing = computed(() => {
   const c = 2 * Math.PI * 15.5
   return `${(ctxPct.value / 100) * c} ${c}`
-})
-
-// 思考强度：作用于提示词而非厂商私有参数，所以对所有模型都成立（原生 reasoning 参数各家不统一）
-const think = ref(localStorage.getItem('kb_ai_think') || 'normal')
-watch(think, (v) => {
-  localStorage.setItem('kb_ai_think', v)
-  const t = THINK_LEVELS.find((x) => x.value === v)
-  ElMessage.success('思考强度：' + (t ? t.label : v))
 })
 
 const compacting = ref(false)
@@ -268,12 +184,6 @@ async function compactContext(auto = false) {
   } finally {
     compacting.value = false
   }
-}
-const currentModelProvider = computed(() => currentModel.value?.provider || '')
-function pickModel(id) {
-  if (selectedModelId.value === id) return
-  selectedModelId.value = id
-  onModelChange()
 }
 const showScrollBtn = ref(false)
 // 分段滑块位置：必须与按钮个数同步（kb=0 / general=1 / agent=2），
