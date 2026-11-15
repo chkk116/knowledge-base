@@ -43,9 +43,8 @@ import 'prismjs/components/prism-sql'
 import 'prismjs/components/prism-yaml'
 import 'prismjs/components/prism-go'
 import { escapeHtml } from '../utils/text'
-import { compressImage } from '../utils/imageCompress'
+import { useAiAttachments } from '../features/ai/useAiAttachments'
 import { recognizeLocal } from '../utils/localOcr'
-import { parseDocument, DOC_EXTS } from '../utils/docParse'
 
 const auth = useAuthStore()
 
@@ -139,13 +138,8 @@ async function loadModels() {
   }
 }
 
-// ---------- 附件：内容在本地解析（图片走内置 OCR、文本文件直接读），随提问一起发给 AI ----------
-// 与移动端 MobileAiChat 同源能力：解析全在浏览器完成，零后端改动。
-const attachments = ref([])       // [{ id, name, size, kind: 'image'|'text', text }]
-const fileInput = ref(null)
-const attBusy = ref(false)
-const ATT_TEXT_MAX = 200 * 1024   // 文本文件上限 200KB
-const ATT_SNIPPET = 6000          // 单附件注入提问的内容截断长度
+const { attachments, fileInput, attBusy, pickFiles, removeAttachment, toggleAttMode,
+  onFilesPicked, clearAttachments } = useAiAttachments()
 // ---------- 调用可视化：本次实际用的模型 / 耗时 / token 用量，回答下方一行展示 ----------
 function buildMeta(data) {
   if (!data) return null
@@ -563,7 +557,7 @@ async function sendAgent(raw) {
 
   convMessages.value[convId] = [...(convMessages.value[convId] || []), { role: 'user', content: cleanTask }]
   input.value = ''
-  attachments.value = []
+  clearAttachments()
   loadingSet.value.add(convId)
   agentSteps.value = []
   agentStepsOpen.value = true
@@ -796,7 +790,7 @@ async function send(text) {
   }
 
   input.value = ''
-  attachments.value = []
+  clearAttachments()
   loadingSet.value.add(convId)
   await nextTick()
   scrollToBottom()
@@ -1002,89 +996,6 @@ async function submitInstructions() {
     showInstructionsDrawer.value = false
     ElMessage.success('已保存')
   } catch { ElMessage.error('保存失败') } finally { savingInstructions.value = false }
-}
-
-// ---------- 附件：本地解析（图片走内置 OCR、文本文件直读），随提问注入 ----------
-function pickFiles() { fileInput.value?.click() }
-
-function removeAttachment(id) {
-  attachments.value = attachments.value.filter((a) => a.id !== id)
-}
-
-/** 图片附件切换处理方式：看图（多模态）⇄ 识文字（本地 OCR，离线可用） */
-function toggleAttMode(id) {
-  const a = attachments.value.find((x) => x.id === id)
-  if (a && a.kind === 'image') a.mode = a.mode === 'vision' ? 'ocr' : 'vision'
-}
-
-async function onFilesPicked(e) {
-  const list = Array.from(e.target.files || [])
-  e.target.value = ''
-  if (!list.length || attBusy.value) return
-  attBusy.value = true
-  for (const f of list) {
-    if (attachments.value.length >= 4) { ElMessage.warning('一次最多带 4 个附件'); break }
-    const isDoc = DOC_EXTS.test(f.name)
-    const sizeLimit = isDoc ? 20 * 1024 * 1024 : 8 * 1024 * 1024
-    if (f.size > sizeLimit) { ElMessage.warning('「' + f.name + '」超过 ' + (isDoc ? 20 : 8) + 'MB，已跳过'); continue }
-    try {
-      let text = ''
-      let kind = 'text'
-      if (/^image\//i.test(f.type)) {
-        // 图片：默认「看图」——压缩后多模态直接交给模型（图案/排版都能识别）；
-        // 也可在附件 chip 上切「识文字」用本地 OCR 提取文字（离线可用）。
-        const dataUrl = await compressImage(f)
-        const safeName = f.name.replace(/[\r\n\u0000-\u001f]/g, ' ')
-      attachments.value = [...attachments.value, {
-          id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-          name: f.name, size: f.size, kind: 'image', dataUrl, text: '', file: f, mode: 'vision'
-        }]
-        continue
-      } else if (isDoc) {
-        // PDF / Word / PPT / Excel：本地解析成文本（PDF 扫描件页自动转图走多模态）
-        ElMessage.info('正在解析「' + f.name + '」…')
-        const r = await parseDocument(f)
-        const txt = (r && r.text ? r.text : '').trim()
-        if (txt) {
-          attachments.value = [...attachments.value, {
-            id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-            name: f.name, size: f.size, kind: 'text',
-            text: txt.slice(0, ATT_SNIPPET) + (txt.length > ATT_SNIPPET ? '\n…（内容过长已截断）' : '')
-          }]
-        }
-        const imgs = (r && r.images) || []
-        for (let i = 0; i < Math.min(imgs.length, 2); i++) {
-          if (attachments.value.length >= 4) break
-          attachments.value = [...attachments.value, {
-            id: Date.now() + '-p' + i + '-' + Math.random().toString(36).slice(2, 7),
-            name: f.name + ' 第' + (i + 1) + '页', size: 0, kind: 'image', dataUrl: imgs[i], text: '', mode: 'vision'
-          }]
-        }
-        if (!txt && !imgs.length) ElMessage.warning('「' + f.name + '」没解析出内容')
-        continue
-      } else if (/\.(txt|md|markdown|json|csv|log|xml|yml|yaml|sql|ts|js|mjs|py|java|html?|css|vue|ini|conf|properties)$/i.test(f.name) || /^text\//i.test(f.type || '')) {
-        if (f.size > ATT_TEXT_MAX) { ElMessage.warning('「' + f.name + '」超过 200KB，已跳过'); continue }
-        kind = 'text'
-        text = await new Promise((res, rej) => {
-          const r = new FileReader()
-          r.onload = () => res(String(r.result || ''))
-          r.onerror = () => rej(new Error('读取失败'))
-          r.readAsText(f, 'utf-8')
-        })
-      } else {
-        ElMessage.warning('「' + f.name + '」暂不支持（支持图片、PDF、Word/PPT/Excel、文本类文件）')
-        continue
-      }
-      attachments.value = [...attachments.value, {
-        id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-        name: f.name, size: f.size, kind,
-        text: text.slice(0, ATT_SNIPPET) + (text.length > ATT_SNIPPET ? '\n…（内容过长已截断）' : '')
-      }]
-    } catch (err) {
-      ElMessage.error('解析「' + f.name + '」失败：' + ((err && err.message) || err))
-    }
-  }
-  attBusy.value = false
 }
 
 /** 把文本类内容（文本文件 + 「识文字」的图片）拼进提问；「看图」的图片由 images 走多模态 */
