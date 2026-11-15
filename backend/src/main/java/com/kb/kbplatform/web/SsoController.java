@@ -302,11 +302,11 @@ public class SsoController {
         String ticket = body.get("ticket") == null ? "" : String.valueOf(body.get("ticket")).trim();
         if (ticket.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "登录票据无效或已过期，请重新登录");
         String key = "sso:ticket:" + ticket;
-        String token = kv.get(key);
+        // 取值与删除必须原子：并发重复请求同一票据时只能有一个拿到 token
+        String token = kv.getAndDelete(key);
         if (token == null || token.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "登录票据无效或已过期，请重新登录");
         }
-        kv.delete(key);
         return Map.of("token", token);
     }
 

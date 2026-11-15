@@ -79,6 +79,7 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft, Clock } from '@element-plus/icons-vue'
 import { getPaper, startExam, submitExam } from '../api/training'
 import { errMsg } from '../utils/errMsg'
+import { useUnsavedGuard } from '../composables/useUnsavedGuard'
 
 const route = useRoute()
 const router = useRouter()
@@ -88,6 +89,7 @@ const multi = reactive({})      // 多选：questionId -> [label]
 const text = reactive({})       // 填空/简答：questionId -> string
 const recordId = ref(null)
 const submitting = ref(false)
+const submitted = ref(false)     // 交卷成功后放行离开守卫
 const remain = ref(0)
 // 服务端固化的交卷截止时间（毫秒时间戳）：限时以它为准，不能每次进页面都按整场时长重算，
 // 否则刷新/重进就能把本地倒计时重置成满格，界面显示的时间远多于真实剩余时间（服务端仍会拒卷）
@@ -160,9 +162,12 @@ const submit = () => {
   if (submitting.value) return   // 倒计时归零自动交卷与手动点击可能同时触发，只放行一次
   submitting.value = true
   submitExam(route.params.id, recordId.value, buildItems())
-    .then(() => { clearInterval(timer); router.push('/exams/records/' + recordId.value) })
+    .then(() => { submitted.value = true; clearInterval(timer); router.push('/exams/records/' + recordId.value) })
     .catch(e => { submitting.value = false; ElMessage.error(errMsg(e, '交卷失败')) })
 }
+
+// 试卷加载后到交卷前，误点侧边栏 / 返回 / 退出 / 关标签页都要先确认
+useUnsavedGuard(() => !submitted.value && !!paper.value, '考试尚未交卷，离开会丢失本次作答，确定离开吗？')
 
 onMounted(() => { begin() })
 onUnmounted(() => { unmounted = true; clearInterval(timer) })

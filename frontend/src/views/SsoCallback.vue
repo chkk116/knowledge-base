@@ -43,8 +43,12 @@ onMounted(async () => {
     if (ticket) {
       // 一次性票据换正式 token：SSO 回调不再把长期 token 放进跳转 URL
       const r = await ssoExchange(String(ticket))
-      finalToken = r.token
+      // 响应拦截器返回完整 Axios response，token 在 r.data.token；兼容已解包的调用形态
+      const payload = r?.data ?? r
+      finalToken = payload?.token
+      if (!finalToken) throw new Error('票据兑换失败：未返回登录令牌')
     }
+    if (!finalToken) throw new Error('缺少登录凭证，请重新登录')
     auth.applySession({ token: String(finalToken) })
     // 拉一次用户信息补齐权限/昵称（applySession 只落了 token 与缓存字段）
     await auth.fetchMe()

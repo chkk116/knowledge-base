@@ -8,7 +8,7 @@ import AnnouncementBar from '../components/AnnouncementBar.vue'
 import { useAuthStore } from '../store/auth'
 import { useUiStore } from '../store/ui'
 import { fromNow, fmtDateTime } from '../utils/time'
-import { splitTags } from '../utils/text'
+import { splitTags, cleanSnippetMarkdown } from '../utils/text'
 import { errMsg } from '../utils/errMsg'
 
 const router = useRouter()
@@ -57,7 +57,8 @@ const stripHtml = (html) => {
     .replace(/\s+/g, ' ').trim()
 }
 const snippetOf = (c) => {
-  const text = stripHtml(c)
+  // 正文可能是导入或直接保存的 Markdown，剥完 HTML 标签还要清一层标记
+  const text = cleanSnippetMarkdown(stripHtml(c))
   return text.length > 90 ? text.slice(0, 90) + '…' : text
 }
 

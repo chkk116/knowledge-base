@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onBeforeUnmount, watch, onMounted } from 'vue'
+import { useUnsavedGuard } from '../composables/useUnsavedGuard'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -62,6 +63,8 @@ const authExpired = !token   // 登录过期/未登录：不建协同连接，�
 const status = ref('connecting') // connecting | connected | disconnected
 const peers = ref([])
 const saving = ref(false)
+const dirty = ref(false)       // 有本地改动、尚未写入后端快照
+useUnsavedGuard(() => dirty.value, '文档还有未同步的修改，确定离开吗？')
 const seeded = ref(false)
 let seedRetries = 0
 const wordCount = ref(0)
@@ -193,6 +196,7 @@ const editor = useEditor({
     attributes: { class: 'kb-collab-body' },
   },
   onUpdate: () => {
+    dirty.value = true
     const text = editor.value?.getText() || ''
     wordCount.value = text.replace(/\s/g, '').length
     scheduleAutoSnapshot()
@@ -316,6 +320,7 @@ async function saveSnapshot(silent = false) {
   if (!silent) saving.value = true
   try {
     await updateShareDoc(props.shareId, props.docId, { content: await buildSnapshotHtml() })
+    dirty.value = false
     if (!silent) ElMessage.success('已保存快照')
   } catch (e) {
     if (!silent) ElMessage.error(errMsg(e, '保存失败'))

@@ -14,6 +14,25 @@ export function splitTags(s) {
     .filter(Boolean)
 }
 
+/**
+ * 摘要里的轻量 Markdown 清洗：正文可能是导入或直接保存的 Markdown，
+ * 只剥 HTML 标签会把 #、**、[文字](url) 这些符号原样显示在首页卡片上。
+ * 只处理展示用摘要，不改动正文，也不做完整 Markdown 解析。
+ */
+export function cleanSnippetMarkdown(s) {
+  return String(s ?? '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')   // 图片 -> alt 文本
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')    // 链接 -> 文字
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')          // 标题
+    .replace(/^\s{0,3}>\s?/gm, '')               // 引用
+    .replace(/^\s{0,3}[-*+]\s+/gm, '')           // 列表符号
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')          // 粗体
+    .replace(/(\*|_)(.*?)\1/g, '$2')             // 斜体
+    .replace(/`([^`]+)`/g, '$1')                 // 行内代码
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /** HTML 转义（& < > " '），用于把纯文本安全地放进 innerHTML/v-html */
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({

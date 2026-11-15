@@ -37,7 +37,10 @@ export function openSource(idOrSource) {
     window.open('/doc-shares/' + idOrSource.shareId + '?doc=' + idOrSource.docId, '_blank')
     return
   }
-  window.open('/reader/' + idOrSource, '_blank')
+  // 公开文档来源可能是完整来源对象（引用卡片传的就是对象），不能把对象直接拼进 URL
+  const docId = typeof idOrSource === 'object' ? (idOrSource.id ?? idOrSource.docId) : idOrSource
+  if (docId == null || String(docId) === '[object Object]') return
+  window.open('/reader/' + docId, '_blank')
 }
 
 export function useMarkdownView({ highlight } = {}) {

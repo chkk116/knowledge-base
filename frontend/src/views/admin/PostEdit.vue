@@ -10,6 +10,7 @@ import { getDoc, createMyDoc, updateMyDoc, importDoc, getCategoryTree, listTags,
 import { updateDoc } from '../../api/admin'
 import { uploadFile } from '../../api/file'
 import { useAuthStore } from '../../store/auth'
+import { useUnsavedGuard } from '../../composables/useUnsavedGuard'
 import { splitTags } from '../../utils/text'
 import { errMsg } from '../../utils/errMsg'
 
@@ -72,6 +73,15 @@ const exitFullscreen = () => { fullscreen.value = false }
 
 // ---------- 草稿自动保存（localStorage，防误关丢稿） ----------
 const ready = ref(false) // onMounted 加载完成后再开始监听，避免把已加载内容误写成草稿
+
+// 未保存离开守卫：以「加载完成时的表单」为基线，保存成功后重置基线即自动放行
+const dirty = ref(false)
+let baseline = ''
+const syncBaseline = () => { baseline = JSON.stringify(form.value); dirty.value = false }
+useUnsavedGuard(() => dirty.value, '文章还有未保存的修改，确定离开吗？')
+watch(form, () => {
+  if (ready.value) dirty.value = JSON.stringify(form.value) !== baseline
+}, { deep: true })
 // 编辑模式下的正文/表单在初始化响应回来之前不渲染，避免用户先输入再被迟到响应整体覆盖（F14）
 const loaded = ref(false)
 const loadFailed = ref(false) // 正文加载失败：锁定保存，避免用空表单覆盖原文
@@ -170,6 +180,7 @@ onMounted(async () => {
   const d = loadDraft()
   if (d) pendingDraft.value = d
   ready.value = true
+  syncBaseline()
   window.addEventListener('keydown', onKeydown)
 })
 
@@ -211,6 +222,7 @@ const save = async (status) => {
       ElMessage.success(status === 'PENDING_REVIEW' ? '已提交审核，等待管理员通过' : '已存草稿')
     }
     clearDraft() // 保存成功后清掉本地草稿
+    syncBaseline()
     router.push(auth.isAdmin ? '/admin/docs' : '/my/posts')
   } catch (e) {
     ElMessage.error(errMsg(e, '保存失败'))

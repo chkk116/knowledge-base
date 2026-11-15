@@ -166,6 +166,26 @@ public class KvStore {
         return e[0];
     }
 
+    /**
+     * 原子地「取值并删除」：一次性票据、验证码等只能消费一次的场景必须用这个，
+     * 否则并发重复请求会各自 get 到同一份值、再各自 delete，票据被兑换多次。
+     * Redis 用 GETDEL；内存兜底用 ConcurrentHashMap.remove（本身原子），并校验 TTL。
+     */
+    public String getAndDelete(String key) {
+        maybeRecover();
+        if (redisUp) {
+            try {
+                return redis.opsForValue().getAndDelete(key);
+            } catch (Exception e) {
+                markDown(e);
+            }
+        }
+        String[] e = mem.remove(key);
+        if (e == null) return null;
+        if (Long.parseLong(e[1]) < System.currentTimeMillis()) return null;
+        return e[0];
+    }
+
     public void delete(String key) {
         maybeRecover();
         if (redisUp) {
