@@ -10,10 +10,11 @@ import {
 import ProviderLogo from '../components/ProviderLogo.vue'
 import { useAuthStore } from '../store/auth'
 import {
-  aiAsk, aiAskStream, aiFeedback, listAiModels, listConversations, createConversation, updateConversation,
+  aiAsk, aiAskStream, listAiModels, listConversations, createConversation, updateConversation,
   deleteConversation, batchDeleteConversations, listMessages
 , generateImage, createVideo, videoStatus } from '../api/ai'
 import { useMarkdownView } from '../features/ai/useMarkdownView'
+import { useAiFeedback } from '../features/ai/useAiFeedback'
 import { useRouter } from 'vue-router'
 import { runLocalAgent } from '../utils/localAgent'
 import { createMyDoc, updateMyDoc, listMyDocs } from '../api/kb'
@@ -149,34 +150,8 @@ function buildMeta(data) {
   return { name, latencyMs: Number(data.latencyMs) || 0, usage: data.usage || null, reasoning: data.reasoning || null }
 }
 
-/* ---------- 回答反馈（赞/踩）：数据进 kb_ai_qa_log，管理端「AI 反馈」看板汇总 ---------- */
-const FB_REASONS = ['答非所问', '没有依据', '资料过时', '回答不完整']
-const fbBusy = reactive({})
-
-/** 赞/踩可随时切换或取消：再点一次同项 = 取消（rating 0），点另一项 = 改评；踩先展开原因面板 */
-function rateMsg(m, rating) {
-  if (!m.qaId || fbBusy[m.qaId]) return
-  if (rating === -1) {
-    if (m.fbRating === -1) { submitRate(m, 0, ''); return }   // 已踩 → 取消
-    m.fbOpen = !m.fbOpen; return                              // 展开原因面板
-  }
-  submitRate(m, m.fbRating === 1 ? 0 : 1, '')                 // 已赞 → 取消
-}
-
-async function submitRate(m, rating, reason) {
-  if (!m.qaId || fbBusy[m.qaId]) return
-  fbBusy[m.qaId] = true
-  try {
-    await aiFeedback(m.qaId, rating, reason)
-    m.fbRating = rating
-    m.fbOpen = false
-    ElMessage.success(rating === 1 ? '感谢反馈' : rating === 0 ? '已取消反馈' : '已记录，我们会据此补充文档')
-  } catch (e) {
-    ElMessage.error('反馈失败，请稍后重试')
-  } finally {
-    fbBusy[m.qaId] = false
-  }
-}
+/* ---------- 回答反馈：点击规则在 feedbackRules，状态与请求在 useAiFeedback ---------- */
+const { FB_REASONS, fbBusy, rateMsg, submitRate } = useAiFeedback()
 function onModelChange() {
   // 只影响后续提问：切换模型不会改写已有回答（历史回答保留当时的模型与耗时）
   ElMessage.info(selectedModelId.value ? '下一句将使用所选模型' : '下一句将使用默认模型')
