@@ -48,7 +48,6 @@ onMounted(async () => {
       finalToken = payload?.token
       if (!finalToken) throw new Error('票据兑换失败：未返回登录令牌')
     }
-    if (!finalToken) throw new Error('缺少登录凭证，请重新登录')
     auth.applySession({ token: String(finalToken) })
     // 拉一次用户信息补齐权限/昵称（applySession 只落了 token 与缓存字段）
     await auth.fetchMe()

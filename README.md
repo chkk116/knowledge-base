@@ -235,7 +235,7 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 - 前端：`npm ci` → `eslint src`（存量规则按配置降级为 warn，不阻塞）→ `node --test` → `vite build`
 - 后端：`mvn test`（JDK 21，Mockito 允许动态挂载 agent）
 
-主仓在 Gitee，该文件随代码同步到 GitHub 镜像后由 GitHub Actions 执行；直接写在 GitHub 上会被定期强制镜像覆盖。后端单测覆盖权限、文档树规则、导入与压缩包校验等纯逻辑；前端纯函数用例在 `frontend/tests/`（`node --test` 自动发现），覆盖 AI 附件 / 模型窗口 / 反馈 / 会话列表规则、文档编码与 Markdown 渲染。
+主仓在 Gitee，该文件随代码同步到 GitHub 镜像后由 GitHub Actions 执行；直接写在 GitHub 上会被定期强制镜像覆盖。后端单测覆盖权限、文档树规则、导入与压缩包校验、一次性票据原子消费等纯逻辑；前端纯函数用例在 `frontend/tests/`（`node --test` 自动发现），覆盖 AI 附件 / 模型窗口 / 反馈 / 会话列表规则、引用跳转、摘要清洗、文档编码与 Markdown 渲染。
 
 ## 目录结构
 
@@ -255,6 +255,7 @@ knowledge-base/
 │   └── src/
 │       ├── views/            # Home / Login / AiChat / DocShare* / Exam* / Course* / admin/*（大组件样式拆为同目录 .css）
 │       ├── features/ai/      # 5 个 composable（会话操作/附件/反馈/模型选择/Markdown 视图）+ 4 组纯规则，均可单测
+│       ├── composables/      # useUnsavedGuard：编辑/答题页的路由离开确认与关闭标签页提示
 │       ├── components/       # SlideCaptcha / RichEditor / CommentSection / WornBadgeStrip…
 │       ├── utils/            # time / text / appearance(外观共享缓存) / theme / level…
 │       ├── responsive.css    # 响应式基础设施（表格卡片化、浮层限宽、表单标签置顶）
@@ -285,7 +286,7 @@ knowledge-base/
 > 所有第三方登录都复用同一套会话签发：首次登录自动建号（角色 USER），
 > 已存在账号只同步昵称/邮箱/头像，不会覆盖角色与密码。配置入口统一在「管理 → 企业登录」。
 >
-> 安全口径（2026-11 起）：登录回跳不在 URL 里携带会话 token，改为 30 秒一次性票据由前端换取；
+> 安全口径（2026-11 起）：登录回跳不在 URL 里携带会话 token，改为 30 秒一次性票据由前端换取，票据在服务端原子消费（并发重复请求只能兑换一次）；
 > 管理员账号不允许通过 OIDC/LDAP 的按用户名免密匹配链路直接登录（需账号密码或已显式绑定的第三方）。
 
 ## 快速开始（本地开发）
