@@ -9,11 +9,18 @@ const RATING_COPY = {
   '-1': '已记录，我们会据此补充文档',
 }
 
+const DEFAULT_NOTIFY = {
+  success: (msg) => ElMessage.success(msg),
+  error: (msg) => ElMessage.error(msg),
+}
+
 /**
  * AI 回答反馈（赞 / 踩）：数据进 kb_ai_qa_log，管理端「AI 反馈」看板汇总。
  * 点击规则抽到 feedbackRules 便于单测，这里只保留请求状态与消息对象上的交互字段。
+ * notify 可注入：移动端用 window.__kbMsg 轻量 toast，桌面端默认 Element Plus。
  */
-export function useAiFeedback() {
+export function useAiFeedback({ notify } = {}) {
+  const toast = notify || DEFAULT_NOTIFY
   const fbBusy = reactive({})
 
   /** 赞/踩可随时切换或取消：再点一次同项 = 取消（rating 0），点另一项 = 改评；踩先展开原因面板 */
@@ -32,9 +39,9 @@ export function useAiFeedback() {
       await aiFeedback(m.qaId, rating, reason)
       m.fbRating = rating
       m.fbOpen = false
-      ElMessage.success(RATING_COPY[rating] || RATING_COPY['-1'])
+      toast.success(RATING_COPY[rating] || RATING_COPY['-1'])
     } catch {
-      ElMessage.error('反馈失败，请稍后重试')
+      toast.error('反馈失败，请稍后重试')
     } finally {
       fbBusy[m.qaId] = false
     }

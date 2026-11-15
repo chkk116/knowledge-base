@@ -13,11 +13,12 @@ import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/auth'
 import {
-  aiAsk, aiFeedback, listAiModels, listConversations, createConversation,
+  aiAsk, listAiModels, listConversations, createConversation,
   deleteConversation, batchDeleteConversations, listMessages, updateConversation
 } from '../../api/ai'
 import { search } from '../../api/kb'
 import { recognizeLocal } from '../../utils/localOcr'
+import { useAiFeedback } from '../../features/ai/useAiFeedback'
 import { compressImage } from '../../utils/imageCompress'
 import { parseDocument, DOC_EXTS } from '../../utils/docParse'
 import { runLocalAgent } from '../../utils/localAgent'
@@ -141,30 +142,13 @@ function buildMeta(data) {
   return { name, latencyMs: Number(data.latencyMs) || 0, usage: data.usage || null }
 }
 
-/* ---------- 回答反馈（赞/踩）：与桌面端同一张 kb_ai_qa_log ---------- */
-const FB_REASONS = ['答非所问', '没有依据', '资料过时', '回答不完整']
-const fbBusy = reactive({})
-
-function rateMsg(m, rating) {
-  if (!m.qaId || fbBusy[m.qaId]) return
-  if (rating === -1) { m.fbOpen = !m.fbOpen; return }
-  submitRate(m, 1, '')
-}
-
-async function submitRate(m, rating, reason) {
-  if (!m.qaId || fbBusy[m.qaId]) return
-  fbBusy[m.qaId] = true
-  try {
-    await aiFeedback(m.qaId, rating, reason)
-    m.fbRating = rating
-    m.fbOpen = false
-    window.__kbMsg?.success?.(rating === 1 ? '感谢反馈' : '已记录，我们会补充文档')
-  } catch (e) {
-    window.__kbMsg?.error?.('反馈失败，请稍后重试')
-  } finally {
-    fbBusy[m.qaId] = false
-  }
-}
+/* ---------- 回答反馈：复用桌面版状态机（同一张 kb_ai_qa_log），提示走移动端轻量 toast ---------- */
+const { FB_REASONS, fbBusy, rateMsg, submitRate } = useAiFeedback({
+  notify: {
+    success: (msg) => window.__kbMsg?.success?.(msg),
+    error: (msg) => window.__kbMsg?.error?.(msg),
+  },
+})
 
 function scrollToBottom() {
   nextTick(() => { if (bodyRef.value) bodyRef.value.scrollTop = bodyRef.value.scrollHeight })
