@@ -3,6 +3,12 @@ import { ElMessage } from 'element-plus'
 import { aiFeedback } from '../../api/ai'
 import { FB_REASONS, resolveRatingClick } from './feedbackRules'
 
+const RATING_COPY = {
+  1: '感谢反馈',
+  0: '已取消反馈',
+  '-1': '已记录，我们会据此补充文档',
+}
+
 /**
  * AI 回答反馈（赞 / 踩）：数据进 kb_ai_qa_log，管理端「AI 反馈」看板汇总。
  * 点击规则抽到 feedbackRules 便于单测，这里只保留请求状态与消息对象上的交互字段。
@@ -26,8 +32,8 @@ export function useAiFeedback() {
       await aiFeedback(m.qaId, rating, reason)
       m.fbRating = rating
       m.fbOpen = false
-      ElMessage.success(rating === 1 ? '感谢反馈' : rating === 0 ? '已取消反馈' : '已记录，我们会据此补充文档')
-    } catch (e) {
+      ElMessage.success(RATING_COPY[rating] || RATING_COPY['-1'])
+    } catch {
       ElMessage.error('反馈失败，请稍后重试')
     } finally {
       fbBusy[m.qaId] = false

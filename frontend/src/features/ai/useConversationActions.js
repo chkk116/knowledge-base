@@ -36,7 +36,7 @@ export function useConversationActions({ conversations, convMessages, currentId,
     selectedIds.value = []
   }
 
-  function isSelected(id) { return selectedIds.value.includes(id) }
+  function isSelected(id) { return selectedIds.value.some((x) => String(x) === String(id)) }
 
   function toggleSelect(id) { selectedIds.value = toggleSelection(selectedIds.value, id) }
 

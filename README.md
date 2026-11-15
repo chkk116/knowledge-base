@@ -235,7 +235,7 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 - 前端：`npm ci` → `eslint src`（存量规则按配置降级为 warn，不阻塞）→ `node --test` → `vite build`
 - 后端：`mvn test`（JDK 21，Mockito 允许动态挂载 agent）
 
-主仓在 Gitee，该文件随代码同步到 GitHub 镜像后由 GitHub Actions 执行；直接写在 GitHub 上会被定期强制镜像覆盖。后端单测覆盖权限、文档树规则、导入与压缩包校验等纯逻辑；前端纯函数用例在 `frontend/tests/`（`node --test` 自动发现），覆盖 AI 附件规则、文档编码与 Markdown 渲染。
+主仓在 Gitee，该文件随代码同步到 GitHub 镜像后由 GitHub Actions 执行；直接写在 GitHub 上会被定期强制镜像覆盖。后端单测覆盖权限、文档树规则、导入与压缩包校验等纯逻辑；前端纯函数用例在 `frontend/tests/`（`node --test` 自动发现），覆盖 AI 附件 / 模型窗口 / 反馈 / 会话列表规则、文档编码与 Markdown 渲染。
 
 ## 目录结构
 
@@ -253,8 +253,8 @@ knowledge-base/
 │       └── web/              # REST 控制器（含 admin/* 管理接口）
 ├── frontend/                 # Vue 3 前端（30+ 页面，1024/640 双断点响应式）
 │   └── src/
-│       ├── views/            # Home / Login / AiChat / DocShare* / Exam* / Course* / admin/*
-│       ├── features/ai/      # useMarkdownView / useAiAttachments / attachmentRules（AI 侧可单测逻辑）
+│       ├── views/            # Home / Login / AiChat / DocShare* / Exam* / Course* / admin/*（大组件样式拆为同目录 .css）
+│       ├── features/ai/      # 5 个 composable（会话操作/附件/反馈/模型选择/Markdown 视图）+ 4 组纯规则，均可单测
 │       ├── components/       # SlideCaptcha / RichEditor / CommentSection / WornBadgeStrip…
 │       ├── utils/            # time / text / appearance(外观共享缓存) / theme / level…
 │       ├── responsive.css    # 响应式基础设施（表格卡片化、浮层限宽、表单标签置顶）

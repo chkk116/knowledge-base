@@ -11,6 +11,9 @@ test('模型 key：空值走默认，系统/自有模型加前缀区分', () => 
   assert.deepEqual(parseModelSelection('s:3'), { modelId: 3 })
   assert.deepEqual(parseModelSelection('u:7'), { modelId: null, userModelId: 7 })
   assert.deepEqual(parseModelSelection('12'), { modelId: 12 })
+  assert.deepEqual(parseModelSelection('u:abc'), { modelId: null, userModelId: null }, '脏值不能变成 NaN / 0 混进请求体')
+  assert.deepEqual(parseModelSelection('abc'), { modelId: null })
+  assert.deepEqual(parseModelSelection('s:'), { modelId: null })
 })
 
 test('窗口设定只能调小且有下限，0 表示跟随模型上限', () => {
@@ -28,6 +31,7 @@ test('窗口档位文案按阈值分档', () => {
   assert.equal(ctxWindowLabelOf(128000, 1000000), '长')
   assert.equal(ctxWindowLabelOf(32000, 1000000), '标准')
   assert.equal(ctxWindowLabelOf(16000, 1000000), '精简')
+  assert.equal(ctxWindowLabelOf(32000, 0), '标准', 'max 未配置时按默认上限兜底，不能把所有窗口判成模型上限')
 })
 
 test('本地存储键保持原值，避免旧用户设置失效', () => {

@@ -18,6 +18,17 @@ test('全选与清空互切', () => {
   assert.deepEqual(toggleAllSelection([1], ids), [1, 2, 3])
 })
 
+test('长度相等但含陈旧 id 时应重新全选，而不是清空', () => {
+  const ids = [1, 2]
+  assert.deepEqual(toggleAllSelection([1, 999], ids), [1, 2])
+  assert.deepEqual(toggleAllSelection([1, 2], ids), [])
+})
+
+test('选中状态按字符串归一，数字与字符串 id 都能切掉', () => {
+  assert.deepEqual(toggleSelection([1], '1'), [])
+  assert.deepEqual(toggleSelection([], '1'), ['1'])
+})
+
 test('删除会话时数字与字符串 id 都能匹配', () => {
   const list = [{ id: 1 }, { id: '2' }, { id: 3 }]
   assert.deepEqual(removeConversations(list, [1, '2']), [{ id: 3 }])
