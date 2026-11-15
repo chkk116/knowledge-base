@@ -1,0 +1,442 @@
+body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+/* 头像下拉菜单：Element Plus 的 dropdown 是 teleport 到 body 的，
+   scoped 样式选不中，必须放全局。限宽 + 允许换行，防止长昵称/权限把菜单撑开
+   （原来权限全列出来会撑到 355px ≈ 屏幕 1/4）。 */
+.kb-avatar-menu { min-width: 190px; max-width: 260px; }
+.kb-avatar-menu .el-dropdown-menu__item {
+  white-space: normal; line-height: 1.5; height: auto;
+  padding-top: 6px; padding-bottom: 6px;
+}
+.app-shell { height: 100vh; display: flex; flex-direction: column; }
+.app-shell > .layout { flex: 1 1 auto; min-height: 0; height: auto; }
+.layout { height: 100vh; }
+/* 混合双列顶部通栏：logo + 一级菜单 */
+.top-nav--global { display: flex; align-items: center; gap: 12px; padding: 0 12px; flex: none; }
+.brand-top { display: flex; align-items: center; gap: 8px; padding-right: 10px; cursor: pointer; flex: none; }
+.brand-top .brand-ico { width: 26px; height: 26px; object-fit: contain; }
+.brand-top .brand-txt { font-size: 15px; font-weight: 700; color: #1D2129; white-space: nowrap; }
+.top-nav--global .mixed-bar { flex: 1 1 auto; height: 52px; }
+html.dark .brand-top .brand-txt { color: #E6F1FB; }
+.aside { background: #fff; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; }
+/* 深色菜单（偏好设置 · 布局 → 深色菜单）：只换侧栏底色与菜单文字，不影响内容区 */
+.aside.dark-menu { background: #1e1b4b; border-right-color: #2b2a4a; }
+.aside.dark-menu .brand-txt { color: #eef2ff; }
+.aside.dark-menu .menu .el-menu-item,
+.aside.dark-menu .menu .el-sub-menu__title { color: #c7d2fe; }
+.aside.dark-menu .menu .el-menu-item:hover,
+.aside.dark-menu .menu .el-sub-menu__title:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.aside.dark-menu .menu .el-menu-item.is-active { background: rgba(129, 140, 248, .28); color: #fff; }
+.aside.dark-menu .menu .el-sub-menu .el-menu-item { color: #a5b4fc; }
+.aside.dark-menu .el-menu--inline { background: transparent; }
+.aside.dark-menu .menu .el-sub-menu .el-menu-item::after { background: rgba(255, 255, 255, .12); }
+
+/* ---- 混合双列：左侧二级图标列（偏好设置 · 布局 → 混合双列）---- */
+.aside.dual { overflow: hidden; }
+.mixed-side { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 6px 14px; overflow-y: auto; overflow-x: hidden; border-top: 1px solid #eef1f6; }
+.ms-item { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 2px;
+  border: none; border-radius: 10px; background: transparent; cursor: pointer; font-family: inherit;
+  color: #64748b; flex: none; transition: background-color .13s ease, color .13s ease, transform .16s ease; }
+/* 切换一级时左侧列表的过渡：只做 opacity / transform（GPU 合成，不触发布局重排） */
+.ms-switch-enter-active { transition: opacity .14s ease-out, transform .14s ease-out; }
+.ms-switch-leave-active { transition: opacity .08s ease-in; }
+.ms-switch-enter-from { opacity: 0; transform: translateX(-5px); }
+.ms-switch-leave-to { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .ms-switch-enter-active, .ms-switch-leave-active { transition: none; }
+  .ms-item { transition: none; }
+}
+.ms-item:hover { background: #eef2ff; color: var(--el-color-primary); }
+/* 当前项用主色实底（对齐参考站：蓝底白字） */
+.ms-item.on { background: var(--el-color-primary); color: #fff; font-weight: 600; }
+.ms-txt { font-size: 11px; line-height: 1.2; text-align: center; max-width: 80px; word-break: break-all;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+html.dark .mixed-side { border-top-color: #2a2a35; }
+html.dark .ms-item { color: #c7c8d4; }
+html.dark .ms-item:hover { background: #23232e; color: #a5b4fc; }
+html.dark .ms-item.on { background: var(--el-color-primary); color: #fff; }
+.aside.dark-menu .mixed-side { border-top-color: rgba(255, 255, 255, .08); }
+.aside.dark-menu .ms-item { color: #c7d2fe; }
+.aside.dark-menu .ms-item:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+.aside.dark-menu .ms-item.on { background: var(--el-color-primary); color: #fff; }
+
+/* 拖拽排序：浮层跟手 + 让位弹性滑动 + 落点占位槽（偏好设置 · 布局 → 菜单排序） */
+.drag-item { cursor: grab; }
+body.kb-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+/* 拖拽项必须禁用浏览器默认手势：否则触屏按住拖动会被当成滚动，pointermove 直接中断（审查 r13） */
+.drag-item, .ms-item { touch-action: none; }
+/* 让位位移用 260ms 大厂常用缓出曲线，比原来的瞬间跳格自然；拖起项隐藏，源位由让位项补上 */
+body .menu .drag-item,
+body .ms-item {
+  transition: transform .26s cubic-bezier(.22, 1, .36, 1), background-color .15s ease, color .15s ease;
+}
+body.kb-dragging .drag-item, body.kb-dragging .ms-item { cursor: grabbing; will-change: transform; }
+/* 重排与让位复位同一帧完成，这一帧不要过渡，否则会先回弹再重排 */
+body.kb-drop-commit .drag-item, body.kb-drop-commit .ms-item { transition: none !important; }
+.drag-item.is-dragging:not(.el-sub-menu), .ms-item.is-dragging { opacity: 0; }
+/* 展开的分组只藏标题行，子项保持可见（整组 opacity:0 会把子菜单一起抹掉） */
+.el-sub-menu.drag-item.is-dragging > .el-sub-menu__title { opacity: 0; }
+/* 落地回弹：只放大到 1.012，克制一点 */
+@keyframes kb-menu-settle {
+  0% { transform: scale(.975); }
+  55% { transform: scale(1.012); }
+  100% { transform: scale(1); }
+}
+.drag-item.just-dropped, .ms-item.just-dropped { animation: kb-menu-settle .32s cubic-bezier(.22, 1, .36, 1); }
+/* 拖拽浮层（挂在 body 下，不在 Vue 模板里） */
+.kb-drag-ghost { position: fixed; z-index: 4000; pointer-events: none; }
+/* 落点占位槽：主色淡底 + 顶部引导线，位置变化带过渡 */
+.kb-drop-slot {
+  position: fixed; z-index: 3990; pointer-events: none; border-radius: 9px;
+  background: color-mix(in srgb, var(--el-color-primary) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 30%, transparent);
+  opacity: 0;
+  transition: top .22s cubic-bezier(.22, 1, .36, 1), left .22s cubic-bezier(.22, 1, .36, 1),
+              width .22s cubic-bezier(.22, 1, .36, 1), height .22s cubic-bezier(.22, 1, .36, 1),
+              opacity .12s ease;
+}
+.kb-drop-slot.on { opacity: 1; }
+.kb-drop-slot i {
+  position: absolute; left: 10px; right: 10px; top: -1px; height: 2px; border-radius: 2px;
+  background: var(--el-color-primary); box-shadow: 0 0 8px var(--el-color-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .drag-item, .ms-item, .kb-drop-slot { transition: none !important; }
+  .drag-item.just-dropped, .ms-item.just-dropped { animation: none; }
+}
+.brand {
+  flex: none; font-weight: 700; font-size: 17px; color: #4f46e5;
+  padding: 15px 18px; cursor: pointer; display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid #f2f4f8; letter-spacing: .3px;
+}
+.brand-ico { width: 34px; height: 34px; object-fit: contain; display: block; flex-shrink: 0; }
+/* 折叠态：把 logo 放在一个浅灰圆角按钮容器里（与菜单项同尺寸/圆角），
+   logo 再缩到 22px：实心图要比 24px 线型图标小半号才视觉等重，
+   避免彩色实心 logo 直接压在灰色线型图标上造成的不协调 */
+.aside.collapsed .brand {
+  justify-content: center;
+  padding: 12px 0;
+  margin: 8px 6px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  border-bottom: none;
+  transition: background-color .15s;
+}
+.aside.collapsed .brand:hover { background: #e2e8f0; }
+html.dark .aside.collapsed .brand { background: #23234a; }
+html.dark .aside.collapsed .brand:hover { background: #2a2a35; }
+.aside.collapsed .brand-ico { width: 22px; height: 22px; }
+.menu { border-right: none; padding: 10px; background: transparent; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+/* 彩色拟物图标：与文字保持间距；收起态居中不带外边距 */
+.menu .mi { margin-right: 10px; }
+.menu .el-sub-menu__title .mi { margin-right: 10px; }
+.aside.collapsed .menu .mi,
+.aside.collapsed .menu .el-sub-menu__title .mi { margin-right: 0; }
+html.dark .aside { background: #14142b; border-right-color: #26264a; }
+
+/* 二级分组（el-sub-menu）标题：圆角 pill + 加粗，作为层级锚点 */
+.menu .el-sub-menu__title { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 10px; color: #334155; font-weight: 600; transition: background-color .15s, color .15s, transform .16s ease; }
+html.dark .menu .el-sub-menu__title { color: #c3c4d8; }
+.menu .el-sub-menu__title:hover { background: #f1f5f9; color: #4f46e5; }
+html.dark .menu .el-sub-menu__title:hover { background: #23234a; color: #a5b4fc; }
+
+/* 菜单项：圆角 pill。过渡只用 background/color，无重排重绘 */
+.menu .el-menu-item { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 10px; color: #475569; position: relative; transition: background-color .15s, color .15s, transform .16s ease; }
+html.dark .menu .el-menu-item { color: #b7b8cd; }
+.menu .el-menu-item:hover { background: #f1f5f9; color: #4f46e5; }
+html.dark .menu .el-menu-item:hover { background: #23234a; color: #a5b4fc; }
+
+/* 激活项：浅蓝 pill + 左侧指示条（深蓝） */
+/* 激活项：浅靛紫圆角胶囊（去左侧指示条 → 整体更圆润，贴合参考图） */
+.menu .el-menu-item.is-active { background: #eff0fe; color: #4f46e5; font-weight: 600; }
+html.dark .menu .el-menu-item.is-active { background: #23234a; color: #a5b4fc; }
+
+/* 二级子项：缩进 + 左侧引导线，制造树形层次 */
+.menu .el-sub-menu .el-menu-item { padding-left: 44px !important; min-width: auto; }
+.menu .el-sub-menu .el-menu-item::after { content: ''; position: absolute; left: 28px; top: 0; bottom: 0; width: 1px; background: #e2e8f0; }
+html.dark .menu .el-sub-menu .el-menu-item::after { background: #2b2c4d; }
+
+/* 整栏折叠(64px) */
+.aside.collapsed .menu { padding: 8px 6px; }
+.header { display: flex; align-items: center; background: #fff; border-bottom: 1px solid #eef1f6; overflow: visible; }
+/* 顶部导航模式（偏好设置 · 布局 → 导航位置）：菜单横向铺在顶栏下方 */
+.top-nav { flex: none; background: #fff; border-bottom: 1px solid #eef1f6; padding: 0 10px; }
+.top-menu { border-bottom: none !important; height: 46px; background: transparent; }
+.top-menu.el-menu--horizontal > .el-menu-item,
+.top-menu.el-menu--horizontal > .el-sub-menu .el-sub-menu__title {
+  height: 46px; line-height: 46px; font-weight: 600; color: #334155;
+}
+.top-menu.el-menu--horizontal > .el-menu-item.is-active,
+.top-menu.el-menu--horizontal > .el-sub-menu.is-active .el-sub-menu__title {
+  color: var(--el-color-primary); border-bottom-color: var(--el-color-primary);
+}
+html.dark .top-nav { background: #17171f; border-bottom-color: #26262f; }
+/* 混合双列的顶部一级条（文字在这里，左侧图标条只做快捷切换） */
+.top-nav--mixed { padding: 0 8px; }
+.mixed-bar { display: flex; align-items: center; gap: 2px; height: 44px; overflow-x: auto; scrollbar-width: none; }
+.mixed-bar::-webkit-scrollbar { display: none; }
+.mb-item { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: none;
+  border-radius: 8px; background: transparent; cursor: pointer; font-family: inherit; font-size: 13px;
+  color: #475569; white-space: nowrap; transition: background-color .13s ease, color .13s ease; }
+.mb-item:hover { background: #f1f5f9; color: var(--el-color-primary); }
+.mb-item.on { background: #eef2ff; color: var(--el-color-primary); font-weight: 600; }
+html.dark .mb-item { color: #c7c8d4; }
+html.dark .mb-item:hover { background: #23232e; color: #a5b4fc; }
+html.dark .mb-item.on { background: #232347; color: #a5b4fc; }
+html.dark .top-menu.el-menu--horizontal > .el-menu-item,
+html.dark .top-menu.el-menu--horizontal > .el-sub-menu .el-sub-menu__title { color: #c7c8d4; }
+/* 顶栏右侧所有元素统一垂直居中（含不同尺寸的圆形按钮、弹层、头像、徽章组），
+   避免「铃铛 32px + 头像 38px + 徽章 20px」混排时各按自己的 inline-baseline 漂移 */
+.right { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.head-left { display: flex; align-items: center; gap: 8px; flex: none; }
+.fold-btn { padding: 6px; color: #64748b; }
+.fold-btn:hover { background: var(--el-color-primary-light-9); color: var(--el-color-primary); }
+.crumb { font-weight: 600; color: #0f172a; }
+
+/* 顶栏全局搜索（回车跳「搜索结果」） */
+.head-search {
+  flex: 0 1 440px; margin: 0 auto; display: flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 14px; border-radius: 999px;
+  background: #f4f6fa; border: 1px solid transparent;
+  transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+.head-search:focus-within { background: #fff; border-color: var(--el-color-primary-light-5); box-shadow: var(--kb-ring); }
+.hs-ico { color: #9aa3b2; flex: none; }
+.hs-input {
+  flex: 1 1 auto; min-width: 0; border: none; outline: none; background: transparent;
+  font-size: 13.5px; color: var(--kb-txt); font-family: inherit;
+}
+.hs-input::placeholder { color: #a2aab8; }
+@media (max-width: 1000px) { .head-search { display: none; } }
+html.dark .head-search { background: #23232e; }
+html.dark .head-search:focus-within { background: #1b1b24; border-color: #3a3a6b; }
+html.dark .fold-btn { color: #b4b8c2; }
+/* 头像 + 佩戴徽章组成的 inline-flex 单元，与其它按钮同一基线；
+   没佩戴时 cluster 内只剩头像一个子节点，结构稳定 */
+.avatar-cluster { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; flex: none; }
+.avatar-cluster .cluster-badges { vertical-align: middle; }
+.avatar {
+  /* 36x36 圆形头像，与左侧 el-button text-circle（约 32px）视觉等齐 */
+  width: 36px; height: 36px; flex: none; border-radius: 50%;
+  background: #eef2ff; color: #6366f1;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  font-weight: 600; outline: none; overflow: hidden; border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #cbd5e1; vertical-align: middle;
+}
+.avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* ===== 页脚吸底（2026-10-06） =====
+   布局：.main 为纵向 flex；页面根元素 flex:1 1 0% 占满「内容区减页脚」的剩余空间，
+   页脚 margin-top:auto 沉底。内容短 → 页脚贴到内容区底部；内容长 → 随内容滚动（在最后）。
+   ⚠️ 关键是 flex-basis 必须是 0%：
+     - basis 0% 在 flex 布局里覆盖页面根元素的 height:100%，根元素实际高度由 flex 分配
+       （= 容器 − 页脚），是**确定值**，内部依赖百分比高度的编辑器/图块链条照常解析；
+     - 2026-10-05 那次「整页被压扁」的真凶是根元素走默认 flex:0 1 auto（basis=height:100%），
+       根元素假想高度 100% + 页脚超出容器 → 触发 flex **收缩**，卡片/表格被压缩。
+       basis 0% 时假想总高恰好占满、永不触发收缩，故不会再压扁；min-height:auto 兜底内容高度。
+   ⚠️ 别把页脚挪到 el-main 外面常驻底部：内容区可用高度被砍掉约 90px，观感像"压缩"。 */
+/* ---------- 顶部多标签页 ---------- */
+.tabbar {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px 7px 16px; background: #fff; border-bottom: 1px solid #eef1f6;
+}
+.tabbar-scroll {
+  flex: 1 1 auto; display: flex; align-items: center; gap: 6px;
+  overflow-x: auto; overflow-y: hidden; min-width: 0;
+}
+.tabbar-scroll::-webkit-scrollbar { height: 0; }
+.tab {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 12px; border-radius: 8px;
+  font-size: 13px; color: #6b7280; cursor: pointer; user-select: none;
+  border: 1px solid transparent; transition: background-color .15s, color .15s, border-color .15s;
+}
+.tab:hover { background: #f3f4f8; color: #374151; }
+/* 只有「当前选中」的标签高亮，其余保持素色 */
+.tab.on { background: var(--el-color-primary-light-9); color: var(--el-color-primary-dark-2); font-weight: 600; }
+.tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--el-color-primary); flex: none; }
+.tab-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-left: -1px; border-radius: 5px;
+  font-size: 14px; line-height: 1; color: #9aa3b2; transition: background-color .15s, color .15s;
+}
+.tab-x:hover { background: #e5e7eb; color: #ef4444; }
+/* 一键关闭全部 */
+.tab-clear {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  height: 30px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid #eef1f6; background: #fff; color: #64748b;
+  font-size: 13px; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s;
+}
+.tab-clear:hover { background: #fff1f2; border-color: #fecdd3; color: #e11d48; }
+/* 标签右键菜单 */
+.tab-menu {
+  position: fixed; z-index: 3000; min-width: 150px; padding: 6px;
+  background: #fff; border: 1px solid #eef1f6; border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, .16);
+}
+.tab-menu button {
+  display: block; width: 100%; text-align: left; border: none; background: transparent;
+  padding: 8px 12px; border-radius: 7px; font-size: 13.5px; color: #374151; cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.tab-menu button:hover { background: #f3f4f8; color: var(--el-color-primary); }
+.tab-menu button.danger { color: #e11d48; }
+.tab-menu button.danger:hover { background: #fff1f2; }
+html.dark .tabbar { background: #17171f; border-bottom-color: #26262f; }
+html.dark .tab { color: #b4b8c2; }
+html.dark .tab:hover { background: #23232e; color: #d6d7e0; }
+html.dark .tab.on { background: #232347; color: #a5b4fc; }
+html.dark .tab-x:hover { background: #2f2f3d; color: #f87171; }
+html.dark .tab-clear { background: #1e1e28; border-color: #2c2c36; color: #b4b8c2; }
+html.dark .tab-clear:hover { background: #2a1a1a; border-color: #5b2b2b; color: #f87171; }
+html.dark .tab-menu { background: #1e1e28; border-color: #2c2c36; }
+html.dark .tab-menu button { color: #c7c8d4; }
+html.dark .tab-menu button:hover { background: #26262f; color: #a5b4fc; }
+html.dark .tab-menu button.danger { color: #f87171; }
+html.dark .tab-menu button.danger:hover { background: #2a1a1a; }
+
+.main { padding: 20px 20px 4px; display: flex; flex-direction: column; }
+/* 内容宽度 = 定宽（偏好设置 · 布局）：居中留白，长文阅读更舒服 */
+.main.is-fixed { max-width: 1320px; margin-left: auto; margin-right: auto; width: 100%; box-sizing: border-box; }
+/* 内容密度 = 紧凑（偏好设置 · 布局）：缩小页面内边距 */
+html.pref-compact .main { padding: 12px 14px 4px; }
+html.pref-compact .tabbar { min-height: 32px; }
+/* width:100% 必须加：flex 纵向容器的子项若只靠 stretch，遇到根元素自带
+   max-width + margin:0 auto 的页面（收藏/排行/勋章/考试等）会被**收缩成内容宽**
+   （实测 /favorites 根被压到 311px），表现为「页面被压扁/从手机宽度往外延伸」。
+   width:100% + max-width + auto 外边距 = 恢复与块级布局一致的居中收窄行为。 */
+.main > :not(.site-footer):not(.demo-banner) {
+  flex: 1 1 0%;
+  /* ⚠️ min-height:auto 必须显式写：flex item 的默认值就是 auto（=「不小于内容高度」），
+     但页面根元素常自己写 min-height:100%（如 .exam），100% 解析成「父容器的 100%」这个
+     固定值，会**覆盖掉 auto 的语义** → 内容超过该值时溢出到盒子外，直接画在页脚上，
+     表现为「页脚浮在题目/列表中间」（2026-10-21 考试页实测：元素高 669，内容 1837）。
+     这里用更高优先级把它拉回 auto：内容多时元素跟着长，页脚自然落在内容之后。 */
+  min-height: auto;
+  width: 100%;
+}
+.main > .site-footer { margin-top: auto; }
+
+/* 演示账号横幅：全局只读提示，粘在内容区顶部 */
+.demo-banner {
+  display: flex; align-items: center; gap: 8px;
+  margin: -6px 0 16px; padding: 10px 14px;
+  border-radius: 10px; font-size: 13px; line-height: 1.5;
+  color: #9a6b00; background: #fff8e6; border: 1px solid #ffe1a6;
+}
+.demo-banner strong { color: #b45309; }
+.demo-banner .el-icon { flex-shrink: 0; font-size: 16px; color: #d97706; }
+html.dark .demo-banner { color: #f0c469; background: #2c2410; border-color: #5c4a1a; }
+html.dark .demo-banner strong { color: #fbbf24; }
+
+/* 通知铃铛 */
+.bell { padding: 7px; color: #6366f1; }
+.bell:hover { background: #eef2ff; }
+/* 夜间模式切换按钮 */
+.theme-toggle { padding: 7px; color: #6366f1; }
+.theme-toggle:hover { background: #eef2ff; }
+.theme-toggle .el-icon { display: inline-flex; }
+.theme-toggle.spinning .el-icon { animation: kb-theme-spin .46s ease; }
+@keyframes kb-theme-spin {
+  from { transform: rotate(-130deg) scale(.5); opacity: 0; }
+  to   { transform: rotate(0) scale(1); opacity: 1; }
+}
+html.dark .theme-toggle { color: #c7c8d4; }
+html.dark .theme-toggle:hover { background: #232347; }
+
+/* 命令面板入口：像搜索框一样安静，只在 hover/点击时给反馈 */
+.cmd-btn { height: 30px; padding: 0 10px; gap: 6px; color: #4e5969; font-size: 12.5px; border-radius: 999px; }
+.cmd-btn:hover { background: #f2f3f5; color: #1677ff; }
+.cmd-btn .el-icon { display: inline-flex; }
+.cmd-txt { line-height: 1; }
+.cmd-k { padding: 1px 5px; border: 1px solid #e5e6eb; border-radius: 4px; background: #fff; color: #86909c; font-size: 10.5px; line-height: 1.4; font-family: ui-monospace, monospace; }
+.cmd-btn:hover .cmd-k { border-color: #bedaff; color: #1677ff; }
+html.dark .cmd-btn { color: #a8a8b3; }
+html.dark .cmd-btn:hover { background: #2a2a35; color: #409eff; }
+html.dark .cmd-k { background: #23232e; border-color: #3a3a4a; color: #8b8b9a; }
+/* 窄屏把文字和快捷键收掉，只留放大镜图标 */
+@media (max-width: 720px) { .cmd-txt, .cmd-k { display: none; } }
+
+/* 帮助中心按钮 */
+.help-btn { padding: 7px; color: #6366f1; }
+.help-btn:hover { background: #eef2ff; }
+html.dark .help-btn { color: #c7c8d4; }
+html.dark .help-btn:hover { background: #232347; }
+/* 偏好设置齿轮：与帮助按钮同尺寸同色系，放在其左侧 */
+.pref-btn { padding: 7px; color: #64748b; }
+.pref-btn:hover { background: #f1f5f9; }
+html.dark .pref-btn { color: #c7c8d4; }
+html.dark .pref-btn:hover { background: #232347; }
+
+/* 帮助中心弹窗 */
+.help-wrap { display: flex; gap: 16px; height: 60vh; }
+.help-nav { width: 132px; flex-shrink: 0; overflow: auto; border-right: 1px solid #e2e8f0; padding-right: 8px; }
+.help-nav-item { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: #475569; font-size: 13px; transition: background-color .15s, color .15s; }
+.help-nav-item:hover { background: #f1f5f9; color: #4f46e5; }
+.help-nav-item.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+.help-content { flex: 1; overflow: auto; padding-right: 8px; line-height: 1.7; color: #334155; }
+.help-content h3 { margin: 4px 0 10px; color: #1e293b; font-size: 16px; }
+.help-content h4 { margin: 14px 0 6px; color: #334155; font-size: 14px; }
+.help-content p { margin: 6px 0; }
+.help-content ul { margin: 6px 0; padding-left: 20px; }
+.help-content li { margin: 4px 0; }
+.help-content code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.help-tip { font-size: 12px; color: #94a3b8; }
+html.dark .help-nav { border-right-color: #2a2a35; }
+html.dark .help-nav-item { color: #b7b8cd; }
+html.dark .help-nav-item:hover { background: #23234a; color: #a5b4fc; }
+html.dark .help-nav-item.active { background: #23234a; color: #a5b4fc; }
+html.dark .help-content { color: #c3c4d8; }
+html.dark .help-content h3, html.dark .help-content h4 { color: #e7e7ee; }
+html.dark .help-content code { background: #23234a; }
+
+/* ============================================================
+   响应式骨架
+   ≤1024：侧边栏从"占文档流"改为"覆盖式抽屉"，主内容占满整宽
+   ≤ 640：顶栏压缩、面包屑省略、帮助弹窗竖排
+   ============================================================ */
+.aside-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 1999; }
+
+@media (max-width: 1024px) {
+  .layout .aside {
+    position: fixed !important;
+    left: 0; top: 0; bottom: 0;
+    z-index: 2000;
+    transform: translateX(-100%);
+    transition: transform .26s cubic-bezier(.4, 0, .2, 1);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
+  }
+  .layout .aside.drawer-open { transform: translateX(0); }
+  .header { padding: 0 10px; }
+  .crumb { font-size: 15px; }
+}
+
+@media (max-width: 640px) {
+  .el-header.header { height: 52px; padding: 0 8px; }
+  .brand { font-size: 16px; padding: 12px 16px; }
+  .brand-ico { width: 30px; height: 30px; }
+  /* 面包屑：窄屏最多占 40% 宽，超出省略，别把右侧图标挤出去 */
+  .crumb {
+    font-size: 14px;
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .avatar { width: 30px; height: 30px; }
+  .bell, .theme-toggle, .help-btn { padding: 5px; }
+  /* 帮助中心：左侧导航改横向滚动条，正文在下 */
+  .help-wrap { flex-direction: column; gap: 10px; height: 56vh; }
+  .help-nav {
+    width: auto; flex: none; overflow-x: auto;
+    display: flex; gap: 6px;
+    border-right: none; padding: 0 0 8px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  html.dark .help-nav { border-bottom-color: #2a2a35; }
+  .help-nav-item { white-space: nowrap; }
+  .help-content { padding-right: 0; }
+}
+
+.menu-dot { margin-left: 5px; }
+.menu-dot :deep(.el-badge__content) { position: static; transform: none; display: inline-block; vertical-align: middle; }
