@@ -126,31 +126,37 @@ public class OrgService {
     private static final int MAX_DEPT_DEPTH = 5;
 
     /**
-     * 全部部门（按排序号升序），并注入展示用派生字段：
-     * directCount（直属人数）/ totalCount（含下级人数）/ path（层级路径）。
-     * 人数用一条 GROUP BY 聚合取回，避免逐部门查库。
-     */
-    /**
      * 批量导入用户用：一次查出全部启用部门，构建「名称 / 编码（归一化）→ 部门 id」索引。
-     * 同名部门不放进名称索引（避免误匹配），但编码仍可精确定位；停用部门不参与。
+     * 名称或编码出现重复时都不放进索引（避免误匹配、静默把用户分到任意一个部门），
+     * 调用方会把这种输入报成「部门不存在或已停用」，由管理员改用唯一标识；停用部门不参与。
      * 调用方在循环外取一次即可，避免逐行查库。
      */
     public Map<String, Long> departmentLookup() {
         Map<String, Long> byName = new LinkedHashMap<>();
+        Map<String, Long> byCode = new LinkedHashMap<>();
         Map<String, Long> out = new LinkedHashMap<>();
-        Set<String> ambiguous = new HashSet<>();
+        Set<String> ambiguousNames = new HashSet<>();
+        Set<String> ambiguousCodes = new HashSet<>();
         for (Department d : departmentRepo.findAllByOrderBySortOrderAsc()) {
             if (d.getId() == null || !"ACTIVE".equalsIgnoreCase(String.valueOf(d.getStatus()))) continue;
             String name = lookupKey(d.getName());
             String code = lookupKey(d.getCode());
             if (!name.isEmpty()) {
-                if (byName.containsKey(name)) ambiguous.add(name);
+                if (byName.containsKey(name)) ambiguousNames.add(name);
                 else byName.put(name, d.getId());
             }
-            if (!code.isEmpty()) out.put(code, d.getId());  // 编码优先
+            // Department.code 没有唯一约束，两个部门可能共用编码；重复时同样剔除，
+            // 否则导入会静默选 sortOrder 最后一个，用户被错分部门且没有任何提示
+            if (!code.isEmpty()) {
+                if (byCode.containsKey(code)) ambiguousCodes.add(code);
+                else byCode.put(code, d.getId());
+            }
+        }
+        for (Map.Entry<String, Long> e : byCode.entrySet()) {   // 编码优先
+            if (!ambiguousCodes.contains(e.getKey())) out.put(e.getKey(), e.getValue());
         }
         for (Map.Entry<String, Long> e : byName.entrySet()) {
-            if (!ambiguous.contains(e.getKey())) out.putIfAbsent(e.getKey(), e.getValue());
+            if (!ambiguousNames.contains(e.getKey())) out.putIfAbsent(e.getKey(), e.getValue());
         }
         return out;
     }
@@ -159,6 +165,12 @@ public class OrgService {
     public static String lookupKey(String raw) {
         return raw == null ? "" : raw.trim().toLowerCase(java.util.Locale.ROOT);
     }
+
+    /**
+     * 全部部门（按排序号升序），并注入展示用派生字段：
+     * directCount（直属人数）/ totalCount（含下级人数）/ path（层级路径）。
+     * 人数用一条 GROUP BY 聚合取回，避免逐部门查库。
+     */
 
     public List<Department> listDepartments() {
         List<Department> all = departmentRepo.findAllByOrderBySortOrderAsc();

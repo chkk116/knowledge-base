@@ -80,6 +80,19 @@ class OrgServiceTest {
     }
 
     @Test
+    @DisplayName("编码无唯一约束，重复编码也剔除，导入会明确报错而不是静默错分部门")
+    void duplicateCodeIsDropped() {
+        when(deps.findAllByOrderBySortOrderAsc()).thenReturn(List.of(
+                dept(1L, "研发一部", "RD", "ACTIVE"),
+                dept(2L, "研发二部", "rd", "ACTIVE")));
+
+        Map<String, Long> idx = svc.departmentLookup();
+        assertNull(idx.get("rd"), "两个部门共用编码时不能随便选一个");
+        assertEquals(1L, idx.get("研发一部"));
+        assertEquals(2L, idx.get("研发二部"));
+    }
+
+    @Test
     @DisplayName("编码与另一部门名称冲突时以编码为准")
     void codeTakesPrecedence() {
         when(deps.findAllByOrderBySortOrderAsc()).thenReturn(List.of(
