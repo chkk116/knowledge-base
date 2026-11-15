@@ -320,6 +320,8 @@ public class AdminUserController {
 
         List<Map<String, Object>> results = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
+        // 部门索引只查一次库：批量导入每行都可能有部门，逐行查会放大成 N 次查询
+        Map<String, Long> deptIndex = orgService.departmentLookup();
         int created = 0, skipped = 0, failed = 0;
 
         for (int i = 0; i < req.rows.size(); i++) {
@@ -343,6 +345,17 @@ public class AdminUserController {
                 if (!operatorAdmin && "ADMIN".equals(role)) {
                     throw new IllegalArgumentException("无权限创建管理员");
                 }
+                // 组织架构同步（手动一键通路）：导入行可填部门名称或部门编码，
+                // dryRun 也校验，避免「校验通过、实际导入却因部门找不到失败」
+                String dept = r.department == null ? "" : r.department.trim();
+                Long deptId = null;
+                if (!dept.isEmpty()) {
+                    deptId = deptIndex.get(OrgService.lookupKey(dept));
+                    if (deptId == null) {
+                        throw new IllegalArgumentException("部门不存在或已停用：" + dept + "（请填部门编码或已建好的部门名称）");
+                    }
+                    res.put("department", dept);
+                }
 
                 if (!dry) {
                     AdminService.CreateReq cr = new AdminService.CreateReq();
@@ -351,6 +364,7 @@ public class AdminUserController {
                     cr.displayName = r.displayName;
                     cr.email = r.email;
                     cr.role = role;
+                    cr.departmentId = deptId;
                     User u = svc.createUser(cr);
                     res.put("userId", u.getId());
                     spaceAccess.joinDefaultSpace(u.getId(), u.getUsername());
@@ -398,6 +412,7 @@ public class AdminUserController {
         public String email;
         public String password;
         public String role;
+        public String department;   // 部门名称或编码（可选，手动组织架构同步用）
     }
 
     private static String formatQuota(Long bytes) {

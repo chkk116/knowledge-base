@@ -102,7 +102,7 @@ export const aiCapabilities = () => api.get('/admin/ai/capabilities')
 export const saveAiCapabilities = (d) => api.put('/admin/ai/capabilities', d)
 
 // ---- 批量导入用户（USER_MANAGE）----
-// payload: { rows: [{username,displayName,email,password,role}], defaultPassword?, dryRun? }
+// payload: { rows: [{username,displayName,email,password,role,department}], defaultPassword?, dryRun? }
 // 返回 { dryRun,total,created,skipped,failed,results:[{line,username,status,message}] }
 export const importUsers = (payload) => api.post('/admin/users/import', payload, { timeout: 120000 })
 

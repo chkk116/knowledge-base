@@ -130,6 +130,36 @@ public class OrgService {
      * directCount（直属人数）/ totalCount（含下级人数）/ path（层级路径）。
      * 人数用一条 GROUP BY 聚合取回，避免逐部门查库。
      */
+    /**
+     * 批量导入用户用：一次查出全部启用部门，构建「名称 / 编码（归一化）→ 部门 id」索引。
+     * 同名部门不放进名称索引（避免误匹配），但编码仍可精确定位；停用部门不参与。
+     * 调用方在循环外取一次即可，避免逐行查库。
+     */
+    public Map<String, Long> departmentLookup() {
+        Map<String, Long> byName = new LinkedHashMap<>();
+        Map<String, Long> out = new LinkedHashMap<>();
+        Set<String> ambiguous = new HashSet<>();
+        for (Department d : departmentRepo.findAllByOrderBySortOrderAsc()) {
+            if (d.getId() == null || !"ACTIVE".equalsIgnoreCase(String.valueOf(d.getStatus()))) continue;
+            String name = lookupKey(d.getName());
+            String code = lookupKey(d.getCode());
+            if (!name.isEmpty()) {
+                if (byName.containsKey(name)) ambiguous.add(name);
+                else byName.put(name, d.getId());
+            }
+            if (!code.isEmpty()) out.put(code, d.getId());  // 编码优先
+        }
+        for (Map.Entry<String, Long> e : byName.entrySet()) {
+            if (!ambiguous.contains(e.getKey())) out.putIfAbsent(e.getKey(), e.getValue());
+        }
+        return out;
+    }
+
+    /** 部门名/编码与导入文件里的写法归一化：去首尾空白、忽略大小写 */
+    public static String lookupKey(String raw) {
+        return raw == null ? "" : raw.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
     public List<Department> listDepartments() {
         List<Department> all = departmentRepo.findAllByOrderBySortOrderAsc();
         Map<Long, Integer> direct = new LinkedHashMap<>();

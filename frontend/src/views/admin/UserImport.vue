@@ -54,6 +54,8 @@ async function onFile(e) {
       email: pick(r, ['邮箱', 'email', 'mail', '电子邮件']),
       password: pick(r, ['密码', 'password', 'pwd', '初始密码']),
       role: pick(r, ['角色', 'role']),
+      // 企微 / 钉钉 / 飞书导出的成员表常见部门列名，统一映射到部门名称或编码
+      department: pick(r, ['部门', '所属部门', '部门名称', '部门编码', 'department', 'dept']),
     })).filter((r) => r.username)
     if (!rows.value.length) ElMessage.warning('没有解析到有效行（至少要有「用户名」列）')
     else ElMessage.success(`已解析 ${rows.value.length} 行`)
@@ -87,7 +89,7 @@ async function run(dryRun) {
 }
 
 function downloadTemplate() {
-  const csv = '\uFEFF用户名,姓名,邮箱,密码,角色\nzhangsan,张三,zhangsan@example.com,Init@123456,USER\n'
+  const csv = '\uFEFF用户名,姓名,邮箱,密码,角色,部门\nzhangsan,张三,zhangsan@example.com,Init@123456,USER,\n'
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -132,7 +134,7 @@ const statusMeta = (s) => STATUS_META[s] || { text: s || '-', type: 'info' }
       <div class="row opts">
         <span class="lab">默认密码</span>
         <el-input v-model="defaultPwd" size="small" placeholder="留空则要求每行都填密码" style="max-width: 280px" show-password />
-        <span class="hint">列名需包含「用户名」，可选「姓名 / 邮箱 / 密码 / 角色」</span>
+        <span class="hint">列名需包含「用户名」，可选「姓名 / 邮箱 / 密码 / 角色 / 部门」；部门填系统里已建好的名称或编码</span>
       </div>
     </section>
 
@@ -152,6 +154,9 @@ const statusMeta = (s) => STATUS_META[s] || { text: s || '-', type: 'info' }
         </el-table-column>
         <el-table-column prop="role" label="角色" width="90">
           <template #default="{ row }">{{ row.role || 'USER' }}</template>
+        </el-table-column>
+        <el-table-column label="部门" min-width="110">
+          <template #default="{ row }">{{ row.department || '未分配' }}</template>
         </el-table-column>
       </el-table>
 
