@@ -20,7 +20,8 @@ const DEFAULT_NOTIFY = {
  * notify 可注入：移动端用 window.__kbMsg 轻量 toast，桌面端默认 Element Plus。
  */
 export function useAiFeedback({ notify } = {}) {
-  const toast = notify || DEFAULT_NOTIFY
+  // 与默认合并而非整体替换：调用方只注入部分处理器时另一个不至于是 undefined
+  const toast = { ...DEFAULT_NOTIFY, ...(notify || {}) }
   const fbBusy = reactive({})
 
   /** 赞/踩可随时切换或取消：再点一次同项 = 取消（rating 0），点另一项 = 改评；踩先展开原因面板 */
@@ -39,8 +40,9 @@ export function useAiFeedback({ notify } = {}) {
       await aiFeedback(m.qaId, rating, reason)
       m.fbRating = rating
       m.fbOpen = false
-      toast.success(RATING_COPY[rating] || RATING_COPY['-1'])
-    } catch {
+      toast.success(RATING_COPY[rating] || '反馈已记录')
+    } catch (e) {
+      console.warn('AI 反馈提交失败：', e)
       toast.error('反馈失败，请稍后重试')
     } finally {
       fbBusy[m.qaId] = false

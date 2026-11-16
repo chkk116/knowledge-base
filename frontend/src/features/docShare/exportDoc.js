@@ -13,21 +13,23 @@ export async function snapshotDiagramImages(editor) {
   const map = new Map()
   if (!root) return map
   const blocks = [...root.querySelectorAll(DIAGRAM_SEL)]
-  for (let i = 0; i < blocks.length; i++) {
+  const rendered = await Promise.all(blocks.map(async (el, i) => {
     try {
-      const dataUrl = await toSvg(blocks[i], { backgroundColor: '#ffffff', cacheBust: true })
-      if (dataUrl) map.set(i, dataUrl)
-    } catch {
-      // 单块失败不影响其它块，保留原 div
+      return await toSvg(el, { backgroundColor: '#ffffff', cacheBust: true })
+    } catch (e) {
+      // 单块失败不影响其它块，保留原 div；但失败要可诊断
+      console.warn('图块转图失败 #' + i + '：', e)
+      return null
     }
-  }
+  }))
+  rendered.forEach((dataUrl, i) => { if (dataUrl) map.set(i, dataUrl) })
   return map
 }
 
 export async function buildSnapshotHtml(editor) {
   const ed = editor
   if (!ed) return ''
-  const images = await snapshotDiagramImages()
+  const images = await snapshotDiagramImages(ed)
   const html = ed.getHTML()
   if (!images.size) return html
   const doc = new DOMParser().parseFromString(html, 'text/html')
@@ -52,8 +54,7 @@ function safeName(s) {
 // （图块专属文档的「转为普通文档」已移除：专属文档整篇就是一个图块，转完内容会丢；
 //   需要文字混排时直接新建普通文档插入图块即可）
 
-function download(filename, content, mime) {
-  const blob = new Blob([content], { type: mime + ';charset=utf-8' })
+function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -61,7 +62,12 @@ function download(filename, content, mime) {
   document.body.appendChild(a)
   a.click()
   a.remove()
-  URL.revokeObjectURL(url)
+  // 立刻 revoke 在部分浏览器会中断下载，延后一拍
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+function download(filename, content, mime) {
+  downloadBlob(filename, new Blob([content], { type: mime + ';charset=utf-8' }))
 }
 
 /** 纯前端 HTML -> Markdown（覆盖本编辑器所用元素，零依赖，避免沙箱装包） */
@@ -86,8 +92,8 @@ function htmlToMarkdown(html) {
       case 's': case 'del': return '~~' + txt() + '~~'
       case 'u': return txt() // Markdown 无下划线语义，保留文本
       case 'code': return '`' + txt() + '`'
-      case 'a': return '[' + txt() + '](' + (n.getAttribute('href') || '') + ')'
-      case 'img': return '![' + (n.getAttribute('alt') || '') + '](' + (n.getAttribute('src') || '') + ')'
+      case 'a': return '[' + txt() + '](' + safeUrl(n.getAttribute('href')) + ')'
+      case 'img': return '![' + (n.getAttribute('alt') || '') + '](' + safeUrl(n.getAttribute('src')) + ')'
       case 'span': case 'font': return txt() // 行内样式包裹，直接取文本
       default: return txt()
     }
@@ -102,7 +108,6 @@ function htmlToMarkdown(html) {
       }
       if (n.nodeType !== 1) return
       const tag = n.tagName.toLowerCase()
-      const child = () => walk(n, depth)
       if (tag === 'h1') md += '\n# ' + block(n) + '\n'
       else if (tag === 'h2') md += '\n## ' + block(n) + '\n'
       else if (tag === 'h3') md += '\n### ' + block(n) + '\n'
@@ -192,7 +197,7 @@ function htmlToAoa(html) {
     })
     return out
   }
-  const push = (v) => rows.push([v == null ? '' : String(v)])
+  const push = (v) => rows.push([(v === null || v === undefined) ? '' : String(v)])
   const walk = (node) => {
     node.childNodes.forEach((n) => {
       if (n.nodeType === 3) {
@@ -254,7 +259,7 @@ function aoaToSheetXml(aoa) {
     const rowNum = i + 1
     let cells = ''
     r.forEach((v, j) => {
-      const s = xmlEscape(v == null ? '' : String(v))
+      const s = xmlEscape((v === null || v === undefined) ? '' : String(v))
       cells += `<c r="${colLetter(j + 1)}${rowNum}" t="inlineStr"><is><t xml:space="preserve">${s}</t></is></c>`
     })
     body += `<row r="${rowNum}">${cells}</row>`
@@ -349,7 +354,6 @@ function zipStore(files) {
 }
 
 function exportXlsx(editor, docId) {
-  if (!editor) return
   const aoa = htmlToAoa(editor.getHTML())
   if (!aoa.length) { ElMessage.warning('文档为空，无可导出内容'); return }
   const enc = new TextEncoder()
@@ -360,31 +364,36 @@ function exportXlsx(editor, docId) {
     { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(XLSX_WORKBOOK_RELS) },
     { name: 'xl/worksheets/sheet1.xml', data: enc.encode(aoaToSheetXml(aoa)) },
   ])
-  const blob = new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = safeName(docId ? ('doc-' + docId) : 'shared-doc') + '.xlsx'
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  downloadBlob(safeName(docId ? ('doc-' + docId) : 'shared-doc') + '.xlsx',
+    new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
   ElMessage.success('已导出 Excel')
 }
 
+/** 导出 URL 清洗：拒绝 javascript: 协议，转义会破坏 Markdown 链接语法的括号与空白 */
+function safeUrl(u) {
+  const s = String(u || '')
+  if (/^\s*javascript:/i.test(s)) return ''
+  return s.replace(/[()\s]/g, (c) => encodeURIComponent(c))
+}
+
 export function exportDocument(command, editor, docId) {
-  if (!editor) return
-  const html = editor.getHTML()
-  const base = safeName(docId ? ('doc-' + docId) : 'shared-doc')
-  if (command === 'xlsx') { exportXlsx(); return }
-  if (command === 'html') {
-    const full = '<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><title>' + base +
-      '</title></head>\n<body>\n' + html + '\n</body>\n</html>'
-    download(base + '.html', full, 'text/html')
-    ElMessage.success('已导出 HTML')
-  } else {
-    download(base + '.md', htmlToMarkdown(html), 'text/markdown')
-    ElMessage.success('已导出 Markdown')
+  if (!editor) { ElMessage.warning('编辑器尚未就绪，稍后再试'); return }
+  try {
+    const html = editor.getHTML()
+    const base = safeName(docId ? ('doc-' + docId) : 'shared-doc')
+    if (command === 'xlsx') { exportXlsx(editor, docId); return }
+    if (command === 'html') {
+      const full = '<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><title>' + xmlEscape(base) +
+        '</title></head>\n<body>\n' + html + '\n</body>\n</html>'
+      download(base + '.html', full, 'text/html')
+      ElMessage.success('已导出 HTML')
+    } else {
+      download(base + '.md', htmlToMarkdown(html), 'text/markdown')
+      ElMessage.success('已导出 Markdown')
+    }
+  } catch (e) {
+    console.warn('导出失败：', e)
+    ElMessage.error('导出失败：' + ((e && e.message) || '未知错误'))
   }
 }
 

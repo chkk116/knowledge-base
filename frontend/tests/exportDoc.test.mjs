@@ -33,19 +33,22 @@ test('zipStore 产出合法 store 结构（local + central + EOCD）', () => {
     { name: 'a.txt', data },
     { name: 'b.xml', data: new Uint8Array([1, 2, 3]) },
   ])
-  const dv = new DataView(zip.buffer)
+  // 用带边界的视图，避免 byteOffset / 载荷里误含签名字节造成误读
+  const dv = new DataView(zip.buffer, zip.byteOffset, zip.byteLength)
   assert.equal(dv.getUint32(0, true), 0x04034b50, '第一个 local header 签名')
   assert.equal(dv.getUint16(8, true), 0, 'store 无压缩')
-  // EOCD 在末尾 22 字节
+  // EOCD 在末尾 22 字节；central directory 偏移与大小从 EOCD 里读
   const eocd = zip.length - 22
   assert.equal(dv.getUint32(eocd, true), 0x06054b50)
   assert.equal(dv.getUint16(eocd + 10, true), 2, '文件数')
-  // 两个 central directory header
+  const cdOffset = dv.getUint32(eocd + 16, true)
+  const cdSize = dv.getUint32(eocd + 12, true)
+  const cd = new DataView(zip.buffer, zip.byteOffset + cdOffset, cdSize)
   let found = 0
-  for (let i = 0; i < zip.length - 3; i++) {
-    if (dv.getUint32(i, true) === 0x02014b50) found++
+  for (let i = 0; i + 4 <= cd.byteLength; i++) {
+    if (cd.getUint32(i, true) === 0x02014b50) found++
   }
-  assert.equal(found, 2)
+  assert.equal(found, 2, 'central directory 里恰好两个 header')
 })
 
 test('aoaToSheetXml 生成 inlineStr 单元格与列宽', () => {
@@ -55,11 +58,13 @@ test('aoaToSheetXml 生成 inlineStr 单元格与列宽', () => {
   assert.ok(xml.includes('<t xml:space="preserve">标题</t>'))
   assert.ok(xml.includes('<c r="B2"'))
   assert.ok(xml.includes('customWidth="1"'), '列宽配置')
+  // 每个数组元素一行（前后空行的裁剪发生在 htmlToAoa 层）
+  assert.equal((xml.match(/<row /g) || []).length, 2)
 })
 
-test('表格行展开成多列，前后空行被裁掉', () => {
+test('aoaToSheetXml 保留空行占位（<row> 计数与元素一致）', () => {
   const xml = aoaToSheetXml([[], ['r1c1', 'r1c2'], []])
+  assert.equal((xml.match(/<row /g) || []).length, 3)
   assert.ok(xml.includes('r1c1'))
   assert.ok(xml.includes('r1c2'))
-  assert.ok(!xml.includes('A4'), '裁掉尾部空行后不应有第 4 行')
 })
