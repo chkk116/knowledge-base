@@ -126,6 +126,13 @@ public class UserAiModelService {
                     } catch (Exception ignore) { }
                 }
             }
+            // 字符串黑名单挡不住 DNS 指向内网的域名（攻击者可控解析）：
+            // 必须解析所有 A/AAAA 记录，逐条判定，与 WebClipService 的公开主机校验同口径
+            for (java.net.InetAddress a : java.net.InetAddress.getAllByName(host)) {
+                if (a.isAnyLocalAddress() || a.isLoopbackAddress() || a.isLinkLocalAddress()
+                        || a.isSiteLocalAddress() || a.isMulticastAddress()) return false;
+                if (a instanceof java.net.Inet6Address && (a.getAddress()[0] & 0xFE) == 0xFC) return false; // fc00::/7
+            }
             return true;
         } catch (Exception e) {
             return false;

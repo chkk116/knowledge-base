@@ -418,7 +418,16 @@ public class RagService {
         if (ragIndex != null && ragIndex.isEnabled()) {
             try {
                 List<Map<String, Object>> v = ragIndex.search(q, TOP_K);
-                if (!v.isEmpty()) return v;
+                if (!v.isEmpty()) {
+                    // 与 Meili 路径同口径（F10）：Embedding 停用期间下架文章的旧向量仍留在索引里，
+                    // 送入模型前必须按数据库当前状态复核 PUBLISHED，否则 AI 会引用已下架内容
+                    Set<Long> ids = SearchVisibility.extractIds(v);
+                    Set<Long> visible = ids.isEmpty() ? Set.of()
+                            : repository.findByStatusAndIdIn("PUBLISHED", new ArrayList<>(ids)).stream()
+                                .map(Document::getId).collect(java.util.stream.Collectors.toSet());
+                    List<Map<String, Object>> picked = SearchVisibility.filterVisible(v, visible, TOP_K);
+                    if (!picked.isEmpty()) return picked;
+                }
             } catch (Exception e) {
                 log.warn("向量检索失败，回退全文检索: {}", e.getMessage());
             }

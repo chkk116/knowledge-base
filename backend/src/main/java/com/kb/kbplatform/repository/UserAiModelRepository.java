@@ -18,6 +18,9 @@ public interface UserAiModelRepository extends JpaRepository<UserAiModel, Long> 
 
     List<UserAiModel> findByUserIdAndEnabledTrueOrderBySortOrderAscIdAsc(Long userId);
 
+    /** 是否存在任意启用的用户私有模型（AI 可用性判断用） */
+    long countByEnabledTrue();
+
     /** 归属校验：只能取到自己的行 */
     Optional<UserAiModel> findByIdAndUserId(Long id, Long userId);
 

@@ -176,8 +176,8 @@ const qrItems = ref([])
 onMounted(loadSsoOptions)
 onMounted(async () => {
   startParticles()
-  let wxUrl = 'https://www.example.com/wx-miniapp'
-  let supportUrl = 'https://www.example.com/support'
+  let wxUrl = ''   // 未配置时不展示假二维码（原来是 example.com，扫码跳到无关站点）
+  let supportUrl = ''
   let items = null
   try {
     const { data } = await fetch(resolveUrl('/api/public/login-config')).then(r => r.json()).then(d => ({ data: d }))
@@ -198,7 +198,7 @@ onMounted(async () => {
         { label: '技术支持', content: supportUrl, image: supportImage.value },
       ]
   for (const it of list) {
-    if (!it.label && !it.content && !it.image) continue
+    if (!it.image && !it.content) continue   // 没有任何可扫码内容的项不渲染
     if (!it.image && it.content) {
       try { it.svg = await QRCode.toString(it.content, opt) } catch (e2) { it.svg = '' }
     }

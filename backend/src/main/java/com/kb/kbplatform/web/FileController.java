@@ -7,6 +7,7 @@ package com.kb.kbplatform.web;
 
 import com.kb.kbplatform.domain.UploadedFile;
 import com.kb.kbplatform.repository.DocumentRepository;
+import com.kb.kbplatform.repository.SharedDocumentRepository;
 import com.kb.kbplatform.repository.UploadedFileRepository;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.DocShareService;
@@ -34,13 +35,15 @@ public class FileController {
     private final UploadedFileRepository fileRepo;
     private final DocumentRepository docRepo;
     private final DocShareService docShare;
+    private final SharedDocumentRepository sharedDocRepo;
 
     public FileController(FileService svc, UploadedFileRepository fileRepo, DocumentRepository docRepo,
-                          DocShareService docShare) {
+                          DocShareService docShare, SharedDocumentRepository sharedDocRepo) {
         this.svc = svc;
         this.fileRepo = fileRepo;
         this.docRepo = docRepo;
         this.docShare = docShare;
+        this.sharedDocRepo = sharedDocRepo;
     }
 
     /**
@@ -150,7 +153,8 @@ public class FileController {
         }
         // 定向 LIKE 查询替代 findAllContents 全量载入内存（2026-10-13 审查 M8，同 C4）
         boolean referenced = f.getUrl() != null
-                && docRepo.countContentLike("%" + f.getUrl() + "%") > 0;
+                && (docRepo.countContentLike("%" + f.getUrl() + "%") > 0
+                    || sharedDocRepo.countContentLike("%" + f.getUrl() + "%") > 0);
         if (!referenced) {
             try {
                 svc.deleteByUrl(f.getUrl());

@@ -87,7 +87,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException e) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("error", e.getMessage() == null ? "操作失败" : e.getMessage());
+        String msg = e.getMessage();
+        // 业务 friendly 文案照常返回；带类名 / SQL / 堆栈特征的内部细节一律不外泄，服务端记日志
+        boolean safe = msg != null && !msg.isBlank() && msg.length() < 200
+                && !msg.contains("org.") && !msg.contains("Exception") && !msg.contains("Caused by")
+                && !msg.contains("SQL") && !msg.contains(" at ");
+        if (!safe && msg != null) log.warn("内部异常细节已对客户端隐藏", e);
+        body.put("error", safe ? msg : "操作失败，请稍后重试");
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 

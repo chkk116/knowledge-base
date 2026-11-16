@@ -98,7 +98,7 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 
 ### 文档与知识
 - **文章 / 文档**：CRUD、分类标签、附件、回收站、版本历史、DOCX 导入、导出
-- **全文搜索**：Meilisearch 毫秒级检索 + MySQL LIKE 自动降级，索引与数据库可见性双向核对
+- **全文搜索**：Meilisearch 毫秒级检索 + PostgreSQL LIKE 自动降级，索引与数据库可见性双向核对
 - **实时协同编辑**：Tiptap + Yjs + Hocuspocus，多人同编、离线恢复；文档内嵌思维导图（mind-elixir，协同编辑锁）
 - **共享文档**：文档级细粒度权限（可读 / 可编 / 可管理）、团队空间、扩容审批；**新人默认空间**（在场景模板里指定，新账号建成即自动以只读成员加入，不用一个个拉人）与**邀请链接**（管理员在成员管理里生成 `/join/<token>`，对方登录后自行加入，权限固定只读；可设有效期与人数上限、随时撤销、重新生成即让旧链接失效）
 - **待整理箱**：分享 / 扫描 / 速记先「收进来」，之后集中补标题、选空间归档；文档库入口带未整理数角标
@@ -217,9 +217,9 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 | 层 | 技术 |
 |---|---|
 | 前端 | Vue 3（`<script setup>`）· Vite · Pinia · Vue Router · Element Plus（按需引入）· wangEditor / Tiptap |
-| 后端 | Spring Boot 4（Java 21）模块化单体 · Spring Data JPA · **PostgreSQL 18**（兼容 MySQL 8，双驱动） |
+| 后端 | Spring Boot 4（Java 21）模块化单体 · Spring Data JPA · **PostgreSQL 18 专用**（共享文档 bytea 与协同中继依赖 PG 语义） |
 | 实时协同 | Tiptap + Yjs · Hocuspocus 中继（`collab-relay/`，Node + pg，与后端共用 PostgreSQL） |
-| 搜索 | Meilisearch（可选，`docker-compose.yml`）· MySQL LIKE 降级兜底 |
+| 搜索 | Meilisearch（可选，`docker-compose.yml`）· PostgreSQL LIKE 降级兜底 |
 | AI | 标准 OpenAI 协议（`/chat/completions`）+ 自定义模型配置，RAG 检索增强 |
 | 桌面端（归档兼容） | Electron 33：纯 Node 本地托管 + 反代后端，零框架改动套壳，不再同步新 UI |
 | 原生桌面端（主推） | Kotlin 2.4.20 + Compose Multiplatform 1.13.0（Windows）：原生侧栏 / 文章阅读 / 应用内更新，单文件安装包交付 |
@@ -307,7 +307,7 @@ CREATE DATABASE kb OWNER kb;
 业务表由 JPA（`ddl-auto: update`）**自动创建，无需手动导表**——`update` 模式「只增不删不改」：已有表不重建、已有数据不覆盖，新版加字段时仅自动补列，升级安全。
 `db/*.sql` 为结构约束与数据迁移增量脚本；内置测试账号与示例文档仅在**库为空时**自动插入，已有数据不受影响。
 连接信息在 [`backend/src/main/resources/application.yml`](backend/src/main/resources/application.yml) 的 `spring.datasource` 段（约第 15~18 行），改完保存重启后端即可。
-切回 MySQL：同文件里注释掉 PostgreSQL 四行、启用文件末尾的 MySQL 数据源配置（双驱动均已引入）。
+数据库为 PostgreSQL 专用：共享文档的 `bytea` 字段与协同中继（Yjs 快照）都依赖 PG 语义，**不支持切换到 MySQL**；源码里的 MySQL 历史脚本仅作迁移参考，不要在新环境启用。
 
 ### 2. 启动后端
 

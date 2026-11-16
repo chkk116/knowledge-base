@@ -23,6 +23,10 @@ public final class ClientIp {
 
     public static String resolve(HttpServletRequest req) {
         if (req == null) return null;
+        String remote = req.getRemoteAddr();
+        // 只有直连来自本机（生产 nginx 与后端同机）或显式配置的可信代理时才接受 IP 头；
+        // 直连后端时 XFF / X-Real-IP 是客户端可伪造的，无条件信任会让 IP 锁定形同虚设。
+        if (!isTrustedProxy(remote)) return remote;
         String real = req.getHeader("X-Real-IP");
         if (real != null && !real.isBlank()) return real.trim();
         String xff = req.getHeader("X-Forwarded-For");
@@ -30,6 +34,18 @@ public final class ClientIp {
             int i = xff.indexOf(',');
             return (i > 0 ? xff.substring(0, i) : xff).trim();
         }
-        return req.getRemoteAddr();
+        return remote;
+    }
+
+    private static boolean isTrustedProxy(String remote) {
+        if (remote == null || remote.isBlank()) return false;
+        if (remote.equals("127.0.0.1") || remote.equals("0:0:0:0:0:0:0:1")
+                || remote.equals("::1") || remote.startsWith("127.")) return true;
+        String configured = System.getenv("KB_TRUSTED_PROXIES");   // 逗号分隔的代理 IP 白名单
+        if (configured == null || configured.isBlank()) return false;
+        for (String ip : configured.split(",")) {
+            if (remote.equals(ip.trim())) return true;
+        }
+        return false;
     }
 }

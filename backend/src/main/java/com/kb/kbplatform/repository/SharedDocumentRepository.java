@@ -17,6 +17,10 @@ public interface SharedDocumentRepository extends JpaRepository<SharedDocument, 
 
     List<SharedDocument> findByShareIdOrderByUpdatedAtDesc(Long shareId);
 
+    /** 删除个人文件前检查是否被共享文档正文引用（ZIP 导入的图片也在其中） */
+    @org.springframework.data.jpa.repository.Query("select count(s) from SharedDocument s where s.content like :pattern")
+    long countContentLike(@org.springframework.data.repository.query.Param("pattern") String pattern);
+
     Optional<SharedDocument> findByIdAndShareId(Long id, Long shareId);
 
     /** 外部分享：按公开令牌查文档（免登录只读） */

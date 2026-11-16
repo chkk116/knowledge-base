@@ -87,7 +87,7 @@ html, body { margin: 0; padding: 0; }
 body.kb-mobile-body {
   background: var(--m-bg);
   color: var(--m-text);
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji",
                "Microsoft YaHei", system-ui, sans-serif;
   font-size: 15px;
   line-height: 1.55;

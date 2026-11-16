@@ -1,4 +1,4 @@
-body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+body { margin: 0; background: #f8fafc; font-family: system-ui, "PingFang SC", "Microsoft YaHei", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif; }
 /* 头像下拉菜单：Element Plus 的 dropdown 是 teleport 到 body 的，
    scoped 样式选不中，必须放全局。限宽 + 允许换行，防止长昵称/权限把菜单撑开
    （原来权限全列出来会撑到 355px ≈ 屏幕 1/4）。 */

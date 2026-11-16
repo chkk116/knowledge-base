@@ -109,7 +109,12 @@ public class CaptchaService {
     public Map<String, Object> generate() {
         long now = System.currentTimeMillis();
         store.entrySet().removeIf(en -> en.getValue().expireAt < now); // 顺带清理过期
-        ipStats.entrySet().removeIf(en -> en.getValue().lockUntil < now); // 顺带清理过期 IP 统计
+        // 只清理「既未锁定、窗口也已过期」的统计。原来按 lockUntil<now 清理，
+        // 未锁定 IP 的 lockUntil 恒为 0，每次取新验证码都会把失败计数清掉 → 锁定永远凑不满。
+        ipStats.entrySet().removeIf(en -> {
+            IpStat s = en.getValue();
+            return s.lockUntil < now && now - s.windowStart > IP_LOCK_MILLIS;
+        });
         if (store.size() >= MAX_STORE || ipStats.size() >= MAX_IP_STATS) {
             throw new com.kb.kbplatform.service.BizException("验证码服务繁忙，请稍后再试");
         }

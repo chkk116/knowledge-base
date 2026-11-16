@@ -103,7 +103,9 @@ public class AiModelClient {
 
     /** 是否至少配置了一个可用模型（RagService 据此判断 AI 是否可用） */
     public boolean hasAvailable() {
-        return !repo.findByEnabledTrueOrderBySortOrderAscIdAsc().isEmpty();
+        // 用户私有模型也算可用：只配了私有模型时不能把 AI 判成不可用
+        return !repo.findByEnabledTrueOrderBySortOrderAscIdAsc().isEmpty()
+                || userModelRepo.countByEnabledTrue() > 0;
     }
 
     /**
