@@ -6,7 +6,7 @@
 
 - 登录窗：账号密码 + 滑块验证码，与 Web 端同一套接口
   （`GET /api/auth/captcha` → `POST /api/auth/captcha/slide` → `POST /api/auth/login`）
-- 主窗：左侧原生侧栏（首页/文章/AI 问答/我的文件/设置）+ WPS 风白底卡内容区
+- 主窗：左侧原生侧栏（首页/文章/共享空间/培训/考试/AI 问答/我的文件/管理/设置）+ WPS 风白底卡内容区
 - 窗口：登录初始 960×640（下限 640×540）/ 主界面 1280×800（下限 960×620）；窗口 <880dp 时侧栏收成图标栏
 - **登录页**：左品牌渐变栏（黛青 + 月白 + 金点缀，产品名 / 卖点）+ 右表单；品牌瓦片 →「欢迎回来」→ 无标签大输入框
   （44 高/10 圆角/聚焦品牌描边）→ 墨色实心按钮；autofocus、Enter 提交、用户名预填上次账号；
@@ -85,6 +85,105 @@
 - **未完成**：Agent 步骤「执行中展开」状态未截到图（mock 收尾延时窗口期没卡准，逻辑为
   `remember(streaming, steps.size)` 跑时展开、完成收起）；本包未打包未部署；评论楼中楼回复（发言带 parentId）
   桌面端只展示不发回复；文章页「订阅/相关文档/作者卡片/Word 导出」Web 端能力未移植。
+
+### 1.1.2：首页工作台 / 文章搜索 / 文章页补齐 / 共享空间 / 培训考试 / 我的订阅（已打包安装，2026-11-16）
+
+- **首页从「开发者自述」改为真实工作台**：时段问候 + 概览统计（`GET /api/docs/overview`：
+  已发布文章 / 本周新增 / 在册成员，管理员额外显示待审核）+ 公告卡（`GET /api/announcements`，
+  置顶用暖黄提醒、普通通知白底，最多两条）+「最近更新」列表（`GET /api/docs?size=6&sort=latest`，
+  点击直接打开文章）+ 三个快捷入口（问 AI / 全部文章 / 我的文件）；各块独立降级，
+  任一块取不到都不拖垮整页（不弹错、只留空）。
+- **文章列表原生搜索**：搜索框输入即搜（350ms 防抖，`GET /api/search?q=`），清空即回服务端分页列表；
+  新增「最新 / 最热」排序切换（`sort=latest|hot`）；搜索结果不显示 0 浏览量，
+  标题右侧计数在搜索时切换为结果条数。
+- **我的订阅列表**：文章列表面板顶部「全部 / 订阅」切换；订阅模式走
+  `GET /api/docs/subscriptions`（标题/分类/订阅时间），文档已删除的条目由后端给占位标题并标
+  `deleted=true` → 整行置灰、不可点击；订阅模式隐藏搜索与排序（列表短，避免误导）；
+  点击条目直接打开对应文章详情（复用文章阅读页）。
+- **文章页补齐 Web 端四项能力**：
+  - **订阅**：左侧操作栏「🔔 订阅 / 已订阅 + 订阅人数」；`GET /api/docs/{id}/subscribed` 初始化，
+    `POST/DELETE /api/docs/{id}/subscribe` 切换，乐观更新失败回滚，提示与 Web 端同文案。
+  - **相关阅读**：正文之后、评论区之前最多 4 条（`GET /api/docs/{id}/related?limit=4`，点击打开）；
+    渲染在「评论区那个 item」内部，保持 `头部 item + 正文块 + 评论` 的固定索引不被撑坏。
+  - **作者卡片**：标题下方紧凑卡（`GET /api/users/{id}/card`）：头像首字、昵称、徽章、入驻年数、
+    原创/获赞/粉丝/积分，右侧「+ 关注 / 已关注」（`POST/DELETE /api/users/{id}/follow`）；
+    接口失败整卡不显示，不影响正文。
+  - **Word 导出**：操作栏「⇩ 导出」，`GET /api/docs/{id}/export?format=word` 取后端 HTML 封装，
+    落盘到临时目录同名 `.doc` 后交给系统默认程序（Word/WPS）打开；打不开时提示落盘绝对路径；
+    无 `DOC_EXPORT` 权限时如实显示后端 403 文案（不吞成「导出失败」）。
+- **共享空间（只读首版）**：侧栏新增「共享空间」，三列结构（我的空间 150dp → 空间内文档 204dp → 阅读区自适应）：
+  `GET /api/doc-shares/my` 列空间、`GET /api/doc-shares/{id}/docs` 列文档（标题/作者/更新时间/占用字节）、
+  `GET /api/doc-shares/{id}/docs/{docId}` 取正文后交给 `DocHtml` 原生渲染（标题/标签/我的权限/正文）；
+  「在 Web 端打开」直达 `/doc-shares/{id}?doc={docId}`。
+  **空间内检索与排序**：文档列表按标题/标签本地过滤（复用文章页的自绘搜索框，`SearchBox` 提为 internal），
+  排序支持「最近更新 / 标题」，文档数随过滤结果变化；无匹配显示「没有匹配的文档」。
+  ⚠️ **协同正文（2026-11-16 起本地解析）**：`GET /api/doc-shares/{id}/docs/{docId}/yjs` 下发
+  `yjs_state`（base64；超 8MB 不下发，返回 `state=null` + `tooLarge`），桌面端用
+  **`net.carcdr:ycrdt-core` / `ycrdt-jni` 0.3.0**（Yrs 的 Java 绑定，Apache-2.0，jar 内含
+  windows/linux/macos 原生库）在本地还原成 HTML 再交给 `DocHtml`：
+  - 结构：`Y.XmlFragment("default")` → `doc` → paragraph / heading(level) / bulletList / listItem /
+    codeBlock / blockquote / table / image；行内格式在 **`YXmlText.getFormattingChunks()` 的 attrs**
+    （bold / italic / strike / underline / code / link）——**不能 `toString()`**，它会把 marks 输出成
+    `<bold>` 伪标签（已验证踩坑）。
+  - 来源标注：解析成功显示「协同实时」（relay 每 **5s** 落库一次，`COLLAB_SAVE_INTERVAL`），
+    否则显示「快照」并回退 `content`。
+  - TipTap 自定义块（流程图/导图/表格块）原生端画不了 → 渲染「请在 Web 端查看」提示，不静默丢内容。
+  - **生效条件**：后端新接口要部署（jar）+ 桌面端 1.1.3 起；旧后端配新客户端会自动回退快照。
+- **管理模块（2026-11-16，日常运维闭环）**：侧栏「管理」进二级导航，7 个页签，权限全部由后端判定
+  （ADMIN 或细粒度码），403 文案原样透出；列表统一取第一页 50 条（不做翻页）：
+  - **审核队列**（`DOC_REVIEW`）：`GET /api/admin/docs/pending` + 通过（`POST /{id}/approve`）/
+    驳回（`POST /{id}/reject`，理由必填且作者可见，行内输入框，二次确认式布局）。
+  - **用户**（`USER_MANAGE`）：`GET /api/admin/users?keyword=` + 搜索 + 启用/禁用（`POST /{id}/toggle`）。
+    **改角色 / 重置密码 / 调积分不做**（`PUT /{id}` 的字段语义会误清其它字段，风险不值），界面明确提示回 Web。
+  - **部门**（`USER_MANAGE`）：`GET /api/admin/departments` 扁平列表 → 前端按 parentId 组树（防环、孤儿兜底），只读。
+  - **公告**（`ANNOUNCEMENT_MANAGE`）：列表 + 新建（标题/内容/置顶）+ 置顶切换（`POST /{id}/pin`）+
+    启用切换（`POST /{id}/enable`）；正文编辑回 Web（避免 PUT 全量覆盖）。
+  - **看板**（`STATS_VIEW`）：`GET /api/admin/stats` 键值平铺，按中文标签映射成卡片。
+  - **操作审计**（`AUDIT_VIEW`）/ **登录日志**（`LOGIN_LOG_VIEW`）：只读列表（最近 50 条）。
+  - **阅卷**（`EXAM_MANAGE`）：待阅列表（`GET /api/admin/exams/grading/pending`，显示当前分/待阅题数）→
+    逐题卡（题干与学生答案剥 HTML 显示，`pending=true` 的主观题填分数+评语，客观题只显示已评）→
+    `POST /api/admin/exams/grading/{recordId}` 提交；分数校验 0~满分。
+  - **举报**（`CORE_MAINTAIN`）：`GET /api/admin/reports?status=`（全部/待处理/已处理/已驳回）+
+    处理（`PUT /{id}` status=HANDLED|REJECTED + 备注）。
+  - **违禁词**（`BANNED_WORDS_MANAGE`）：左侧词库（内置标记 + 启用状态，可新建/启停）→ 右侧词条
+    （`GET /api/admin/banned-words?libraryId=`）本地搜索、批量添加（逗号/换行分隔）、逐条删除（二次确认）。
+  - **孤儿附件**（仅 ADMIN）：`GET /api/admin/files/orphans`（正文与头像都未引用的上传文件）+ 逐个删除
+    （`DELETE /api/admin/files/orphan?url=`，二次确认；界面标红提示不可恢复）。
+  - **分类标签**（`TAXONOMY_MANAGE`）：分类树（`GET /api/categories` 递归 children，左列缩进展示）+
+    加根/加子类/重命名/删除（`POST|PUT|DELETE /api/admin/categories`，有子类时后端拒绝，文案透出）；
+    标签（`GET /api/tags` 带文章计数）+ 搜索/新增/删除（`/api/admin/tags`）。
+  - **回收站**（`POST_MANAGE`）：`GET /api/admin/docs/recycle` + 恢复（`POST /{id}/restore`）；
+    彻底删除与批量操作留 Web（不可逆）。
+  - **代码组织**：外壳与小件在 `AdminPanel.kt`（204 行），模块按域拆分——
+    `AdminReviewPanel.kt`（审核/阅卷/举报）、`AdminPeoplePanel.kt`（用户/部门）、
+    `AdminContentPanel.kt`（公告/违禁词/孤儿附件）、`AdminTaxonomyPanel.kt`（分类标签）、
+    `AdminDocPanel.kt`（回收站）、`AdminInsightPanel.kt`（看板/审计/登录日志）。
+- **培训 / 考试（浏览与进度）**：
+  - 培训：`GET /api/courses`（分类 chips 横向滚动，`/categories` 取分类）→ 课程列表；
+    中列显示 `GET /api/courses/{id}` 的章节与 `GET /api/courses/{id}/progress` 的完成状态
+    （「已完成 1 / 3」+ 进度条 + 章节勾选）；右列用 `DocHtml` 渲染章节正文，未完成时「标记完成」、
+    已完成时「✓ 已完成」+「重置进度」（`POST /api/courses/{id}/chapters/{cid}/finish|reset`）。
+  - 考试：`GET /api/exams` 列表（题数 / 限时 / 及格线）+ 详情（描述 + 四个指标卡 + 我的成绩
+    `GET /api/exams/mine` 按 paperId 过滤：分数/通过/待阅卷/时间/题数）。
+  - ⚠️ **在线作答与练习仍回 Web 端**（限时、服务端会话、判分链路都在 Web + 服务端），
+    面板里明确写出这一点，不提供半吊子的作答入口。
+- **顺带修**：文章头部元信息由单行改两行（分类/标签一行；作者 / 更新时间 / 浏览 / 状态一行），
+  原单行在窄中栏会把浏览数挤出可视区。
+- **本轮复核加固**：管理面板的未知 tab 不再静默落到登录日志；状态 chip 超长显示省略号；
+  后端 403 原文可点开看全（不再悄悄截断）；禁用按钮有独立灰底；时间列只解析标准 ISO，
+  其它格式原样展示；清掉未使用的 import。
+- 验证：`compileKotlin` 通过；本地 mock（`%TEMP%\codearts\mock-kb.cjs`，18081）+ 临时桩
+  （`KB_SMOKE_MAIN=1` / `KB_PANEL=docs|shares` / `KB_AUTOSEARCH` / `KB_AUTODOC` / `KB_SCROLL_END`）截图确认：
+  首页四张统计卡 + 两条公告 + 最近更新；文章页搜索「产品」；文章页操作栏五个按钮、作者卡片、
+  相关阅读 4 条与评论区；共享空间三列（空间列表 / 文档列表 / 正文渲染）在 960×640 下无溢出、
+  元信息两行完整；培训三列（课程 / 章节 + 进度 / 章节正文）与考试页（试卷 / 指标卡 / 我的成绩）
+  布局正常；桩已全部还原，`KB_SMOKE` 冒烟 exit 0。
+- 遗留（未做）：在线作答与练习、管理页的重配置项（用户改角色/重置密码/调积分、部门增删改、公告正文编辑、外观/SSO/AI 模型等）均走 Web。协同实时正文代码已完成，待部署后端 + 打 1.1.3 生效。
+- **打包记录（2026-11-16）**：`gradle packageInnoSetup -PKB_DESKTOP_SERVER=https://your-domain.example`
+  → `C:/chkk/tools/kbbuild/native/inno/kb-desktop-1.1.2-setup.exe`（55.8 MB）；
+  app-image 内 `kb-desktop-native-*.jar!/kb-default-server.txt` 已核对为注入地址；
+  本机 `/VERYSILENT` 覆盖安装后 exe 与 ARP 均为 1.1.2，`KB_SMOKE=1` 启动 exit 0。
+  **未上传服务器、未更新 `app_version_desktop`** → 线上已装 1.1.1 的用户还收不到更新提示。
 
 ## 更新渠道
 

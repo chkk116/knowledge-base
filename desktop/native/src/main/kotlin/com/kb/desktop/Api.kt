@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -135,6 +136,244 @@ data class AgentDoc(val id: Long, val title: String, val snippet: String)
 
 /** Agent 工具用的共享空间项（流程图要落进共享文档的画布）。 */
 data class AgentSpace(val id: Long, val name: String, val type: String)
+
+/** 作者小卡片（GET /api/users/{id}/card，公开字段，不含登录名）。 */
+data class AuthorCard(
+    val id: Long,
+    val displayName: String,
+    val bio: String,
+    val codingAge: Int,
+    val original: Long,
+    val likes: Long,
+    val fans: Long,
+    val points: Long,
+    val displayBadge: String?,
+    val isFollowing: Boolean,
+)
+
+/** 共享空间里的一篇文档。列表接口不带 content，详情接口带 HTML 快照（协同实时正文在 yjs_state，客户端只读快照）。 */
+data class SharedDocItem(
+    val id: Long,
+    val title: String,
+    val ownerName: String,
+    val updatedAt: String,
+    val tags: String?,
+    val contentType: String?,
+    val myPerm: String?,
+    val size: Long,
+    val content: String?,
+)
+
+/** 课程（GET /api/courses；详情接口另带 chapters）。content/summary 均为净化后的 HTML。 */
+data class CourseItem(
+    val id: Long,
+    val title: String,
+    val summary: String,
+    val category: String?,
+    val ownerName: String?,
+    val tags: String?,
+    val examPaperId: Long?,
+)
+
+/** 课程章节（content 是后端净化过的 HTML，交给 DocHtml 渲染）。 */
+data class ChapterItem(
+    val id: Long,
+    val title: String,
+    val content: String,
+    val articleId: Long?,
+)
+
+/** GET /api/courses/{id} → {course, chapters} */
+data class CourseDetail(val course: CourseItem, val chapters: List<ChapterItem>)
+
+/** 章节完成状态（GET /api/courses/{id}/progress）。 */
+data class ChapterProgress(val chapterId: Long, val title: String, val finished: Boolean)
+
+/** 试卷（GET /api/exams；questionCount 由后端 @Transient 回填）。 */
+data class ExamPaperItem(
+    val id: Long,
+    val title: String,
+    val description: String,
+    val questionCount: Int,
+    val totalScore: Int,
+    val passScore: Int,
+    val durationMin: Int,
+    val status: String,
+    val practiceEnabled: Boolean,
+)
+
+/** 我的考试记录（GET /api/exams/mine）。 */
+data class ExamRecordItem(
+    val id: Long,
+    val paperId: Long,
+    val paperTitle: String,
+    val score: Int,
+    val passed: Boolean,
+    val submittedAt: String,
+    val pendingCount: Int,
+    val questionCount: Int,
+)
+
+/** 协同正文（GET /api/doc-shares/{sid}/docs/{docId}/yjs）：base64 的 Yjs 状态，客户端本地解析渲染。 */
+data class ShareYjs(
+    val state: String?,
+    val yjsRev: Long,
+    val updatedAt: String,
+    val tooLarge: Boolean,
+)
+
+/** 管理：分类树节点（GET /api/categories，children 递归） */
+data class CatItem(
+    val id: Long,
+    val name: String,
+    val parentId: Long?,
+    val sortOrder: Int,
+    val children: List<CatItem>,
+)
+
+/** 管理：标签（带文章计数，GET /api/tags） */
+data class TagItem(val id: Long, val name: String, val count: Long)
+
+/** 管理：违禁词库 */
+data class BannedLibItem(
+    val id: Long,
+    val name: String,
+    val description: String,
+    val enabled: Boolean,
+    val builtin: Boolean,
+)
+
+/** 管理：违禁词条 */
+data class BannedWordItem(val id: Long, val word: String, val libraryId: Long?)
+
+/** 管理：孤儿附件（正文/头像未引用的上传文件） */
+data class OrphanFileItem(val url: String, val size: Long?)
+
+/** 管理：待阅卷记录（一场考试一条） */
+data class GradingPendingItem(
+    val recordId: Long,
+    val user: String,
+    val paperTitle: String,
+    val score: Int,
+    val pendingCount: Int,
+    val submittedAt: String,
+)
+
+/** 管理：阅卷题目（主观题 pending=true 才需要打分） */
+data class GradingQuestion(
+    val questionId: Long,
+    val type: String,
+    val content: String,
+    val userAnswer: String,
+    val pending: Boolean,
+    val score: Int,
+    val maxScore: Int,
+    val comment: String,
+)
+
+/** 管理：一场考试的阅卷详情 */
+data class GradingDetail(val recordId: Long, val items: List<GradingQuestion>)
+
+/** 管理：举报/反馈 */
+data class ReportItem(
+    val id: Long,
+    val targetType: String,
+    val targetId: Long?,
+    val reason: String,
+    val detail: String,
+    val status: String,
+    val createdAt: String,
+)
+
+/** 管理：待审核文章 / 待审核数量卡片用 */
+data class AdminDocItem(
+    val id: Long,
+    val title: String,
+    val ownerName: String,
+    val category: String?,
+    val status: String,
+    val updatedAt: String,
+    val createdAt: String,
+    val views: Int,
+)
+
+/** 管理：用户列表项（不含密码，公开字段） */
+data class AdminUserItem(
+    val id: Long,
+    val username: String,
+    val displayName: String,
+    val role: String,
+    val enabled: Boolean,
+    val points: Long,
+    val createdAt: String,
+)
+
+/** 管理：部门（后端返回扁平列表，前端按 parentId 组树） */
+data class DeptItem(
+    val id: Long,
+    val name: String,
+    val code: String?,
+    val parentId: Long?,
+    val sortOrder: Int,
+)
+
+/** 管理：公告（含 enabled，管理端才会用） */
+data class AdminAnnouncement(
+    val id: Long,
+    val title: String,
+    val content: String,
+    val pinned: Boolean,
+    val enabled: Boolean,
+    val createdAt: String,
+)
+
+/** 管理：操作审计 */
+data class AuditItem(
+    val id: Long,
+    val actorName: String,
+    val action: String,
+    val targetType: String,
+    val targetName: String,
+    val detail: String,
+    val ip: String,
+    val createdAt: String,
+)
+
+/** 管理：登录日志 */
+data class LoginLogItem(
+    val id: Long,
+    val username: String,
+    val ip: String,
+    val success: Boolean,
+    val reason: String,
+    val createdAt: String,
+)
+
+/** 我订阅的文章（GET /api/docs/subscriptions；deleted=true 表示文档已被删除，标题由后端给占位）。 */
+data class SubscriptionItem(
+    val docId: Long,
+    val title: String,
+    val category: String?,
+    val deleted: Boolean,
+    val subscribedAt: String,
+)
+
+/** 首页轻量概览（GET /api/docs/overview）：已发布文档数 / 近 7 天新增 / 在册成员；管理员才带待审核数。 */
+data class HomeOverview(
+    val totalDocs: Long = 0,
+    val weekNew: Long = 0,
+    val members: Long = 0,
+    val pendingReview: Long? = null,
+)
+
+/** 公告（GET /api/announcements，只回已启用的，置顶在前）。content 是纯文本/Markdown。 */
+data class AnnouncementItem(
+    val id: Long,
+    val title: String,
+    val content: String,
+    val pinned: Boolean,
+    val createdAt: String,
+)
 
 /** HTTP + JSON 访问层。登录三步 + 文章/文件只读接口。 */
 class ApiClient(private val base: String) {
@@ -410,6 +649,498 @@ class ApiClient(private val base: String) {
         (o.long("id") ?: 0L) to o.str("role").orEmpty()
     }
 
+    /** GET /api/docs/{id}/related?limit=4 → 相关文档（同分类 + 标签重叠，公开接口） */
+    suspend fun docRelated(token: String, id: Long, limit: Int = 4): List<DocSummary> =
+        withContext(Dispatchers.IO) {
+            val e = runCatching {
+                Json.parseToJsonElement(getAuth("/api/docs/$id/related?limit=$limit", token))
+            }.getOrNull() ?: return@withContext emptyList()
+            (e as? JsonArray).orEmpty().mapNotNull { item ->
+                val j = item as? JsonObject ?: return@mapNotNull null
+                val did = j.long("id") ?: return@mapNotNull null
+                DocSummary(
+                    id = did,
+                    title = j.str("title").orEmpty(),
+                    ownerName = j.str("ownerName").orEmpty(),
+                    updatedAt = j.str("updatedAt").orEmpty(),
+                    views = j.int("views") ?: 0,
+                    category = j.str("category"),
+                    snippet = null,
+                )
+            }
+        }
+
+    // ---------------- 管理（ADMIN 或细粒度权限；403 文案由后端透出） ----------------
+
+    /** GET /api/categories → 分类树（children 递归） */
+    suspend fun categoryTree(token: String): List<CatItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/categories", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item -> (item as? JsonObject)?.let { parseCat(it) } }
+    }
+
+    private fun parseCat(j: JsonObject): CatItem? {
+        val id = j.long("id") ?: return null
+        val kids = (j["children"] as? JsonArray).orEmpty().mapNotNull { k -> (k as? JsonObject)?.let { parseCat(it) } }
+        return CatItem(id, j.str("name").orEmpty(), j.long("parentId"), j.int("sortOrder") ?: 0, kids)
+    }
+
+    /** POST /api/admin/categories {name, parentId?} */
+    suspend fun createCategory(token: String, name: String, parentId: Long?) {
+        val pid = if (parentId == null) "null" else parentId.toString()
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/categories", token, """{"name":${jsonStr(name)},"parentId":$pid}""")
+        }
+    }
+
+    /** PUT /api/admin/categories/{id} {name} */
+    suspend fun renameCategory(token: String, id: Long, name: String) {
+        withContext(Dispatchers.IO) {
+            authReq("PUT", "/api/admin/categories/$id", token, """{"name":${jsonStr(name)}}""")
+        }
+    }
+
+    /** DELETE /api/admin/categories/{id}（有子分类时后端拒绝） */
+    suspend fun deleteCategory(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/admin/categories/$id", token) }
+    }
+
+    /** GET /api/tags → 标签（含文章计数） */
+    suspend fun tagList(token: String): List<TagItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/tags", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            TagItem(id, j.str("name").orEmpty(), j.long("count") ?: 0L)
+        }
+    }
+
+    /** POST /api/admin/tags {name} */
+    suspend fun createTag(token: String, name: String) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/tags", token, """{"name":${jsonStr(name)}}""")
+        }
+    }
+
+    /** DELETE /api/admin/tags/{id} */
+    suspend fun deleteTag(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/admin/tags/$id", token) }
+    }
+
+    /** GET /api/admin/docs/recycle → 回收站文章（含已删除） */
+    suspend fun recycleDocs(token: String): List<AdminDocItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { getAuth("/api/admin/docs/recycle", token) }.getOrNull()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AdminDocItem(
+                id = id,
+                title = j.str("title").orEmpty(),
+                ownerName = j.str("ownerName").orEmpty(),
+                category = j.str("category"),
+                status = j.str("status").orEmpty(),
+                updatedAt = j.str("updatedAt").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+                views = j.int("views") ?: 0,
+            )
+        }
+    }
+
+    /** POST /api/admin/docs/{id}/restore → 从回收站恢复 */
+    suspend fun restoreDoc(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/admin/docs/$id/restore", token) }
+    }
+
+    /** GET /api/admin/banned-words/libraries → 词库列表 */
+    suspend fun bannedLibraries(token: String): List<BannedLibItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/admin/banned-words/libraries", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            BannedLibItem(
+                id = id,
+                name = j.str("name").orEmpty(),
+                description = j.str("description").orEmpty(),
+                enabled = j.bool("enabled") ?: true,
+                builtin = j.bool("builtin") ?: false,
+            )
+        }
+    }
+
+    /** POST /api/admin/banned-words/libraries → 新建词库 */
+    suspend fun createBannedLibrary(token: String, name: String, description: String) {
+        withContext(Dispatchers.IO) {
+            authReq(
+                "POST", "/api/admin/banned-words/libraries", token,
+                """{"name":${jsonStr(name)},"description":${jsonStr(description)}}""",
+            )
+        }
+    }
+
+    /** PUT /api/admin/banned-words/libraries/{id} → 启用/停用词库 */
+    suspend fun setBannedLibraryEnabled(token: String, id: Long, enabled: Boolean) {
+        withContext(Dispatchers.IO) {
+            authReq("PUT", "/api/admin/banned-words/libraries/$id", token, """{"enabled":$enabled}""")
+        }
+    }
+
+    /** GET /api/admin/banned-words?libraryId= → 词条（Page，取一页 100 条足够本地筛选） */
+    suspend fun bannedWords(token: String, libraryId: Long?): List<BannedWordItem> = withContext(Dispatchers.IO) {
+        val q = if (libraryId == null) "" else "&libraryId=$libraryId"
+        val arr = pageArray(runCatching { getAuth("/api/admin/banned-words?page=0&size=100$q", token) }.getOrNull())
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            BannedWordItem(id, j.str("word").orEmpty(), j.long("libraryId"))
+        }
+    }
+
+    /** POST /api/admin/banned-words {libraryId, words:[...]} → 批量加词 */
+    suspend fun addBannedWords(token: String, libraryId: Long, words: List<String>) {
+        val arr = words.joinToString(",") { jsonStr(it) }
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/banned-words", token, """{"libraryId":$libraryId,"words":[$arr]}""")
+        }
+    }
+
+    /** DELETE /api/admin/banned-words/{id} */
+    suspend fun deleteBannedWord(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/admin/banned-words/$id", token) }
+    }
+
+    /** GET /api/admin/files/orphans?page&size → {content:[{url,size}], total, imageCount, audioCount} */
+    suspend fun orphanFiles(token: String): List<OrphanFileItem> = withContext(Dispatchers.IO) {
+        val arr = pageArray(runCatching { getAuth("/api/admin/files/orphans?page=1&size=100", token) }.getOrNull())
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val url = j.str("url")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            OrphanFileItem(url, j.long("size"))
+        }
+    }
+
+    /** DELETE /api/admin/files/orphan?url= → 删除单个孤儿文件（仅管理员） */
+    suspend fun deleteOrphanFile(token: String, url: String) {
+        val enc = java.net.URLEncoder.encode(url, "UTF-8")
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/admin/files/orphan?url=$enc", token) }
+    }
+
+    /** GET /api/admin/exams/grading/pending → 待阅卷记录 */
+    suspend fun gradingPending(token: String): List<GradingPendingItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/admin/exams/grading/pending", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val rid = j.long("recordId") ?: return@mapNotNull null
+            GradingPendingItem(
+                recordId = rid,
+                user = j.str("user").orEmpty(),
+                paperTitle = j.str("paperTitle").orEmpty(),
+                score = j.int("score") ?: 0,
+                pendingCount = j.int("pendingCount") ?: 0,
+                submittedAt = j.str("submittedAt").orEmpty(),
+            )
+        }
+    }
+
+    /** GET /api/admin/exams/grading/{recordId} → 全部作答（主观题 pending=true 待打分） */
+    suspend fun gradingDetail(token: String, recordId: Long): GradingDetail? = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/admin/exams/grading/$recordId", token)) ?: return@withContext null
+        val arr = (o["items"] as? JsonArray) ?: JsonArray(emptyList())
+        val items = arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val qid = j.long("questionId") ?: return@mapNotNull null
+            GradingQuestion(
+                questionId = qid,
+                type = j.str("type").orEmpty(),
+                content = j.str("content").orEmpty(),
+                userAnswer = j.str("userAnswer").orEmpty(),
+                pending = j.bool("pending") ?: false,
+                score = j.int("score") ?: 0,
+                maxScore = j.int("maxScore") ?: 0,
+                comment = j.str("comment").orEmpty(),
+            )
+        }
+        GradingDetail(o.long("recordId") ?: recordId, items)
+    }
+
+    /** POST /api/admin/exams/grading/{recordId} → 提交打分（questionId → (分数, 评语)） */
+    suspend fun submitGrading(token: String, recordId: Long, marks: Map<Long, Pair<Int, String>>) {
+        val items = marks.entries.joinToString(",") { (qid, m) ->
+            """{"questionId":$qid,"score":${m.first},"comment":${jsonStr(m.second)}}"""
+        }
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/exams/grading/$recordId", token, """{"items":[$items]}""")
+        }
+    }
+
+    /** GET /api/admin/reports?status= → 举报列表（Page，取第一页 50 条） */
+    suspend fun adminReports(token: String, status: String? = null): List<ReportItem> = withContext(Dispatchers.IO) {
+        val q = if (status.isNullOrBlank()) "" else "&status=$status"
+        val arr = pageArray(runCatching { getAuth("/api/admin/reports?page=0&size=50$q", token) }.getOrNull())
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            ReportItem(
+                id = id,
+                targetType = j.str("targetType").orEmpty(),
+                targetId = j.long("targetId"),
+                reason = j.str("reason").orEmpty(),
+                detail = j.str("detail").orEmpty(),
+                status = j.str("status").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** PUT /api/admin/reports/{id} → 处理举报（status=HANDLED|REJECTED + 备注） */
+    suspend fun handleReport(token: String, id: Long, status: String, note: String) {
+        withContext(Dispatchers.IO) {
+            authReq(
+                "PUT", "/api/admin/reports/$id", token,
+                """{"status":${jsonStr(status)},"note":${jsonStr(note)},"action":"NONE"}""",
+            )
+        }
+    }
+
+    /** GET /api/admin/docs/pending → 待审核文章 */
+    suspend fun adminPendingDocs(token: String): List<AdminDocItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/admin/docs/pending", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AdminDocItem(
+                id = id,
+                title = j.str("title").orEmpty(),
+                ownerName = j.str("ownerName").orEmpty(),
+                category = j.str("category"),
+                status = j.str("status").orEmpty(),
+                updatedAt = j.str("updatedAt").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+                views = j.int("views") ?: 0,
+            )
+        }
+    }
+
+    /** POST /api/admin/docs/{id}/approve */
+    suspend fun approveDoc(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/admin/docs/$id/approve", token) }
+    }
+
+    /** POST /api/admin/docs/{id}/reject（reason 必填，退回作者草稿） */
+    suspend fun rejectDoc(token: String, id: Long, reason: String) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/docs/$id/reject", token, """{"reason":${jsonStr(reason)}}""")
+        }
+    }
+
+    /** GET /api/admin/users?keyword= → Page<User>，桌面端只取第一页（50 条） */
+    suspend fun adminUsers(token: String, keyword: String = ""): List<AdminUserItem> = withContext(Dispatchers.IO) {
+        val kw = java.net.URLEncoder.encode(keyword, "UTF-8")
+        val o = parse(getAuth("/api/admin/users?page=0&size=50&keyword=$kw", token))
+            ?: return@withContext emptyList()
+        val arr = (o["content"] as? JsonArray) ?: return@withContext emptyList()
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AdminUserItem(
+                id = id,
+                username = j.str("username").orEmpty(),
+                displayName = j.str("displayName").orEmpty(),
+                role = j.str("role").orEmpty(),
+                enabled = j.bool("enabled") ?: true,
+                points = j.long("points") ?: 0,
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** POST /api/admin/users/{id}/toggle → 启用/禁用 */
+    suspend fun setUserEnabled(token: String, id: Long, enabled: Boolean) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/users/$id/toggle", token, """{"enabled":$enabled}""")
+        }
+    }
+
+    /** GET /api/admin/departments → 扁平列表（parentId 组树由前端做） */
+    suspend fun adminDepartments(token: String): List<DeptItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/admin/departments", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            DeptItem(
+                id = id,
+                name = j.str("name").orEmpty(),
+                code = j.str("code"),
+                parentId = j.long("parentId"),
+                sortOrder = j.int("sortOrder") ?: 0,
+            )
+        }
+    }
+
+    /** GET /api/admin/announcements → Page<Map>，桌面端取第一页（50 条） */
+    suspend fun adminAnnouncements(token: String): List<AdminAnnouncement> = withContext(Dispatchers.IO) {
+        val arr = pageArray(runCatching { getAuth("/api/admin/announcements?page=0&size=50", token) }.getOrNull())
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AdminAnnouncement(
+                id = id,
+                title = j.str("title").orEmpty(),
+                content = j.str("content").orEmpty(),
+                pinned = j.bool("pinned") ?: false,
+                enabled = j.bool("enabled") ?: true,
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** POST /api/admin/announcements → 新建（正文为纯文本，后端按原样存） */
+    suspend fun createAnnouncement(token: String, title: String, content: String, pinned: Boolean): Boolean {
+        withContext(Dispatchers.IO) {
+            authReq(
+                "POST", "/api/admin/announcements", token,
+                """{"title":${jsonStr(title)},"content":${jsonStr(content)},"pinned":$pinned}""",
+            )
+        }
+        return true
+    }
+
+    /** POST /api/admin/announcements/{id}/pin → 切换置顶 */
+    suspend fun toggleAnnouncementPin(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/admin/announcements/$id/pin", token) }
+    }
+
+    /** POST /api/admin/announcements/{id}/enable → 切换启用 */
+    suspend fun toggleAnnouncementEnabled(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/admin/announcements/$id/enable", token) }
+    }
+
+    /** GET /api/admin/stats → 看板聚合（键值平铺，前端按需展示） */
+    suspend fun adminStats(token: String): Map<String, String> = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/admin/stats", token)) ?: return@withContext emptyMap()
+        val out = LinkedHashMap<String, String>()
+        for ((k, v) in o) {
+            out[k] = when (v) {
+                is JsonPrimitive -> if (v.contentOrNull == null || v.contentOrNull == "null") "" else v.contentOrNull!!
+                is JsonArray -> "${v.size} 项"
+                else -> ""
+            }
+        }
+        out
+    }
+
+    /** GET /api/admin/audit → Page<Map>（支持数组或 Page 两种形态） */
+    suspend fun adminAudit(token: String): List<AuditItem> = withContext(Dispatchers.IO) {
+        val arr = pageArray(runCatching { getAuth("/api/admin/audit?page=0&size=50", token) }.getOrNull())
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AuditItem(
+                id = id,
+                actorName = j.str("actorName").orEmpty(),
+                action = j.str("action").orEmpty(),
+                targetType = j.str("targetType").orEmpty(),
+                targetName = j.str("targetName").orEmpty(),
+                detail = j.str("detail").orEmpty(),
+                ip = j.str("ip").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** GET /api/admin/login-logs → Page<Map> */
+    suspend fun adminLoginLogs(token: String): List<LoginLogItem> = withContext(Dispatchers.IO) {
+        val arr = pageArray(runCatching { getAuth("/api/admin/login-logs?page=0&size=50", token) }.getOrNull())
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            LoginLogItem(
+                id = id,
+                username = j.str("username").orEmpty(),
+                ip = j.str("ip").orEmpty(),
+                success = j.bool("success") ?: false,
+                reason = j.str("reason").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** 管理列表接口有的返回数组、有的返回 Spring Page，统一取出元素数组。 */
+    private fun pageArray(text: String?): JsonArray {
+        val e = runCatching { Json.parseToJsonElement(text ?: "") }.getOrNull()
+            ?: return JsonArray(emptyList())
+        return when (e) {
+            is JsonArray -> e
+            is JsonObject -> (e["content"] as? JsonArray) ?: JsonArray(emptyList())
+            else -> JsonArray(emptyList())
+        }
+    }
+
+    /** GET /api/docs/subscriptions → 我订阅的文章（文档已删时 deleted=true） */
+    suspend fun mySubscriptions(token: String): List<SubscriptionItem> = withContext(Dispatchers.IO) {
+        val e = runCatching {
+            Json.parseToJsonElement(getAuth("/api/docs/subscriptions", token))
+        }.getOrNull() ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val did = j.long("docId") ?: return@mapNotNull null
+            SubscriptionItem(
+                docId = did,
+                title = j.str("title").orEmpty(),
+                category = j.str("category"),
+                deleted = j.bool("deleted") ?: false,
+                subscribedAt = j.str("subscribedAt").orEmpty(),
+            )
+        }
+    }
+
+    /** GET /api/docs/{id}/subscribed → (是否已订阅, 订阅人数) */
+    suspend fun docSubscription(token: String, id: Long): Pair<Boolean, Long> = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/docs/$id/subscribed", token)) ?: return@withContext false to 0L
+        (o.bool("subscribed") ?: false) to (o.long("count") ?: 0L)
+    }
+
+    /** POST/DELETE /api/docs/{id}/subscribe → 切换订阅，返回最新 (状态, 人数) */
+    suspend fun setSubscribed(token: String, id: Long, on: Boolean): Pair<Boolean, Long> = withContext(Dispatchers.IO) {
+        val o = parse(authReq(if (on) "POST" else "DELETE", "/api/docs/$id/subscribe", token))
+            ?: return@withContext on to 0L
+        (o.bool("subscribed") ?: on) to (o.long("count") ?: 0L)
+    }
+
+    /** GET /api/docs/{id}/export?format=word → 后端已拼好的 .doc（HTML 封装），原样落盘即可用 Word/WPS 打开 */
+    suspend fun exportWord(token: String, id: Long): String = withContext(Dispatchers.IO) {
+        getAuth("/api/docs/$id/export?format=word", token)
+    }
+
+    /** GET /api/users/{id}/card → 作者小卡片；无权限/不存在返回 null（卡片是可选信息） */
+    suspend fun userCard(token: String, userId: Long): AuthorCard? = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/users/$userId/card", token)) ?: return@withContext null
+        AuthorCard(
+            id = o.long("id") ?: userId,
+            displayName = o.str("displayName").orEmpty(),
+            bio = o.str("bio").orEmpty(),
+            codingAge = o.int("codingAge") ?: 0,
+            original = o.long("original") ?: 0,
+            likes = o.long("likes") ?: 0,
+            fans = o.long("fans") ?: 0,
+            points = o.long("points") ?: 0,
+            displayBadge = o.str("displayBadge"),
+            isFollowing = o.bool("isFollowing") ?: false,
+        )
+    }
+
+    /** POST/DELETE /api/users/{id}/follow → 关注/取关，返回最新 isFollowing */
+    suspend fun setFollow(token: String, userId: Long, on: Boolean): Boolean = withContext(Dispatchers.IO) {
+        val o = runCatching {
+            parse(authReq(if (on) "POST" else "DELETE", "/api/users/$userId/follow", token))
+        }.getOrNull()
+        o?.bool("isFollowing") ?: on
+    }
+
     /** GET /api/files/mine → 数组 */
     suspend fun myFiles(token: String): List<FileItem> = withContext(Dispatchers.IO) {
         val e = runCatching { Json.parseToJsonElement(getAuth("/api/files/mine", token)) }.getOrNull()
@@ -424,6 +1155,34 @@ class ApiClient(private val base: String) {
                 url = j.str("url").orEmpty(),
                 size = j.long("size"),
                 contentType = j.str("contentType"),
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** GET /api/docs/overview → 首页轻量概览；失败由调用方静默降级，不阻塞首页 */
+    suspend fun overview(token: String): HomeOverview = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/docs/overview", token)) ?: throw ApiError("首页概览响应异常")
+        HomeOverview(
+            totalDocs = o.long("totalDocs") ?: 0,
+            weekNew = o.long("weekNew") ?: 0,
+            members = o.long("members") ?: 0,
+            pendingReview = o.long("pendingReview"),
+        )
+    }
+
+    /** GET /api/announcements → 已启用公告（置顶在前） */
+    suspend fun announcements(token: String): List<AnnouncementItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/announcements", token)) }.getOrNull()
+            ?: throw ApiError("公告响应异常")
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AnnouncementItem(
+                id = id,
+                title = j.str("title").orEmpty(),
+                content = j.str("content").orEmpty(),
+                pinned = j.bool("pinned") ?: false,
                 createdAt = j.str("createdAt").orEmpty(),
             )
         }
@@ -660,6 +1419,155 @@ class ApiClient(private val base: String) {
             val id = o.long("id") ?: return@mapNotNull null
             AgentSpace(id, o.str("name").orEmpty(), o.str("type").orEmpty())
         }
+    }
+
+    /** GET /api/doc-shares/{sid}/docs → 空间文档列表（无正文，只有标题/标签/权限/占用字节） */
+    suspend fun shareDocs(token: String, shareId: Long): List<SharedDocItem> = withContext(Dispatchers.IO) {
+        val e = runCatching {
+            Json.parseToJsonElement(authReq("GET", "/api/doc-shares/$shareId/docs", token))
+        }.getOrNull() ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            (item as? JsonObject)?.let { parseSharedDoc(it) }
+        }
+    }
+
+    /** GET /api/doc-shares/{sid}/docs/{docId}/yjs → 协同正文的 Yjs 状态（base64；超限时 state=null） */
+    suspend fun shareDocYjs(token: String, shareId: Long, docId: Long): ShareYjs? = withContext(Dispatchers.IO) {
+        val o = parse(authReq("GET", "/api/doc-shares/$shareId/docs/$docId/yjs", token))
+            ?: return@withContext null
+        ShareYjs(
+            state = o.str("state"),
+            yjsRev = o.long("yjsRev") ?: 0,
+            updatedAt = o.str("updatedAt").orEmpty(),
+            tooLarge = o.bool("tooLarge") ?: false,
+        )
+    }
+
+    /** GET /api/doc-shares/{sid}/docs/{docId} → 单篇详情（含 content 的 HTML 快照） */
+    suspend fun shareDocDetail(token: String, shareId: Long, docId: Long): SharedDocItem? =
+        withContext(Dispatchers.IO) {
+            val o = parse(authReq("GET", "/api/doc-shares/$shareId/docs/$docId", token))
+                ?: return@withContext null
+            parseSharedDoc(o)
+        }
+
+    private fun parseSharedDoc(j: JsonObject): SharedDocItem? {
+        val id = j.long("id") ?: return null
+        return SharedDocItem(
+            id = id,
+            title = j.str("title").orEmpty(),
+            ownerName = j.str("ownerName").orEmpty(),
+            updatedAt = j.str("updatedAt").orEmpty(),
+            tags = j.str("tags"),
+            contentType = j.str("contentType"),
+            myPerm = j.str("myPerm"),
+            size = j.long("size") ?: 0,
+            content = j.str("content"),
+        )
+    }
+
+    /** GET /api/courses?category= → 课程列表（培训） */
+    suspend fun courses(token: String, category: String? = null): List<CourseItem> = withContext(Dispatchers.IO) {
+        val path = if (category.isNullOrBlank()) "/api/courses"
+        else "/api/courses?category=${java.net.URLEncoder.encode(category, "UTF-8")}"
+        val e = runCatching { Json.parseToJsonElement(getAuth(path, token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item -> (item as? JsonObject)?.let { parseCourse(it) } }
+    }
+
+    /** GET /api/courses/categories → 课程分类 */
+    suspend fun courseCategories(token: String): List<String> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/courses/categories", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { s -> s.isNotBlank() } }
+    }
+
+    /** GET /api/courses/{id} → {course, chapters} */
+    suspend fun courseDetail(token: String, id: Long): CourseDetail? = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/courses/$id", token)) ?: return@withContext null
+        val c = (o["course"] as? JsonObject)?.let { parseCourse(it) } ?: return@withContext null
+        val chapters = (o["chapters"] as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val cid = j.long("id") ?: return@mapNotNull null
+            ChapterItem(cid, j.str("title").orEmpty(), j.str("content").orEmpty(), j.long("articleId"))
+        }
+        CourseDetail(c, chapters)
+    }
+
+    /** GET /api/courses/{id}/progress → 每章完成状态 */
+    suspend fun courseProgress(token: String, id: Long): List<ChapterProgress> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/courses/$id/progress", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val cid = j.long("chapterId") ?: return@mapNotNull null
+            ChapterProgress(cid, j.str("title").orEmpty(), j.bool("finished") ?: false)
+        }
+    }
+
+    /** POST /api/courses/{id}/chapters/{cid}/finish|reset → 标记完成 / 重置 */
+    suspend fun setChapterFinished(token: String, courseId: Long, chapterId: Long, finished: Boolean) {
+        withContext(Dispatchers.IO) {
+            authReq(
+                "POST",
+                "/api/courses/$courseId/chapters/$chapterId/" + if (finished) "finish" else "reset",
+                token,
+            )
+        }
+    }
+
+    /** GET /api/exams → 试卷列表 */
+    suspend fun examPapers(token: String): List<ExamPaperItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/exams", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            ExamPaperItem(
+                id = id,
+                title = j.str("title").orEmpty(),
+                description = j.str("description").orEmpty(),
+                questionCount = j.int("questionCount") ?: 0,
+                totalScore = j.int("totalScore") ?: 0,
+                passScore = j.int("passScore") ?: 60,
+                durationMin = j.int("durationMin") ?: 0,
+                status = j.str("status").orEmpty(),
+                practiceEnabled = j.bool("practiceEnabled") ?: true,
+            )
+        }
+    }
+
+    /** GET /api/exams/mine → 我的考试记录 */
+    suspend fun examRecords(token: String): List<ExamRecordItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/exams/mine", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            ExamRecordItem(
+                id = id,
+                paperId = j.long("paperId") ?: 0,
+                paperTitle = j.str("paperTitle").orEmpty(),
+                score = j.int("score") ?: 0,
+                passed = j.bool("passed") ?: false,
+                submittedAt = j.str("submittedAt").orEmpty(),
+                pendingCount = j.int("pendingCount") ?: 0,
+                questionCount = j.int("questionCount") ?: 0,
+            )
+        }
+    }
+
+    private fun parseCourse(j: JsonObject): CourseItem? {
+        val id = j.long("id") ?: return null
+        return CourseItem(
+            id = id,
+            title = j.str("title").orEmpty(),
+            summary = j.str("summary").orEmpty(),
+            category = j.str("category"),
+            ownerName = j.str("ownerName"),
+            tags = j.str("tags"),
+            examPaperId = j.long("examPaperId"),
+        )
     }
 
     /** GET /api/doc-shares/{sid}/docs/{docId} → 取正文（追加流程图时用）。 */

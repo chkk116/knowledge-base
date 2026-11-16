@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.nio.file.Files
 
 // 原生文章阅读页（2026-11-13 取代 WebView 阅读壳）：对齐 Web 端 PostDetail 的三栏布局
 //   左：点赞 / 收藏 / 评论 / 返回顶部（悬浮操作栏）
@@ -89,6 +90,13 @@ fun ArticleView(
     var canEdit by remember(doc.id) { mutableStateOf(true) }
     var pendingDel by remember(doc.id) { mutableStateOf<Long?>(null) }
     var toast by remember(doc.id) { mutableStateOf<String?>(null) }
+    // 2026-11-16 补齐 Web 端能力：文档订阅 / 相关阅读 / 作者卡片 / Word 导出
+    var subscribed by remember(doc.id) { mutableStateOf(false) }
+    var subCount by remember(doc.id) { mutableStateOf(0L) }
+    var related by remember(doc.id) { mutableStateOf(emptyList<DocSummary>()) }
+    var author by remember(doc.id) { mutableStateOf<AuthorCard?>(null) }
+    var following by remember(doc.id) { mutableStateOf(false) }
+    var exporting by remember(doc.id) { mutableStateOf(false) }
 
     // 打开文章：面包屑 + 评论 + 我的赞/收藏标记（一次拉齐，失败静默降级为未点赞态）
     LaunchedEffect(doc.id) {
@@ -98,6 +106,17 @@ fun ArticleView(
         runCatching { liked = doc.id in api.myLikeIds(token) }
         runCatching { favorited = doc.id in api.myFavoriteIds(token) }
         runCatching { commentLikes = api.myCommentLikes(token) }
+        runCatching {
+            val (on, n) = api.docSubscription(token, doc.id)
+            subscribed = on
+            subCount = n
+        }
+        // 相关阅读与作者卡片都是可选信息，失败就留空，不影响正文/评论
+        related = runCatching { api.docRelated(token, doc.id, 4) }.getOrDefault(emptyList())
+        doc.ownerId?.let { oid ->
+            author = runCatching { api.userCard(token, oid) }.getOrNull()
+            following = author?.isFollowing ?: false
+        }
         runCatching {
             val (myId, role) = api.me(token)
             canEdit = role.equals("ADMIN", ignoreCase = true) || (doc.ownerId != null && doc.ownerId == myId)
@@ -161,6 +180,64 @@ fun ArticleView(
         }
     }
 
+    fun toggleSubscribe() {
+        scope.launch {
+            val was = subscribed
+            val wasCount = subCount
+            subscribed = !was
+            subCount = if (was) (subCount - 1).coerceAtLeast(0) else subCount + 1
+            try {
+                val (on, n) = api.setSubscribed(token, doc.id, !was)
+                subscribed = on
+                subCount = n
+                toast = if (on) "已订阅，文档更新时会通知你" else "已取消订阅"
+            } catch (e: Exception) {
+                subscribed = was
+                subCount = wasCount
+                toast = e.message ?: "订阅失败"
+            }
+        }
+    }
+
+    /** Word 导出：后端返回 HTML 封装的 .doc，落盘到临时目录后交给系统默认程序（Word/WPS）打开 */
+    fun exportWord() {
+        if (exporting) return
+        scope.launch {
+            exporting = true
+            try {
+                val html = api.exportWord(token, doc.id)
+                val safe = doc.title.ifBlank { "文档" }
+                    .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                    .take(60)
+                val file = Files.createTempDirectory("kb-export").resolve("$safe.doc")
+                Files.writeString(file, html, Charsets.UTF_8)
+                // 打开失败不吞掉结果：至少告诉用户文件落在哪
+                val opened = runCatching { java.awt.Desktop.getDesktop().open(file.toFile()) }.isSuccess
+                toast = if (opened) "已导出 $safe.doc" else "已导出到 ${file.toAbsolutePath()}"
+            } catch (e: Exception) {
+                toast = e.message ?: "导出失败"
+            } finally {
+                exporting = false
+            }
+        }
+    }
+
+    /** 作者卡片上的关注/取关（乐观更新，失败回滚） */
+    fun toggleFollow() {
+        val a = author ?: return
+        scope.launch {
+            val was = following
+            following = !was
+            try {
+                following = api.setFollow(token, a.id, !was)
+                toast = if (following) "已关注 ${a.displayName}" else "已取消关注"
+            } catch (e: Exception) {
+                following = was
+                toast = e.message ?: "操作失败"
+            }
+        }
+    }
+
     fun postComment() {
         val text = commentText.trim()
         if (text.isEmpty() || posting) return
@@ -213,9 +290,14 @@ fun ArticleView(
                     likeCount = likeCount,
                     favorited = favorited,
                     commentCount = commentRows.size,
+                    subscribed = subscribed,
+                    subCount = subCount,
+                    exporting = exporting,
                     showTop = listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120,
                     onLike = ::toggleLike,
                     onFav = ::toggleFav,
+                    onSubscribe = ::toggleSubscribe,
+                    onExport = ::exportWord,
                     onComment = {
                         scope.launch { listState.animateScrollToItem(commentHeaderIndex(blocks.size)) }
                     },
@@ -236,6 +318,9 @@ fun ArticleView(
                             doc = doc,
                             crumbs = crumbs,
                             canEdit = canEdit,
+                            author = author,
+                            following = following,
+                            onFollow = ::toggleFollow,
                             onOpenDoc = onOpenDoc,
                             onEdit = onEdit,
                         )
@@ -250,6 +335,11 @@ fun ArticleView(
                     // ---- 评论区 ----
                     item {
                         Column(Modifier.fillMaxWidth().padding(top = 26.dp)) {
+                            // 相关阅读：放在评论头上方，保持「头部 item + 正文块 + 评论」的固定索引不变
+                            if (related.isNotEmpty()) {
+                                RelatedDocs(related, onOpenDoc)
+                                Spacer(Modifier.height(20.dp))
+                            }
                             androidx.compose.material3.HorizontalDivider(color = KbBorder)
                             Spacer(Modifier.height(14.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -423,9 +513,14 @@ private fun ActionRail(
     likeCount: Int,
     favorited: Boolean,
     commentCount: Int,
+    subscribed: Boolean,
+    subCount: Long,
+    exporting: Boolean,
     showTop: Boolean,
     onLike: () -> Unit,
     onFav: () -> Unit,
+    onSubscribe: () -> Unit,
+    onExport: () -> Unit,
     onComment: () -> Unit,
     onTop: () -> Unit,
 ) {
@@ -453,6 +548,22 @@ private fun ActionRail(
             onClick = onFav,
         )
         RailBtn(glyph = "💬", label = "评论", count = commentCount, active = false, activeColor = KbPrimary, onClick = onComment)
+        RailBtn(
+            glyph = if (subscribed) "🔔" else "🔕",
+            label = if (subscribed) "已订阅" else "订阅",
+            count = subCount.toInt(),
+            active = subscribed,
+            activeColor = KbPrimary,
+            onClick = onSubscribe,
+        )
+        RailBtn(
+            glyph = "⇩",
+            label = if (exporting) "导出中" else "导出",
+            count = null,
+            active = false,
+            activeColor = Color(0xFF0EA5E9),
+            onClick = onExport,
+        )
         if (showTop) {
             RailBtn(glyph = "↑", label = "顶部", count = null, active = false, activeColor = KbTextSub, onClick = onTop)
         }
@@ -508,6 +619,9 @@ private fun ArticleHeader(
     doc: DocDetail,
     crumbs: List<CrumbItem>,
     canEdit: Boolean,
+    author: AuthorCard?,
+    following: Boolean,
+    onFollow: () -> Unit,
     onOpenDoc: (Long) -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -542,39 +656,120 @@ private fun ArticleHeader(
         )
         Spacer(Modifier.height(10.dp))
 
-        // 元信息：分类/标签 + 作者 + 更新时间 + 浏览 + 状态（非发布态醒目提示）
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        // 元信息分两行：分类/标签数量不定，单独成行，避免把作者/时间/浏览挤到窗口外
+        Column(Modifier.fillMaxWidth()) {
             val cat = doc.category
-            if (!cat.isNullOrBlank()) {
-                TagChip(cat, Color(0xFFEEF2FF), KbPrimary)
-            }
-            for (t in splitTags(doc.tags)) {
-                TagChip(t, Color(0xFFF3F4F6), Color(0xFF4B5563))
-            }
-            val owner = doc.ownerName
-            if (!owner.isNullOrBlank()) {
-                Text(owner, fontSize = 12.sp, color = DocSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(
-                "更新于 ${fmtDocTime(doc.updatedAt)}",
-                fontSize = 12.sp,
-                color = DocSub,
-                maxLines = 1,
-            )
-            Text("👁 ${doc.views}", fontSize = 12.sp, color = Color(0xFF94A3B8))
-            Spacer(Modifier.weight(1f))
-            val st = doc.status
-            if (st != null && st != "PUBLISHED") {
-                val (label, c) = when (st) {
-                    "PENDING_REVIEW" -> "待审核" to Color(0xFFF59E0B)
-                    "DRAFT" -> "草稿" to Color(0xFF64748B)
-                    else -> "已下架" to Color(0xFFEF4444)
+            val tags = splitTags(doc.tags)
+            if (!cat.isNullOrBlank() || tags.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (!cat.isNullOrBlank()) TagChip(cat, Color(0xFFEEF2FF), KbPrimary)
+                    for (t in tags) TagChip(t, Color(0xFFF3F4F6), Color(0xFF4B5563))
                 }
-                TagChip(label, c.copy(alpha = 0.12f), c)
+                Spacer(Modifier.height(6.dp))
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val owner = doc.ownerName
+                if (!owner.isNullOrBlank()) {
+                    Text(owner, fontSize = 12.sp, color = DocSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(
+                    "更新于 ${fmtDocTime(doc.updatedAt)}",
+                    fontSize = 12.sp,
+                    color = DocSub,
+                    maxLines = 1,
+                )
+                Text("👁 ${doc.views}", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                Spacer(Modifier.weight(1f))
+                val st = doc.status
+                if (st != null && st != "PUBLISHED") {
+                    val (label, c) = when (st) {
+                        "PENDING_REVIEW" -> "待审核" to Color(0xFFF59E0B)
+                        "DRAFT" -> "草稿" to Color(0xFF64748B)
+                        else -> "已下架" to Color(0xFFEF4444)
+                    }
+                    TagChip(label, c.copy(alpha = 0.12f), c)
+                }
+            }
+        }
+
+        // 作者卡片（可选：/api/users/{id}/card 取不到就不显示）：头像首字 + 昵称/徽章 + 数据 + 关注
+        val a = author
+        if (a != null) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFFF8FAFC))
+                    .border(1.dp, KbBorder, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(17.dp))
+                        .background(KbIconGradient(KbTileBlue.first, KbTileBlue.second)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        a.displayName.ifBlank { "?" }.take(1),
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            a.displayName.ifBlank { "匿名作者" },
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = KbTextMain,
+                        )
+                        val badge = a.displayBadge
+                        if (!badge.isNullOrBlank()) {
+                            Spacer(Modifier.width(6.dp))
+                            TagChip(badge, Color(0xFFFEF3C7), Color(0xFFB45309))
+                        }
+                        if (a.codingAge > 0) {
+                            Spacer(Modifier.width(6.dp))
+                            Text("${a.codingAge} 年", fontSize = 10.5.sp, color = KbTextSub)
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        listOf(
+                            "原创 ${a.original}",
+                            "获赞 ${a.likes}",
+                            "粉丝 ${a.fans}",
+                            "积分 ${a.points}",
+                        ).joinToString(" · "),
+                        fontSize = 10.5.sp,
+                        color = KbTextSub,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (following) "已关注" else "+ 关注",
+                    fontSize = 11.5.sp,
+                    color = if (following) KbTextSub else KbPrimary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, if (following) KbBorder else KbPrimary.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                        .clickable(onClick = onFollow)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
             }
         }
 
@@ -623,6 +818,40 @@ private fun MiniAction(label: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
+}
+
+// ---------- 相关阅读 ----------
+
+@Composable
+private fun RelatedDocs(items: List<DocSummary>, onOpenDoc: (Long) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Text("相关阅读", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+        Spacer(Modifier.height(4.dp))
+        items.forEach { d ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onOpenDoc(d.id) }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("·", fontSize = 12.sp, color = KbPrimary)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    d.title.ifBlank { "（无标题）" },
+                    fontSize = 12.sp,
+                    color = DocLink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (d.views > 0) {
+                    Text("${d.views} 浏览", fontSize = 10.5.sp, color = KbTextSub)
+                }
+            }
+        }
+    }
 }
 
 // ---------- 目录 ----------

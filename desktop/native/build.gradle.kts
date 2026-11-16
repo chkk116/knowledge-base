@@ -32,6 +32,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     // 阅读视图 WebView（Windows 走系统自带 WebView2 运行时，免分发 CEF）：
     implementation("io.github.kdroidfilter:composewebview:1.0.0-beta-02")
+    // 协同正文本地解析：Yrs（Yjs 的 Rust 实现）Java 绑定，jar 内含 windows/linux/macos 原生库，
+    // Apache-2.0。用于把 kb_shared_document.yjs_state 还原成 HTML（桌面端只读，不做编辑）。
+    implementation("net.carcdr:ycrdt-core:0.3.0")
+    implementation("net.carcdr:ycrdt-jni:0.3.0")
 }
 
 kotlin {

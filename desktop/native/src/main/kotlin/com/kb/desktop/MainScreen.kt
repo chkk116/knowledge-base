@@ -7,8 +7,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
@@ -27,9 +30,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,11 +44,13 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import io.github.kdroidfilter.webview.web.WebContent
 import io.github.kdroidfilter.webview.web.WebView
 import io.github.kdroidfilter.webview.web.WebViewState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.net.URI
 
 enum class MenuKind(val label: String) {
-    HOME("首页"), DOCS("文章"), CHAT("AI 问答"), FILES("我的文件"), SETTINGS("设置")
+    HOME("首页"), DOCS("文章"), SHARES("共享空间"), COURSES("培训"), EXAMS("考试"),
+    CHAT("AI 问答"), FILES("我的文件"), ADMIN("管理"), SETTINGS("设置")
 }
 
 /** 侧栏收成图标栏的宽度阈值（低于它窗口放不下完整侧栏+内容） */
@@ -97,9 +104,20 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                 Box(Modifier.fillMaxSize().background(Color.White)) {
                     Column(Modifier.fillMaxSize()) {
                         when (selected) {
-                            MenuKind.HOME -> HomePanel(session)
+                            MenuKind.HOME -> HomePanel(
+                                session,
+                                onNavigate = { selected = it },
+                                onOpenDoc = { id ->
+                                    jumpDocId = id
+                                    selected = MenuKind.DOCS
+                                },
+                            )
                             MenuKind.DOCS -> DocsPanel(session, jumpDocId) { jumpDocId = null }
+                            MenuKind.SHARES -> SharesPanel(session)
+                            MenuKind.COURSES -> CoursesPanel(session)
+                            MenuKind.EXAMS -> ExamsPanel(session)
                             MenuKind.FILES -> FilesPanel(session)
+                            MenuKind.ADMIN -> AdminPanel(session)
                             MenuKind.SETTINGS -> SettingsPanel(session)
                             MenuKind.CHAT -> ChatPanel(
                                 session,
@@ -197,8 +215,12 @@ private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, onClick: () ->
     val tile = when (kind) {
         MenuKind.HOME -> KbTileBlue
         MenuKind.DOCS -> KbTileViolet
+        MenuKind.SHARES -> KbTileTeal
+        MenuKind.COURSES -> KbTileGreen
+        MenuKind.EXAMS -> KbTileRose
         MenuKind.CHAT -> KbTileGreen
         MenuKind.FILES -> KbTileAmber
+        MenuKind.ADMIN -> KbTileRose
         MenuKind.SETTINGS -> KbTileBlue
     }
     if (rail) {
@@ -298,33 +320,279 @@ private fun PanelHint(text: String) {
 }
 
 @Composable
-private fun HomePanel(session: Session) {
-    Column(Modifier.fillMaxSize().padding(24.dp)) {
-        Text(
-            "原生桌面端已接通文章与文件",
-            style = androidx.compose.ui.text.TextStyle(brush = Brush.linearGradient(listOf(KbPrimaryLight, KbPrimaryDeep))),
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(14.dp))
-        val lines = listOf(
-            "原生 UI：Compose Multiplatform（Kotlin），非 WebView 套壳",
-            "登录：滑块验证码 + 账号密码，与 Web 端同一套接口",
-            "文章：原生列表 + 原生阅读（正文/目录/评论原生渲染）；新建/编辑用 Web 端编辑器",
-            "我的文件：原生列表，双击在系统浏览器打开",
-        )
-        lines.forEach { line ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(KbPrimaryLight)
+private fun HomePanel(
+    session: Session,
+    onNavigate: (MenuKind) -> Unit,
+    onOpenDoc: (Long) -> Unit,
+) {
+    val api = remember(session) { ApiClient(session.server) }
+    var ov by remember { mutableStateOf<HomeOverview?>(null) }
+    var notices by remember { mutableStateOf<List<AnnouncementItem>>(emptyList()) }
+    var recent by remember { mutableStateOf<List<DocSummary>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var refresh by remember { mutableStateOf(0) }
+
+    // 首页各块独立降级：某一块取不到不拖垮整页（概览/公告失败就是空，不弹错）
+    LaunchedEffect(refresh) {
+        loading = true
+        ov = runCatching { api.overview(session.token) }.getOrNull()
+        notices = runCatching { api.announcements(session.token) }.getOrDefault(emptyList())
+        recent = runCatching { api.docs(session.token, size = 6, sort = "latest").items }.getOrDefault(emptyList())
+        loading = false
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 22.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "${greeting()}，${session.username}",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = KbTextMain,
                 )
-                Spacer(Modifier.width(10.dp))
-                Text(line, fontSize = 13.sp, color = KbTextSub)
+                Spacer(Modifier.height(4.dp))
+                Text("从最近更新的文章继续，或者直接问 AI。", fontSize = 12.5.sp, color = KbTextSub)
             }
-            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { refresh++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                Text(if (loading) "刷新中…" else "刷新", fontSize = 11.5.sp)
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+
+        // 概览：已发布文档 / 本周新增 / 成员（+ 管理员待审核）
+        val o = ov
+        Row(Modifier.fillMaxWidth()) {
+            StatCard("已发布文章", o?.totalDocs ?: 0L, KbTileViolet, Modifier.weight(1f))
+            Spacer(Modifier.width(12.dp))
+            StatCard("本周新增", o?.weekNew ?: 0L, KbTileGreen, Modifier.weight(1f))
+            Spacer(Modifier.width(12.dp))
+            StatCard("在册成员", o?.members ?: 0L, KbTileBlue, Modifier.weight(1f))
+            val pending = o?.pendingReview
+            if (pending != null) {
+                Spacer(Modifier.width(12.dp))
+                StatCard("待审核", pending, KbTileAmber, Modifier.weight(1f))
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+
+        // 公告：只显示置顶优先的前两条，避免首页被公告挤满
+        if (notices.isNotEmpty()) {
+            notices.take(2).forEach { a ->
+                AnnouncementCard(a)
+                Spacer(Modifier.height(10.dp))
+            }
+        }
+
+        SectionCard(title = "最近更新", action = "查看全部", onAction = { onNavigate(MenuKind.DOCS) }) {
+            when {
+                loading && recent.isEmpty() -> Text("加载中…", fontSize = 12.sp, color = KbTextSub)
+                recent.isEmpty() -> Text("还没有已发布的文章", fontSize = 12.sp, color = KbTextSub)
+                else -> recent.forEach { d ->
+                    HomeDocRow(d) { onOpenDoc(d.id) }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+
+        // 快捷入口
+        Row(Modifier.fillMaxWidth()) {
+            QuickCard("问 AI", "检索知识库并给出出处", KbTileGreen, Modifier.weight(1f)) {
+                onNavigate(MenuKind.CHAT)
+            }
+            Spacer(Modifier.width(12.dp))
+            QuickCard("全部文章", "浏览与新建文档", KbTileViolet, Modifier.weight(1f)) {
+                onNavigate(MenuKind.DOCS)
+            }
+            Spacer(Modifier.width(12.dp))
+            QuickCard("我的文件", "附件与上传记录", KbTileAmber, Modifier.weight(1f)) {
+                onNavigate(MenuKind.FILES)
+            }
+        }
+    }
+}
+
+/** 时段问候（与 Web 端首页口径一致：不出现具体钟点，只分时段）。 */
+private fun greeting(): String {
+    val h = java.time.LocalTime.now().hour
+    return when {
+        h < 6 -> "夜深了"
+        h < 12 -> "早上好"
+        h < 14 -> "中午好"
+        h < 18 -> "下午好"
+        else -> "晚上好"
+    }
+}
+
+@Composable
+private fun StatCard(label: String, value: Long, tile: Pair<Color, Color>, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .border(1.dp, KbBorder, RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(KbIconGradient(tile.first, tile.second)),
+            )
+            Spacer(Modifier.width(7.dp))
+            Text(label, fontSize = 11.5.sp, color = KbTextSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(value.toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+    }
+}
+
+@Composable
+private fun AnnouncementCard(a: AnnouncementItem) {
+    // 置顶/紧急用暖黄底提醒，普通通知保持白底卡（避免所有公告都像警告）
+    val bg = if (a.pinned) Color(0xFFFFFBEB) else Color.White
+    val borderColor = if (a.pinned) Color(0xFFFDE68A) else KbBorder
+    val titleColor = if (a.pinned) Color(0xFF92400E) else KbTextMain
+    val bodyColor = if (a.pinned) Color(0xFF92400E) else KbTextSub
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (a.pinned) {
+                    Text(
+                        "置顶",
+                        fontSize = 9.5.sp,
+                        color = Color(0xFFB45309),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFFFDE68A))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(a.title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = titleColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            val body = a.content.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
+            if (body.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(body, fontSize = 11.5.sp, color = bodyColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (a.createdAt.isNotBlank()) {
+            Spacer(Modifier.width(10.dp))
+            Text(fmtTime(a.createdAt).take(10), fontSize = 10.sp, color = if (a.pinned) Color(0xFFB45309) else KbTextSub)
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(
+    title: String,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .border(1.dp, KbBorder, RoundedCornerShape(12.dp)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+            Spacer(Modifier.weight(1f))
+            if (action != null && onAction != null) {
+                Text(
+                    action, fontSize = 11.sp, color = KbPrimary,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onAction).padding(4.dp),
+                )
+            }
+        }
+        HorizontalDivider()
+        Column(Modifier.padding(vertical = 6.dp)) { content() }
+    }
+}
+
+@Composable
+private fun HomeDocRow(d: DocSummary, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                d.title.ifBlank { "（无标题）" },
+                fontSize = 12.5.sp,
+                color = KbTextMain,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                listOfNotNull(
+                    d.category?.takeIf { it.isNotBlank() },
+                    d.ownerName.takeIf { it.isNotBlank() },
+                    fmtTime(d.updatedAt).takeIf { it.isNotBlank() },
+                ).joinToString(" · "),
+                fontSize = 10.5.sp,
+                color = KbTextSub,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text("${d.views} 浏览", fontSize = 10.5.sp, color = KbTextSub)
+    }
+}
+
+@Composable
+private fun QuickCard(title: String, desc: String, tile: Pair<Color, Color>, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .border(1.dp, KbBorder, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(KbIconGradient(tile.first, tile.second)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val kind = when (tile) {
+                KbTileGreen -> MenuKind.CHAT
+                KbTileAmber -> MenuKind.FILES
+                else -> MenuKind.DOCS
+            }
+            MenuGlyph(kind, Color.White, Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain, maxLines = 1)
+            Spacer(Modifier.height(2.dp))
+            Text(desc, fontSize = 10.5.sp, color = KbTextSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -458,6 +726,29 @@ private fun DocsPanel(
     var wv2Ok by remember { mutableStateOf<Boolean?>(null) }
     var editing by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<Long?>(null) }
+    // 列表侧：搜索（输入即搜，350ms 防抖）与排序切换
+    var q by remember { mutableStateOf("") }
+    var sort by remember { mutableStateOf("latest") }
+    var results by remember { mutableStateOf<List<DocSummary>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    // 列表模式：全部文章 / 我的订阅（订阅列表来自 GET /api/docs/subscriptions）
+    var mode by remember { mutableStateOf("all") }
+    var subs by remember { mutableStateOf<List<SubscriptionItem>>(emptyList()) }
+    var subLoading by remember { mutableStateOf(false) }
+    var subErr by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(mode, refresh) {
+        if (mode != "sub") return@LaunchedEffect
+        subLoading = true
+        subErr = null
+        try {
+            subs = api.mySubscriptions(session.token)
+        } catch (e: Exception) {
+            subErr = e.message ?: "加载失败"
+        } finally {
+            subLoading = false
+        }
+    }
 
     // 外部跳转（AI 问答引用来源）：只拿到 id 时也直接打开详情
     LaunchedEffect(jumpDocId) {
@@ -474,17 +765,42 @@ private fun DocsPanel(
         }
     }
 
-    LaunchedEffect(refresh) {
+    LaunchedEffect(refresh, sort) {
         loading = true
         error = null
         try {
-            val page = api.docs(session.token)
+            val page = api.docs(session.token, sort = sort)
             docs = page.items
             total = page.total
         } catch (e: Exception) {
             error = e.message ?: "加载失败"
         } finally {
             loading = false
+        }
+    }
+
+    // 搜索：清空输入即回到服务端分页列表；失败保留上一次结果并给出小提示，不替掉整个列表
+    LaunchedEffect(q) {
+        val query = q.trim()
+        if (query.isEmpty()) {
+            results = emptyList()
+            searching = false
+            return@LaunchedEffect
+        }
+        searching = true
+        delay(350)
+        try {
+            results = api.searchDocs(session.token, query).map { d ->
+                DocSummary(
+                    id = d.id, title = d.title, ownerName = "", updatedAt = "",
+                    views = 0, category = null, snippet = d.snippet,
+                )
+            }
+            error = null
+        } catch (e: Exception) {
+            error = e.message ?: "搜索失败"
+        } finally {
+            searching = false
         }
     }
 
@@ -529,24 +845,83 @@ private fun DocsPanel(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("全部文章", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
-                if (total > 0) {
+                Text(if (mode == "sub") "我的订阅" else "文章", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                val count = when {
+                    mode == "sub" -> subs.size.toLong()
+                    q.trim().isNotEmpty() -> results.size.toLong()
+                    else -> total
+                }
+                if (count > 0) {
                     Spacer(Modifier.width(6.dp))
-                    Text("$total", fontSize = 10.5.sp, color = KbTextSub)
+                    Text("$count", fontSize = 10.5.sp, color = KbTextSub)
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { editing = true; editTarget = null }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                    Text("新建", fontSize = 11.sp)
+                if (mode == "all") {
+                    TextButton(onClick = { editing = true; editTarget = null }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                        Text("新建", fontSize = 11.sp)
+                    }
                 }
                 TextButton(onClick = { refresh++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     Text("刷新", fontSize = 11.sp)
                 }
             }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ModeChip("全部", mode == "all") { mode = "all" }
+                Spacer(Modifier.width(6.dp))
+                ModeChip("订阅", mode == "sub") { mode = "sub" }
+                Spacer(Modifier.weight(1f))
+                if (mode == "all" && searching) Text("搜索中…", fontSize = 10.sp, color = KbTextSub)
+            }
+            if (mode == "all") {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SearchBox(q, { q = it }, Modifier.weight(1f))
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SortChip("最新", sort == "latest") { sort = "latest" }
+                    Spacer(Modifier.width(6.dp))
+                    SortChip("最热", sort == "hot") { sort = "hot" }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
             HorizontalDivider()
             Box(Modifier.weight(1f)) {
+                val inSub = mode == "sub"
+                val shown = if (q.trim().isNotEmpty()) results else docs
                 when {
-                    loading -> PanelHint("加载中…")
-                    error != null -> Column(
+                    inSub && subLoading -> PanelHint("加载中…")
+                    inSub && subErr != null -> Column(
+                        Modifier.fillMaxSize().padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(subErr ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { refresh++ }) { Text("重试", fontSize = 12.sp) }
+                    }
+                    inSub && subs.isEmpty() -> PanelHint("还没有订阅任何文章\n在文章页左侧点「订阅」")
+                    inSub -> LazyColumn(Modifier.fillMaxSize()) {
+                        items(subs, key = { it.docId }) { s ->
+                            SubRow(s, sel = selected?.id == s.docId && s.docId != 0L) {
+                                if (!s.deleted) {
+                                    selected = DocSummary(
+                                        id = s.docId, title = s.title, ownerName = "", updatedAt = "",
+                                        views = 0, category = s.category, snippet = null,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    loading && q.trim().isEmpty() -> PanelHint("加载中…")
+                    error != null && shown.isEmpty() -> Column(
                         Modifier.fillMaxSize().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
@@ -555,9 +930,9 @@ private fun DocsPanel(
                         Spacer(Modifier.height(8.dp))
                         TextButton(onClick = { refresh++ }) { Text("重试", fontSize = 12.sp) }
                     }
-                    docs.isEmpty() -> PanelHint("暂无文章")
+                    shown.isEmpty() -> PanelHint(if (q.trim().isNotEmpty()) "没有匹配的文章" else "暂无文章")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
-                        items(docs, key = { it.id }) { d ->
+                        items(shown, key = { it.id }) { d ->
                             DocRow(d, sel = selected?.id == d.id) { selected = d }
                         }
                     }
@@ -646,6 +1021,127 @@ private fun DocsPanel(
 }
 
 @Composable
+internal fun SearchBox(
+    value: String,
+    onValue: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "搜索标题或正文",
+) {
+    Row(
+        modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White)
+            .border(1.dp, KbBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Canvas(Modifier.size(12.dp)) {
+            val r = size.minDimension * 0.30f
+            drawCircle(
+                color = KbTextSub,
+                radius = r,
+                center = Offset(size.width * 0.44f, size.height * 0.44f),
+                style = Stroke(width = 1.4f),
+            )
+            drawLine(
+                KbTextSub,
+                Offset(size.width * 0.66f, size.height * 0.66f),
+                Offset(size.width * 0.94f, size.height * 0.94f),
+                strokeWidth = 1.4f,
+                cap = StrokeCap.Round,
+            )
+        }
+        Spacer(Modifier.width(7.dp))
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (value.isEmpty()) Text(placeholder, fontSize = 11.5.sp, color = KbTextSub)
+            BasicTextField(
+                value = value,
+                onValueChange = onValue,
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 11.5.sp, color = KbTextMain),
+                cursorBrush = SolidColor(KbPrimary),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (value.isNotEmpty()) {
+            Text(
+                "×",
+                fontSize = 15.sp,
+                color = KbTextSub,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { onValue("") }
+                    .padding(start = 6.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun SortChip(label: String, sel: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 10.5.sp,
+        color = if (sel) KbPrimary else KbTextSub,
+        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (sel) KbSidebarSelected else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    )
+}
+
+@Composable
+private fun ModeChip(label: String, sel: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 11.sp,
+        color = if (sel) Color.White else KbTextSub,
+        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (sel) KbPrimary else Color.Transparent)
+            .border(1.dp, if (sel) KbPrimary else KbBorder, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 3.dp),
+    )
+}
+
+@Composable
+private fun SubRow(s: SubscriptionItem, sel: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !s.deleted, onClick = onClick)
+            .background(if (sel) KbSidebarSelected else Color.Transparent)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+    ) {
+        Text(
+            s.title.ifBlank { "（无标题）" },
+            fontSize = 13.sp,
+            fontWeight = if (s.deleted) FontWeight.Normal else if (sel) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (s.deleted) Color(0xFF9CA3AF) else KbTextMain,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            listOfNotNull(
+                s.category?.takeIf { it.isNotBlank() },
+                "订阅于 ${fmtTime(s.subscribedAt)}".takeIf { s.subscribedAt.isNotBlank() },
+                "文档已删除".takeIf { s.deleted },
+            ).joinToString(" · ").ifBlank { "已订阅" },
+            fontSize = 10.5.sp,
+            color = KbTextSub,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun DocRow(d: DocSummary, sel: Boolean, onClick: () -> Unit) {
     Column(
         Modifier
@@ -667,7 +1163,8 @@ private fun DocRow(d: DocSummary, sel: Boolean, onClick: () -> Unit) {
             listOfNotNull(
                 d.ownerName.takeIf { it.isNotBlank() },
                 fmtTime(d.updatedAt).takeIf { it.isNotBlank() },
-                "${d.views} 浏览",
+                // 搜索结果不带浏览量，0 浏览不显示（避免搜索列表满屏「0 浏览」）
+                "${d.views} 浏览".takeIf { d.views > 0 },
             ).joinToString(" · "),
             fontSize = 10.5.sp,
             color = KbTextSub,
@@ -861,6 +1358,30 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
             MenuKind.FILES -> {
                 p.moveTo(3.5f, 6.5f); p.lineTo(9.5f, 6.5f); p.lineTo(11.5f, 8.5f); p.lineTo(20.5f, 8.5f)
                 p.lineTo(20.5f, 18.5f); p.lineTo(3.5f, 18.5f); p.close()
+            }
+            MenuKind.SHARES -> {
+                // 两页重叠的文档（共享/协作语义）
+                p.moveTo(4f, 9f); p.lineTo(4f, 20f); p.lineTo(13f, 20f); p.lineTo(13f, 9f); p.close()
+                p.moveTo(9f, 4f); p.lineTo(19f, 4f); p.lineTo(19f, 15.5f); p.lineTo(15.5f, 15.5f)
+                line(6.5f, 13f, 10.5f, 13f); line(6.5f, 16.5f, 10.5f, 16.5f)
+            }
+            MenuKind.EXAMS -> {
+                // 试卷 + 勾选
+                p.moveTo(6f, 3.5f); p.lineTo(18f, 3.5f); p.lineTo(18f, 20.5f); p.lineTo(6f, 20.5f); p.close()
+                line(9f, 12f, 11f, 14.5f); line(11f, 14.5f, 15.5f, 9f)
+            }
+            MenuKind.COURSES -> {
+                // 打开的书（培训）
+                p.moveTo(12f, 6.5f); p.lineTo(12f, 19f)
+                p.moveTo(12f, 7f); p.lineTo(5f, 5.5f); p.lineTo(5f, 17.5f); p.lineTo(12f, 19f)
+                p.moveTo(12f, 7f); p.lineTo(19f, 5.5f); p.lineTo(19f, 17.5f); p.lineTo(12f, 19f)
+            }
+            MenuKind.ADMIN -> {
+                // 盾牌 + 勾（管理）
+                p.moveTo(12f, 3.5f); p.lineTo(19.5f, 6.5f); p.lineTo(19.5f, 12.5f)
+                p.lineTo(16f, 17f); p.lineTo(12f, 20f); p.lineTo(8f, 17f); p.lineTo(4.5f, 12.5f)
+                p.lineTo(4.5f, 6.5f); p.close()
+                line(9f, 11.5f, 11f, 13.5f); line(11f, 13.5f, 15f, 9f)
             }
             MenuKind.SETTINGS -> {
                 line(4f, 7f, 20f, 7f); line(4f, 12f, 20f, 12f); line(4f, 17f, 20f, 17f)

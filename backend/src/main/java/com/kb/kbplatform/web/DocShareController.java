@@ -327,6 +327,35 @@ public class DocShareController {
         return svc.getDoc(id, docId, resolveUserId(c), isSysAdmin(c));
     }
 
+    /**
+     * 登录 + 文档可见：协同正文的 Yjs 二进制状态（base64）。
+     * <p>桌面端用本地 y-crdt 绑定解析后渲染，拿到的是 relay 每 5s 落库一次的准实时内容；
+     * 权限校验复用 {@link DocShareService#getDoc}，不额外放行。
+     * <p>超过 {@value #MAX_YJS_BYTES} 字节不下发（state=null + tooLarge），前端据此回退 content 快照。
+     */
+    @GetMapping("/{id}/docs/{docId}/yjs")
+    public Map<String, Object> docYjs(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
+                                      @PathVariable Long docId) {
+        SharedDocument d = svc.getDoc(id, docId, resolveUserId(c), isSysAdmin(c));
+        byte[] st = d.getYjsState();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("docId", d.getId());
+        m.put("yjsRev", d.getYjsRev());
+        m.put("updatedAt", d.getUpdatedAt() == null ? "" : d.getUpdatedAt().toString());
+        if (st == null || st.length == 0) {
+            m.put("state", null);
+        } else if (st.length > MAX_YJS_BYTES) {
+            m.put("state", null);
+            m.put("tooLarge", true);
+        } else {
+            m.put("state", java.util.Base64.getEncoder().encodeToString(st));
+        }
+        return m;
+    }
+
+    /** 协同正文下发上限（8MB 原始字节，base64 后约 10.7MB）；更大的文档回退快照。 */
+    private static final int MAX_YJS_BYTES = 8 * 1024 * 1024;
+
     @PutMapping("/{id}/docs/{docId}")
     public SharedDocument updateDoc(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
                                     @PathVariable Long docId, @RequestBody Map<String, Object> body) {

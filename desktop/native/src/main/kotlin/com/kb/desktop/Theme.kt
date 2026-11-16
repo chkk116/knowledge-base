@@ -19,6 +19,8 @@ val KbTileBlue = Color(0xFF3B82F6) to Color(0xFF6366F1)
 val KbTileViolet = Color(0xFF6366F1) to Color(0xFF8B5CF6)
 val KbTileGreen = Color(0xFF10B981) to Color(0xFF059669)
 val KbTileAmber = Color(0xFFF59E0B) to Color(0xFFD97706)
+val KbTileTeal = Color(0xFF0EA5E9) to Color(0xFF0284C7)
+val KbTileRose = Color(0xFFF43F5E) to Color(0xFFBE123C)
 
 // 页面骨架色
 val KbBg = Color(0xFFF5F6F8)        // 内容区背景
