@@ -18,6 +18,7 @@ import TocNode from '../components/TocNode.vue'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
 import { splitTags } from '../utils/text'
 import { errMsg } from '../utils/errMsg'
+import { isNearBlack, buildDocToc, flattenToc } from '../features/post/postDoc'
 
 const route = useRoute()
 // 路由参数可能是 8 位短码，也可能是老数字链接；统一还原成真实文档 id
@@ -232,27 +233,6 @@ const copyText = async (text) => {
   document.body.removeChild(ta)
 }
 
-// 判断颜色是否接近纯黑（rgb(0,0,0) / #000 / black），用于清理富文本残留的黑色内联字色
-const isNearBlack = (color) => {
-  if (!color) return false
-  const c = color.trim().toLowerCase()
-  if (c === 'black' || c === '#000' || c === '#000000') return true
-  const rgb = c.match(/^rgba?\(([^)]+)\)$/)
-  if (rgb) {
-    const [r, g, b] = rgb[1].split(',').map(v => parseFloat(v.trim()))
-    if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) return r < 30 && g < 30 && b < 30
-  }
-  const hex3 = c.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/)
-  if (hex3) {
-    return parseInt(hex3[1] + hex3[1], 16) < 30 && parseInt(hex3[2] + hex3[2], 16) < 30 && parseInt(hex3[3] + hex3[3], 16) < 30
-  }
-  const hex6 = c.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/)
-  if (hex6) {
-    return parseInt(hex6[1], 16) < 30 && parseInt(hex6[2], 16) < 30 && parseInt(hex6[3], 16) < 30
-  }
-  return false
-}
-
 // 正文渲染后：清理纯黑内联字色、给每个 <pre> 加「复制」按钮、给 <img>（非表情）绑定点击放大
 const decorateContent = async () => {
   await nextTick()
@@ -306,53 +286,11 @@ const decorateContent = async () => {
   enhanceVideos(el)
 }
 // 把树压平成有序数组（用于滚动时高亮当前章节）
-const tocFlat = computed(() => {
-  const out = []
-  const walk = (arr) => { for (const n of arr) { out.push(n); if (n.children && n.children.length) walk(n.children) } }
-  walk(toc.value)
-  return out
-})
+const tocFlat = computed(() => flattenToc(toc.value))
 const processContent = (html) => {
-  if (!html) { renderedContent.value = ''; toc.value = []; return }
-  const div = document.createElement('div')
-  div.innerHTML = html
-  // 目录候选来源：
-  //  ① 真实的 h1~h6 标题（点过 wangEditor「标题」样式）
-  //  ② 以编号开头的段落（很多人不点标题样式，直接打字写章节：一、项目概述 / 1.1 方案优势 / 1.1.1 细节）
-  //     后者按编号推断层级：一、→1，1.1→2，1.1.1→3…，层级越深缩进越多
-  const isHeadingTag = (t) => /^h[1-6]$/.test(t)
-  const pseudoLevel = (t) => {
-    // 中文数字顶层：一、二、…（覆盖到千/百等）
-    if (/^[一二三四五六七八九十百千零两]+、/.test(t)) return 1
-    // 大纲数字：1.1 / 2.3.4（至少一个点，且后面跟空格或中文/冒号，避免误伤「1.1GB」这类正文）
-    const m = /^(\d+(?:\.\d+)+)(?=[\s\u4e00-\u9fa5：:])/.exec(t)
-    if (m) return Math.min((m[1].match(/\./g) || []).length + 1, 6)
-    return null
-  }
-  const candidates = []
-  Array.from(div.querySelectorAll('h1, h2, h3, h4, h5, h6, p')).forEach((el) => {
-    const tag = el.tagName.toLowerCase()
-    const text = (el.textContent || '').trim()
-    if (!text) return
-    let level = null
-    if (isHeadingTag(tag)) level = Number(tag.substring(1))
-    else if (tag === 'p') level = pseudoLevel(text)
-    if (level == null) return
-    const id = 'toc-h-' + candidates.length
-    el.id = id
-    candidates.push({ id, text, level, children: [], open: true })
-  })
-  // 按文档顺序构建可折叠的嵌套树（大标题包裹小标题）
-  const tree = []
-  const stack = []
-  candidates.forEach((node) => {
-    while (stack.length && stack[stack.length - 1].level >= node.level) stack.pop()
-    if (stack.length) stack[stack.length - 1].children.push(node)
-    else tree.push(node)
-    stack.push(node)
-  })
-  renderedContent.value = div.innerHTML
-  toc.value = tree
+  const r = buildDocToc(html)
+  renderedContent.value = r.html
+  toc.value = r.toc
 }
 const goToc = (id) => {
   const h = document.getElementById(id)

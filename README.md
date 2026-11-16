@@ -255,6 +255,8 @@ knowledge-base/
 │   └── src/
 │       ├── views/            # Home / Login / AiChat / DocShare* / Exam* / Course* / admin/*（大组件样式拆为同目录 .css）
 │       ├── features/ai/      # 5 个 composable（会话操作/附件/反馈/模型选择/Markdown 视图）+ 4 组纯规则，均可单测
+│       ├── features/docShare/# exportDoc：图块快照与 Markdown/HTML/Excel 导出（可单测）
+│       ├── features/post/    # postDoc：文章目录树生成与正文颜色规则（可单测）
 │       ├── composables/      # useUnsavedGuard：编辑/答题页的路由离开确认与关闭标签页提示
 │       ├── components/       # SlideCaptcha / RichEditor / CommentSection / WornBadgeStrip…
 │       ├── utils/            # time / text / appearance(外观共享缓存) / theme / level…
