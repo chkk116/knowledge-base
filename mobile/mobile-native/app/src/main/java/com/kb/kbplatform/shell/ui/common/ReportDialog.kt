@@ -26,7 +26,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.ui.theme.KbTextDim
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+
+/** 举报原因固定六项，抽到顶层避免每次重组都重新分配 */
+private val REPORT_REASONS = listOf("垃圾广告", "辱骂攻击", "违法违规", "侵权内容", "虚假信息", "其它")
+private const val DETAIL_MAX = 2000
 
 /**
  * 通用举报弹窗（文章 / 评论 / 用户 / 私信都用它）。
@@ -47,7 +52,7 @@ fun KbReportDialog(
     var reason by remember { mutableStateOf("垃圾广告") }
     var detail by remember { mutableStateOf("") }
     var submitting by remember { mutableStateOf(false) }
-    val reasons = listOf("垃圾广告", "辱骂攻击", "违法违规", "侵权内容", "虚假信息", "其它")
+    val reasons = REPORT_REASONS
 
     AlertDialog(
         onDismissRequest = { if (!submitting) onDismiss() },
@@ -68,8 +73,8 @@ fun KbReportDialog(
                 }
                 OutlinedTextField(
                     value = detail,
-                    onValueChange = { detail = it },
-                    label = { Text("补充说明（选填）", fontSize = 11.5.sp) },
+                    onValueChange = { if (it.length <= DETAIL_MAX) detail = it },
+                    label = { Text("补充说明（选填，最多 $DETAIL_MAX 字）", fontSize = 11.5.sp) },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -81,11 +86,18 @@ fun KbReportDialog(
                 onClick = {
                     submitting = true
                     scope.launch {
-                        runCatching { KbApi.reportContent(targetType, targetId, reason, detail) }
-                            .onSuccess { onResult("举报已提交，管理员会尽快处理") }
-                            .onFailure { onResult(it.message ?: "举报失败") }
-                        submitting = false
-                        onDismiss()
+                        // 失败时保留弹窗和已填说明，让用户能改后重试；取消要向上抛，别吞成「举报失败」
+                        try {
+                            KbApi.reportContent(targetType, targetId, reason, detail)
+                            onResult("举报已提交，管理员会尽快处理")
+                            onDismiss()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            onResult(e.message ?: "举报失败")
+                        } finally {
+                            submitting = false
+                        }
                     }
                 },
             ) { Text(if (submitting) "提交中…" else "提交举报", fontSize = 13.sp) }

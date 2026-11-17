@@ -5,7 +5,9 @@
 package com.kb.kbplatform.shell.ui.messages
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,6 +71,7 @@ import org.json.JSONObject
 
 // ============ 会话列表 ============
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DmListScreen(onBack: () -> Unit, openChat: (Long, String) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -85,6 +88,8 @@ fun DmListScreen(onBack: () -> Unit, openChat: (Long, String) -> Unit) {
             try {
                 items = KbApi.dmConversations(archived).objects()
                 state = if (items.isEmpty()) L2.Empty else L2.Ok
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 msg = e.message ?: "加载失败"
                 state = L2.Empty
@@ -108,14 +113,15 @@ fun DmListScreen(onBack: () -> Unit, openChat: (Long, String) -> Unit) {
         Spacer(Modifier.height(8.dp))
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("💬", if (archived) "归档里没有会话" else "还没有私信\n在用户主页点「私信」开始")
+            L2.Empty -> if (msg.isNotEmpty()) KbEmpty("⚠️", msg) else KbEmpty("💬", if (archived) "归档里没有会话" else "还没有私信\n在用户主页点「私信」开始")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(items, key = { it.optLong("peerId", 0) }) { c ->
+                itemsIndexed(items, key = { i, it -> it.optLong("peerId", -1L).let { id -> if (id <= 0) "conv-$i" else "conv-$id" } }) { i, c ->
                     val unread = c.optInt("unread", 0)
                     KbCard(
-                        Modifier.fillMaxWidth().clickable {
-                            openChat(c.optLong("peerId", 0), c.optString("name"))
-                        }
+                        Modifier.fillMaxWidth().combinedClickable(
+                            onClick = { openChat(c.optLong("peerId", 0), c.optString("name")) },
+                            onLongClick = { if (c.optLong("peerId", 0) > 0) delTarget = c },
+                        )
                     ) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -203,6 +209,7 @@ fun DmChatScreen(peerId: Long, peerName: String, onBack: () -> Unit) {
 
     fun load() {
         state = L2.Loading
+        err = ""
         scope.launch {
             try {
                 msgs = KbApi.dmHistory(peerId).objects()
@@ -218,6 +225,8 @@ fun DmChatScreen(peerId: Long, peerName: String, onBack: () -> Unit) {
                         else -> ""
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 err = e.message ?: "加载失败"
                 state = L2.Empty
@@ -226,7 +235,9 @@ fun DmChatScreen(peerId: Long, peerName: String, onBack: () -> Unit) {
     }
     LaunchedEffect(peerId) { load() }
     // 新消息到来自动滚到底（列表是升序，末条即最新）
-    LaunchedEffect(msgs.size) {
+    // 只在「来了新消息」时滚到底；按 msgs.size 会让 loadMore 翻更早消息时也被拽回底部
+    val newestId = msgs.lastOrNull()?.optLong("id", -1L) ?: -1L
+    LaunchedEffect(newestId) {
         if (msgs.isNotEmpty()) runCatching { listState.animateScrollToItem(msgs.size - 1) }
     }
 
@@ -279,7 +290,8 @@ fun DmChatScreen(peerId: Long, peerName: String, onBack: () -> Unit) {
                         }
                     }
                 }
-                itemsIndexed(msgs, key = { i, it -> it.optLong("id", -1L).let { id -> if (id == -1L) "msg-$i" else id } }) { i, m ->
+                // id 缺失或重复都不能让 LazyColumn 撞 key：一律拼上位置
+                itemsIndexed(msgs, key = { i, it -> "msg-" + it.optLong("id", -1L) + "-" + i }) { i, m ->
                     val mine = m.optLong("fromId", 0) == me
                     Column(
                         Modifier.fillMaxWidth(),
@@ -292,7 +304,7 @@ fun DmChatScreen(peerId: Long, peerName: String, onBack: () -> Unit) {
                                     if (mine) KbBlue else MaterialTheme.colorScheme.surfaceVariant,
                                     RoundedCornerShape(12.dp),
                                 )
-                                .clickable(enabled = mine) { if (mine) recallTarget = m }
+                                .clickable(enabled = mine) { recallTarget = m }
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
                             Text(

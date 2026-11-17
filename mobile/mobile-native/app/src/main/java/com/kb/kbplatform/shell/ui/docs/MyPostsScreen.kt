@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbCard
-import com.kb.kbplatform.shell.ui.common.KbChip
+
 import com.kb.kbplatform.shell.ui.common.KbEmpty
 import com.kb.kbplatform.shell.ui.common.KbLoading
 import com.kb.kbplatform.shell.ui.common.TopBar
@@ -71,13 +71,17 @@ fun MyPostsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit) {
 
     fun load() {
         state = L2.Loading
+        msg = ""
         scope.launch {
             try {
                 items = KbApi.myDocs().objects()
                 state = if (items.isEmpty()) L2.Empty else L2.Ok
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 msg = e.message ?: "加载失败"
-                state = L2.Empty
+                // 刷新失败时保留已有列表，不要用空态盖掉用户已经看到的文章
+                state = if (items.isEmpty()) L2.Empty else L2.Ok
             }
         }
     }
@@ -151,10 +155,16 @@ fun MyPostsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit) {
                                         onClick = {
                                             busyId = id
                                             scope.launch {
-                                                runCatching { KbApi.submitDocReview(id) }
-                                                    .onFailure { msg = it.message ?: "提交失败" }
-                                                busyId = 0
-                                                tick++
+                                                try {
+                                                    KbApi.submitDocReview(id)
+                                                    tick++
+                                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    msg = e.message ?: "提交失败"
+                                                } finally {
+                                                    if (busyId == id) busyId = 0
+                                                }
                                             }
                                         },
                                         contentPadding = PaddingValues(horizontal = 8.dp)
@@ -166,10 +176,16 @@ fun MyPostsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit) {
                                         onClick = {
                                             busyId = id
                                             scope.launch {
-                                                runCatching { KbApi.withdrawDocReview(id) }
-                                                    .onFailure { msg = it.message ?: "撤回失败" }
-                                                busyId = 0
-                                                tick++
+                                                try {
+                                                    KbApi.withdrawDocReview(id)
+                                                    tick++
+                                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    msg = e.message ?: "撤回失败"
+                                                } finally {
+                                                    if (busyId == id) busyId = 0
+                                                }
                                             }
                                         },
                                         contentPadding = PaddingValues(horizontal = 8.dp)
@@ -200,11 +216,20 @@ fun MyPostsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     val id = d.optLong("id", 0)
+                    if (id <= 0) { delTarget = null; return@TextButton }
+                    busyId = id
                     delTarget = null
                     scope.launch {
-                        runCatching { KbApi.deleteMyDoc(id) }
-                            .onFailure { msg = it.message ?: "删除失败" }
-                        tick++
+                        try {
+                            KbApi.deleteMyDoc(id)
+                            tick++
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            msg = e.message ?: "删除失败"
+                        } finally {
+                            if (busyId == id) busyId = 0
+                        }
                     }
                 }) { Text("删除", color = KbRed) }
             },
