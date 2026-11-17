@@ -292,28 +292,91 @@ fun BadgesScreen(onBack: () -> Unit) {
 
 @Composable
 fun FilesScreen(onBack: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(L2.Loading) }
-    LaunchedEffect(Unit) {
+    var tick by remember { mutableIntStateOf(0) }
+    var uploading by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf("") }
+
+    LaunchedEffect(tick) {
         try {
             items = simpleList(KbApi.myFiles())
             state = if (items.isEmpty()) L2.Empty else L2.Ok
-        } catch (e: Exception) { state = L2.Empty }
+        } catch (e: Exception) {
+            state = L2.Empty
+            msg = e.message ?: "加载失败"
+        }
     }
+
+    // 统一上传入口：任意类型文件 → 复制到 cache → multipart 走 /api/files（与扫描/分享导入同一条链路）
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        uploading = true
+        msg = ""
+        scope.launch {
+            var tmp: java.io.File? = null
+            try {
+                val name = queryDisplayName(ctx, uri) ?: "upload_${System.currentTimeMillis()}"
+                val f = java.io.File(ctx.cacheDir, name)
+                tmp = f
+                ctx.contentResolver.openInputStream(uri)?.use { input ->
+                    f.outputStream().use { out -> input.copyTo(out) }
+                } ?: throw IllegalStateException("无法读取所选文件")
+                val mime = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
+                KbApi.uploadFile(f, mime)
+                msg = "上传成功：$name"
+                tick++
+            } catch (e: Exception) {
+                msg = e.message ?: "上传失败"
+            } finally {
+                tmp?.let { runCatching { it.delete() } }
+                uploading = false
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "我的文件", onBack = onBack)
+        TopBar(title = "我的文件", onBack = onBack, actions = {
+            TextButton(enabled = !uploading, onClick = { picker.launch("*/*") }) {
+                Text(if (uploading) "上传中…" else "上传", fontSize = 13.sp)
+            }
+        })
+        if (msg.isNotEmpty()) {
+            Text(
+                msg, fontSize = 11.5.sp, color = KbBlue,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("🗂️", "暂无文件\n编辑器里上传的图片会出现在这里")
+            L2.Empty -> KbEmpty("🗂️", "暂无文件\n点右上角「上传」，或把文件分享到 App")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { f ->
                     val url = f.optString("url")
                     KbCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
-                            Text(
-                                f.optString("name").ifBlank { url.substringAfterLast('/') },
-                                fontSize = 14.sp, maxLines = 1
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    f.optString("name").ifBlank { url.substringAfterLast('/') },
+                                    fontSize = 14.sp, maxLines = 1,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (url.isNotEmpty()) {
+                                    TextButton(
+                                        onClick = {
+                                            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                                as android.content.ClipboardManager
+                                            cm.setPrimaryClip(android.content.ClipData.newPlainText("文件链接", url))
+                                            msg = "已复制文件链接"
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp),
+                                    ) { Text("复制链接", fontSize = 11.5.sp) }
+                                }
+                            }
                             Text(
                                 formatDateTime(f.optString("createdAt")),
                                 fontSize = 11.sp, color = KbTextDim
@@ -332,6 +395,14 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     }
 }
+
+/** 取文件选择器返回的显示名（拿不到就返回 null，由调用方兜底命名） */
+private fun queryDisplayName(ctx: android.content.Context, uri: android.net.Uri): String? = runCatching {
+    ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
+        val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+        if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+    }
+}.getOrNull()
 
 // ============ 版本历史（对标 MobileVersions）============
 
