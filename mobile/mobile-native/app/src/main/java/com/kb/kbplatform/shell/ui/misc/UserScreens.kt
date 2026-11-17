@@ -43,27 +43,38 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbButton
 import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.KbChip
+import com.kb.kbplatform.shell.ui.common.KbReportDialog
 import com.kb.kbplatform.shell.ui.common.KbEmpty
 import com.kb.kbplatform.shell.ui.common.KbLoading
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
+import com.kb.kbplatform.shell.ui.theme.KbRed
 import com.kb.kbplatform.shell.ui.theme.KbTextDim
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /** 用户主页（对标 MobileUserProfile）：名片 + 关注 + 用户文章 */
 @Composable
-fun UserProfileScreen(userId: Long, onBack: () -> Unit, openPost: (Long, String) -> Unit) {
+fun UserProfileScreen(
+    userId: Long,
+    onBack: () -> Unit,
+    openPost: (Long, String) -> Unit,
+    openChat: (Long, String) -> Unit = { _, _ -> }
+) {
     val scope = rememberCoroutineScope()
     var card by remember { mutableStateOf<JSONObject?>(null) }
     var articles by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var following by remember { mutableStateOf(false) }
     var state by remember { mutableStateOf(L2.Loading) }
+    // 举报用户（targetType=USER，后端按 authorId 处置）
+    var reportUser by remember { mutableStateOf(false) }
+    var profileMsg by remember { mutableStateOf("") }
 
     LaunchedEffect(userId) {
         try {
@@ -72,6 +83,17 @@ fun UserProfileScreen(userId: Long, onBack: () -> Unit, openPost: (Long, String)
             articles = runCatching { KbApi.userArticles(userId).objects() }.getOrDefault(emptyList())
             state = L2.Ok
         } catch (e: Exception) { state = L2.Empty }
+    }
+
+    if (reportUser) {
+        KbReportDialog(
+            targetType = "USER",
+            targetId = userId,
+            preview = card?.optString("displayName").orEmpty()
+                .ifBlank { card?.optString("username").orEmpty() },
+            onDismiss = { reportUser = false },
+            onResult = { profileMsg = it },
+        )
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -113,16 +135,40 @@ fun UserProfileScreen(userId: Long, onBack: () -> Unit, openPost: (Long, String)
                         Text(it, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
                     }
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = {
-                        scope.launch {
-                            runCatching { KbApi.followUser(userId, !following) }
-                            following = !following
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = {
+                            scope.launch {
+                                runCatching { KbApi.followUser(userId, !following) }
+                                following = !following
+                            }
+                        }) {
+                            Text(if (following) "取消关注" else "+ 关注", color = Color.White)
                         }
-                    }) {
-                        Text(if (following) "取消关注" else "+ 关注", color = Color.White)
+                        // 私信：自己的主页不出这个按钮（后端也拒绝给自己发）
+                        val meId = TokenStore.info.value?.optLong("id", 0L) ?: 0L
+                        if (userId != meId) {
+                            OutlinedButton(onClick = {
+                                openChat(userId, card?.optString("displayName").orEmpty()
+                                    .ifBlank { card?.optString("username").orEmpty() })
+                            }) {
+                                Text("私信", color = Color.White)
+                            }
+                            OutlinedButton(onClick = { reportUser = true }) {
+                                Text("举报", color = Color.White)
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
+                if (profileMsg.isNotEmpty()) {
+                    Text(
+                        profileMsg,
+                        fontSize = 11.5.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
                 Text("TA 的文章（${articles.size}）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp))
                 Spacer(Modifier.height(8.dp))
@@ -172,6 +218,17 @@ fun PostViewScreen(
     var subscribed by remember { mutableStateOf(false) }
     var subCount by remember { mutableLongStateOf(0L) }
     var msg by remember { mutableStateOf("") }
+    var related by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var replyTo by remember { mutableStateOf<JSONObject?>(null) }
+    // 评论管理：自己的可删、别人的可举报
+    val meId = TokenStore.info.value?.optLong("id", 0L) ?: 0L
+    var delComment by remember { mutableStateOf<JSONObject?>(null) }
+    var reportTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var reportReason by remember { mutableStateOf("垃圾广告") }
+    var reportDetail by remember { mutableStateOf("") }
+    // 举报整篇文章（顶栏入口）
+    var reportPost by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
 
     fun loadComments() {
         scope.launch {
@@ -192,11 +249,99 @@ fun PostViewScreen(
             runCatching { KbApi.docSubscription(postId) }.onSuccess {
                 subscribed = it.first; subCount = it.second
             }
+            // 相关阅读是可选信息，失败留空不影响正文与评论
+            related = runCatching { KbApi.relatedDocs(postId, 5).objects() }.getOrDefault(emptyList())
         } catch (e: Exception) { state = L2.Empty }
     }
 
+    // 删除自己的评论
+    delComment?.let { dc ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { delComment = null },
+            title = { Text("删除评论") },
+            text = { Text("删除后不可恢复，确定删除这条评论吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val id = dc.optLong("id", 0)
+                    delComment = null
+                    scope.launch {
+                        runCatching { KbApi.deleteComment(id) }
+                            .onFailure { msg = it.message ?: "删除失败" }
+                        loadComments()
+                    }
+                }) { Text("删除", color = KbRed) }
+            },
+            dismissButton = { TextButton(onClick = { delComment = null }) { Text("取消") } }
+        )
+    }
+
+    // 举报他人评论（原因必填；后端 10 分钟内同一对象只收一次）
+    reportTarget?.let { rc ->
+        val reasons = listOf("垃圾广告", "辱骂攻击", "违法违规", "侵权内容", "虚假信息", "其它")
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { reportTarget = null },
+            title = { Text("举报评论") },
+            text = {
+                Column {
+                    Text("「${rc.optString("content").take(24)}」", fontSize = 12.sp, color = KbTextDim, maxLines = 2)
+                    Spacer(Modifier.height(8.dp))
+                    reasons.chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            row.forEach { r ->
+                                KbChip(r, selected = reportReason == r, onClick = { reportReason = r })
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    OutlinedTextField(
+                        value = reportDetail,
+                        onValueChange = { reportDetail = it },
+                        label = { Text("补充说明（选填）") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val id = rc.optLong("id", 0)
+                    reportTarget = null
+                    scope.launch {
+                        runCatching { KbApi.reportContent("COMMENT", id, reportReason, reportDetail) }
+                            .onSuccess { msg = "举报已提交，管理员会尽快处理" }
+                            .onFailure { msg = it.message ?: "举报失败" }
+                    }
+                }) { Text("提交举报") }
+            },
+            dismissButton = { TextButton(onClick = { reportTarget = null }) { Text("取消") } }
+        )
+    }
+
+    // 举报整篇文章（后端按 targetType=POST 处理，处置动作可下架）
+    if (reportPost) {
+        KbReportDialog(
+            targetType = "POST",
+            targetId = postId,
+            preview = article?.optString("title").orEmpty(),
+            onDismiss = { reportPost = false },
+            onResult = { msg = it },
+        )
+    }
+
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = titleHint.ifBlank { "文章" }, onBack = onBack)
+        TopBar(title = titleHint.ifBlank { "文章" }, onBack = onBack, actions = {
+            TextButton(onClick = {
+                val url = com.kb.kbplatform.shell.AppConfig.effectiveBaseUrl.trimEnd('/') + "/m/post/$postId"
+                runCatching {
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_TEXT, "${titleHint.ifBlank { "文章" }}\n$url")
+                    }
+                    ctx.startActivity(android.content.Intent.createChooser(send, "分享文章"))
+                }
+            }) { Text("分享", fontSize = 13.sp) }
+            TextButton(onClick = { reportPost = true }) { Text("举报", fontSize = 13.sp) }
+        })
         when (state) {
             L2.Loading -> KbLoading()
             L2.Empty -> KbEmpty("📄", "文章不存在")
@@ -282,54 +427,139 @@ fun PostViewScreen(
                         lineHeight = 23.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
                     )
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(20.dp))
+                    // 相关阅读：同分类 + 标签重叠的文章（公开接口，失败就整块不出现）
+                    if (related.isNotEmpty()) {
+                        Text("相关阅读", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(6.dp))
+                        related.forEach { r ->
+                            val rid = r.optLong("id", 0)
+                            KbCard(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable(enabled = rid > 0) {
+                                        openRoute(
+                                            "post/$rid?title=" +
+                                                android.net.Uri.encode(r.optString("title"))
+                                        )
+                                    }
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(
+                                        r.optString("title").ifBlank { "未命名" },
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 2,
+                                    )
+                                    val views = r.optInt("views", 0)
+                                    Text(
+                                        listOfNotNull(
+                                            r.optString("category").takeIf { it.isNotBlank() },
+                                            r.optString("ownerName").takeIf { it.isNotBlank() },
+                                            if (views > 0) "$views 阅" else null,
+                                        ).joinToString(" · "),
+                                        fontSize = 11.sp, color = KbTextDim,
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(20.dp))
+                    }
                     Text("评论（${comments.size}）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
                     if (comments.isEmpty()) {
                         Text("还没有评论", fontSize = 12.sp, color = KbTextDim)
                     }
-                    comments.forEach { c ->
-                        val cid = c.optLong("id", 0)
+                    // 楼中楼：按 parentId 分组，顶层评论下挂一层子回复（后端支持 parentId）
+                    val byParent = comments.groupBy { it.optLong("parentId", 0) }
+                    byParent[0L].orEmpty().forEach { root ->
+                        val rootId = root.optLong("id", 0)
                         CommentCard(
-                            c = c,
-                            liked = cid in likedCommentIds,
+                            c = root,
+                            liked = rootId in likedCommentIds,
+                            mine = root.optLong("userId", 0) == meId,
                             onLikedChange = { on ->
-                                likedCommentIds = if (on) likedCommentIds + cid else likedCommentIds - cid
+                                likedCommentIds = if (on) likedCommentIds + rootId else likedCommentIds - rootId
                             },
+                            onReply = { replyTo = root },
+                            onDelete = { delComment = root },
+                            onReport = { reportTarget = root; reportReason = "垃圾广告"; reportDetail = "" },
                             onError = { e -> msg = e }
                         )
+                        byParent[rootId].orEmpty().forEach { child ->
+                            val cid = child.optLong("id", 0)
+                            CommentCard(
+                                c = child,
+                                liked = cid in likedCommentIds,
+                                indent = true,
+                                mine = child.optLong("userId", 0) == meId,
+                                onLikedChange = { on ->
+                                    likedCommentIds = if (on) likedCommentIds + cid else likedCommentIds - cid
+                                },
+                                onReply = { replyTo = root },
+                                onDelete = { delComment = child },
+                                onReport = { reportTarget = child; reportReason = "垃圾广告"; reportDetail = "" },
+                                onError = { e -> msg = e }
+                            )
+                        }
                     }
                     Spacer(Modifier.height(20.dp))
                 }
-                Row(
+                Column(
                     Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = { Text("写下你的评论…", fontSize = 14.sp) },
-                        maxLines = 2,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(Modifier.size(8.dp))
-                    TextButton(
-                        onClick = {
-                            val t = input.trim()
-                            if (t.isEmpty() || posting) return@TextButton
-                            posting = true
-                            scope.launch {
-                                runCatching { KbApi.postComment(postId, t) }
-                                input = ""
-                                posting = false
-                                loadComments()
-                            }
-                        },
-                        enabled = input.isNotBlank() && !posting
-                    ) { Text(if (posting) "…" else "发送") }
+                    // 楼中楼：正在回复谁 —— 点「回复」后这里出现可取消的提示条
+                    replyTo?.let { r ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "回复 @${r.optString("username").ifBlank { "匿名" }}：${r.optString("content").take(20)}",
+                                fontSize = 11.sp,
+                                color = KbTextDim,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                onClick = { replyTo = null },
+                                contentPadding = PaddingValues(horizontal = 6.dp)
+                            ) { Text("取消", fontSize = 11.sp, color = KbTextDim) }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            placeholder = {
+                                Text(
+                                    if (replyTo != null) "回复 @${replyTo?.optString("username").orEmpty()}…"
+                                    else "写下你的评论…",
+                                    fontSize = 14.sp
+                                )
+                            },
+                            maxLines = 2,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        TextButton(
+                            onClick = {
+                                val t = input.trim()
+                                if (t.isEmpty() || posting) return@TextButton
+                                posting = true
+                                val parent = replyTo?.optLong("id")
+                                scope.launch {
+                                    runCatching { KbApi.postComment(postId, t, parent) }
+                                    input = ""
+                                    replyTo = null
+                                    posting = false
+                                    loadComments()
+                                }
+                            },
+                            enabled = input.isNotBlank() && !posting
+                        ) { Text(if (posting) "…" else "发送") }
+                    }
                 }
             }
         }
@@ -344,15 +574,27 @@ fun PostViewScreen(
 private fun CommentCard(
     c: JSONObject,
     liked: Boolean,
+    indent: Boolean = false,
+    mine: Boolean = false,
     onLikedChange: (Boolean) -> Unit,
+    onReply: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    onReport: () -> Unit = {},
     onError: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val cid = c.optLong("id", 0)
     var likes by remember(cid) { mutableIntStateOf(c.optInt("likes")) }
-    KbCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    KbCard(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp, horizontal = if (indent) 20.dp else 0.dp)
+    ) {
         Column(Modifier.padding(12.dp)) {
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (indent) {
+                    Text("↳ ", fontSize = 12.sp, color = KbTextDim)
+                }
                 Text(
                     c.optString("username").ifBlank { "匿名" },
                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold
@@ -367,6 +609,19 @@ private fun CommentCard(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                TextButton(onClick = onReply, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("回复", fontSize = 12.sp, color = KbTextDim)
+                }
+                // 自己的评论给「删除」，别人的给「举报」——后台走不同端点（DELETE vs POST /api/reports）
+                if (mine) {
+                    TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                        Text("删除", fontSize = 12.sp, color = KbRed)
+                    }
+                } else {
+                    TextButton(onClick = onReport, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                        Text("举报", fontSize = 12.sp, color = KbTextDim)
+                    }
+                }
                 TextButton(onClick = {
                     scope.launch {
                         runCatching { KbApi.toggleCommentLike(cid) }

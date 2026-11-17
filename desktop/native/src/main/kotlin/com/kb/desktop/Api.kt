@@ -162,6 +162,8 @@ data class SharedDocItem(
     val myPerm: String?,
     val size: Long,
     val content: String?,
+    // 跨空间列表（/doc-shares/docs/all）才有值；按空间取列表时后端也会带，缺省 0
+    val shareId: Long = 0,
 )
 
 /** 课程（GET /api/courses；详情接口另带 chapters）。content/summary 均为净化后的 HTML。 */
@@ -626,6 +628,21 @@ class ApiClient(private val base: String) {
         )
     }
 
+    /**
+     * POST /api/reports → 举报内容。
+     * targetType：DOC / POST / COMMENT / DM / USER / FEEDBACK；reason 必填（≤120 字），detail 选填（≤2000 字）。
+     */
+    suspend fun reportContent(
+        token: String,
+        targetType: String,
+        targetId: Long,
+        reason: String,
+        detail: String = "",
+    ) {
+        val body = """{"targetType":${jsonStr(targetType.uppercase())},"targetId":$targetId,"reason":${jsonStr(reason)},"detail":${jsonStr(detail)}}"""
+        withContext(Dispatchers.IO) { authReq("POST", "/api/reports", token, body) }
+    }
+
     /** POST /api/comments/{id}/like → (是否已赞, 当前赞数) */
     suspend fun toggleCommentLike(token: String, id: Long): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
         val o = parse(authReq("POST", "/api/comments/$id/like", token)) ?: throw ApiError("点赞响应异常")
@@ -670,7 +687,99 @@ class ApiClient(private val base: String) {
             }
         }
 
+    // ---------------- 站内通知（评论 / @ 提醒） ----------------
+
+    /** 通知项（GET /api/notifications 倒序）。shareId 用于共享文档提及跳转，文章通知为空。 */
+    data class NotiItem(
+        val id: Long,
+        val type: String,
+        val actor: String,
+        val docId: Long?,
+        val shareId: Long?,
+        val commentId: Long?,
+        val summary: String,
+        val read: Boolean,
+        val createdAt: String,
+    )
+
+    suspend fun notifications(token: String): List<NotiItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/notifications", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            NotiItem(
+                id = id,
+                type = j.str("type").orEmpty(),
+                actor = j.str("actor").orEmpty(),
+                docId = j.long("docId"),
+                shareId = j.long("shareId"),
+                commentId = j.long("commentId"),
+                summary = j.str("summary").orEmpty(),
+                read = j.bool("read") ?: false,
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** GET /api/notifications/unread → 未读数 */
+    suspend fun unreadNotifications(token: String): Int = withContext(Dispatchers.IO) {
+        parse(getAuth("/api/notifications/unread", token))?.int("count") ?: 0
+    }
+
+    /** POST /api/notifications/{id}/read */
+    suspend fun markNotificationRead(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/notifications/$id/read", token) }
+    }
+
+    /** POST /api/notifications/read-all */
+    suspend fun markAllNotificationsRead(token: String) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/notifications/read-all", token) }
+    }
+
+    /** DELETE /api/notifications/{id} */
+    suspend fun deleteNotification(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/notifications/$id", token) }
+    }
+
     // ---------------- 管理（ADMIN 或细粒度权限；403 文案由后端透出） ----------------
+
+    // ---------------- 我的文章（作者视角；与后台 POST_MANAGE 的 adminDocs 区分） ----------------
+
+    /** GET /api/docs/mine → 我写的文章（含 DRAFT / PENDING / PUBLISHED / BLOCKED） */
+    suspend fun myOwnDocs(token: String): List<AdminDocItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/docs/mine", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AdminDocItem(
+                id = id,
+                title = j.str("title").orEmpty(),
+                ownerName = j.str("ownerName").orEmpty(),
+                category = j.str("category"),
+                status = j.str("status").orEmpty(),
+                updatedAt = j.str("updatedAt").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+                views = j.int("views") ?: 0,
+            )
+        }
+    }
+
+    /** POST /api/docs/{id}/submit → 草稿提交审核（普通用户不能自发布，统一转待审核） */
+    suspend fun submitDocReview(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/docs/$id/submit", token) }
+    }
+
+    /** POST /api/docs/{id}/withdraw → 撤回审核（待审核 → 草稿） */
+    suspend fun withdrawDocReview(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/docs/$id/withdraw", token) }
+    }
+
+    /** DELETE /api/docs/{id} → 作者删自己的文章（与 admin 删除不是同一路径） */
+    suspend fun deleteOwnDoc(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/docs/$id", token) }
+    }
 
     /** 管理：帖子列表（全部状态，POST_MANAGE） */
     suspend fun adminDocs(token: String, keyword: String = ""): List<AdminDocItem> = withContext(Dispatchers.IO) {
@@ -1474,6 +1583,19 @@ class ApiClient(private val base: String) {
         }
     }
 
+    /**
+     * GET /api/doc-shares/docs/all → 我可见的**全部空间**文档（跨空间检索用）。
+     * 后端带护栏：超量截断、默认不取全文（withContent=false 只给摘要），所以这里只用于列表与筛选。
+     */
+    suspend fun allShareDocs(token: String): List<SharedDocItem> = withContext(Dispatchers.IO) {
+        val e = runCatching {
+            Json.parseToJsonElement(authReq("GET", "/api/doc-shares/docs/all", token))
+        }.getOrNull() ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            (item as? JsonObject)?.let { parseSharedDoc(it) }
+        }
+    }
+
     /** GET /api/doc-shares/{sid}/docs/{docId}/yjs → 协同正文的 Yjs 状态（base64；超限时 state=null） */
     suspend fun shareDocYjs(token: String, shareId: Long, docId: Long): ShareYjs? = withContext(Dispatchers.IO) {
         val o = parse(authReq("GET", "/api/doc-shares/$shareId/docs/$docId/yjs", token))
@@ -1554,6 +1676,7 @@ class ApiClient(private val base: String) {
             myPerm = j.str("myPerm"),
             size = j.long("size") ?: 0,
             content = j.str("content"),
+            shareId = j.long("shareId") ?: 0,
         )
     }
 

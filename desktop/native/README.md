@@ -6,7 +6,7 @@
 
 - 登录窗：账号密码 + 滑块验证码，与 Web 端同一套接口
   （`GET /api/auth/captcha` → `POST /api/auth/captcha/slide` → `POST /api/auth/login`）
-- 主窗：左侧原生侧栏（首页/文章/共享空间/培训/考试/AI 问答/我的文件/管理/设置）+ WPS 风白底卡内容区
+- 主窗：左侧原生侧栏（首页/文章/共享空间/培训/考试/AI 问答/我的文件/通知/管理/设置）+ WPS 风白底卡内容区
 - 窗口：登录初始 960×640（下限 640×540）/ 主界面 1280×800（下限 960×620）；窗口 <880dp 时侧栏收成图标栏
 - **登录页**：左品牌渐变栏（黛青 + 月白 + 金点缀，产品名 / 卖点）+ 右表单；品牌瓦片 →「欢迎回来」→ 无标签大输入框
   （44 高/10 圆角/聚焦品牌描边）→ 墨色实心按钮；autofocus、Enter 提交、用户名预填上次账号；
@@ -96,15 +96,24 @@
 - **文章列表原生搜索**：搜索框输入即搜（350ms 防抖，`GET /api/search?q=`），清空即回服务端分页列表；
   新增「最新 / 最热」排序切换（`sort=latest|hot`）；搜索结果不显示 0 浏览量，
   标题右侧计数在搜索时切换为结果条数。
-- **我的订阅列表**：文章列表面板顶部「全部 / 订阅」切换；订阅模式走
+- **我的订阅列表**：文章列表面板顶部「全部 / 订阅 / **我的**」三档切换；订阅模式走
   `GET /api/docs/subscriptions`（标题/分类/订阅时间），文档已删除的条目由后端给占位标题并标
   `deleted=true` → 整行置灰、不可点击；订阅模式隐藏搜索与排序（列表短，避免误导）；
   点击条目直接打开对应文章详情（复用文章阅读页）。
+- **我的帖子（作者视角，2026-11-17）**：第三档「我的」走 `GET /api/docs/mine`，行内有状态徽标
+  （草稿/待审/已发布/已封禁）+ 更新时间 + 阅读量；草稿可「提交审核」（`POST /{id}/submit`，普通用户统一转待审）、
+  待审可「撤回」（`POST /{id}/withdraw`）、任意可「删除」（`DELETE /api/docs/{id}`；与后台 admin 删除不是同一路径）；
+  只有已发布/已封禁的行点得开阅读页，草稿待审点了不跳（避免看到自己未发布的内容被当成线上文章）。
 - **文章页补齐 Web 端四项能力**：
   - **订阅**：左侧操作栏「🔔 订阅 / 已订阅 + 订阅人数」；`GET /api/docs/{id}/subscribed` 初始化，
     `POST/DELETE /api/docs/{id}/subscribe` 切换，乐观更新失败回滚，提示与 Web 端同文案。
   - **相关阅读**：正文之后、评论区之前最多 4 条（`GET /api/docs/{id}/related?limit=4`，点击打开）；
     渲染在「评论区那个 item」内部，保持 `头部 item + 正文块 + 评论` 的固定索引不被撑坏。
+  - **评论管理（2026-11-17）**：自己的评论可「删除」（`DELETE /api/comments/{id}`，二次确认）；
+    别人的评论可「举报」→ 六项原因（垃圾广告/辱骂攻击/违法违规/侵权内容/虚假信息/其它）+ 说明，
+    提交 `POST /api/reports`（`targetType=COMMENT`，后端 10 分钟内同一对象只收一次）。
+  - **举报文章**：左侧操作栏 `⚑ 举报` → 同款六项原因弹窗，提交 `POST /api/reports`（`targetType=POST`，
+    管理员在「举报处理」里可下架或警告作者）。
   - **作者卡片**：标题下方紧凑卡（`GET /api/users/{id}/card`）：头像首字、昵称、徽章、入驻年数、
     原创/获赞/粉丝/积分，右侧「+ 关注 / 已关注」（`POST/DELETE /api/users/{id}/follow`）；
     接口失败整卡不显示，不影响正文。
@@ -117,6 +126,9 @@
   「在 Web 端打开」直达 `/doc-shares/{id}?doc={docId}`。
   **空间内检索与排序**：文档列表按标题/标签本地过滤（复用文章页的自绘搜索框，`SearchBox` 提为 internal），
   排序支持「最近更新 / 标题」，文档数随过滤结果变化；无匹配显示「没有匹配的文档」。
+  **跨空间「全部文档」（2026-11-17）**：左侧列表顶部固定一条「全部文档」，走 `GET /api/doc-shares/docs/all`
+  列出所有空间里我可见的文档（后端有总量截断、默认不带全文）；列表项补「所属空间名」以便区分同名文档。
+  该视图下详情/版本/「在 Web 端打开」都用文档自带的 `shareId`（`docShareId` 状态），而不是左侧选中的空间 id。
   ⚠️ **协同正文（2026-11-16 起本地解析）**：`GET /api/doc-shares/{id}/docs/{docId}/yjs` 下发
   `yjs_state`（base64；超 8MB 不下发，返回 `state=null` + `tooLarge`），桌面端用
   **`net.carcdr:ycrdt-core` / `ycrdt-jni` 0.3.0**（Yrs 的 Java 绑定，Apache-2.0，jar 内含
@@ -138,6 +150,13 @@
     3. 来源仍标「协同实时 / 快照」两态。
   - **生效条件**：后端 `/yjs` 接口要部署（本地 jar 已含该方法）；桌面端 1.1.2 起就带读取逻辑，
     因此**先部署后端即可让已装客户端读到协同正文**，1.1.3 只是补上述提示与图块标注。
+  - **历史版本（2026-11-17）**：阅读区右上「版本」→ 列出 `GET /{id}/docs/{docId}/versions`
+    （`#id · 时间 · 快照字符数 · 是否含协同状态`），可「恢复」（`POST /versions/{vid}/restore`，
+    恢复后 `detailTick++` 重载）与「保存当前为新版本」（`POST /versions`）。版本列表只在打开面板时拉，
+    避免每次进详情都传整份 `content + yjs_state`。
+  - **无 `/yjs` 时的正文兜底**：若当前无协同接口且 `content` 快照为空，自动取**最近历史版本**的
+    `yjs_state` 本地解析，并在来源处标「版本 #id（时间）」——`versions` 是早已部署的端点，
+    不用等后端升级也能看到正文。
 - **管理模块（2026-11-16，日常运维闭环）**：侧栏「管理」进二级导航，**14 个页签**，权限全部由后端判定
   （ADMIN 或细粒度码），403 文案原样透出；列表统一取第一页 50 条（不做翻页）：
   - **审核队列**（`DOC_REVIEW`）：`GET /api/admin/docs/pending` + 通过（`POST /{id}/approve`）/
@@ -204,6 +223,15 @@
   数据源 `kb_sys_setting` 的 `app_version_desktop`（JSON：`versionCode/versionName/url/notes/checksum/force`）。
 - 客户端：启动后静默拉取该接口，`versionCode` 大于本地 `AppInfo.versionCode` 时顶部提示；
   「设置」页可手动检查更新，发现新版本给出更新说明与「下载更新」（浏览器打开安装包地址）。
+- **通知（2026-11-17，侧栏第 8 项）**：侧栏「通知」带未读角标（`GET /api/notifications/unread`，60s 轮询，不引 SSE）；
+  面板未读高亮、点按即已读并跳对应文章（文章类通知 `shareId` 为空才跳）、「全部已读」、「删除」；
+  类型文案按后端实际写入的 `COMMENT_MENTION / DOC_MENTION / COMMENT_REPLY / COMMENT / LIKE / DOC_UPDATE / REVIEW / CERTIFICATE / SECURITY_ALERT` 映射。
+- **设置页（2026-11-17 补齐）**：三块卡片 ——
+  1. **关于**：版本/通道 + 检查更新（原逻辑不动）；
+  2. **账号**：服务器、登录账号（仍是「地址不进界面」口径下的域名脱敏展示）、退出登录；
+  3. **本地数据**：正文图片缓存条数（`docImageCacheSize()`，内存态 60 张上限）+「清空图片缓存」、
+     `ConfigStore.dirPath()` 显示与「打开配置目录」、「清除本地配置并退出」（删 `%APPDATA%\kb-desktop\config.json`
+     并回调 `onLogout`）。整页改为可滚动（三块卡片在 640 高窗口会超出）。
 - 发版流程：改 `AppInfo.versionCode/versionName`（`packageVersion` 从它读取，勿再单独改一处）→
   `packageInnoSetup` → 上传 setup.exe 到服务器 → 更新 `app_version_desktop` 的
   `versionCode/url/checksum`（**新包必须重算 SHA-256**，旧值会让更新校验失败）。

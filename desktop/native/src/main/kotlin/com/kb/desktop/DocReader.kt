@@ -1,4 +1,4 @@
-package com.kb.desktop
+﻿package com.kb.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
@@ -90,6 +91,12 @@ fun ArticleView(
     var canEdit by remember(doc.id) { mutableStateOf(true) }
     var pendingDel by remember(doc.id) { mutableStateOf<Long?>(null) }
     var toast by remember(doc.id) { mutableStateOf<String?>(null) }
+    // 举报评论：只能举报别人的（自己的走删除），原因必填
+    var reportTarget by remember(doc.id) { mutableStateOf<CommentItem?>(null) }
+    var reportReason by remember(doc.id) { mutableStateOf("垃圾广告") }
+    var reportDetail by remember(doc.id) { mutableStateOf("") }
+    // 举报整篇文章（左侧操作栏 ⚑）
+    var reportDoc by remember(doc.id) { mutableStateOf(false) }
     // 2026-11-16 补齐 Web 端能力：文档订阅 / 相关阅读 / 作者卡片 / Word 导出
     var subscribed by remember(doc.id) { mutableStateOf(false) }
     var subCount by remember(doc.id) { mutableStateOf(0L) }
@@ -301,6 +308,7 @@ fun ArticleView(
                     onComment = {
                         scope.launch { listState.animateScrollToItem(commentHeaderIndex(blocks.size)) }
                     },
+                    onReport = { reportDoc = true },
                     onTop = { scope.launch { listState.animateScrollToItem(0) } },
                 )
                 Spacer(Modifier.width(4.dp))
@@ -436,6 +444,11 @@ fun ArticleView(
                             mine = c.username.isNotBlank() && c.username == username,
                             confirming = pendingDel == c.id,
                             onReply = { startReply(c) },
+                            onReport = {
+                                reportTarget = c
+                                reportReason = "垃圾广告"
+                                reportDetail = ""
+                            },
                             onLike = {
                                 scope.launch {
                                     try {
@@ -498,6 +511,115 @@ fun ArticleView(
             }
         }
     }
+
+    // 举报他人评论（原因必填；后端 10 分钟内同一对象只收录一次）
+    reportTarget?.let { rc ->
+        val reasons = listOf("垃圾广告", "辱骂攻击", "违法违规", "侵权内容", "虚假信息", "其它")
+        AlertDialog(
+            onDismissRequest = { reportTarget = null },
+            title = { Text("举报评论", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column {
+                    Text(
+                        "「${rc.content.take(24)}」",
+                        fontSize = 12.sp, color = KbTextSub, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    for (r in reasons) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { reportReason = r }
+                                .padding(horizontal = 6.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (reportReason == r) "● " else "○ ",
+                                fontSize = 12.sp,
+                                color = if (reportReason == r) KbPrimary else KbTextSub,
+                            )
+                            Text(r, fontSize = 12.5.sp, color = KbTextMain)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = reportDetail,
+                        onValueChange = { reportDetail = it },
+                        label = { Text("补充说明（选填）", fontSize = 11.5.sp) },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val id = rc.id
+                    reportTarget = null
+                    scope.launch {
+                        runCatching { api.reportContent(token, "COMMENT", id, reportReason, reportDetail) }
+                            .onSuccess { toast = "举报已提交，管理员会尽快处理" }
+                            .onFailure { toast = it.message ?: "举报失败" }
+                    }
+                }) { Text("提交举报", fontSize = 12.5.sp) }
+            },
+            dismissButton = { TextButton(onClick = { reportTarget = null }) { Text("取消", fontSize = 12.5.sp) } },
+        )
+    }
+
+    // 举报整篇文章（targetType=POST）
+    if (reportDoc) {
+        val reasons = listOf("垃圾广告", "辱骂攻击", "违法违规", "侵权内容", "虚假信息", "其它")
+        AlertDialog(
+            onDismissRequest = { reportDoc = false },
+            title = { Text("举报文章", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column {
+                    Text(
+                        "「${doc.title.take(30)}」",
+                        fontSize = 12.sp, color = KbTextSub, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    for (r in reasons) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { reportReason = r }
+                                .padding(horizontal = 6.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (reportReason == r) "● " else "○ ",
+                                fontSize = 12.sp,
+                                color = if (reportReason == r) KbPrimary else KbTextSub,
+                            )
+                            Text(r, fontSize = 12.5.sp, color = KbTextMain)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = reportDetail,
+                        onValueChange = { reportDetail = it },
+                        label = { Text("补充说明（选填）", fontSize = 11.5.sp) },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    reportDoc = false
+                    scope.launch {
+                        runCatching { api.reportContent(token, "POST", doc.id, reportReason, reportDetail) }
+                            .onSuccess { toast = "举报已提交，管理员会尽快处理" }
+                            .onFailure { toast = it.message ?: "举报失败" }
+                    }
+                }) { Text("提交举报", fontSize = 12.5.sp) }
+            },
+            dismissButton = { TextButton(onClick = { reportDoc = false }) { Text("取消", fontSize = 12.5.sp) } },
+        )
+    }
 }
 
 private val ReaderErrRed = Color(0xFFDC2626)
@@ -522,6 +644,7 @@ private fun ActionRail(
     onSubscribe: () -> Unit,
     onExport: () -> Unit,
     onComment: () -> Unit,
+    onReport: () -> Unit,
     onTop: () -> Unit,
 ) {
     Column(
@@ -564,6 +687,8 @@ private fun ActionRail(
             activeColor = Color(0xFF0EA5E9),
             onClick = onExport,
         )
+        // 举报这篇文章（POST /api/reports，targetType=POST；管理员可在举报处理里下架）
+        RailBtn(glyph = "⚑", label = "举报", count = null, active = false, activeColor = KbTextSub, onClick = onReport)
         if (showTop) {
             RailBtn(glyph = "↑", label = "顶部", count = null, active = false, activeColor = KbTextSub, onClick = onTop)
         }
@@ -895,6 +1020,7 @@ private fun TocPane(
             }
         }
     }
+
 }
 
 // ---------- 评论行 ----------
@@ -911,6 +1037,7 @@ private fun CommentRow(
     onReply: () -> Unit,
     onLike: () -> Unit,
     onDelete: () -> Unit,
+    onReport: () -> Unit = {},
 ) {
     Row(
         Modifier
@@ -966,6 +1093,14 @@ private fun CommentRow(
                         fontSize = 11.5.sp,
                         color = if (confirming) ReaderErrRed else KbTextSub,
                         modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onDelete).padding(horizontal = 5.dp, vertical = 2.dp),
+                    )
+                } else {
+                    // 别人的评论给「举报」（POST /api/reports targetType=COMMENT）
+                    Text(
+                        "举报",
+                        fontSize = 11.5.sp,
+                        color = KbTextSub,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onReport).padding(horizontal = 5.dp, vertical = 2.dp),
                     )
                 }
             }

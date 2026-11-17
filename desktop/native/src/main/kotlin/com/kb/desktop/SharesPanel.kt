@@ -1,4 +1,4 @@
-package com.kb.desktop
+﻿package com.kb.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,6 +53,9 @@ import java.net.URI
 private val ShareRailBg = Color(0xFFFAFBFC)
 private val ShareErrRed = Color(0xFFDC2626)
 
+/** 左侧「全部文档」虚拟空间：spaceId 用这个值表示跨空间视图（真实空间 id 都是正数） */
+private const val ALL_SPACES = -1L
+
 @Composable
 fun SharesPanel(session: Session) {
     val api = remember(session) { ApiClient(session.server) }
@@ -61,6 +64,8 @@ fun SharesPanel(session: Session) {
     var spaceId by remember { mutableStateOf<Long?>(null) }
     var docs by remember { mutableStateOf<List<SharedDocItem>>(emptyList()) }
     var docId by remember { mutableStateOf<Long?>(null) }
+    // 文档实际所属空间：跨空间视图里 spaceId 是虚拟值，详情/版本/浏览器跳转都要用真实 spaceId
+    var docShareId by remember { mutableStateOf<Long?>(null) }
     var detail by remember { mutableStateOf<SharedDocItem?>(null) }
     // 协同正文（本地解析 yjs_state）：拿到就用，拿不到/解析失败回退 content 快照
     var yjsHtml by remember { mutableStateOf<String?>(null) }
@@ -95,7 +100,7 @@ fun SharesPanel(session: Session) {
         try {
             spaces = api.myShares(session.token)
             // 首屏默认落到第一个空间；空间被删/换账号时回落到第一个
-            if (spaceId == null || spaces.none { it.id == spaceId }) spaceId = spaces.firstOrNull()?.id
+            if (spaceId == null || (spaceId != ALL_SPACES && spaces.none { it.id == spaceId })) spaceId = spaces.firstOrNull()?.id
         } catch (e: Exception) {
             spacesErr = e.message ?: "加载失败"
         } finally {
@@ -109,10 +114,14 @@ fun SharesPanel(session: Session) {
         docsErr = null
         docs = emptyList()
         docId = null
+        docShareId = null
         detail = null
         try {
-            docs = api.shareDocs(session.token, sid)
-            docId = docs.firstOrNull()?.id
+            docs = if (sid == ALL_SPACES) api.allShareDocs(session.token)
+            else api.shareDocs(session.token, sid)
+            val first = docs.firstOrNull()
+            docId = first?.id
+            docShareId = first?.let { if (it.shareId > 0) it.shareId else sid }
         } catch (e: Exception) {
             docsErr = e.message ?: "加载失败"
         } finally {
@@ -120,8 +129,8 @@ fun SharesPanel(session: Session) {
         }
     }
 
-    LaunchedEffect(spaceId, docId, detailTick) {
-        val sid = spaceId ?: return@LaunchedEffect
+    LaunchedEffect(docShareId, docId, detailTick) {
+        val sid = docShareId ?: return@LaunchedEffect
         val did = docId ?: return@LaunchedEffect
         detailLoading = true
         detailErr = null
@@ -177,9 +186,9 @@ fun SharesPanel(session: Session) {
     }
 
     // 版本面板打开时才拉列表（后端返回完整实体，含大字段，不能每次进详情都拉）
-    LaunchedEffect(showVersions, spaceId, docId, versionsTick) {
+    LaunchedEffect(showVersions, docShareId, docId, versionsTick) {
         if (!showVersions) return@LaunchedEffect
-        val sid = spaceId ?: return@LaunchedEffect
+        val sid = docShareId ?: return@LaunchedEffect
         val did = docId ?: return@LaunchedEffect
         versionsLoading = true
         versionsErr = null
@@ -192,7 +201,7 @@ fun SharesPanel(session: Session) {
         }
     }
 
-    val space = spaces.firstOrNull { it.id == spaceId }
+    val space = spaces.firstOrNull { it.id == (docShareId ?: spaceId) }
 
     val shownDocs = remember(docs, q, order) {
         val kw = q.trim()
@@ -223,6 +232,13 @@ fun SharesPanel(session: Session) {
                     spacesErr != null -> ShareError(spacesErr ?: "", onRetry = { spacesTick++ })
                     spaces.isEmpty() -> ShareHint("还没有协作空间\n可在 Web 端创建或接受邀请")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
+                        // 跨空间视图：一次列出所有空间里我可见的文档（后端 /docs/all，带截断护栏）
+                        item {
+                            AllDocsRow(
+                                sel = spaceId == ALL_SPACES,
+                                count = if (spaceId == ALL_SPACES) docs.size else 0,
+                            ) { spaceId = ALL_SPACES }
+                        }
                         items(spaces, key = { it.id }) { s ->
                             SpaceRow(s, sel = s.id == spaceId) { spaceId = s.id }
                         }
@@ -239,7 +255,7 @@ fun SharesPanel(session: Session) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    space?.name?.ifBlank { "文档" } ?: "文档",
+                    if (spaceId == ALL_SPACES) "全部文档" else (space?.name?.ifBlank { "文档" } ?: "文档"),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = KbTextMain,
@@ -278,11 +294,23 @@ fun SharesPanel(session: Session) {
                     spaceId == null -> ShareHint("先在左侧选择一个空间")
                     docsLoading -> ShareHint("加载中…")
                     docsErr != null -> ShareError(docsErr ?: "", onRetry = { docsTick++ })
-                    docs.isEmpty() -> ShareHint("这个空间还没有文档\n可在 Web 端新建或导入")
+                    docs.isEmpty() -> ShareHint(
+                        if (spaceId == ALL_SPACES) "所有空间里都还没有文档\n可在 Web 端新建或导入"
+                        else "这个空间还没有文档\n可在 Web 端新建或导入"
+                    )
                     shownDocs.isEmpty() -> ShareHint("没有匹配的文档")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
                         items(shownDocs, key = { it.id }) { d ->
-                            ShareDocRow(d, sel = d.id == docId) { docId = d.id }
+                            // 跨空间视图里空间名要从文档自带的 shareId 反查，点选时同步真实 shareId
+                            val spaceLabel = spaces.firstOrNull { it.id == d.shareId }?.name
+                            ShareDocRow(
+                                d,
+                                sel = d.id == docId,
+                                spaceLabel = spaceLabel,
+                            ) {
+                                docId = d.id
+                                docShareId = if (d.shareId > 0) d.shareId else spaceId
+                            }
                         }
                     }
                 }
@@ -309,7 +337,7 @@ fun SharesPanel(session: Session) {
                     versionNote = versionNote,
                     onOpenVersions = { showVersions = true },
                     onOpenInBrowser = {
-                        openShareInBrowser(session.server, "/doc-shares/${spaceId}?doc=${d.id}")
+                        openShareInBrowser(session.server, "/doc-shares/${docShareId}?doc=${d.id}")
                     },
                 )
             }
@@ -318,7 +346,7 @@ fun SharesPanel(session: Session) {
 
     // 历史版本面板：查看 / 恢复 / 把当前内容存成新版本
     if (showVersions) {
-        val sid = spaceId
+        val sid = docShareId
         val did = docId
         AlertDialog(
             onDismissRequest = { showVersions = false },
@@ -443,7 +471,12 @@ private fun SpaceRow(s: AgentSpace, sel: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ShareDocRow(d: SharedDocItem, sel: Boolean, onClick: () -> Unit) {
+private fun ShareDocRow(
+    d: SharedDocItem,
+    sel: Boolean,
+    spaceLabel: String? = null,
+    onClick: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -462,6 +495,8 @@ private fun ShareDocRow(d: SharedDocItem, sel: Boolean, onClick: () -> Unit) {
         Spacer(Modifier.height(3.dp))
         Text(
             listOfNotNull(
+                // 跨空间视图里补上所属空间，否则同名文档分不清
+                spaceLabel?.takeIf { it.isNotBlank() },
                 d.ownerName.takeIf { it.isNotBlank() },
                 fmtSharedTime(d.updatedAt).takeIf { it.isNotBlank() },
                 fmtShareSize(d.size).takeIf { it.isNotBlank() },
@@ -471,6 +506,42 @@ private fun ShareDocRow(d: SharedDocItem, sel: Boolean, onClick: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** 左侧「全部文档」入口：跨空间聚合视图，条数与当前空间列表同源 */
+@Composable
+private fun AllDocsRow(sel: Boolean, count: Int, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .background(if (sel) Color(0xFFE8EEFB) else Color.Transparent)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(22.dp).background(Color(0xFFE6F0FF), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("全", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "全部文档",
+                fontSize = 12.5.sp,
+                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
+                color = KbTextMain,
+                maxLines = 1,
+            )
+            Text(
+                if (sel && count > 0) "$count 篇（跨空间）" else "跨空间检索",
+                fontSize = 10.5.sp,
+                color = KbTextSub,
+                maxLines = 1,
+            )
+        }
     }
 }
 

@@ -229,6 +229,35 @@ fun AppRoot() {
             composable("admin-taxonomy") {
                 com.kb.kbplatform.shell.ui.admin.AdminTaxonomyScreen(onBack = { nav.popBackStack() })
             }
+            // 我的帖子（作者视角）：草稿提交审核 / 待审撤回 / 删除
+            composable("my-posts") {
+                com.kb.kbplatform.shell.ui.docs.MyPostsScreen(
+                    onBack = { nav.popBackStack() },
+                    openPost = { id, title -> safeNav("post/$id?title=${Uri.encode(title)}") }
+                )
+            }
+            // 私信：会话列表 → 单会话聊天（后端 /api/dm/*）
+            composable("dm") {
+                com.kb.kbplatform.shell.ui.messages.DmListScreen(
+                    onBack = { nav.popBackStack() },
+                    openChat = { id, name ->
+                        safeNav("dm/$id?name=${Uri.encode(name)}")
+                    }
+                )
+            }
+            composable(
+                route = "dm/{peerId}?name={name}",
+                arguments = listOf(
+                    navArgument("peerId") { type = NavType.LongType },
+                    navArgument("name") { type = NavType.StringType; defaultValue = "私信" }
+                )
+            ) { entry ->
+                com.kb.kbplatform.shell.ui.messages.DmChatScreen(
+                    peerId = entry.arguments?.getLong("peerId") ?: 0L,
+                    peerName = entry.arguments?.getString("name").orEmpty(),
+                    onBack = { nav.popBackStack() }
+                )
+            }
             // 站点设置（原生）：原来「站点维护」是把桌面后台表单塞进 WebView，手机上要左右拖
             composable("site-settings") {
                 com.kb.kbplatform.shell.ui.admin.SiteSettingsScreen(
@@ -344,7 +373,8 @@ fun AppRoot() {
                 com.kb.kbplatform.shell.ui.misc.UserProfileScreen(
                     userId = entry.arguments?.getLong("id") ?: 0L,
                     onBack = { nav.popBackStack() },
-                    openPost = { id, title -> safeNav("post/$id?title=${Uri.encode(title)}") }
+                    openPost = { id, title -> safeNav("post/$id?title=${Uri.encode(title)}") },
+                    openChat = { id, name -> safeNav("dm/$id?name=${Uri.encode(name)}") }
                 )
             }
             composable(

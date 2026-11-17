@@ -399,6 +399,29 @@ object KbApi {
     /** GET /docs → 文章列表（发现页） */
     suspend fun articles(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/docs") }
 
+    // ---------- 我的文章（作者视角）----------
+
+    /** GET /docs/mine → 我写的文章（含草稿 / 待审 / 已发布 / 已封禁） */
+    suspend fun myDocs(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/docs/mine") }
+
+    /** POST /docs/{id}/submit → 草稿提交审核（普通用户不能自发布，统一转待审核） */
+    suspend fun submitDocReview(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/docs/$id/submit")
+        Unit
+    }
+
+    /** POST /docs/{id}/withdraw → 撤回审核（待审核 → 草稿，审核前可拉回） */
+    suspend fun withdrawDocReview(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/docs/$id/withdraw")
+        Unit
+    }
+
+    /** DELETE /docs/{id} → 作者删除自己的文章（与后台 admin 删除不是同一路径） */
+    suspend fun deleteMyDoc(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/docs/$id")
+        Unit
+    }
+
     /** GET /docs/{id} → 文章详情（帖子页） */
     suspend fun articleDetail(id: Long): JSONObject = withContext(Dispatchers.IO) {
         ApiClient.get("/api/docs/$id")
@@ -407,6 +430,11 @@ object KbApi {
     /** GET /docs/{id}/comments → 评论列表 */
     suspend fun articleComments(id: Long): JSONArray = withContext(Dispatchers.IO) {
         ApiClient.getArray("/api/docs/$id/comments")
+    }
+
+    /** GET /api/docs/{id}/related?limit= → 相关文档（同分类 + 标签重叠，公开接口，按相关度排序） */
+    suspend fun relatedDocs(id: Long, limit: Int = 6): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/docs/$id/related?limit=$limit")
     }
 
     // ---------- 互动（点赞 / 收藏 / 订阅 / 评论点赞）----------
@@ -452,6 +480,34 @@ object KbApi {
         o.optBoolean("liked") to o.optInt("likes")
     }
 
+    /** DELETE /api/comments/{id} → 删除评论（普通用户只能删自己的，管理员可删任意） */
+    suspend fun deleteComment(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/comments/$id")
+        Unit
+    }
+
+    /**
+     * POST /api/reports {targetType,targetId,reason,detail} → 举报内容。
+     * targetType：DOC / POST / COMMENT / DM / USER / FEEDBACK；reason 必填（≤120 字），detail 选填（≤2000 字）。
+     * 后端限同一人对同一对象 10 分钟内只提交一次。
+     */
+    suspend fun reportContent(
+        targetType: String,
+        targetId: Long,
+        reason: String,
+        detail: String = "",
+    ): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post(
+            "/api/reports",
+            JSONObject()
+                .put("targetType", targetType.uppercase())
+                .put("targetId", targetId)
+                .put("reason", reason)
+                .put("detail", detail),
+        )
+        Unit
+    }
+
     /** GET /api/comments/my-likes → 我点过赞的评论 id 集合 */
     suspend fun myCommentLikeIds(): Set<Long> = withContext(Dispatchers.IO) {
         val a = ApiClient.getArray("/api/comments/my-likes")
@@ -459,9 +515,12 @@ object KbApi {
     }
 
     /** POST /docs/{id}/comments { content } */
-    suspend fun postComment(id: Long, content: String): Unit = withContext(Dispatchers.IO) {
-        ApiClient.post("/api/docs/$id/comments", JSONObject().put("content", content))
-    }
+    suspend fun postComment(id: Long, content: String, parentId: Long? = null): Unit =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject().put("content", content)
+            if (parentId != null) body.put("parentId", parentId)
+            ApiClient.post("/api/docs/$id/comments", body)
+        }
 
     /** GET /users/{id}/card → 用户名片 */
     suspend fun userCard(id: Long): JSONObject = withContext(Dispatchers.IO) {
@@ -511,6 +570,61 @@ object KbApi {
     /** GET /notifications/unread → { count } */
     suspend fun unreadCount(): Int = withContext(Dispatchers.IO) {
         ApiClient.get("/api/notifications/unread").optInt("count", 0)
+    }
+
+    // ---------- 私信（DM）----------
+    // 会话列表按 peer 聚合；消息按 id 游标分页（beforeId 向上翻）。发送返回带 quota 的消息体，
+    // 未互关时有条数限制（remaining=-1 表示不限）。
+
+    /** GET /dm/conversations?archived= → [{peerId,name,avatar,lastMessage,lastFromMe,lastAt,unread,allowDm}] */
+    suspend fun dmConversations(archived: Boolean = false): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/dm/conversations?archived=$archived")
+    }
+
+    /** GET /dm/messages?peerId&beforeId&size → 升序消息 [{id,fromId,kind,content,createdAt,read,reply*}] */
+    suspend fun dmHistory(peerId: Long, beforeId: Long? = null, size: Int = 30): JSONArray =
+        withContext(Dispatchers.IO) {
+            val q = if (beforeId == null) "" else "&beforeId=$beforeId"
+            ApiClient.getArray("/api/dm/messages?peerId=$peerId&size=$size$q")
+        }
+
+    /** POST /dm/messages {toId,content,kind} → 新消息（含 quota） */
+    suspend fun dmSend(toId: Long, content: String, kind: String = "TEXT"): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.post("/api/dm/messages", JSONObject().put("toId", toId).put("content", content).put("kind", kind))
+        }
+
+    /** POST /dm/read {peerId} → 该会话标记已读，返回处理条数 */
+    suspend fun dmMarkRead(peerId: Long): Int = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/dm/read", JSONObject().put("peerId", peerId)).optInt("read", 0)
+    }
+
+    /** GET /dm/unread → 私信总未读 */
+    suspend fun dmUnread(): Int = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/dm/unread").optInt("unread", 0)
+    }
+
+    /** POST /dm/conversations/{peerId}/archive {archived} → 归档/取消归档（参数名是 peerId，不是 toId） */
+    suspend fun dmArchive(peerId: Long, archived: Boolean): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/dm/conversations/$peerId/archive", JSONObject().put("archived", archived))
+        Unit
+    }
+
+    /** DELETE /dm/conversations/{peerId} → 本用户视角软删会话 */
+    suspend fun dmDeleteConv(peerId: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/dm/conversations/$peerId")
+        Unit
+    }
+
+    /** DELETE /dm/messages/{id} → 撤回自己 2 分钟内的消息 */
+    suspend fun dmRecall(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/dm/messages/$id")
+        Unit
+    }
+
+    /** GET /dm/quota?peerId= → {mutual,replied,sent,remaining,limited,peerAllowDm} */
+    suspend fun dmQuota(peerId: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/dm/quota?peerId=$peerId")
     }
 
     // ---------- AI 问答 ----------

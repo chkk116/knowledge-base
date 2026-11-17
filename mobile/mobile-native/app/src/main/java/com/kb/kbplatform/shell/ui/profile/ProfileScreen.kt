@@ -236,6 +236,7 @@ fun ProfileScreen(
         // 之前 14 条塞在同一张卡里，一路排到「退出登录」，就是「一堆东西全推到一起」。
         val contentItems = listOfNotNull(
             MenuItem(Icons.Filled.FolderOpen, "我的文件", "上传的图片与附件") { openRoute("files") },
+            MenuItem(Icons.Filled.List, "我的帖子", "草稿 / 待审 / 已发布") { openRoute("my-posts") },
             MenuItem(Icons.Filled.Star, "我的收藏", "收藏过的文档") { openRoute("favorites") },
             MenuItem(Icons.Filled.History, "浏览历史", "最近看过的文档") { openRoute("history") },
             MenuItem(Icons.Filled.Description, "全部文档", "跨空间聚合") { openRoute("all-docs") }

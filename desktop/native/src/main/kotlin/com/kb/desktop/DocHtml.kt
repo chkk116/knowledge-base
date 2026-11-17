@@ -472,6 +472,22 @@ private object DocImgCache {
                 size > MAX
         }
     )
+
+    /** 设置页展示用：当前缓存了几张已解码的正文图片（内存态，重启归零） */
+    fun size(): Int = synchronized(map) { map.size }
+
+    /** 设置页「清空图片缓存」：只清内存里的解码结果，不动磁盘与服务器 */
+    fun clear() = synchronized(map) { map.clear() }
+}
+
+/** 正文图片缓存大小（张数）；设置页展示用 */
+internal fun docImageCacheSize(): Int = DocImgCache.size()
+
+/** 清空正文图片缓存（内存态），下次打开正文会重新下载解码 */
+internal fun clearDocImageCache(): Int {
+    val n = DocImgCache.size()
+    DocImgCache.clear()
+    return n
 }
 
 private val docImgHttp: HttpClient by lazy {

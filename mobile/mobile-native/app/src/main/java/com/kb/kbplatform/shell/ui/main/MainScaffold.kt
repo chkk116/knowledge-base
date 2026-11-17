@@ -158,7 +158,7 @@ fun MainScaffold(
                     when (t) {
                         0 -> HomeScreen(openWeb, openRoute, switchTab = { tab = it })
                         1 -> DocsScreen(openWeb, openRoute)
-                        2 -> MessagesScreen()
+                        2 -> MessagesScreen(openRoute = openRoute)
                         3 -> ProfileScreen(openWeb, openRoute)
                         else -> CaptureScreen(onDone = { tab = 0 }, openRoute = openRoute)
                     }

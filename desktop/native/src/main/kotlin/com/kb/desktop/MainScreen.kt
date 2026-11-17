@@ -1,4 +1,4 @@
-package com.kb.desktop
+﻿package com.kb.desktop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -50,7 +50,7 @@ import java.net.URI
 
 enum class MenuKind(val label: String) {
     HOME("首页"), DOCS("文章"), SHARES("共享空间"), COURSES("培训"), EXAMS("考试"),
-    CHAT("AI 问答"), FILES("我的文件"), ADMIN("管理"), SETTINGS("设置")
+    CHAT("AI 问答"), FILES("我的文件"), NOTIFICATIONS("通知"), ADMIN("管理"), SETTINGS("设置")
 }
 
 /** 侧栏收成图标栏的宽度阈值（低于它窗口放不下完整侧栏+内容） */
@@ -63,6 +63,15 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
     var update by remember { mutableStateOf<AppVersionInfo?>(null) }
     // AI 问答里点「引用来源」→ 跳到文章面板并打开对应文章（DocsPanel 读一次后消费掉）
     var jumpDocId by remember { mutableStateOf<Long?>(null) }
+    // 通知未读：60s 轮询（后端另有 SSE，桌面端用简单轮询即可，零额外依赖）
+    var notiUnread by remember { mutableStateOf(0) }
+    LaunchedEffect(session) {
+        val api = ApiClient(session.server)
+        while (true) {
+            notiUnread = runCatching { api.unreadNotifications(session.token) }.getOrDefault(notiUnread)
+            delay(60_000)
+        }
+    }
 
     // 启动后静默检查更新：发现更高 versionCode 就在顶部提示（不打断使用）
     LaunchedEffect(Unit) {
@@ -86,6 +95,7 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                 onSelect = { selected = it },
                 rail = narrow,
                 onLogout = onLogout,
+                notiUnread = notiUnread,
             )
             if (!narrow) {
                 Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
@@ -118,7 +128,12 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                             MenuKind.EXAMS -> ExamsPanel(session)
                             MenuKind.FILES -> FilesPanel(session)
                             MenuKind.ADMIN -> AdminPanel(session)
-                            MenuKind.SETTINGS -> SettingsPanel(session)
+                            MenuKind.SETTINGS -> SettingsPanel(session, onLogout = onLogout)
+                            MenuKind.NOTIFICATIONS -> NotificationsPanel(
+                                session = session,
+                                onOpenDoc = { id -> jumpDocId = id; selected = MenuKind.DOCS },
+                                onUnreadChanged = { notiUnread = it },
+                            )
                             MenuKind.CHAT -> ChatPanel(
                                 session,
                                 onOpenDoc = { id ->
@@ -141,6 +156,7 @@ private fun Sidebar(
     onSelect: (MenuKind) -> Unit,
     rail: Boolean,
     onLogout: () -> Unit,
+    notiUnread: Int = 0,
 ) {
     Column(
         Modifier
@@ -182,7 +198,12 @@ private fun Sidebar(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             for (kind in MenuKind.entries) {
-                MenuItem(kind, sel = kind == selected, rail = rail) { onSelect(kind) }
+                MenuItem(
+                    kind,
+                    sel = kind == selected,
+                    rail = rail,
+                    badge = if (kind == MenuKind.NOTIFICATIONS) notiUnread else 0,
+                ) { onSelect(kind) }
             }
         }
 
@@ -211,7 +232,7 @@ private fun Sidebar(
 }
 
 @Composable
-private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, onClick: () -> Unit) {
+private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, badge: Int = 0, onClick: () -> Unit) {
     val tile = when (kind) {
         MenuKind.HOME -> KbTileBlue
         MenuKind.DOCS -> KbTileViolet
@@ -220,6 +241,7 @@ private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, onClick: () ->
         MenuKind.EXAMS -> KbTileRose
         MenuKind.CHAT -> KbTileGreen
         MenuKind.FILES -> KbTileAmber
+        MenuKind.NOTIFICATIONS -> KbTileRose
         MenuKind.ADMIN -> KbTileRose
         MenuKind.SETTINGS -> KbTileBlue
     }
@@ -258,6 +280,20 @@ private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, onClick: () ->
                 color = if (sel) KbTextMain else KbTextSub,
                 fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
             )
+            if (badge > 0) {
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    Modifier
+                        .clip(CircleShape)
+                        .background(Color(0xFFF53F3F))
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        if (badge > 99) "99+" else "$badge",
+                        fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
         }
     }
 }
@@ -615,16 +651,162 @@ private fun UpdateBanner(info: AppVersionInfo, onOpen: () -> Unit, onDismiss: ()
     Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFFDE68A)))
 }
 
+/** 通知类型 → 中文说明（后端 NotificationService 实际写入的类型） */
+private fun notiTypeLabel(t: String) = when (t) {
+    "COMMENT_MENTION" -> "评论中提到了你"
+    "DOC_MENTION" -> "文档里提到了你"
+    "COMMENT_REPLY" -> "回复了你的评论"
+    "COMMENT" -> "新评论"
+    "LIKE" -> "点赞"
+    "DOC_UPDATE" -> "订阅的文档有更新"
+    "REVIEW" -> "内容审核"
+    "REVIEW_SUBMIT" -> "审核提交"
+    "AVATAR_REVIEW_SUBMIT" -> "头像审核提交"
+    "CERTIFICATE" -> "证书"
+    "SECURITY_ALERT" -> "安全提醒"
+    else -> if (t.isBlank()) "通知" else t
+}
+
+/** 站内通知：未读高亮 + 点按已读并跳文章 + 全部已读 + 删除 */
 @Composable
-private fun SettingsPanel(session: Session) {
+private fun NotificationsPanel(
+    session: Session,
+    onOpenDoc: (Long) -> Unit = {},
+    onUnreadChanged: (Int) -> Unit = {},
+) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<ApiClient.NotiItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+
+    fun report() = onUnreadChanged(items.count { !it.read })
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            items = api.notifications(session.token)
+            report()
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(26.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("通知", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+            val unreadCount = items.count { !it.read }
+            if (unreadCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text("$unreadCount 条未读", fontSize = 12.sp, color = Color(0xFFB45309))
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(
+                enabled = unreadCount > 0,
+                onClick = {
+                    scope.launch {
+                        runCatching { api.markAllNotificationsRead(session.token) }
+                        items = items.map { it.copy(read = true) }
+                        report()
+                    }
+                },
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) { Text("全部已读", fontSize = 12.5.sp) }
+            TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("刷新", fontSize = 12.5.sp)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        when {
+            loading && items.isEmpty() -> Text("加载中…", fontSize = 12.5.sp, color = KbTextSub)
+            err != null -> Text(err ?: "", fontSize = 12.5.sp, color = Color(0xFFDC2626))
+            items.isEmpty() -> Text(
+                "暂无通知：有人评论、回复或 @ 你时会出现在这里",
+                fontSize = 12.5.sp, color = KbTextSub,
+            )
+            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(items.size) { i ->
+                    val n = items[i]
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (n.read) Color.White else Color(0xFFEFF6FF))
+                            .border(1.dp, KbBorder, RoundedCornerShape(10.dp))
+                            .clickable {
+                                if (!n.read) {
+                                    items = items.toMutableList().also { it[i] = n.copy(read = true) }
+                                    report()
+                                    scope.launch {
+                                        runCatching { api.markNotificationRead(session.token, n.id) }
+                                    }
+                                }
+                                // 文章类通知直接跳到那篇文章；共享文档类去共享空间
+                                val docId = n.docId
+                                if (docId != null && n.shareId == null) onOpenDoc(docId)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                buildString {
+                                    append(notiTypeLabel(n.type))
+                                    if (n.actor.isNotBlank()) append(" · ").append(n.actor)
+                                },
+                                fontSize = 11.5.sp, color = KbTextSub,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                n.summary.ifBlank { "（无摘要）" },
+                                fontSize = 13.sp,
+                                color = KbTextMain,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                n.createdAt.replace('T', ' ').take(16),
+                                fontSize = 11.sp, color = KbTextSub,
+                            )
+                        }
+                        if (!n.read) {
+                            Text("未读", fontSize = 10.5.sp, color = Color(0xFF2563EB))
+                        }
+                        TextButton(
+                            onClick = {
+                                items = items.filterNot { it.id == n.id }
+                                report()
+                                scope.launch {
+                                    runCatching { api.deleteNotification(session.token, n.id) }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                        ) { Text("删除", fontSize = 11.5.sp, color = Color(0xFFDC2626)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
     val api = remember(session) { ApiClient(session.server) }
     val scope = rememberCoroutineScope()
     var checking by remember { mutableStateOf(false) }
     var checked by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var remote by remember { mutableStateOf<AppVersionInfo?>(null) }
+    // 本地数据：图片缓存条数（内存态）与操作结果提示
+    var imgCacheCount by remember { mutableStateOf(docImageCacheSize()) }
+    var localMsg by remember { mutableStateOf("") }
 
-    Column(Modifier.fillMaxSize().padding(26.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(26.dp)) {
         Text("设置", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
         Spacer(Modifier.height(16.dp))
         Column(
@@ -695,6 +877,92 @@ private fun SettingsPanel(session: Session) {
                 }
             }
         }
+
+        Spacer(Modifier.height(16.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
+                .border(1.dp, KbBorder, RoundedCornerShape(12.dp))
+                .padding(20.dp),
+        ) {
+            Text("账号", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+            Spacer(Modifier.height(12.dp))
+            SettingRow("服务器", session.server)
+            SettingRow("登录账号", session.username)
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = { onLogout() },
+                    shape = RoundedCornerShape(9.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFF3F4F6), contentColor = KbTextMain,
+                    ),
+                ) { Text("退出登录", fontSize = 13.sp) }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
+                .border(1.dp, KbBorder, RoundedCornerShape(12.dp))
+                .padding(20.dp),
+        ) {
+            Text("本地数据", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+            Spacer(Modifier.height(12.dp))
+            SettingRow("正文图片缓存", "$imgCacheCount 张（内存，重启清空）")
+            SettingRow("配置目录", ConfigStore.dirPath().ifBlank { "（未创建）" })
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "只清本机缓存与配置，不动服务器上的任何内容；token 不落盘，退出登录即失效。",
+                fontSize = 11.5.sp, color = KbTextSub,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = {
+                        val n = clearDocImageCache()
+                        imgCacheCount = docImageCacheSize()
+                        localMsg = "已清空 $n 张图片缓存"
+                    },
+                    shape = RoundedCornerShape(9.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFF3F4F6), contentColor = KbTextMain,
+                    ),
+                ) { Text("清空图片缓存", fontSize = 13.sp) }
+
+                Button(
+                    onClick = {
+                        val dir = ConfigStore.dirPath()
+                        if (dir.isNotBlank()) {
+                            runCatching { java.awt.Desktop.getDesktop().open(java.io.File(dir)) }
+                                .onFailure { localMsg = "打开目录失败：${it.message}" }
+                        } else localMsg = "配置目录尚未创建"
+                    },
+                    shape = RoundedCornerShape(9.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFF3F4F6), contentColor = KbTextMain,
+                    ),
+                ) { Text("打开配置目录", fontSize = 13.sp) }
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = {
+                    val ok = ConfigStore.clear()
+                    localMsg = if (ok) "本地配置已清除" else "清除失败（文件被占用？）"
+                    onLogout()
+                },
+                contentPadding = PaddingValues(horizontal = 0.dp),
+            ) { Text("清除本地配置并退出", fontSize = 12.5.sp, color = Color(0xFFDC2626)) }
+            if (localMsg.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(localMsg, fontSize = 12.sp, color = Color(0xFF059669))
+            }
+        }
     }
 }
 
@@ -713,6 +981,7 @@ private fun DocsPanel(
     onJumpConsumed: () -> Unit = {},
 ) {
     val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
     var docs by remember { mutableStateOf<List<DocSummary>>(emptyList()) }
     var total by remember { mutableStateOf(0L) }
     var loading by remember { mutableStateOf(true) }
@@ -736,17 +1005,34 @@ private fun DocsPanel(
     var subs by remember { mutableStateOf<List<SubscriptionItem>>(emptyList()) }
     var subLoading by remember { mutableStateOf(false) }
     var subErr by remember { mutableStateOf<String?>(null) }
+    // 作者视角：我的帖子（草稿提交审核 / 待审撤回 / 删除）
+    var mineItems by remember { mutableStateOf<List<AdminDocItem>>(emptyList()) }
+    var mineLoading by remember { mutableStateOf(false) }
+    var mineErr by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(mode, refresh) {
-        if (mode != "sub") return@LaunchedEffect
-        subLoading = true
-        subErr = null
-        try {
-            subs = api.mySubscriptions(session.token)
-        } catch (e: Exception) {
-            subErr = e.message ?: "加载失败"
-        } finally {
-            subLoading = false
+        if (mode == "sub") {
+            subLoading = true
+            subErr = null
+            try {
+                subs = api.mySubscriptions(session.token)
+            } catch (e: Exception) {
+                subErr = e.message ?: "加载失败"
+            } finally {
+                subLoading = false
+            }
+            return@LaunchedEffect
+        }
+        if (mode == "mine") {
+            mineLoading = true
+            mineErr = null
+            try {
+                mineItems = api.myOwnDocs(session.token)
+            } catch (e: Exception) {
+                mineErr = e.message ?: "加载失败"
+            } finally {
+                mineLoading = false
+            }
         }
     }
 
@@ -845,9 +1131,17 @@ private fun DocsPanel(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (mode == "sub") "我的订阅" else "文章", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                Text(
+                    when (mode) {
+                        "sub" -> "我的订阅"
+                        "mine" -> "我的帖子"
+                        else -> "文章"
+                    },
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain
+                )
                 val count = when {
                     mode == "sub" -> subs.size.toLong()
+                    mode == "mine" -> mineItems.size.toLong()
                     q.trim().isNotEmpty() -> results.size.toLong()
                     else -> total
                 }
@@ -872,6 +1166,8 @@ private fun DocsPanel(
                 ModeChip("全部", mode == "all") { mode = "all" }
                 Spacer(Modifier.width(6.dp))
                 ModeChip("订阅", mode == "sub") { mode = "sub" }
+                Spacer(Modifier.width(6.dp))
+                ModeChip("我的", mode == "mine") { mode = "mine" }
                 Spacer(Modifier.weight(1f))
                 if (mode == "all" && searching) Text("搜索中…", fontSize = 10.sp, color = KbTextSub)
             }
@@ -895,8 +1191,58 @@ private fun DocsPanel(
             HorizontalDivider()
             Box(Modifier.weight(1f)) {
                 val inSub = mode == "sub"
+                val inMine = mode == "mine"
                 val shown = if (q.trim().isNotEmpty()) results else docs
                 when {
+                    inMine && mineLoading -> PanelHint("加载中…")
+                    inMine && mineErr != null -> Column(
+                        Modifier.fillMaxSize().padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(mineErr ?: "", fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { refresh++ }) { Text("重试", fontSize = 12.sp) }
+                    }
+                    inMine && mineItems.isEmpty() -> PanelHint("还没有写过文章\n可点上方「新建」在 Web 端编辑器里写")
+                    inMine -> LazyColumn(Modifier.fillMaxSize()) {
+                        items(mineItems, key = { it.id }) { m ->
+                            MineRow(
+                                item = m,
+                                sel = selected?.id == m.id,
+                                onOpen = {
+                                    if (m.status == "PUBLISHED" || m.status == "BLOCKED") {
+                                        selected = DocSummary(
+                                            id = m.id, title = m.title, ownerName = m.ownerName,
+                                            updatedAt = m.updatedAt, views = m.views,
+                                            category = m.category, snippet = null,
+                                        )
+                                    }
+                                },
+                                onSubmit = {
+                                    scope.launch {
+                                        runCatching { api.submitDocReview(session.token, m.id) }
+                                            .onFailure { detailError = it.message ?: "提交失败" }
+                                        refresh++
+                                    }
+                                },
+                                onWithdraw = {
+                                    scope.launch {
+                                        runCatching { api.withdrawDocReview(session.token, m.id) }
+                                            .onFailure { detailError = it.message ?: "撤回失败" }
+                                        refresh++
+                                    }
+                                },
+                                onDelete = {
+                                    scope.launch {
+                                        runCatching { api.deleteOwnDoc(session.token, m.id) }
+                                            .onFailure { detailError = it.message ?: "删除失败" }
+                                        refresh++
+                                    }
+                                },
+                            )
+                        }
+                    }
                     inSub && subLoading -> PanelHint("加载中…")
                     inSub && subErr != null -> Column(
                         Modifier.fillMaxSize().padding(16.dp),
@@ -1138,6 +1484,71 @@ private fun SubRow(s: SubscriptionItem, sel: Boolean, onClick: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** 我的帖子行（作者视角）：状态徽标 + 草稿提交审核 / 待审撤回 / 删除 */
+@Composable
+private fun MineRow(
+    item: AdminDocItem,
+    sel: Boolean,
+    onOpen: () -> Unit,
+    onSubmit: () -> Unit,
+    onWithdraw: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val (statusText, statusColor) = when (item.status) {
+        "PUBLISHED" -> "已发布" to Color(0xFF059669)
+        "PENDING" -> "待审核" to Color(0xFFB45309)
+        "BLOCKED" -> "已封禁" to Color(0xFFDC2626)
+        "DRAFT" -> "草稿" to Color(0xFF6B7280)
+        else -> (item.status.ifBlank { "—" }) to Color(0xFF6B7280)
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen)
+            .background(if (sel) KbSidebarSelected else Color.Transparent)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                item.title.ifBlank { "（无标题）" },
+                fontSize = 12.5.sp,
+                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
+                color = KbTextMain,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(statusText, fontSize = 10.sp, color = statusColor)
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(
+            listOfNotNull(
+                item.updatedAt.replace('T', ' ').take(16).takeIf { it.isNotBlank() }?.let { "更新 $it" },
+                "${item.views} 阅",
+            ).joinToString(" · "),
+            fontSize = 10.5.sp,
+            color = KbTextSub,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (item.status == "DRAFT") {
+                TextButton(onClick = onSubmit, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("提交审核", fontSize = 10.5.sp)
+                }
+            }
+            if (item.status == "PENDING") {
+                TextButton(onClick = onWithdraw, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("撤回", fontSize = 10.5.sp)
+                }
+            }
+            TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                Text("删除", fontSize = 10.5.sp, color = Color(0xFFDC2626))
+            }
+        }
     }
 }
 
@@ -1388,6 +1799,14 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
                 drawCircle(tint, 2.1f * u, Offset(14.5f * u, 7f * u), style = Stroke(stroke.width))
                 drawCircle(tint, 2.1f * u, Offset(8.5f * u, 12f * u), style = Stroke(stroke.width))
                 drawCircle(tint, 2.1f * u, Offset(16f * u, 17f * u), style = Stroke(stroke.width))
+            }
+            MenuKind.NOTIFICATIONS -> {
+                // 铃铛：提手 + 铃身折线 + 底座 + 铃舌
+                line(12f, 4f, 12f, 6f)
+                line(8f, 6.5f, 6.2f, 9f); line(6.2f, 9f, 6.2f, 15f); line(6.2f, 15f, 5f, 17.5f)
+                line(5f, 17.5f, 19f, 17.5f); line(19f, 17.5f, 17.8f, 15f); line(17.8f, 15f, 17.8f, 9f)
+                line(17.8f, 9f, 16f, 6.5f); line(16f, 6.5f, 8f, 6.5f)
+                line(10f, 20f, 14f, 20f)
             }
         }
         if (!p.isEmpty) drawPath(p, tint, style = stroke)

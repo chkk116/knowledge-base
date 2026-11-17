@@ -56,6 +56,8 @@ import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.formatDateTime
 import com.kb.kbplatform.shell.ui.theme.KbBlue
+import com.kb.kbplatform.shell.ui.theme.KbRed
+import com.kb.kbplatform.shell.ui.theme.KbTextDim
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -73,12 +75,13 @@ import org.json.JSONObject
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MessagesScreen() {
+fun MessagesScreen(openRoute: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var dmUnread by remember { mutableIntStateOf(0) }
 
     suspend fun load() {
         loading = true
@@ -86,6 +89,7 @@ fun MessagesScreen() {
         try {
             items = KbApi.notifications().objects()
             SseClient.setUnread(KbApi.unreadCount())
+            dmUnread = runCatching { KbApi.dmUnread() }.getOrDefault(0)
         } catch (e: Exception) {
             error = e.message ?: "加载失败"
         } finally {
@@ -144,6 +148,31 @@ fun MessagesScreen() {
                 Icon(Icons.Filled.Refresh, contentDescription = "刷新")
             }
         }
+        // 私信入口：通知流之外单独一条，带未读角标（性能上就是一次 /dm/unread）
+        KbCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .clickable { openRoute("dm") }
+        ) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("💬", fontSize = 18.sp)
+                Spacer(Modifier.size(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("私信", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (dmUnread > 0) "$dmUnread 条未读" else "与作者的私密对话",
+                        fontSize = 12.sp, color = KbTextDim
+                    )
+                }
+                if (dmUnread > 0) {
+                    Box(
+                        Modifier.background(KbRed, CircleShape).padding(horizontal = 7.dp, vertical = 2.dp)
+                    ) { Text("$dmUnread", fontSize = 10.sp, color = Color.White) }
+                }
+            }
+        }
+
         if (loading && items.isEmpty()) {
             // 骨架屏：消息列表版式先出来（原来转圈，切 Tab 时一片空白）
             com.kb.kbplatform.shell.ui.common.KbSkeletonList(count = 6)

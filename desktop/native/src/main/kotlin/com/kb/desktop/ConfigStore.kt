@@ -41,4 +41,15 @@ object ConfigStore {
             // 配置写失败不阻塞使用
         }
     }
+
+    /** 所在目录（设置页「打开目录」用） */
+    fun dirPath(): String = file.parent?.toString().orEmpty()
+
+    /** 删除本地配置（设置页「清除本地配置」，配合退出登录用） */
+    fun clear(): Boolean = try {
+        Files.deleteIfExists(file)
+        true
+    } catch (e: Exception) {
+        false
+    }
 }
