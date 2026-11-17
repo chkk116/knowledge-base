@@ -40,6 +40,7 @@ Web 页面在 WebView 中以标准 PWA 形态运行（无 Capacitor 对象，mai
 | 消息 | 通知列表、点按已读、SSE 到达自动刷新 + 角标 | `/api/notifications` `/api/notifications/unread` |
 | 私信（原生） | 会话列表（收件箱/归档、未读角标、删除）+ 单会话聊天（游标翻更早、2 分钟内撤回、已读回执、未互关剩余条数提示）；入口在消息页与用户主页 | `/api/dm/*` |
 | 我的帖子（原生） | 作者视角：草稿「提交审核」、待审「撤回」、任意「删除」（二次确认，已发布会提示删除后读者不可访问）；显示状态徽标/阅读量/驳回理由 | `/api/docs/mine` `/api/docs/{id}/submit` `/api/docs/{id}/withdraw` `/api/docs/{id}` |
+| 文件中心（原生） | 我的文件列表 + **统一上传**（系统文件选择器 → 复制到 cache → `/api/files/mine`）+ 复制链接；扫描/分享导入复用同一条上传链路 | `/api/files/mine` |
 | 搜索（原生） | 我的空间全文档标题/正文检索 + 搜索历史 | `/api/doc-shares/*` |
 | 复习卡片（原生） | SM-2 到期队列：翻面 + 四档评分 + 本轮小结 | `/api/flashcards/due` `/api/flashcards/{id}/review` |
 | 模拟练习（原生） | 随机抽题、逐题判分看解析、答题卡跳题、错题回顾 | `/api/exams/practice/*` |

@@ -23,7 +23,10 @@
   正文渲染在 `DocHtml.kt`：JDK 自带 ParserDelegator 解析为块（标题/段落/列表/代码块/引用/表格/图片/分隔线），
   行内粗体/斜体/删除线/行内码/链接（站内与 http(s) 白名单，点击开系统浏览器），站内图片走 `/api/thumb`
   缩略图接口（宽度吸附 800 档）+ 内存缓存；新建/编辑仍用 Web 端 SPA 编辑器（WebView2，仅编辑时检测运行时）
-- **我的文件**：原生列表（`GET /api/files/mine`），点击在系统浏览器打开
+- **我的文件**：原生列表（`GET /api/files/mine`），点击在系统浏览器打开；**2026-11-17 补齐上传与删除** ——
+  顶栏「上传」走系统文件选择器（`FileDialog`，需 `LocalAwtWindow` + `@OptIn(ExperimentalComposeUiApi)`）→
+  `multipart POST /api/files/mine`（后端按 sha256 去重，同内容不会重复落盘）；每行「复制」把直链写系统剪贴板，
+  「删除」需点两次（第一次变「确认删除?」）→ `DELETE /api/files/mine/{id}`。
 - **AI 问答**：左侧会话列表（`GET/POST/DELETE /api/ai/conversations`）+ 右侧流式对话
   （`POST /api/ai/ask/stream`，SSE 逐段 `{"delta"}/{"reasoning"}`，`done` 事件带 qaId/sources/conversationId；
   「停止」断开连接、已生成内容保留，口径与 Web 端 ai.js 一致）；

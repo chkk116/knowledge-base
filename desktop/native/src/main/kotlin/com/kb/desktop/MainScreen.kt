@@ -46,6 +46,9 @@ import io.github.kdroidfilter.webview.web.WebView
 import io.github.kdroidfilter.webview.web.WebViewState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.awt.LocalAwtWindow
+import java.awt.FileDialog
+import java.awt.Frame
 import java.net.URI
 
 enum class MenuKind(val label: String) {
@@ -1595,13 +1598,19 @@ private fun DocRow(d: DocSummary, sel: Boolean, onClick: () -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun FilesPanel(session: Session) {
     val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    val awtFrame = LocalAwtWindow.current as? Frame
     var files by remember { mutableStateOf<List<FileItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableStateOf(0) }
+    var uploading by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf("") }
+    var pendingDel by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(refresh) {
         loading = true
@@ -1615,6 +1624,29 @@ private fun FilesPanel(session: Session) {
         }
     }
 
+    // 上传：系统文件选择器（模态）→ multipart POST /api/files/mine
+    fun pickAndUpload() {
+        val frame = awtFrame ?: run { msg = "无法打开文件选择器"; return }
+        val fd = FileDialog(frame, "选择要上传的文件", FileDialog.LOAD)
+        fd.isMultipleMode = false
+        fd.isVisible = true
+        val f = fd.files.firstOrNull() ?: return
+        uploading = true
+        msg = ""
+        scope.launch {
+            try {
+                val mime = java.net.URLConnection.guessContentTypeFromName(f.name) ?: "application/octet-stream"
+                api.uploadMyFile(session.token, f, mime)
+                msg = "上传成功：${f.name}"
+                refresh++
+            } catch (e: Exception) {
+                msg = e.message ?: "上传失败"
+            } finally {
+                uploading = false
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1622,9 +1654,21 @@ private fun FilesPanel(session: Session) {
         ) {
             Text("全部文件", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
             Spacer(Modifier.weight(1f))
+            TextButton(
+                enabled = !uploading,
+                onClick = { pickAndUpload() },
+                contentPadding = PaddingValues(horizontal = 6.dp),
+            ) { Text(if (uploading) "上传中…" else "上传", fontSize = 11.sp) }
             TextButton(onClick = { refresh++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                 Text("刷新", fontSize = 11.sp)
             }
+        }
+        if (msg.isNotEmpty()) {
+            Text(
+                msg, fontSize = 11.sp, color = KbPrimary,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
         }
         HorizontalDivider()
         Box(Modifier.weight(1f)) {
@@ -1642,7 +1686,31 @@ private fun FilesPanel(session: Session) {
                 files.isEmpty() -> PanelHint("暂无文件")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(files, key = { it.id }) { f ->
-                        FileRow(session, f)
+                        FileRow(
+                            session = session,
+                            f = f,
+                            confirming = pendingDel == f.id,
+                            onCopy = {
+                                runCatching {
+                                    java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                                        java.awt.datatransfer.StringSelection(f.url), null,
+                                    )
+                                    msg = "已复制文件链接"
+                                }.onFailure { msg = "复制失败：${it.message}" }
+                            },
+                            onDelete = {
+                                if (pendingDel == f.id) {
+                                    pendingDel = null
+                                    scope.launch {
+                                        runCatching { api.deleteMyFile(session.token, f.id) }
+                                            .onSuccess { msg = "已删除：${f.name}"; refresh++ }
+                                            .onFailure { msg = it.message ?: "删除失败" }
+                                    }
+                                } else {
+                                    pendingDel = f.id   // 第一次点只进入「确认删除?」，再点才真正删
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -1651,7 +1719,13 @@ private fun FilesPanel(session: Session) {
 }
 
 @Composable
-private fun FileRow(session: Session, f: FileItem) {
+private fun FileRow(
+    session: Session,
+    f: FileItem,
+    confirming: Boolean = false,
+    onCopy: () -> Unit = {},
+    onDelete: () -> Unit = {},
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -1688,6 +1762,16 @@ private fun FileRow(session: Session, f: FileItem) {
         }
         TextButton(onClick = { openInBrowser(session.server, f.url) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
             Text("打开", fontSize = 11.sp)
+        }
+        TextButton(onClick = onCopy, contentPadding = PaddingValues(horizontal = 6.dp)) {
+            Text("复制", fontSize = 11.sp)
+        }
+        TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 6.dp)) {
+            Text(
+                if (confirming) "确认删除?" else "删除",
+                fontSize = 11.sp,
+                color = if (confirming) Color(0xFFDC2626) else KbTextSub,
+            )
         }
     }
 }

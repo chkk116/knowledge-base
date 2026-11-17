@@ -1312,6 +1312,51 @@ class ApiClient(private val base: String) {
         }
     }
 
+    /**
+     * POST /api/files/mine → 上传到「我的文件」（multipart，需登录）。
+     * 后端按 (ownerId, sha256) 去重：同内容重复上传会返回原记录（`deduped=true`）。
+     */
+    suspend fun uploadMyFile(token: String, file: java.io.File, mime: String): FileItem? =
+        withContext(Dispatchers.IO) {
+            val boundary = "----kb" + System.nanoTime()
+            val body = java.io.ByteArrayOutputStream()
+            fun w(s: String) { body.write(s.toByteArray(Charsets.UTF_8)) }
+            w("--$boundary\r\n")
+            w("Content-Disposition: form-data; name=\"file\"; filename=\"${file.name}\"\r\n")
+            w("Content-Type: $mime\r\n\r\n")
+            body.write(file.readBytes())
+            w("\r\n--$boundary--\r\n")
+            val resp = http.send(
+                HttpRequest.newBuilder(uri("/api/files/mine"))
+                    .header("Authorization", "Bearer $token")
+                    .header("Content-Type", "multipart/form-data; boundary=$boundary")
+                    .timeout(Duration.ofSeconds(120))
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            if (resp.statusCode() == 401) throw ApiError("登录已过期，请重新登录")
+            if (resp.statusCode() >= 400) {
+                throw ApiError(parse(resp.body())?.str("error") ?: "上传失败（${resp.statusCode()}）")
+            }
+            parse(resp.body())?.let { j ->
+                val id = j.long("id") ?: return@let null
+                FileItem(
+                    id = id,
+                    name = j.str("name").orEmpty(),
+                    url = j.str("url").orEmpty(),
+                    size = j.long("size"),
+                    contentType = j.str("contentType"),
+                    createdAt = j.str("createdAt").orEmpty(),
+                )
+            }
+        }
+
+    /** DELETE /api/files/mine/{id} → 删除自己上传的文件（物理文件同时移除） */
+    suspend fun deleteMyFile(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/files/mine/$id", token) }
+    }
+
     /** GET /api/docs/overview → 首页轻量概览；失败由调用方静默降级，不阻塞首页 */
     suspend fun overview(token: String): HomeOverview = withContext(Dispatchers.IO) {
         val o = parse(getAuth("/api/docs/overview", token)) ?: throw ApiError("首页概览响应异常")
