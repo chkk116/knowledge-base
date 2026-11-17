@@ -409,6 +409,50 @@ object KbApi {
         ApiClient.getArray("/api/docs/$id/comments")
     }
 
+    // ---------- 互动（点赞 / 收藏 / 订阅 / 评论点赞）----------
+    // 只对已发布内容开放：后端对 PENDING/BLOCKED 返回 403「内容尚未发布」，文案直接透出。
+
+    /** POST /api/likes/{id} → (是否已赞, 当前点赞数) */
+    suspend fun toggleLike(id: Long): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
+        val o = ApiClient.post("/api/likes/$id")
+        o.optBoolean("liked") to o.optInt("likes")
+    }
+
+    /** GET /api/likes/mine/ids → 我点过赞的文章 id 集合 */
+    suspend fun myLikeIds(): Set<Long> = withContext(Dispatchers.IO) {
+        val a = ApiClient.getArray("/api/likes/mine/ids")
+        (0 until a.length()).map { a.optLong(it) }.filter { it > 0 }.toSet()
+    }
+
+    /** POST /api/favorites/{id} → 切换收藏，返回是否已收藏 */
+    suspend fun toggleFavorite(id: Long): Boolean = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/favorites/$id").optBoolean("favorited")
+    }
+
+    /** GET /api/docs/{id}/subscribed → (是否已订阅, 订阅人数)；未登录也返回 false */
+    suspend fun docSubscription(id: Long): Pair<Boolean, Long> = withContext(Dispatchers.IO) {
+        val o = ApiClient.get("/api/docs/$id/subscribed")
+        o.optBoolean("subscribed") to o.optLong("count")
+    }
+
+    /** POST|DELETE /api/docs/{id}/subscribe → 切换订阅，返回最新 (状态, 人数) */
+    suspend fun setDocSubscribed(id: Long, on: Boolean): Pair<Boolean, Long> = withContext(Dispatchers.IO) {
+        val o = if (on) ApiClient.post("/api/docs/$id/subscribe") else ApiClient.delete("/api/docs/$id/subscribe")
+        o.optBoolean("subscribed") to o.optLong("count")
+    }
+
+    /** POST /api/comments/{id}/like → 评论点赞 (是否已赞, 当前赞数) */
+    suspend fun toggleCommentLike(commentId: Long): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
+        val o = ApiClient.post("/api/comments/$commentId/like")
+        o.optBoolean("liked") to o.optInt("likes")
+    }
+
+    /** GET /api/comments/my-likes → 我点过赞的评论 id 集合 */
+    suspend fun myCommentLikeIds(): Set<Long> = withContext(Dispatchers.IO) {
+        val a = ApiClient.getArray("/api/comments/my-likes")
+        (0 until a.length()).map { a.optLong(it) }.filter { it > 0 }.toSet()
+    }
+
     /** POST /docs/{id}/comments { content } */
     suspend fun postComment(id: Long, content: String): Unit = withContext(Dispatchers.IO) {
         ApiClient.post("/api/docs/$id/comments", JSONObject().put("content", content))

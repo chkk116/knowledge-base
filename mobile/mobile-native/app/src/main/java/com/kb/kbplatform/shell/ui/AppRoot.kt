@@ -357,7 +357,8 @@ fun AppRoot() {
                 com.kb.kbplatform.shell.ui.misc.PostViewScreen(
                     postId = entry.arguments?.getLong("id") ?: 0L,
                     titleHint = entry.arguments?.getString("title").orEmpty(),
-                    onBack = { nav.popBackStack() }
+                    onBack = { nav.popBackStack() },
+                    openRoute = { r -> safeNav(r) }
                 )
             }
             composable("about") { com.kb.kbplatform.shell.ui.misc.AboutScreen(

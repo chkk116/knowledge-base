@@ -31,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,7 @@ import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbButton
 import com.kb.kbplatform.shell.ui.common.KbCard
+import com.kb.kbplatform.shell.ui.common.KbChip
 import com.kb.kbplatform.shell.ui.common.KbEmpty
 import com.kb.kbplatform.shell.ui.common.KbLoading
 import com.kb.kbplatform.shell.ui.common.TopBar
@@ -147,30 +149,49 @@ fun UserProfileScreen(userId: Long, onBack: () -> Unit, openPost: (Long, String)
     }
 }
 
-/** 帖子/文章页（对标 MobilePostView）：正文 + 评论区（列表 + 发表） */
+/** 帖子/文章页（对标 MobilePostView）：正文 + 互动（点赞/收藏/订阅）+ 评论区（列表 + 发表 + 评论点赞） */
 @Composable
-fun PostViewScreen(postId: Long, titleHint: String, onBack: () -> Unit) {
+fun PostViewScreen(
+    postId: Long,
+    titleHint: String,
+    onBack: () -> Unit,
+    openRoute: (String) -> Unit = {}
+) {
     val scope = rememberCoroutineScope()
     var article by remember { mutableStateOf<JSONObject?>(null) }
     var comments by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var likedCommentIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var input by remember { mutableStateOf("") }
     var posting by remember { mutableStateOf(false) }
     var state by remember { mutableStateOf(L2.Loading) }
     var authorId by remember { mutableLongStateOf(0L) }
-    var showAuthor by remember { mutableStateOf(false) }
+    // 互动状态：点赞 / 收藏 / 订阅（后端只允许对已发布内容互动，403 文案直接透出）
+    var liked by remember { mutableStateOf(false) }
+    var likeCount by remember { mutableIntStateOf(0) }
+    var faved by remember { mutableStateOf(false) }
+    var subscribed by remember { mutableStateOf(false) }
+    var subCount by remember { mutableLongStateOf(0L) }
+    var msg by remember { mutableStateOf("") }
 
     fun loadComments() {
         scope.launch {
             runCatching { comments = KbApi.articleComments(postId).objects() }
+            likedCommentIds = runCatching { KbApi.myCommentLikeIds() }.getOrDefault(emptySet())
         }
     }
 
     LaunchedEffect(postId) {
         try {
-            article = KbApi.articleDetail(postId)
-            authorId = article?.optLong("ownerId", article?.optLong("userId", 0L) ?: 0L) ?: 0L
+            val a = KbApi.articleDetail(postId)
+            article = a
+            likeCount = a.optInt("likes")
+            authorId = a.optLong("ownerId", a.optLong("userId", 0L))
             loadComments()
             state = L2.Ok
+            liked = postId in runCatching { KbApi.myLikeIds() }.getOrDefault(emptySet())
+            runCatching { KbApi.docSubscription(postId) }.onSuccess {
+                subscribed = it.first; subCount = it.second
+            }
         } catch (e: Exception) { state = L2.Empty }
     }
 
@@ -196,13 +217,60 @@ fun PostViewScreen(postId: Long, titleHint: String, onBack: () -> Unit) {
                             "作者：${article?.optString("ownerName").orEmpty().ifBlank { "—"}}",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable(enabled = authorId > 0) { showAuthor = true }
+                            modifier = Modifier.clickable(enabled = authorId > 0) {
+                                openRoute("user/$authorId")
+                            }
                         )
                         Spacer(Modifier.weight(1f))
                         Text(
                             formatDateTime(article?.optString("updatedAt")),
                             fontSize = 11.sp, color = KbTextDim
                         )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    // 互动栏：点一下立即变状态，失败回滚并透出后端文案
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        KbChip(
+                            text = (if (liked) "♥ " else "♡ ") + likeCount,
+                            selected = liked,
+                            onClick = {
+                                scope.launch {
+                                    val was = liked
+                                    liked = !liked
+                                    runCatching { KbApi.toggleLike(postId) }
+                                        .onSuccess { (on, n) -> liked = on; likeCount = n }
+                                        .onFailure { liked = was; msg = it.message ?: "点赞失败" }
+                                }
+                            }
+                        )
+                        KbChip(
+                            text = if (faved) "★ 已收藏" else "☆ 收藏",
+                            selected = faved,
+                            onClick = {
+                                scope.launch {
+                                    val was = faved
+                                    faved = !faved
+                                    runCatching { KbApi.toggleFavorite(postId) }
+                                        .onSuccess { faved = it }
+                                        .onFailure { faved = was; msg = it.message ?: "收藏失败" }
+                                }
+                            }
+                        )
+                        KbChip(
+                            text = (if (subscribed) "已订阅 " else "订阅 ") + subCount,
+                            selected = subscribed,
+                            onClick = {
+                                scope.launch {
+                                    runCatching { KbApi.setDocSubscribed(postId, !subscribed) }
+                                        .onSuccess { subscribed = it.first; subCount = it.second }
+                                        .onFailure { msg = it.message ?: "订阅失败" }
+                                }
+                            }
+                        )
+                    }
+                    if (msg.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(msg, fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(
@@ -221,20 +289,15 @@ fun PostViewScreen(postId: Long, titleHint: String, onBack: () -> Unit) {
                         Text("还没有评论", fontSize = 12.sp, color = KbTextDim)
                     }
                     comments.forEach { c ->
-                        KbCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                            Column(Modifier.padding(12.dp)) {
-                                Row {
-                                    Text(
-                                        c.optString("username").ifBlank { "匿名" },
-                                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold
-                                    )
-                                    Spacer(Modifier.weight(1f))
-                                    Text(formatDateTime(c.optString("createdAt")), fontSize = 10.sp, color = KbTextDim)
-                                }
-                                Spacer(Modifier.height(4.dp))
-                                Text(c.optString("content"), fontSize = 13.sp)
-                            }
-                        }
+                        val cid = c.optLong("id", 0)
+                        CommentCard(
+                            c = c,
+                            liked = cid in likedCommentIds,
+                            onLikedChange = { on ->
+                                likedCommentIds = if (on) likedCommentIds + cid else likedCommentIds - cid
+                            },
+                            onError = { e -> msg = e }
+                        )
                     }
                     Spacer(Modifier.height(20.dp))
                 }
@@ -271,25 +334,53 @@ fun PostViewScreen(postId: Long, titleHint: String, onBack: () -> Unit) {
             }
         }
     }
-
-    if (showAuthor && authorId > 0) {
-        UserProfileInline(authorId, onDismiss = { showAuthor = false }, openPost = { id, t ->
-            showAuthor = false
-        })
-    }
 }
 
+/**
+ * 单条评论：内容 + 点赞。
+ * 独立 composable + `remember(id)`：列表增删时各自的点赞数不会串（避免在 forEach 里直接 remember）。
+ */
 @Composable
-private fun UserProfileInline(userId: Long, onDismiss: () -> Unit, openPost: (Long, String) -> Unit) {
-    // 简化：弹层里直接复用用户主页内容（避免嵌套导航），关闭即回帖子
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("用户主页") },
-        text = {
-            Column {
-                Text("在完整版中查看该用户的文章与动态。", fontSize = 13.sp, color = KbTextDim)
+private fun CommentCard(
+    c: JSONObject,
+    liked: Boolean,
+    onLikedChange: (Boolean) -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val cid = c.optLong("id", 0)
+    var likes by remember(cid) { mutableIntStateOf(c.optInt("likes")) }
+    KbCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Row {
+                Text(
+                    c.optString("username").ifBlank { "匿名" },
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.weight(1f))
+                Text(formatDateTime(c.optString("createdAt")), fontSize = 10.sp, color = KbTextDim)
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } }
-    )
+            Spacer(Modifier.height(4.dp))
+            Text(c.optString("content"), fontSize = 13.sp)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = {
+                    scope.launch {
+                        runCatching { KbApi.toggleCommentLike(cid) }
+                            .onSuccess { (on, n) -> onLikedChange(on); likes = n }
+                            .onFailure { onError(it.message ?: "点赞失败") }
+                    }
+                }) {
+                    Text(
+                        (if (liked) "♥ " else "♡ ") + likes,
+                        fontSize = 12.sp,
+                        color = if (liked) MaterialTheme.colorScheme.primary else KbTextDim
+                    )
+                }
+            }
+        }
+    }
 }
