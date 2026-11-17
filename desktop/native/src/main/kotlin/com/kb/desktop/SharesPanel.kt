@@ -69,6 +69,7 @@ fun SharesPanel(session: Session) {
     var versionsErr by remember { mutableStateOf<String?>(null) }
     var showVersions by remember { mutableStateOf(false) }
     var versionNote by remember { mutableStateOf("") }
+    var versionsTick by remember { mutableStateOf(0) }
 
     var spacesLoading by remember { mutableStateOf(true) }
     var docsLoading by remember { mutableStateOf(false) }
@@ -171,7 +172,7 @@ fun SharesPanel(session: Session) {
     }
 
     // 版本面板打开时才拉列表（后端返回完整实体，含大字段，不能每次进详情都拉）
-    LaunchedEffect(showVersions, spaceId, docId) {
+    LaunchedEffect(showVersions, spaceId, docId, versionsTick) {
         if (!showVersions) return@LaunchedEffect
         val sid = spaceId ?: return@LaunchedEffect
         val did = docId ?: return@LaunchedEffect
@@ -308,6 +309,91 @@ fun SharesPanel(session: Session) {
                 )
             }
         }
+    }
+
+    // 历史版本面板：查看 / 恢复 / 把当前内容存成新版本
+    if (showVersions) {
+        val sid = spaceId
+        val did = docId
+        AlertDialog(
+            onDismissRequest = { showVersions = false },
+            title = { Text("历史版本", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(Modifier.width(440.dp).heightIn(max = 420.dp)) {
+                    Text(
+                        "恢复会写回标题/正文/协同状态，协同端重连后生效；列表里是手动保存的快照。",
+                        fontSize = 11.5.sp,
+                        color = KbTextSub,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    when {
+                        versionsLoading -> Text("加载中…", fontSize = 12.5.sp, color = KbTextSub)
+                        versionsErr != null -> Text(versionsErr ?: "", fontSize = 12.5.sp, color = Color(0xFFDC2626))
+                        versions.isEmpty() -> Text(
+                            "还没有历史版本。可先点下方「保存当前为新版本」留一个还原点。",
+                            fontSize = 12.5.sp, color = KbTextSub,
+                        )
+                        else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(versions.size) { i ->
+                                val v = versions[i]
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .background(Color(0xFFF8FAFC), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            "#${v.id}  ${fmtSharedTime(v.createdAt)}",
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = KbTextMain,
+                                        )
+                                        Text(
+                                            (if (v.contentLen > 0) "快照 ${v.contentLen} 字符" else "仅协同状态") +
+                                                (if (v.yjsState != null) " · 含协同状态" else ""),
+                                            fontSize = 11.sp,
+                                            color = KbTextSub,
+                                        )
+                                    }
+                                    TextButton(
+                                        enabled = sid != null && did != null,
+                                        onClick = {
+                                            if (sid == null || did == null) return@TextButton
+                                            runCatching { api.restoreShareDocVersion(session.token, sid, did, v.id) }
+                                                .onSuccess {
+                                                    showVersions = false
+                                                    detailTick++
+                                                }
+                                                .onFailure { versionsErr = it.message ?: "恢复失败" }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp),
+                                    ) { Text("恢复", fontSize = 12.sp) }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row {
+                        TextButton(
+                            enabled = sid != null && did != null,
+                            onClick = {
+                                if (sid == null || did == null) return@TextButton
+                                runCatching { api.snapshotShareDoc(session.token, sid, did) }
+                                    .onSuccess { versionsTick++ }
+                                    .onFailure { versionsErr = it.message ?: "保存版本失败" }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                        ) { Text("保存当前为新版本", fontSize = 12.sp) }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { showVersions = false }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text("关闭", fontSize = 12.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+        )
     }
 }
 
