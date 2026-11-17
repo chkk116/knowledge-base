@@ -102,6 +102,13 @@ data class DbTable(val header: List<String>, val rows: List<List<String>>) : Doc
 
 object DbHr : DocBlock
 
+/**
+ * 原生端画不了的块（流程图/思维导图/表格块/内嵌视频等）。
+ * 以前这类节点被静默丢弃，整篇只剩图块时上层就显示「正文暂不可解析」——
+ * 用户看到的是一句没用的话；现在明确告诉用户是什么块、去哪儿看。
+ */
+data class DbNotice(val text: String) : DocBlock
+
 /** 目录条目：blockIndex = 该块在 List<DocBlock> 中的下标（点击滚到该块） */
 data class TocEntry(val blockIndex: Int, val level: Int, val text: String)
 
@@ -211,6 +218,8 @@ object DocHtml {
         "p", "div", "section", "article", "main", "header", "footer", "figure", "figcaption",
         "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "pre", "blockquote", "table", "hr", "img",
         "dl", "dt", "dd", "address", "center",
+        // 内嵌媒体：原生画不了，但要出「去 Web 看」提示，不能静默丢
+        "iframe", "video", "audio", "embed", "object",
     )
 
     /** 纯行内标签：文本收进散段落，不产生块 */
@@ -290,7 +299,51 @@ object DocHtml {
             "table" -> parseTable(el)?.let { out.add(it) }
             "hr" -> out.add(DbHr)
             "img" -> srcOf(el)?.let { out.add(DbImg(it, el.attrs["alt"].orEmpty())) }
-            else -> walkContainer(el, out)   // div / section / figure … 递归下钻
+            "iframe", "embed", "object" -> {
+                // ParserDelegator 对 iframe 这类 DTD 外标签会同时产出「带属性的自闭合元素」和
+                // 一个空壳元素，这里只认有 src 或真有子节点的那个，避免同一处出两条提示
+                val src = el.attrs["src"]?.takeIf { it.isNotBlank() }
+                when {
+                    src != null -> out.add(DbNotice("内嵌网页 / 视频（$src）—— 请在 Web 端查看"))
+                    el.kids.isNotEmpty() -> out.add(DbNotice("内嵌网页 / 视频 —— 请在 Web 端查看"))
+                }
+            }
+            "video", "audio" -> {
+                val src = el.attrs["src"]?.takeIf { it.isNotBlank() }
+                if (src != null || el.kids.isNotEmpty()) out.add(DbNotice("音视频 —— 请在 Web 端查看"))
+            }
+            else -> {
+                // 图块类自定义节点（流程图 / 思维导图 / 表格块）：内容在 data-* 或画布里，
+                // 原生端没有对应组件；明确提示，不然整篇只剩图块时上层会误报「不可解析」
+                val kind = diagramKindOf(el)
+                if (kind != null) {
+                    val text = plainText(el).trim()
+                    out.add(DbNotice(kind + " —— 请在 Web 端查看" + if (text.isNotEmpty()) "（图内文字：$text）" else ""))
+                } else {
+                    walkContainer(el, out)   // div / section / figure … 递归下钻
+                }
+            }
+        }
+    }
+
+    /**
+     * 识别「图块」类自定义节点（流程图 / 思维导图 / 表格块）。
+     * TipTap 导出的形态不稳定：可能是 data-type、data-diagram 属性，也可能只是 class 关键字；
+     * 命中就出提示块，没命中继续按容器下钻（普通 div 不会误判）。
+     */
+    private fun diagramKindOf(el: HElem): String? {
+        val probe = (
+            el.attrs["data-type"].orEmpty() + " " +
+                el.attrs["class"].orEmpty() + " " +
+                el.attrs["data-diagram"].orEmpty()
+            ).lowercase()
+        val hasDiagramAttr = el.attrs.containsKey("data-diagram")
+        return when {
+            probe.contains("mindmap") || probe.contains("mind-map") -> "思维导图"
+            probe.contains("flow") -> "流程图"
+            probe.contains("diagram") || hasDiagramAttr -> "图形块"
+            probe.contains("table-block") || probe.contains("kwtable") -> "表格块"
+            else -> null
         }
     }
 
@@ -615,6 +668,22 @@ fun DocBlockView(b: DocBlock, server: String, modifier: Modifier = Modifier) {
             }
         }
         DbHr -> HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = DocBorder)
+        is DbNotice -> Box(
+            modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFFF7F8FA))
+                .border(1.dp, DocBorder, RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Text(
+                "▢ " + b.text,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                color = DocQuoteInk,
+            )
+        }
     }
 }
 

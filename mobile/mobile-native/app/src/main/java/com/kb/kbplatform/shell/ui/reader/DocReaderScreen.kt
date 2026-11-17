@@ -24,6 +24,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,6 +39,7 @@ import com.kb.kbplatform.shell.data.HistoryStore
 import com.kb.kbplatform.shell.data.OfflineCache
 import com.kb.kbplatform.shell.ui.common.CenterHint
 import com.kb.kbplatform.shell.ui.common.TopBar
+import com.kb.kbplatform.shell.ui.common.formatDateTime
 import org.json.JSONObject
 
 /**
@@ -60,9 +62,12 @@ fun DocReaderScreen(
     var offline by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
+    var updatedAt by remember { mutableStateOf("") }
+    var refreshKey by remember { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(shareId, docId) {
-        loading = true
+    LaunchedEffect(shareId, docId, refreshKey) {
+        if (refreshKey > 0) refreshing = true else loading = true
         error = ""
         try {
             val d: JSONObject = KbApi.getShareDoc(shareId, docId)
@@ -70,6 +75,7 @@ fun DocReaderScreen(
             val c = d.optString("content")
             title = t
             html = c
+            updatedAt = d.optString("updatedAt")
             offline = false
             OfflineCache.saveDocContent(ctx, shareId, docId, t, c)
             HistoryStore.record(ctx, shareId, docId, t)   // 浏览历史（对标套壳 history store）
@@ -86,6 +92,7 @@ fun DocReaderScreen(
             }
         } finally {
             loading = false
+            refreshing = false
         }
     }
 
@@ -96,10 +103,25 @@ fun DocReaderScreen(
             TextButton(onClick = {
                 Bookmarks.toggle(ctx, shareId, docId, title)
             }) { Text(if (bookmarked) "★ 已藏" else "☆ 收藏", fontSize = 13.sp) }
+            TextButton(
+                onClick = { if (!refreshing) refreshKey++ },
+                enabled = !refreshing
+            ) { Text(if (refreshing) "刷新中…" else "刷新", fontSize = 13.sp) }
             TextButton(onClick = {
                 onEdit()
             }) { Text("编辑", fontWeight = FontWeight.Medium, fontSize = 14.sp) }
         })
+
+        // 最后更新时间（离线时给出缓存提示，连网后点顶部「刷新」即可重新缓存）
+        val stamp = formatDateTime(updatedAt)
+        if (stamp.isNotBlank() && !offline) {
+            Text(
+                "更新于 $stamp",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+            )
+        }
 
         if (offline) {
             Text(

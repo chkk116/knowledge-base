@@ -172,28 +172,66 @@ fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute
 @Composable
 fun FavoritesScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute: (String) -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var items by remember { mutableStateOf(Bookmarks.list(ctx)) }
+    val scope = rememberCoroutineScope()
+    // 两类收藏语义不同，分区展示：云端文章收藏（跨设备同步）/ 本机文档书签（离线快捷）
+    var bookmarks by remember { mutableStateOf(Bookmarks.list(ctx)) }
+    var articles by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var refresh by remember { mutableStateOf(0) }
-    LaunchedEffect(refresh) { items = Bookmarks.list(ctx) }
+    LaunchedEffect(refresh) {
+        bookmarks = Bookmarks.list(ctx)
+        articles = runCatching { KbApi.myFavoriteDocs().objects() }.getOrDefault(emptyList())
+    }
 
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "我的收藏", onBack = onBack)
-        if (items.isEmpty()) {
-            KbEmpty("⭐", "还没有收藏\n在文档阅读页点 ☆ 收藏")
+        if (bookmarks.isEmpty() && articles.isEmpty()) {
+            KbEmpty("⭐", "还没有收藏\n在文章页点 ☆ 收藏，或在文档阅读页点 ☆")
         } else {
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(items, key = { "${it.shareId}:${it.docId}" }) { b ->
-                    KbCard(Modifier.fillMaxWidth().clickable {
-                        openRoute("reader/${b.shareId}/${b.docId}?title=" + android.net.Uri.encode(b.title))
-                    }) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("⭐", fontSize = 16.sp)
-                            Spacer(Modifier.size(10.dp))
-                            Text(b.title.ifBlank { "未命名文档" }, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                            TextButton(onClick = {
-                                Bookmarks.toggle(ctx, b.shareId, b.docId, b.title)
-                                refresh++
-                            }) { Text("取消收藏", fontSize = 12.sp, color = KbRed) }
+                if (articles.isNotEmpty()) {
+                    item {
+                        Text("文章收藏（云端 · 多端同步）", fontSize = 12.sp, color = KbTextDim)
+                    }
+                    items(articles, key = { "doc:${it.optLong("id", 0)}" }) { d ->
+                        val title = d.optString("title").ifBlank { "未命名" }
+                        KbCard(Modifier.fillMaxWidth().clickable {
+                            openRoute("post/${d.optLong("id", 0)}?title=" + android.net.Uri.encode(title))
+                        }) {
+                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("📄", fontSize = 16.sp)
+                                Spacer(Modifier.size(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(title, fontSize = 14.sp)
+                                    val t = formatDateTime(d.optString("updatedAt"))
+                                    if (t.isNotBlank()) Text("更新于 $t", fontSize = 11.sp, color = KbTextDim)
+                                }
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        runCatching { KbApi.toggleFavorite(d.optLong("id", 0)) }
+                                        refresh++
+                                    }
+                                }) { Text("取消收藏", fontSize = 12.sp, color = KbRed) }
+                            }
+                        }
+                    }
+                }
+                if (bookmarks.isNotEmpty()) {
+                    item {
+                        Text("文档书签（本机）", fontSize = 12.sp, color = KbTextDim)
+                    }
+                    items(bookmarks, key = { "bm:${it.shareId}:${it.docId}" }) { b ->
+                        KbCard(Modifier.fillMaxWidth().clickable {
+                            openRoute("reader/${b.shareId}/${b.docId}?title=" + android.net.Uri.encode(b.title))
+                        }) {
+                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("⭐", fontSize = 16.sp)
+                                Spacer(Modifier.size(10.dp))
+                                Text(b.title.ifBlank { "未命名文档" }, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    Bookmarks.toggle(ctx, b.shareId, b.docId, b.title)
+                                    refresh++
+                                }) { Text("取消收藏", fontSize = 12.sp, color = KbRed) }
+                            }
                         }
                     }
                 }

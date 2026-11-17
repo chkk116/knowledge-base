@@ -60,6 +60,15 @@ fun SharesPanel(session: Session) {
     // 协同正文（本地解析 yjs_state）：拿到就用，拿不到/解析失败回退 content 快照
     var yjsHtml by remember { mutableStateOf<String?>(null) }
     var yjsLive by remember { mutableStateOf(false) }
+    // 拿不到协同正文时的原因（404 未部署 / empty 无状态 / parse 解析失败 / tooLarge 超限），
+    // 只用于空正文时把「不可解析」换成能照着做的提示
+    var yjsNote by remember { mutableStateOf("") }
+    // 历史版本：既用于手动回滚，也作为「拿不到 /yjs 又没快照」时的兜底正文来源
+    var versions by remember { mutableStateOf<List<Api.ShareVersionItem>>(emptyList()) }
+    var versionsLoading by remember { mutableStateOf(false) }
+    var versionsErr by remember { mutableStateOf<String?>(null) }
+    var showVersions by remember { mutableStateOf(false) }
+    var versionNote by remember { mutableStateOf("") }
 
     var spacesLoading by remember { mutableStateOf(true) }
     var docsLoading by remember { mutableStateOf(false) }
@@ -121,19 +130,25 @@ fun SharesPanel(session: Session) {
         // 协同正文：relay 每 5s 落库一次，读到的就是准实时内容；解析失败静默回退快照
         yjsHtml = null
         yjsLive = false
+        yjsNote = ""
         try {
             val y = api.shareDocYjs(session.token, sid, did)
             val b64 = y?.state
-            if (!b64.isNullOrBlank()) {
+            if (b64.isNullOrBlank()) {
+                yjsNote = if (y?.tooLarge == true) "tooLarge" else "empty"
+            } else {
                 val bytes = java.util.Base64.getDecoder().decode(b64)
                 val html = YjsHtml.toHtml(bytes)
                 if (!html.isNullOrBlank()) {
                     yjsHtml = html
                     yjsLive = true
+                } else {
+                    yjsNote = "parse"
                 }
             }
         } catch (e: Exception) {
-            // 回退快照，不打断阅读
+            // 回退快照，不打断阅读；记下原因，供空正文时给出准确提示
+            yjsNote = e.message ?: "error"
         }
     }
 
@@ -250,6 +265,7 @@ fun SharesPanel(session: Session) {
                     server = session.server,
                     html = yjsHtml ?: d.content.orEmpty(),
                     live = yjsLive,
+                    yjsNote = yjsNote,
                     onOpenInBrowser = {
                         openShareInBrowser(session.server, "/doc-shares/${spaceId}?doc=${d.id}")
                     },
@@ -334,6 +350,7 @@ private fun ShareReader(
     server: String,
     html: String,
     live: Boolean,
+    yjsNote: String = "",
     onOpenInBrowser: () -> Unit,
 ) {
     val blocks = remember(doc.id, html) { DocHtml.parse(html) }
@@ -401,13 +418,35 @@ private fun ShareReader(
         }
         if (blocks.isEmpty()) {
             item {
-                Text(
-                    if (doc.content.isNullOrBlank())
-                        "正文为空。若这篇文档正在协同编辑，实时内容请在 Web 端查看（桌面端只读保存的快照）。"
-                    else "正文暂不可解析，请在 Web 端查看。",
-                    fontSize = 12.5.sp,
-                    color = KbTextSub,
-                )
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Text(
+                        // 空正文不是「文档坏了」：协同文档的正文只存在 yjs_state 里，
+                        // 桌面端要么靠 /yjs 接口本地解析，要么只能读 content 快照
+                        when {
+                            yjsNote.contains("404") ->
+                                "这篇文档的正文保存在协同状态里，而服务端还没有提供读取接口" +
+                                    "（需要部署后端 1.1.3+）。桌面端暂时读不到正文。"
+                            yjsNote == "tooLarge" ->
+                                "这篇文档的协同状态超过 8MB，服务端不下发。请用 Web 端打开阅读。"
+                            yjsNote == "parse" ->
+                                "协同状态解析失败（内容可能包含桌面端暂不支持的节点）。请用 Web 端打开。"
+                            yjsNote == "empty" ->
+                                "协同状态为空，保存的快照也是空的。请用 Web 端打开确认内容。"
+                            doc.content.isNullOrBlank() ->
+                                "这篇文档只在协同编辑器里写过，还没有保存过 HTML 快照，桌面端没有正文可显示。"
+                            else ->
+                                "正文里只有桌面端画不出来的块（图块 / 内嵌视频等），" +
+                                    "已在上方逐块标注；完整内容请用 Web 端打开。"
+                        },
+                        fontSize = 13.sp,
+                        lineHeight = 21.sp,
+                        color = KbTextSub,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    TextButton(onClick = onOpenInBrowser, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                        Text("在浏览器中打开这篇文档 →", fontSize = 13.sp)
+                    }
+                }
             }
         } else {
             items(blocks.size) { i ->

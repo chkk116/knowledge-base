@@ -33,9 +33,10 @@ Web 页面在 WebView 中以标准 PWA 形态运行（无 Capacitor 对象，mai
 | 登录页 | 滑动拼图验证码（Compose 手绘，协议与 Web 端 SlideCaptcha.vue 同源：320 基准坐标换算、轨迹 ≥3 点 ≥120ms） | `/api/auth/captcha` `/api/auth/captcha/slide` `/api/auth/login` |
 | 主框架 | 底部四 Tab：首页 / 文档库 / 消息 / 我的；消息 Tab 未读角标（SSE 实时）；**主题令牌与套壳 mobile.css --m-* 家族对齐（#1677FF）** | `/api/notifications/stream` (SSE) |
 | 首页 | 数据概览 + 公告 + 快捷入口（AI/搜索/卡片/模拟练习/考试中心直达原生页）+ 分享横幅 | `/api/docs/overview` `/api/announcements` |
-| 文档库 | 空间列表 → 文档列表（**空间内标题检索 + 最近更新/标题/创建时间排序，纯本地**）→ **原生阅读器**（离线可读）；编辑进 WebView | `/api/doc-shares/*` |
+| 文档库 | 空间列表 → 文档列表（**空间内标题检索 + 最近更新/标题/创建时间排序，纯本地**）→ **原生阅读器**（离线可读、顶部「刷新」+ 更新于时间；编辑进 WebView） | `/api/doc-shares/*` |
 | AI 问答（原生） | **对标套壳 MobileAiChat**：历史会话抽屉（续接/删除）、知识库/通用模式、模型选择、Markdown 渲染、引用来源与模型元信息 | `/api/ai/*` |
 | 后台管理（原生） | **11 个原生模块，全部按权限码显隐**：运营看板（统计 / 审计日志 / 登录日志三 Tab）、文章审核（通过/驳回）、帖子管理（搜索 / 封禁解封 / 移入回收站）、举报处理（状态筛选 + 处理备注）、违禁词库（词库启停 / 批量加词 / 删词）、文章回收站（恢复 / 彻底删除）、分类与标签（分类树增删、标签增删带篇数）、用户管理（搜索/启停/改角色）、AI 模型管理（启停/默认/测试）、公告管理（发布/置顶/启停）、角色管理 | `/api/admin/*` |
+| 文章页（原生） | 正文 + **点赞 / 收藏 / 订阅**（乐观更新 + 失败回滚并透出后端文案）+ 评论区（发表 / 评论点赞）+ 点作者名进用户主页（关注 / TA 的文章） | `/api/docs/*` `/api/likes/*` `/api/favorites/*` `/api/comments/*` |
 | 消息 | 通知列表、点按已读、SSE 到达自动刷新 + 角标 | `/api/notifications` `/api/notifications/unread` |
 | 搜索（原生） | 我的空间全文档标题/正文检索 + 搜索历史 | `/api/doc-shares/*` |
 | 复习卡片（原生） | SM-2 到期队列：翻面 + 四档评分 + 本轮小结 | `/api/flashcards/due` `/api/flashcards/{id}/review` |

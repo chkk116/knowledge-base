@@ -429,6 +429,11 @@ object KbApi {
         ApiClient.post("/api/favorites/$id").optBoolean("favorited")
     }
 
+    /** GET /api/favorites/mine → 我收藏的文章（仅已发布，按收藏时间倒序；Document 数组） */
+    suspend fun myFavoriteDocs(): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/favorites/mine")
+    }
+
     /** GET /api/docs/{id}/subscribed → (是否已订阅, 订阅人数)；未登录也返回 false */
     suspend fun docSubscription(id: Long): Pair<Boolean, Long> = withContext(Dispatchers.IO) {
         val o = ApiClient.get("/api/docs/$id/subscribed")
