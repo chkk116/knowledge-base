@@ -17,8 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,7 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.objects
-import com.kb.kbplatform.shell.ui.common.KbButton
+
 import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.KbChip
 import com.kb.kbplatform.shell.ui.common.KbReportDialog
@@ -82,7 +81,13 @@ fun UserProfileScreen(
             following = card?.optBoolean("following", false) ?: false
             articles = runCatching { KbApi.userArticles(userId).objects() }.getOrDefault(emptyList())
             state = L2.Ok
-        } catch (e: Exception) { state = L2.Empty }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 网络/服务异常不能显示成「用户不存在」；已有名片时保留页面并在顶部提示
+            profileMsg = e.message ?: "加载失败"
+            state = if (card == null) L2.Empty else L2.Ok
+        }
     }
 
     if (reportUser) {
@@ -138,8 +143,13 @@ fun UserProfileScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(onClick = {
                             scope.launch {
-                                runCatching { KbApi.followUser(userId, !following) }
-                                following = !following
+                                // 只看接口成功才翻转；失败保持原状并提示，别让按钮和服务端对不上
+                                val target = !following
+                                if (runCatching { KbApi.followUser(userId, target) }.isSuccess) {
+                                    following = target
+                                } else {
+                                    profileMsg = "操作失败，请重试"
+                                }
                             }
                         }) {
                             Text(if (following) "取消关注" else "+ 关注", color = Color.White)
@@ -246,12 +256,20 @@ fun PostViewScreen(
             loadComments()
             state = L2.Ok
             liked = postId in runCatching { KbApi.myLikeIds() }.getOrDefault(emptySet())
+            // 收藏状态必须与点赞一样从服务端回填：否则首次点「收藏」实际是取消收藏
+            faved = postId in runCatching { KbApi.myFavoriteIds() }.getOrDefault(emptySet())
             runCatching { KbApi.docSubscription(postId) }.onSuccess {
                 subscribed = it.first; subCount = it.second
             }
             // 相关阅读是可选信息，失败留空不影响正文与评论
             related = runCatching { KbApi.relatedDocs(postId, 5).objects() }.getOrDefault(emptyList())
-        } catch (e: Exception) { state = L2.Empty }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 同理：加载失败不能伪装成「文章不存在」
+            msg = e.message ?: "加载失败"
+            state = if (article == null) L2.Empty else L2.Ok
+        }
     }
 
     // 删除自己的评论
@@ -418,11 +436,14 @@ fun PostViewScreen(
                         Text(msg, fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text(
+                    val articleText = remember(article) {
                         android.text.Html.fromHtml(
                             article?.optString("content").orEmpty(),
                             android.text.Html.FROM_HTML_MODE_LEGACY
-                        ).toString(),
+                        ).toString()
+                    }
+                    Text(
+                        articleText,
                         fontSize = 14.sp,
                         lineHeight = 23.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
@@ -472,7 +493,7 @@ fun PostViewScreen(
                         Text("还没有评论", fontSize = 12.sp, color = KbTextDim)
                     }
                     // 楼中楼：按 parentId 分组，顶层评论下挂一层子回复（后端支持 parentId）
-                    val byParent = comments.groupBy { it.optLong("parentId", 0) }
+                    val byParent = remember(comments) { comments.groupBy { it.optLong("parentId", 0) } }
                     byParent[0L].orEmpty().forEach { root ->
                         val rootId = root.optLong("id", 0)
                         CommentCard(
@@ -550,11 +571,19 @@ fun PostViewScreen(
                                 posting = true
                                 val parent = replyTo?.optLong("id")
                                 scope.launch {
-                                    runCatching { KbApi.postComment(postId, t, parent) }
-                                    input = ""
-                                    replyTo = null
-                                    posting = false
-                                    loadComments()
+                                    // 失败保留已输入内容与回复目标，用户可以直接重试
+                                    try {
+                                        KbApi.postComment(postId, t, parent)
+                                        input = ""
+                                        replyTo = null
+                                        loadComments()
+                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        msg = e.message ?: "评论失败"
+                                    } finally {
+                                        posting = false
+                                    }
                                 }
                             },
                             enabled = input.isNotBlank() && !posting
@@ -584,7 +613,8 @@ private fun CommentCard(
 ) {
     val scope = rememberCoroutineScope()
     val cid = c.optLong("id", 0)
-    var likes by remember(cid) { mutableIntStateOf(c.optInt("likes")) }
+    // 评论列表刷新会换掉整个对象；把服务端计数也作为 key，别一直显示首次组合时的旧值
+    var likes by remember(cid, c.optInt("likes")) { mutableIntStateOf(c.optInt("likes")) }
     KbCard(
         Modifier
             .fillMaxWidth()

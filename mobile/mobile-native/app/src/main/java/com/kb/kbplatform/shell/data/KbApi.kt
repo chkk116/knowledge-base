@@ -457,6 +457,12 @@ object KbApi {
         ApiClient.post("/api/favorites/$id").optBoolean("favorited")
     }
 
+    /** GET /api/favorites/mine/ids → 我收藏的文章 id 集合（判断某篇是否已收藏，避免拉全量列表） */
+    suspend fun myFavoriteIds(): Set<Long> = withContext(Dispatchers.IO) {
+        val a = ApiClient.getArray("/api/favorites/mine/ids")
+        (0 until a.length()).map { a.optLong(it) }.filter { it > 0 }.toSet()
+    }
+
     /** GET /api/favorites/mine → 我收藏的文章（仅已发布，按收藏时间倒序；Document 数组） */
     suspend fun myFavoriteDocs(): JSONArray = withContext(Dispatchers.IO) {
         ApiClient.getArray("/api/favorites/mine")

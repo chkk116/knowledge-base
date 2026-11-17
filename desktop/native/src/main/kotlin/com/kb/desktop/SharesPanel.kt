@@ -43,7 +43,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.awt.Desktop
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.URI
 
 // 共享文档空间（2026-11-16 新增）：左＝我的空间，中＝空间内文档，右＝只读阅读
@@ -121,7 +123,10 @@ fun SharesPanel(session: Session) {
             else api.shareDocs(session.token, sid)
             val first = docs.firstOrNull()
             docId = first?.id
-            docShareId = first?.let { if (it.shareId > 0) it.shareId else sid }
+            // 「全部文档」视图下 sid 是虚拟哨兵 -1，不能当 shareId 用，否则后续详情/版本/链接全部 404
+            docShareId = first?.takeIf { it.shareId > 0 }?.shareId
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             docsErr = e.message ?: "加载失败"
         } finally {
@@ -137,6 +142,8 @@ fun SharesPanel(session: Session) {
         detail = null
         try {
             detail = api.shareDocDetail(session.token, sid, did)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             detailErr = e.message ?: "加载失败"
         } finally {
@@ -152,8 +159,10 @@ fun SharesPanel(session: Session) {
             if (b64.isNullOrBlank()) {
                 yjsNote = if (y?.tooLarge == true) "tooLarge" else "empty"
             } else {
-                val bytes = java.util.Base64.getDecoder().decode(b64)
-                val html = YjsHtml.toHtml(bytes)
+                // 协同状态可达 8MB，base64 解码 + 解析放后台线程，别卡住 UI
+                val html = withContext(Dispatchers.Default) {
+                    YjsHtml.toHtml(java.util.Base64.getDecoder().decode(b64))
+                }
                 if (!html.isNullOrBlank()) {
                     yjsHtml = html
                     yjsLive = true
@@ -161,6 +170,8 @@ fun SharesPanel(session: Session) {
                     yjsNote = "parse"
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             // 回退快照，不打断阅读；记下原因，供空正文时给出准确提示
             yjsNote = e.message ?: "error"
@@ -173,9 +184,9 @@ fun SharesPanel(session: Session) {
             runCatching { api.shareDocVersions(session.token, sid, did) }.getOrNull()?.let { vs ->
                 val v = vs.firstOrNull()
                 val html = v?.yjsState?.let { b64 ->
-                    runCatching {
-                        YjsHtml.toHtml(java.util.Base64.getDecoder().decode(b64))
-                    }.getOrNull()
+                    withContext(Dispatchers.Default) {
+                        runCatching { YjsHtml.toHtml(java.util.Base64.getDecoder().decode(b64)) }.getOrNull()
+                    }
                 }
                 if (!html.isNullOrBlank()) {
                     yjsHtml = html
@@ -194,6 +205,8 @@ fun SharesPanel(session: Session) {
         versionsErr = null
         try {
             versions = api.shareDocVersions(session.token, sid, did)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             versionsErr = e.message ?: "版本列表加载失败"
         } finally {
@@ -309,7 +322,7 @@ fun SharesPanel(session: Session) {
                                 spaceLabel = spaceLabel,
                             ) {
                                 docId = d.id
-                                docShareId = if (d.shareId > 0) d.shareId else spaceId
+                                docShareId = d.shareId.takeIf { it > 0 }
                             }
                         }
                     }
@@ -337,7 +350,12 @@ fun SharesPanel(session: Session) {
                     versionNote = versionNote,
                     onOpenVersions = { showVersions = true },
                     onOpenInBrowser = {
-                        openShareInBrowser(session.server, "/doc-shares/${docShareId}?doc=${d.id}")
+                        val sid = docShareId
+                        if (sid == null || sid <= 0) {
+                            yjsNote = "unknown-space"   // 未知空间不拼 -1 链接
+                        } else {
+                            openShareInBrowser(session.server, "/doc-shares/$sid?doc=${d.id}")
+                        }
                     },
                 )
             }
@@ -716,9 +734,11 @@ private fun permLabel(perm: String): String = when (perm.uppercase()) {
     else -> perm.lowercase()
 }
 
+private val SHARED_TAG_SEP = Regex("[,，、;；\\s]+")
+
 private fun splitSharedTags(raw: String?): List<String> {
     if (raw.isNullOrBlank()) return emptyList()
-    return raw.split(Regex("[,，、;；\\s]+")).map { it.trim() }.filter { it.isNotEmpty() }.take(4)
+    return raw.split(SHARED_TAG_SEP).map { it.trim() }.filter { it.isNotEmpty() }.take(4)
 }
 
 /** 字节数 → 人类可读（列表里显示文档占用） */
