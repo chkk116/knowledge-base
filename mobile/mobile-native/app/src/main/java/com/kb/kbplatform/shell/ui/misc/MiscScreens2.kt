@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,6 +55,7 @@ import com.kb.kbplatform.shell.ui.common.formatDateTime
 import com.kb.kbplatform.shell.ui.theme.KbBlue
 import com.kb.kbplatform.shell.ui.theme.KbGreen
 import com.kb.kbplatform.shell.ui.theme.KbTextDim
+import com.kb.kbplatform.shell.ui.theme.KbWarn
 import com.kb.kbplatform.shell.ui.theme.KbRed
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -424,37 +426,79 @@ fun AdminDocsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(L2.Loading) }
+    var keyword by remember { mutableStateOf("") }
     var delTarget by remember { mutableStateOf<JSONObject?>(null) }
     fun load() {
         state = L2.Loading
         scope.launch {
             try {
-                items = simpleList(KbApi.adminDocs())
+                items = KbApi.adminDocs(keyword = keyword).objects()
                 state = if (items.isEmpty()) L2.Empty else L2.Ok
             } catch (e: Exception) { state = L2.Empty }
         }
     }
     LaunchedEffect(Unit) { load() }
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "内容管理", onBack = onBack)
+        TopBar(title = "帖子管理", onBack = onBack)
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = keyword,
+                onValueChange = { keyword = it },
+                placeholder = { Text("搜索标题", fontSize = 13.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = { load() }) { Text("搜索", fontSize = 13.sp) }
+        }
+        Spacer(Modifier.height(8.dp))
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("📄", "暂无内容")
+            L2.Empty -> KbEmpty("📄", if (keyword.isBlank()) "暂无内容" else "没有匹配的文章")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", 0) }) { d ->
+                    val status = d.optString("status")
+                    val blocked = status == "BLOCKED"
                     KbCard(Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(d.optString("title").ifBlank { "未命名" }, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Column(Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    listOfNotNull(
-                                        d.optString("ownerName").takeIf { it.isNotEmpty() },
-                                        formatDateTime(d.optString("createdAt"))
-                                    ).joinToString(" · "),
-                                    fontSize = 11.sp, color = KbTextDim
+                                    d.optString("title").ifBlank { "未命名" },
+                                    fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f), maxLines = 2
+                                )
+                                Text(
+                                    statusCn(status),
+                                    fontSize = 11.sp,
+                                    color = when (status) {
+                                        "PUBLISHED" -> KbGreen
+                                        "PENDING" -> KbWarn
+                                        "BLOCKED" -> KbRed
+                                        else -> KbTextDim
+                                    }
                                 )
                             }
-                            TextButton(onClick = { delTarget = d }) { Text("删除", fontSize = 12.sp, color = KbRed) }
+                            Text(
+                                listOfNotNull(
+                                    d.optString("ownerName").takeIf { it.isNotEmpty() },
+                                    formatDateTime(d.optString("createdAt")).takeIf { it.isNotEmpty() },
+                                    "${d.optInt("views")} 阅"
+                                ).joinToString(" · "),
+                                fontSize = 11.sp, color = KbTextDim
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        runCatching { KbApi.adminSetDocBlocked(d.optLong("id", 0), !blocked) }
+                                        load()
+                                    }
+                                }) { Text(if (blocked) "解封" else "封禁", fontSize = 12.sp) }
+                                TextButton(onClick = { delTarget = d }) { Text("删除", fontSize = 12.sp, color = KbRed) }
+                            }
                         }
                     }
                 }
@@ -465,7 +509,7 @@ fun AdminDocsScreen(onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { delTarget = null },
             title = { Text("删除内容") },
-            text = { Text("确定删除「${d.optString("title").ifBlank { "未命名" }}」吗？") },
+            text = { Text("「${d.optString("title").ifBlank { "未命名" }}」将移入回收站，可在回收站恢复。") },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
@@ -478,6 +522,15 @@ fun AdminDocsScreen(onBack: () -> Unit) {
             dismissButton = { TextButton(onClick = { delTarget = null }) { Text("取消") } }
         )
     }
+}
+
+private fun statusCn(s: String) = when (s) {
+    "PUBLISHED" -> "已发布"
+    "PENDING" -> "待审核"
+    "DRAFT" -> "草稿"
+    "BLOCKED" -> "已封禁"
+    "DELETED" -> "已删除"
+    else -> s.ifBlank { "—" }
 }
 
 // ============ 发现文章（对标 MobileDiscover：文章列表）============

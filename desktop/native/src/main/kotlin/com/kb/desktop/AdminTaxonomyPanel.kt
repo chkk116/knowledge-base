@@ -82,6 +82,15 @@ internal fun TaxonomyTab(session: Session) {
 
     val rows = remember(tree) { flattenCats(tree) }
     val selName = remember(tree, sel) { sel?.let { findCat(tree, it)?.name } }
+    val selNode = remember(tree, sel) { sel?.let { findCat(tree, it) } }
+    val siblings = remember(tree, selNode) {
+        selNode.let { n ->
+            if (n == null) emptyList()
+            else if (n.parentId == null) tree
+            else findCat(tree, n.parentId)?.children.orEmpty()
+        }
+    }
+    val selIdx = remember(siblings, sel) { siblings.indexOfFirst { it.id == sel } }
     val shownTags = remember(tags, q) {
         val kw = q.trim()
         if (kw.isEmpty()) tags else tags.filter { it.name.contains(kw, ignoreCase = true) }
@@ -99,6 +108,29 @@ internal fun TaxonomyTab(session: Session) {
                 tick++
             } catch (e: Exception) {
                 toast = e.message ?: "操作失败"
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    /** 同级上移/下移：交换 sortOrder；两者相同则按方向错开一位（后端按 sortOrder asc, id asc 稳定排序） */
+    fun moveCat(delta: Int) {
+        val n = selNode ?: return
+        val other = siblings.getOrNull(selIdx + delta) ?: return
+        if (busy) return
+        scope.launch {
+            busy = true
+            try {
+                val same = n.sortOrder == other.sortOrder
+                val nOrder = if (same) other.sortOrder + delta else other.sortOrder
+                val oOrder = if (same) n.sortOrder - delta else n.sortOrder
+                api.updateCategoryOrder(session.token, n.id, n.parentId, nOrder)
+                api.updateCategoryOrder(session.token, other.id, other.parentId, oOrder)
+                toast = if (delta < 0) "已上移" else "已下移"
+                tick++
+            } catch (e: Exception) {
+                toast = e.message ?: "排序调整失败"
             } finally {
                 busy = false
             }
@@ -145,6 +177,12 @@ internal fun TaxonomyTab(session: Session) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("选中：${selName ?: "#$sel"}", fontSize = 10.5.sp, color = KbTextSub, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (selIdx > 0) {
+                        AdminButton("↑", enabled = !busy) { moveCat(-1) }
+                    }
+                    if (selIdx >= 0 && selIdx < siblings.lastIndex) {
+                        AdminButton("↓", enabled = !busy) { moveCat(1) }
+                    }
                     AdminButton("重命名", enabled = !busy) {
                         val n = catName.trim()
                         val id = sel ?: return@AdminButton

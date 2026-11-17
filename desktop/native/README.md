@@ -129,7 +129,7 @@
     否则显示「快照」并回退 `content`。
   - TipTap 自定义块（流程图/导图/表格块）原生端画不了 → 渲染「请在 Web 端查看」提示，不静默丢内容。
   - **生效条件**：后端新接口要部署（jar）+ 桌面端 1.1.3 起；旧后端配新客户端会自动回退快照。
-- **管理模块（2026-11-16，日常运维闭环）**：侧栏「管理」进二级导航，7 个页签，权限全部由后端判定
+- **管理模块（2026-11-16，日常运维闭环）**：侧栏「管理」进二级导航，**14 个页签**，权限全部由后端判定
   （ADMIN 或细粒度码），403 文案原样透出；列表统一取第一页 50 条（不做翻页）：
   - **审核队列**（`DOC_REVIEW`）：`GET /api/admin/docs/pending` + 通过（`POST /{id}/approve`）/
     驳回（`POST /{id}/reject`，理由必填且作者可见，行内输入框，二次确认式布局）。
@@ -150,14 +150,18 @@
   - **孤儿附件**（仅 ADMIN）：`GET /api/admin/files/orphans`（正文与头像都未引用的上传文件）+ 逐个删除
     （`DELETE /api/admin/files/orphan?url=`，二次确认；界面标红提示不可恢复）。
   - **分类标签**（`TAXONOMY_MANAGE`）：分类树（`GET /api/categories` 递归 children，左列缩进展示）+
-    加根/加子类/重命名/删除（`POST|PUT|DELETE /api/admin/categories`，有子类时后端拒绝，文案透出）；
+    加根/加子类/重命名/删除（`POST|PUT|DELETE /api/admin/categories`，有子类时后端拒绝，文案透出）+
+    **同级上移/下移**（`PUT /{id}` 只传 parentId+sortOrder；老数据 sortOrder 全为 0 时按目标位次 ±1 兜底）；
     标签（`GET /api/tags` 带文章计数）+ 搜索/新增/删除（`/api/admin/tags`）。
+  - **帖子**（`POST_MANAGE`）：`GET /api/admin/docs?page&size&keyword=` 全站文章（含已封禁）+
+    状态徽标（已发布/待审核/草稿/已封禁）+ 封禁/解封（`POST /{id}/block|unblock`）+
+    删除（`DELETE /{id}`，**只移入回收站**，界面明示可恢复）。
   - **回收站**（`POST_MANAGE`）：`GET /api/admin/docs/recycle` + 恢复（`POST /{id}/restore`）；
     彻底删除与批量操作留 Web（不可逆）。
   - **代码组织**：外壳与小件在 `AdminPanel.kt`（204 行），模块按域拆分——
     `AdminReviewPanel.kt`（审核/阅卷/举报）、`AdminPeoplePanel.kt`（用户/部门）、
     `AdminContentPanel.kt`（公告/违禁词/孤儿附件）、`AdminTaxonomyPanel.kt`（分类标签）、
-    `AdminDocPanel.kt`（回收站）、`AdminInsightPanel.kt`（看板/审计/登录日志）。
+    `AdminDocPanel.kt`（帖子/回收站）、`AdminInsightPanel.kt`（看板/审计/登录日志）。
 - **培训 / 考试（浏览与进度）**：
   - 培训：`GET /api/courses`（分类 chips 横向滚动，`/categories` 取分类）→ 课程列表；
     中列显示 `GET /api/courses/{id}` 的章节与 `GET /api/courses/{id}/progress` 的完成状态
@@ -244,6 +248,12 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
   下次写入自动升级）；底部导航补 `navigationBarsPadding`，「文档库」Tab 补线面切换
 - 主界面去掉外层 20dp + 白卡边框（框套框冗余），文章侧栏补浅底与会话侧栏一致；
   登录页保留书院风配色（用户拍板 2026-11-13）
+
+### 管理界面复核加固
+
+- 帖子搜索加 300ms 防抖，输入时不再整列表闪「加载中」；取消的请求不再被当成失败，也不让旧结果覆盖新结果
+- 删除确认态在搜索/刷新后自动清除，避免误触删错行；移入回收站后刷新列表，计数与服务端一致
+- 回收站的恢复/刷新同样放行协程取消，避免误报错误
 
 ## 约定
 

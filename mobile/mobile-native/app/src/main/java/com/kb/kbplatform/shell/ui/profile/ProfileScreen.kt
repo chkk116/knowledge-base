@@ -122,10 +122,13 @@ fun ProfileScreen(
         AppUpdater.check(ctx)   // 静默检查，仅当有新版本时入口条目提示
     }
 
-    val showAdmin = TokenStore.hasPerm("USER_MANAGE") ||
-        TokenStore.hasPerm("AI_MANAGE") ||
-        TokenStore.hasPerm("DOC_REVIEW") ||
-        TokenStore.hasPerm("ANNOUNCEMENT_MANAGE")
+    // 只要有任一后台权限码就显示入口（与服务端各 Controller 的 requirePerm 对齐；
+    // 漏掉 POST_MANAGE 这类码会导致"只有帖子/回收站权限"的账号进不去后台）
+    val showAdmin = listOf(
+        "USER_MANAGE", "AI_MANAGE", "DOC_REVIEW", "ANNOUNCEMENT_MANAGE",
+        "POST_MANAGE", "STATS_VIEW", "BANNED_WORDS_MANAGE", "TAXONOMY_MANAGE",
+        "AUDIT_VIEW", "LOGIN_LOG_VIEW", "EXAM_MANAGE", "CORE_MAINTAIN",
+    ).any { TokenStore.hasPerm(it) }
 
     val updateSubtitle = when (val s = updateState) {
         is AppUpdater.State.Available -> "新版本 v${s.versionName} 可用"
@@ -243,7 +246,7 @@ fun ProfileScreen(
             MenuItem(Icons.Filled.Explore, "发现文章", "浏览站内文章") { openRoute("discover") }
         )
         val adminItems = listOfNotNull(
-            if (showAdmin) MenuItem(Icons.Filled.AdminPanelSettings, "后台管理", "用户 / AI 模型 / 审核 / 公告") { openRoute("admin") } else null,
+            if (showAdmin) MenuItem(Icons.Filled.AdminPanelSettings, "后台管理", "看板 / 内容 / 举报 / 用户 / 违禁词") { openRoute("admin") } else null,
             if (TokenStore.hasPerm("CORE_MAINTAIN")) MenuItem(Icons.Filled.Tune, "站点设置", "站点信息 / 水印 / 外观 / 二维码") { openRoute("site-settings") } else null
         )
         val settingItems = listOfNotNull(

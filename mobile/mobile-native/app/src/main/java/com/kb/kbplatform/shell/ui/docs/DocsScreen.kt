@@ -29,7 +29,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,6 +49,7 @@ import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.OfflineCache
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbCard
+import com.kb.kbplatform.shell.ui.common.KbChip
 import com.kb.kbplatform.shell.ui.common.CenterHint
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
@@ -74,8 +77,14 @@ fun DocsScreen(
     var offline by remember { mutableStateOf(false) }
     var offlineAt by remember { mutableStateOf(0L) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    // 空间内检索/排序（本地状态；换空间时清空关键字，排序偏好保留）
+    var query by remember { mutableStateOf("") }
+    var order by remember { mutableStateOf("time") }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val docsLoaded = remember { mutableStateOf(mutableMapOf<Long, List<JSONObject>>()) }
+
+    // 换空间时清空检索关键字（排序偏好保留）
+    LaunchedEffect(selectedSpace) { query = "" }
 
     LaunchedEffect(refreshKey, selectedSpace) {
         loading = true
@@ -191,14 +200,57 @@ fun DocsScreen(
                 }
             }
         } else {
-            if (docs.isEmpty()) {
-                com.kb.kbplatform.shell.ui.common.KbEmpty("📄", "这个空间还没有文档")
+            // 空间内检索与排序（纯本地，口径与桌面端 SharesPanel 一致：标题过滤 + 更新时间/标题/创建时间）
+            val q = query.trim()
+            val shown = docs
+                .filter { q.isBlank() || it.optString("title").contains(q, ignoreCase = true) }
+                .let { list ->
+                    when (order) {
+                        "title" -> list.sortedBy { it.optString("title").lowercase() }
+                        "created" -> list.sortedByDescending { it.optString("createdAt") }
+                        else -> list.sortedByDescending { it.optString("updatedAt") }
+                    }
+                }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("搜索标题", fontSize = 13.sp) },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            TextButton(onClick = { query = "" }) { Text("清除", fontSize = 12.sp) }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                KbChip("最近更新", selected = order == "time", onClick = { order = "time" })
+                KbChip("标题", selected = order == "title", onClick = { order = "title" })
+                KbChip("创建时间", selected = order == "created", onClick = { order = "created" })
+            }
+            Spacer(Modifier.height(6.dp))
+            if (shown.isEmpty()) {
+                com.kb.kbplatform.shell.ui.common.KbEmpty(
+                    "🔍",
+                    if (q.isBlank()) "这个空间还没有文档" else "没有匹配「$q」的文档"
+                )
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(docs, key = { it.optLong("docId", it.optLong("id", it.hashCode().toLong())) }) { d ->
+                    items(shown, key = { it.optLong("docId", it.optLong("id", it.hashCode().toLong())) }) { d ->
                         val docId = if (d.has("docId")) d.optLong("docId") else d.optLong("id", 0)
                         val title = d.optString("title").ifBlank { "未命名文档" }
                         KbCard(

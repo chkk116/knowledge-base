@@ -672,6 +672,48 @@ class ApiClient(private val base: String) {
 
     // ---------------- 管理（ADMIN 或细粒度权限；403 文案由后端透出） ----------------
 
+    /** 管理：帖子列表（全部状态，POST_MANAGE） */
+    suspend fun adminDocs(token: String, keyword: String = ""): List<AdminDocItem> = withContext(Dispatchers.IO) {
+        val kw = java.net.URLEncoder.encode(keyword, "UTF-8")
+        val o = parse(getAuth("/api/admin/docs?page=0&size=50&keyword=$kw", token))
+            ?: return@withContext emptyList()
+        val arr = (o["content"] as? JsonArray) ?: return@withContext emptyList()
+        arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            AdminDocItem(
+                id = id,
+                title = j.str("title").orEmpty(),
+                ownerName = j.str("ownerName").orEmpty(),
+                category = j.str("category"),
+                status = j.str("status").orEmpty(),
+                updatedAt = j.str("updatedAt").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+                views = j.int("views") ?: 0,
+            )
+        }
+    }
+
+    /** POST /api/admin/docs/{id}/block|unblock → 封禁/解封 */
+    suspend fun setDocBlocked(token: String, id: Long, blocked: Boolean) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/docs/$id/" + if (blocked) "block" else "unblock", token)
+        }
+    }
+
+    /** DELETE /api/admin/docs/{id} → 移入回收站（可恢复） */
+    suspend fun moveDocToRecycle(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/admin/docs/$id", token) }
+    }
+
+    /** PUT /api/admin/categories/{id} → 调整同级顺序 / 换父级（只传需改的字段） */
+    suspend fun updateCategoryOrder(token: String, id: Long, parentId: Long?, sortOrder: Int) {
+        val pid = if (parentId == null) "null" else parentId.toString()
+        withContext(Dispatchers.IO) {
+            authReq("PUT", "/api/admin/categories/$id", token, """{"parentId":$pid,"sortOrder":$sortOrder}""")
+        }
+    }
+
     /** GET /api/categories → 分类树（children 递归） */
     suspend fun categoryTree(token: String): List<CatItem> = withContext(Dispatchers.IO) {
         val e = runCatching { Json.parseToJsonElement(getAuth("/api/categories", token)) }.getOrNull()
@@ -730,7 +772,7 @@ class ApiClient(private val base: String) {
 
     /** GET /api/admin/docs/recycle → 回收站文章（含已删除） */
     suspend fun recycleDocs(token: String): List<AdminDocItem> = withContext(Dispatchers.IO) {
-        val e = runCatching { getAuth("/api/admin/docs/recycle", token) }.getOrNull()
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/admin/docs/recycle", token)) }.getOrNull()
         (e as? JsonArray).orEmpty().mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             val id = j.long("id") ?: return@mapNotNull null
@@ -797,11 +839,12 @@ class ApiClient(private val base: String) {
         }
     }
 
-    /** POST /api/admin/banned-words {libraryId, words:[...]} → 批量加词 */
+    /** POST /api/admin/banned-words {libraryId, words} → 批量加词
+     *  ⚠️ 后端 body.get("words") 强转 String 后按换行切分，传 JSON 数组会 ClassCastException，必须拼多行文本 */
     suspend fun addBannedWords(token: String, libraryId: Long, words: List<String>) {
-        val arr = words.joinToString(",") { jsonStr(it) }
+        val text = words.map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
         withContext(Dispatchers.IO) {
-            authReq("POST", "/api/admin/banned-words", token, """{"libraryId":$libraryId,"words":[$arr]}""")
+            authReq("POST", "/api/admin/banned-words", token, """{"libraryId":$libraryId,"words":${jsonStr(text)}}""")
         }
     }
 

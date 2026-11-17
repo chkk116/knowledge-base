@@ -27,7 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kb.kbplatform.shell.TokenStore
 import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbCard
@@ -59,6 +61,7 @@ import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
 import com.kb.kbplatform.shell.ui.theme.KbBlue
 import com.kb.kbplatform.shell.ui.theme.KbGreen
+import com.kb.kbplatform.shell.ui.theme.KbRed
 import com.kb.kbplatform.shell.ui.theme.KbTextDim
 import com.kb.kbplatform.shell.ui.theme.KbWarn
 import kotlinx.coroutines.launch
@@ -78,6 +81,15 @@ fun AdminHomeScreen(
     onOpenWeb: (String, String) -> Unit,
     onBack: () -> Unit
 ) {
+    // 权限码与后端各 Controller 的 requirePerm 一一对应；ADMIN 角色额外放行仅管理员可见的模块。
+    // 冷启动时 TokenStore.info 还是空的（进程内存态），这里补拉一次 me() 再渲染入口，
+    // 否则重启 App 直接进管理页会看到"一个模块都没有"。
+    val info by TokenStore.info.collectAsState()
+    LaunchedEffect(Unit) {
+        runCatching { KbApi.me() }.onSuccess { TokenStore.setInfo(it) }
+    }
+    val isAdmin = info?.optString("role") == "ADMIN"
+    fun perm(p: String) = TokenStore.hasPerm(p)
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "后台管理", onBack = onBack)
         var enterIdx = 0
@@ -93,23 +105,65 @@ fun AdminHomeScreen(
                     fontSize = 12.sp, color = KbTextDim
                 )
             }
-            item {
-                AdminEntry(index = enterIdx++, "用户管理", "账号 / 角色 / 启停", KbBlue, onClick = { onOpen("admin/users") })
+            if (perm("STATS_VIEW") || isAdmin) {
+                item {
+                    AdminEntry(index = enterIdx++, "运营看板", "数据统计 / 审计 / 登录日志", KbBlue,
+                        onClick = { onOpen("admin-insight") })
+                }
             }
-            item {
-                AdminEntry(index = enterIdx++, "AI 模型管理", "启停 / 默认模型 / 连通测试", Color(0xFF8B5CF6), onClick = { onOpen("admin/ai") })
+            if (perm("DOC_REVIEW")) {
+                item {
+                    AdminEntry(index = enterIdx++, "文章审核", "待审文章通过与驳回", KbGreen, onClick = { onOpen("admin/review") })
+                }
             }
-            item {
-                AdminEntry(index = enterIdx++, "文章审核", "待审文章通过与驳回", KbGreen, onClick = { onOpen("admin/review") })
+            if (perm("POST_MANAGE")) {
+                item {
+                    AdminEntry(index = enterIdx++, "帖子管理", "全站文章封禁 / 删除", Color(0xFF8B5CF6),
+                        onClick = { onOpen("admin-docs") })
+                }
             }
-            item {
-                AdminEntry(index = enterIdx++, "公告管理", "发布 / 置顶 / 启停", KbWarn, onClick = { onOpen("admin/announce") })
+            if (isAdmin) {
+                item {
+                    AdminEntry(index = enterIdx++, "举报处理", "用户举报核实与处置", KbRed, onClick = { onOpen("admin-reports") })
+                }
             }
-            item {
-                AdminEntry(index = enterIdx++, "角色管理", "角色与权限分配", Color(0xFF0EA5E9), onClick = { onOpen("admin-roles") })
+            if (perm("BANNED_WORDS_MANAGE")) {
+                item {
+                    AdminEntry(index = enterIdx++, "违禁词库", "词库启停 / 批量加词", KbWarn, onClick = { onOpen("admin-words") })
+                }
             }
-            item {
-                AdminEntry(index = enterIdx++, "内容管理", "全站文档查看与删除", Color(0xFF8B5CF6), onClick = { onOpen("admin-docs") })
+            if (isAdmin || perm("POST_MANAGE")) {
+                item {
+                    AdminEntry(index = enterIdx++, "文章回收站", "恢复 / 彻底删除", Color(0xFF64748B),
+                        onClick = { onOpen("admin-recycle") })
+                }
+            }
+            if (perm("TAXONOMY_MANAGE")) {
+                item {
+                    AdminEntry(index = enterIdx++, "分类与标签", "分类树 / 标签维护", Color(0xFF0EA5E9),
+                        onClick = { onOpen("admin-taxonomy") })
+                }
+            }
+            if (perm("USER_MANAGE")) {
+                item {
+                    AdminEntry(index = enterIdx++, "用户管理", "账号 / 角色 / 启停", KbBlue, onClick = { onOpen("admin/users") })
+                }
+            }
+            if (perm("AI_MANAGE")) {
+                item {
+                    AdminEntry(index = enterIdx++, "AI 模型管理", "启停 / 默认模型 / 连通测试", Color(0xFF8B5CF6),
+                        onClick = { onOpen("admin/ai") })
+                }
+            }
+            if (perm("ANNOUNCEMENT_MANAGE")) {
+                item {
+                    AdminEntry(index = enterIdx++, "公告管理", "发布 / 置顶 / 启停", KbWarn, onClick = { onOpen("admin/announce") })
+                }
+            }
+            if (perm("USER_MANAGE")) {
+                item {
+                    AdminEntry(index = enterIdx++, "角色管理", "角色与权限分配", Color(0xFF0EA5E9), onClick = { onOpen("admin-roles") })
+                }
             }
             item {
                 AdminEntry(index = enterIdx++, "完整后台（Web）", "内容管理 / 检索测试 / 数据看板", Color(0xFF64748B),
@@ -348,12 +402,15 @@ fun AdminUsersScreen(onBack: () -> Unit) {
             confirmButton = {
                 Button(onClick = {
                     scope.launch {
-                        runCatching { KbApi.adminSetRole(u.optLong("id", 0), role) }
-                        users = users.map {
-                            if (it.optLong("id", 0) == u.optLong("id", 0))
-                                JSONObject(it.toString()).put("role", role) else it
+                        if (runCatching { KbApi.adminSetRole(u.optLong("id", 0), role) }.isSuccess) {
+                            users = users.map {
+                                if (it.optLong("id", 0) == u.optLong("id", 0))
+                                    JSONObject(it.toString()).put("role", role) else it
+                            }
+                            roleTarget = null
+                        } else {
+                            actionMsg = "角色修改失败，请重试"
                         }
-                        roleTarget = null
                     }
                 }) { Text("保存") }
             },
@@ -884,9 +941,11 @@ fun AdminReviewScreen(onBack: () -> Unit) {
     var error by remember { mutableStateOf("") }
     var rejectTarget by remember { mutableStateOf<JSONObject?>(null) }
     var msg by remember { mutableStateOf("") }
+    var actionError by remember { mutableStateOf("") }
 
     fun load() {
         loading = true
+        error = ""
         scope.launch {
             try {
                 docs = KbApi.adminPendingDocs().objects()
@@ -905,6 +964,10 @@ fun AdminReviewScreen(onBack: () -> Unit) {
         if (msg.isNotEmpty()) {
             Text(msg, fontSize = 12.sp, color = KbGreen, modifier = Modifier.padding(horizontal = 16.dp))
         }
+        if (actionError.isNotEmpty()) {
+            Text(actionError, fontSize = 12.sp, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp))
+        }
         if (loading) {
             CenterHint("加载中…", loading = true)
         } else if (error.isNotEmpty()) {
@@ -917,7 +980,7 @@ fun AdminReviewScreen(onBack: () -> Unit) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                itemsIndexed(docs, key = { _, d -> d.optLong("id", 0) }) { i, d ->
+                itemsIndexed(docs, key = { i, d -> d.optLong("id", -1L).let { if (it == -1L) "review-$i" else it } }) { i, d ->
                     val id = d.optLong("id", 0)
                     KbCard(
                         modifier = Modifier.kbItemEnter(i),
@@ -935,9 +998,12 @@ fun AdminReviewScreen(onBack: () -> Unit) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
                                 Button(onClick = {
                                     scope.launch {
-                                        runCatching { KbApi.adminApproveDoc(id) }
-                                        docs = docs.filter { it.optLong("id", 0) != id }
-                                        msg = "已通过一篇"
+                                        if (runCatching { KbApi.adminApproveDoc(id) }.isSuccess) {
+                                            docs = docs.filter { it.optLong("id", 0) != id }
+                                            msg = "已通过一篇"
+                                        } else {
+                                            actionError = "通过失败，请重试"
+                                        }
                                     }
                                 }) { Text("通过", fontSize = 12.sp) }
                                 OutlinedButton(onClick = { rejectTarget = d }) { Text("驳回", fontSize = 12.sp) }
@@ -970,10 +1036,14 @@ fun AdminReviewScreen(onBack: () -> Unit) {
             confirmButton = {
                 Button(onClick = {
                     scope.launch {
-                        runCatching { KbApi.adminRejectDoc(d.optLong("id", 0), reason) }
-                        docs = docs.filter { it.optLong("id", 0) != d.optLong("id", 0) }
-                        rejectTarget = null
-                        msg = "已驳回一篇"
+                        if (reason.isBlank()) { actionError = "请填写驳回原因"; return@launch }
+                        if (runCatching { KbApi.adminRejectDoc(d.optLong("id", 0), reason.trim()) }.isSuccess) {
+                            docs = docs.filter { it.optLong("id", 0) != d.optLong("id", 0) }
+                            rejectTarget = null
+                            msg = "已驳回一篇"
+                        } else {
+                            actionError = "驳回失败，请重试"
+                        }
                     }
                 }) { Text("确认驳回") }
             },
@@ -992,9 +1062,12 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
     var error by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var actionMsg by remember { mutableStateOf("") }
+    var editError by remember { mutableStateOf("") }
 
     fun load() {
         loading = true
+        error = ""
         scope.launch {
             try {
                 list = KbApi.adminAnnouncements().objects()
@@ -1012,6 +1085,10 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
         TopBar(title = "公告管理", onBack = onBack, actions = {
             TextButton(onClick = { showCreate = true }) { Text("发布", fontSize = 14.sp) }
         })
+        if (actionMsg.isNotEmpty()) {
+            Text(actionMsg, fontSize = 12.sp, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+        }
         if (loading) {
             CenterHint("加载中…", loading = true)
         } else if (error.isNotEmpty()) {
@@ -1024,7 +1101,7 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                itemsIndexed(list, key = { _, a -> a.optLong("id", 0) }) { i, a ->
+                itemsIndexed(list, key = { i, a -> a.optLong("id", -1L).let { if (it == -1L) "ann-$i" else it } }) { i, a ->
                     val id = a.optLong("id", 0)
                     val enabled = a.optBoolean("enabled", true)
                     KbCard(
@@ -1047,7 +1124,9 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                                 )
                                 Switch(checked = enabled, onCheckedChange = { on ->
                                     scope.launch {
-                                        runCatching { KbApi.adminToggleAnnouncement(id, on) }
+                                        if (!runCatching { KbApi.adminToggleAnnouncement(id, on) }.isSuccess) {
+                                            actionMsg = "状态修改失败，请重试"; return@launch
+                                        }
                                         list = list.map {
                                             if (it.optLong("id", 0) == id)
                                                 JSONObject(it.toString()).put("enabled", on) else it
@@ -1064,14 +1143,15 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                                 TextButton(onClick = { editTarget = a }) { Text("编辑", fontSize = 12.sp) }
                                 TextButton(onClick = {
                                     scope.launch {
-                                        runCatching { KbApi.adminPinAnnouncement(id) }
-                                        load()
+                                        if (runCatching { KbApi.adminPinAnnouncement(id) }.isSuccess) load()
+                                        else actionMsg = "置顶操作失败"
                                     }
                                 }) { Text("置顶/取消", fontSize = 12.sp) }
                                 TextButton(onClick = {
                                     scope.launch {
-                                        runCatching { KbApi.adminDeleteAnnouncement(id) }
-                                        list = list.filter { it.optLong("id", 0) != id }
+                                        if (runCatching { KbApi.adminDeleteAnnouncement(id) }.isSuccess)
+                                            list = list.filter { it.optLong("id", 0) != id }
+                                        else actionMsg = "删除失败，请重试"
                                     }
                                 }) { Text("删除", fontSize = 12.sp, color = MaterialTheme.colorScheme.error) }
                             }
@@ -1103,9 +1183,12 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                 Button(onClick = {
                     if (title.isNotBlank()) {
                         scope.launch {
-                            runCatching { KbApi.adminCreateAnnouncement(title.trim(), content.trim()) }
-                            showCreate = false
-                            load()
+                            if (runCatching { KbApi.adminCreateAnnouncement(title.trim(), content.trim()) }.isSuccess) {
+                                showCreate = false
+                                load()
+                            } else {
+                                actionMsg = "发布失败，请重试"
+                            }
                         }
                     }
                 }) { Text("发布") }
@@ -1138,6 +1221,9 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                         placeholder = { Text("内容") }, minLines = 3,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (editError.isNotEmpty()) {
+                        Text(editError, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                    }
                 }
             },
             confirmButton = {
@@ -1148,7 +1234,7 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                         scope.launch {
                             val r = runCatching { KbApi.adminUpdateAnnouncement(id, title.trim(), content.trim()) }
                             busy = false
-                            if (r.isSuccess) { editTarget = null; load() } else { error = "保存失败，请重试" }
+                            if (r.isSuccess) { editTarget = null; editError = ""; load() } else { editError = "保存失败，请重试" }
                         }
                     }
                 ) { Text(if (busy) "保存中…" else "保存") }

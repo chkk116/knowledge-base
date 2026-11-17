@@ -59,6 +59,7 @@ private val ADMIN_TABS = listOf(
     "announce" to "公告",
     "banned" to "违禁词",
     "taxonomy" to "分类标签",
+    "docs" to "帖子",
     "recycle" to "回收站",
     "stats" to "看板",
     "audit" to "操作审计",
@@ -108,6 +109,7 @@ fun AdminPanel(session: Session) {
                 "announce" -> AnnouncementsTab(session)
                 "banned" -> BannedWordsTab(session)
                 "taxonomy" -> TaxonomyTab(session)
+                "docs" -> DocManageTab(session)
                 "recycle" -> RecycleTab(session)
                 "files" -> OrphanFilesTab(session)
                 "stats" -> StatsTab(session)

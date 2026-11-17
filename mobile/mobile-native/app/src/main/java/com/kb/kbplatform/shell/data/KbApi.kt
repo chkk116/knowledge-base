@@ -245,12 +245,156 @@ object KbApi {
     /** GET /admin/roles → 角色列表 */
     suspend fun adminRoles(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/admin/roles") }
 
-    /** GET /admin/docs → 内容管理列表 */
-    suspend fun adminDocs(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/admin/docs") }
+    /**
+     * GET /admin/docs?page&size&keyword → Spring Page {content:[…]}
+     * 注意：后端返回的是分页体（JSONObject），直接按数组解析必抛异常（旧实现内容管理页永远空）。
+     */
+    suspend fun adminDocs(page: Int = 0, size: Int = 50, keyword: String = ""): JSONArray =
+        withContext(Dispatchers.IO) {
+            val kw = if (keyword.isBlank()) "" else
+                "&keyword=${java.net.URLEncoder.encode(keyword, "UTF-8")}"
+            ApiClient.get("/api/admin/docs?page=$page&size=$size$kw").optJSONArray("content") ?: JSONArray()
+        }
 
-    /** DELETE /admin/docs/{id} */
+    /** POST /admin/docs/{id}/block|unblock → 封禁/解封 */
+    suspend fun adminSetDocBlocked(id: Long, blocked: Boolean): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/docs/$id/" + if (blocked) "block" else "unblock")
+        Unit
+    }
+
+    /** DELETE /admin/docs/{id} → 移入回收站（可恢复） */
     suspend fun adminDeleteDoc(id: Long): Unit =
-        withContext(Dispatchers.IO) { ApiClient.delete("/api/admin/docs/$id") }
+        withContext(Dispatchers.IO) { ApiClient.delete("/api/admin/docs/$id"); Unit }
+
+    /** GET /admin/docs/recycle → 回收站文章（含已删除） */
+    suspend fun adminRecycleDocs(): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/admin/docs/recycle")
+    }
+
+    /** POST /admin/docs/{id}/restore → 从回收站恢复 */
+    suspend fun adminRestoreDoc(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/docs/$id/restore")
+        Unit
+    }
+
+    /** DELETE /admin/docs/{id}/purge → 彻底删除（不可恢复） */
+    suspend fun adminPurgeDoc(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/admin/docs/$id/purge")
+        Unit
+    }
+
+    /** GET /admin/stats → 看板聚合（docTotal/userTotal/trendLabels/topDocs/topUsers/activities…） */
+    suspend fun adminStats(): JSONObject = withContext(Dispatchers.IO) { ApiClient.get("/api/admin/stats") }
+
+    /** GET /admin/audit → Page<AuditLog> */
+    suspend fun adminAudit(page: Int = 0, size: Int = 50): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/admin/audit?page=$page&size=$size").optJSONArray("content") ?: JSONArray()
+    }
+
+    /** GET /admin/login-logs → Page<LoginLog> */
+    suspend fun adminLoginLogs(page: Int = 0, size: Int = 50): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/admin/login-logs?page=$page&size=$size").optJSONArray("content") ?: JSONArray()
+    }
+
+    /** GET /admin/reports?status= → {items:[…], pending:N}（后端不是标准 Page，键名是 items） */
+    suspend fun adminReports(status: String? = null, page: Int = 0, size: Int = 50): JSONObject =
+        withContext(Dispatchers.IO) {
+            val q = if (status.isNullOrBlank()) "" else "&status=${status.uppercase()}"
+            ApiClient.get("/api/admin/reports?page=$page&size=$size$q")
+        }
+
+    /**
+     * PUT /admin/reports/{id} {status:HANDLED|REJECTED, note, action} → 处理举报。
+     * action=NONE 仅记录；action=DELETE_CONTENT 会按目标类型处置（POST → 文章置 BLOCKED 下架）。
+     */
+    suspend fun adminHandleReport(
+        id: Long,
+        status: String,
+        note: String,
+        action: String = "NONE",
+    ): Unit = withContext(Dispatchers.IO) {
+        ApiClient.put(
+            "/api/admin/reports/$id",
+            JSONObject().put("status", status).put("note", note).put("action", action.uppercase()),
+        )
+        Unit
+    }
+
+    /** GET /admin/banned-words/libraries → 词库列表 [{id,name,description,enabled,count}] */
+    suspend fun bannedLibraries(): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/admin/banned-words/libraries")
+    }
+
+    /** POST /admin/banned-words/libraries {name,description} */
+    suspend fun createBannedLibrary(name: String, description: String): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post(
+            "/api/admin/banned-words/libraries",
+            JSONObject().put("name", name).put("description", description),
+        )
+        Unit
+    }
+
+    /** PUT /admin/banned-words/libraries/{id} {enabled} → 启用/停用词库 */
+    suspend fun setBannedLibraryEnabled(id: Long, enabled: Boolean): Unit = withContext(Dispatchers.IO) {
+        ApiClient.put("/api/admin/banned-words/libraries/$id", JSONObject().put("enabled", enabled))
+        Unit
+    }
+
+    /** GET /admin/banned-words?libraryId&page&size → {content:[…],total} */
+    suspend fun bannedWords(libraryId: Long? = null, page: Int = 0, size: Int = 100): JSONArray =
+        withContext(Dispatchers.IO) {
+            val q = if (libraryId == null) "" else "&libraryId=$libraryId"
+            ApiClient.get("/api/admin/banned-words?page=$page&size=$size$q").optJSONArray("content") ?: JSONArray()
+        }
+
+    /**
+     * POST /admin/banned-words {libraryId, words} → 批量加词。
+     * ⚠️ 后端 `words` 收的是**换行分隔的字符串**（`(String) body.get("words")` 后按 \r\n 切分），
+     * 传 JSON 数组会在后端强转失败，这里必须拼成多行文本。
+     */
+    suspend fun addBannedWords(libraryId: Long, words: List<String>): JSONObject = withContext(Dispatchers.IO) {
+        val text = words.map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+        ApiClient.post("/api/admin/banned-words", JSONObject().put("libraryId", libraryId).put("words", text))
+    }
+
+    /** DELETE /admin/banned-words/{id} */
+    suspend fun deleteBannedWord(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/admin/banned-words/$id")
+        Unit
+    }
+
+    /** GET /categories → 分类树（公开接口，节点含 children/sortOrder） */
+    suspend fun categories(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/categories") }
+
+    /** POST /admin/categories {name,parentId} */
+    suspend fun createCategory(name: String, parentId: Long?): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post(
+            "/api/admin/categories",
+            JSONObject().put("name", name).put("parentId", parentId ?: JSONObject.NULL),
+        )
+        Unit
+    }
+
+    /** DELETE /admin/categories/{id}（有子分类或仍被文章引用时后端拒绝） */
+    suspend fun deleteCategory(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/admin/categories/$id")
+        Unit
+    }
+
+    /** GET /tags → 标签（含文章计数） */
+    suspend fun tags(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/tags") }
+
+    /** POST /admin/tags {name} */
+    suspend fun createTag(name: String): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/tags", JSONObject().put("name", name))
+        Unit
+    }
+
+    /** DELETE /admin/tags/{id} */
+    suspend fun deleteTag(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/admin/tags/$id")
+        Unit
+    }
 
     /** GET /docs → 文章列表（发现页） */
     suspend fun articles(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/docs") }

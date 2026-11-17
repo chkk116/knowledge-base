@@ -213,6 +213,22 @@ fun AppRoot() {
             composable("admin/ai") { AdminAiScreen(onBack = { nav.popBackStack() }) }
             composable("admin/review") { AdminReviewScreen(onBack = { nav.popBackStack() }) }
             composable("admin/announce") { AdminAnnounceScreen(onBack = { nav.popBackStack() }) }
+            // 管理端扩展屏（原生）：看板/日志、举报、违禁词、回收站、分类标签
+            composable("admin-insight") {
+                com.kb.kbplatform.shell.ui.admin.AdminInsightScreen(onBack = { nav.popBackStack() })
+            }
+            composable("admin-reports") {
+                com.kb.kbplatform.shell.ui.admin.AdminReportScreen(onBack = { nav.popBackStack() })
+            }
+            composable("admin-words") {
+                com.kb.kbplatform.shell.ui.admin.AdminWordScreen(onBack = { nav.popBackStack() })
+            }
+            composable("admin-recycle") {
+                com.kb.kbplatform.shell.ui.admin.AdminRecycleScreen(onBack = { nav.popBackStack() })
+            }
+            composable("admin-taxonomy") {
+                com.kb.kbplatform.shell.ui.admin.AdminTaxonomyScreen(onBack = { nav.popBackStack() })
+            }
             // 站点设置（原生）：原来「站点维护」是把桌面后台表单塞进 WebView，手机上要左右拖
             composable("site-settings") {
                 com.kb.kbplatform.shell.ui.admin.SiteSettingsScreen(
