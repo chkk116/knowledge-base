@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.awt.Desktop
+import kotlinx.coroutines.launch
 import java.net.URI
 
 // 共享文档空间（2026-11-16 新增）：左＝我的空间，中＝空间内文档，右＝只读阅读
@@ -52,6 +56,7 @@ private val ShareErrRed = Color(0xFFDC2626)
 @Composable
 fun SharesPanel(session: Session) {
     val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
     var spaces by remember { mutableStateOf<List<AgentSpace>>(emptyList()) }
     var spaceId by remember { mutableStateOf<Long?>(null) }
     var docs by remember { mutableStateOf<List<SharedDocItem>>(emptyList()) }
@@ -64,7 +69,7 @@ fun SharesPanel(session: Session) {
     // 只用于空正文时把「不可解析」换成能照着做的提示
     var yjsNote by remember { mutableStateOf("") }
     // 历史版本：既用于手动回滚，也作为「拿不到 /yjs 又没快照」时的兜底正文来源
-    var versions by remember { mutableStateOf<List<Api.ShareVersionItem>>(emptyList()) }
+    var versions by remember { mutableStateOf<List<ApiClient.ShareVersionItem>>(emptyList()) }
     var versionsLoading by remember { mutableStateOf(false) }
     var versionsErr by remember { mutableStateOf<String?>(null) }
     var showVersions by remember { mutableStateOf(false) }
@@ -360,12 +365,14 @@ fun SharesPanel(session: Session) {
                                         enabled = sid != null && did != null,
                                         onClick = {
                                             if (sid == null || did == null) return@TextButton
-                                            runCatching { api.restoreShareDocVersion(session.token, sid, did, v.id) }
-                                                .onSuccess {
-                                                    showVersions = false
-                                                    detailTick++
-                                                }
-                                                .onFailure { versionsErr = it.message ?: "恢复失败" }
+                                            scope.launch {
+                                                runCatching { api.restoreShareDocVersion(session.token, sid, did, v.id) }
+                                                    .onSuccess {
+                                                        showVersions = false
+                                                        detailTick++
+                                                    }
+                                                    .onFailure { versionsErr = it.message ?: "恢复失败" }
+                                            }
                                         },
                                         contentPadding = PaddingValues(horizontal = 8.dp),
                                     ) { Text("恢复", fontSize = 12.sp) }
@@ -379,9 +386,11 @@ fun SharesPanel(session: Session) {
                             enabled = sid != null && did != null,
                             onClick = {
                                 if (sid == null || did == null) return@TextButton
-                                runCatching { api.snapshotShareDoc(session.token, sid, did) }
-                                    .onSuccess { versionsTick++ }
-                                    .onFailure { versionsErr = it.message ?: "保存版本失败" }
+                                scope.launch {
+                                    runCatching { api.snapshotShareDoc(session.token, sid, did) }
+                                        .onSuccess { versionsTick++ }
+                                        .onFailure { versionsErr = it.message ?: "保存版本失败" }
+                                }
                             },
                             contentPadding = PaddingValues(horizontal = 8.dp),
                         ) { Text("保存当前为新版本", fontSize = 12.sp) }
