@@ -1494,6 +1494,54 @@ class ApiClient(private val base: String) {
             parseSharedDoc(o)
         }
 
+    /** 共享文档历史版本（GET /api/doc-shares/{sid}/docs/{docId}/versions；含可疑走 base64 的 yjsState） */
+    data class ShareVersionItem(
+        val id: Long,
+        val title: String,
+        val contentLen: Int,
+        val yjsState: String?,
+        val createdAt: String,
+    )
+
+    /**
+     * 历史版本列表（倒序）。
+     * 后端返回完整实体（content + yjs_state），这里只留长度与 base64 状态：
+     * 没有 `/yjs` 接口时可用最近版本的 yjsState 兜底解析正文（旧 jar 也有这个端点）。
+     */
+    suspend fun shareDocVersions(token: String, shareId: Long, docId: Long): List<ShareVersionItem> =
+        withContext(Dispatchers.IO) {
+            val e = runCatching {
+                Json.parseToJsonElement(authReq("GET", "/api/doc-shares/$shareId/docs/$docId/versions", token))
+            }.getOrNull() ?: return@withContext emptyList()
+            (e as? JsonArray).orEmpty().mapNotNull { item ->
+                val j = item as? JsonObject ?: return@mapNotNull null
+                val id = j.long("id") ?: return@mapNotNull null
+                val yjsEl = j["yjsState"]
+                val yjs = if (yjsEl is JsonPrimitive && yjsEl.isString) yjsEl.content.takeIf { it.length > 16 } else null
+                ShareVersionItem(
+                    id = id,
+                    title = j.str("title").orEmpty(),
+                    contentLen = j.str("content")?.length ?: 0,
+                    yjsState = yjs,
+                    createdAt = j.str("createdAt").orEmpty(),
+                )
+            }
+        }
+
+    /** POST /api/doc-shares/{sid}/docs/{docId}/versions → 把当前内容存成一个历史版本 */
+    suspend fun snapshotShareDoc(token: String, shareId: Long, docId: Long) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/doc-shares/$shareId/docs/$docId/versions", token)
+        }
+    }
+
+    /** POST /api/doc-shares/{sid}/docs/{docId}/versions/{vid}/restore → 恢复到该版本（需空间/文档管理员或所有者） */
+    suspend fun restoreShareDocVersion(token: String, shareId: Long, docId: Long, vid: Long) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/doc-shares/$shareId/docs/$docId/versions/$vid/restore", token)
+        }
+    }
+
     private fun parseSharedDoc(j: JsonObject): SharedDocItem? {
         val id = j.long("id") ?: return null
         return SharedDocItem(

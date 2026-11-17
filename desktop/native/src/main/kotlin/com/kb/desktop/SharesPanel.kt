@@ -150,6 +150,40 @@ fun SharesPanel(session: Session) {
             // 回退快照，不打断阅读；记下原因，供空正文时给出准确提示
             yjsNote = e.message ?: "error"
         }
+
+        // 兜底：没有 /yjs（旧 jar）且 content 快照也是空的时候，用最近一个历史版本的
+        // yjs_state 解析正文——versions 是早已部署的端点，用户不必等后端升级。
+        versionNote = ""
+        if (yjsHtml == null && detail?.content.isNullOrBlank()) {
+            runCatching { api.shareDocVersions(session.token, sid, did) }.getOrNull()?.let { vs ->
+                val v = vs.firstOrNull()
+                val html = v?.yjsState?.let { b64 ->
+                    runCatching {
+                        YjsHtml.toHtml(java.util.Base64.getDecoder().decode(b64))
+                    }.getOrNull()
+                }
+                if (!html.isNullOrBlank()) {
+                    yjsHtml = html
+                    versionNote = "版本 #${v.id}（${fmtSharedTime(v.createdAt)}）"
+                }
+            }
+        }
+    }
+
+    // 版本面板打开时才拉列表（后端返回完整实体，含大字段，不能每次进详情都拉）
+    LaunchedEffect(showVersions, spaceId, docId) {
+        if (!showVersions) return@LaunchedEffect
+        val sid = spaceId ?: return@LaunchedEffect
+        val did = docId ?: return@LaunchedEffect
+        versionsLoading = true
+        versionsErr = null
+        try {
+            versions = api.shareDocVersions(session.token, sid, did)
+        } catch (e: Exception) {
+            versionsErr = e.message ?: "版本列表加载失败"
+        } finally {
+            versionsLoading = false
+        }
     }
 
     val space = spaces.firstOrNull { it.id == spaceId }
@@ -266,6 +300,8 @@ fun SharesPanel(session: Session) {
                     html = yjsHtml ?: d.content.orEmpty(),
                     live = yjsLive,
                     yjsNote = yjsNote,
+                    versionNote = versionNote,
+                    onOpenVersions = { showVersions = true },
                     onOpenInBrowser = {
                         openShareInBrowser(session.server, "/doc-shares/${spaceId}?doc=${d.id}")
                     },
@@ -351,6 +387,8 @@ private fun ShareReader(
     html: String,
     live: Boolean,
     yjsNote: String = "",
+    versionNote: String = "",
+    onOpenVersions: () -> Unit = {},
     onOpenInBrowser: () -> Unit,
 ) {
     val blocks = remember(doc.id, html) { DocHtml.parse(html) }
@@ -375,6 +413,9 @@ private fun ShareReader(
                         Text(permLabel(perm), fontSize = 10.5.sp, color = Color(0xFF94A3B8))
                         Spacer(Modifier.width(6.dp))
                     }
+                    TextButton(onClick = onOpenVersions, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("版本", fontSize = 11.5.sp)
+                    }
                     TextButton(onClick = onOpenInBrowser, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("在 Web 端打开", fontSize = 11.5.sp)
                     }
@@ -393,6 +434,8 @@ private fun ShareReader(
                             // 正文来源：协同实时（relay 5s 内落库）/ 保存快照
                             if (live) ShareChip("协同实时", Color(0xFFD1FAE5), Color(0xFF047857))
                             else ShareChip("快照", Color(0xFFF3F4F6), Color(0xFF6B7280))
+                            // 兜底正文来自历史版本时标出来源，别让人误以为是当前内容
+                            if (versionNote.isNotBlank()) ShareChip(versionNote, Color(0xFFFFF7E6), Color(0xFFAD6800))
                             for (t in splitSharedTags(doc.tags).take(3)) {
                                 ShareChip(t, Color(0xFFF3F4F6), Color(0xFF4B5563))
                             }
