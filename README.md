@@ -9,12 +9,12 @@
 [![Spring Boot 4.x](docs/badges/spring-boot.svg)](https://spring.io/projects/spring-boot)
 [![Vue 3](docs/badges/vue.svg)](https://vuejs.org)
 [![PostgreSQL 18](docs/badges/postgresql.svg)](https://www.postgresql.org)
-**主推客户端：Kotlin / Compose 原生壳（Windows + Android）**
 
 </div>
 
 **一套代码，两种上线方式**：中小企业可以直接在公网单机部署，也可以放在企业内网自管；
 必需组件只有 PostgreSQL + 后端单 jar + 前端静态文件，Redis / 搜索增强 / 协同 / AI 模型全部按需开启。
+Web 端开箱即用，另有 Windows 原生桌面端与 Android 原生 App（Kotlin / Compose，同一套 REST 接口）。
 
 ---
 
@@ -159,7 +159,11 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 - 每人可绑定多个外部邮箱：QQ / 网易 163·126 / 腾讯企业邮 / 阿里钉钉邮箱走**授权码 + IMAP**，Gmail 与 Outlook 走**OAuth 授权**（管理员在后台配置 OAuth 应用的 clientId / clientSecret / 回调地址）
 - 授权码与 refresh_token 一律 AES-GCM 加密落库，接口只回脱敏邮箱与连接状态；解绑会同时删除该邮箱已同步的邮件
 - 增量同步收件箱（UID 游标，默认只回溯最近 30 天），取正文用 `BODY.PEEK`，**不会把邮件标成已读**；图片附件落到站内上传目录，其它附件保留文件名与大小
-- 三栏阅读：左账号与文件夹、中邮件列表（按账号 / 关键词过滤）、右阅读窗；HTML 正文做了脚本、iframe 与事件属性清理
+- 三栏阅读：左账号与文件夹（收件箱 / 未读 / 已发送）、中邮件列表（按账号 / 关键词过滤）、右阅读窗；HTML 正文做了脚本、iframe 与事件属性清理
+- 写信 / 回复 / 全部回复 / 转发：用账户自己的 SMTP 投递（授权码账户直连，OAuth 账户走 XOAUTH2），回复自动带 `In-Reply-To`/`References` 归入同一会话，发送成功后在「已发送」留档；支持附件（从上传目录取，单封最多 10 个）、账户签名自动追加、收件人从历史发件人自动补全
+- 草稿箱：只存不投递，点开继续编辑，发送成功后草稿自动清掉
+- 文件夹：收件箱 / 未读 / 已发送 / 草稿箱 + 服务器上的自定义文件夹（IMAP LIST，点开即按需同步）
+- 已读/删除会回写 IMAP（`\Seen` / `\Deleted` + expunge），回写失败只提示不影响本地；删除的是真实邮件，请谨慎
 - Agent 工具：`mail_accounts` / `mail_search` / `mail_read` / `mail_to_doc`——搜索、读信、把整封邮件整理成知识库文档草稿（保留来源发件人与时间）
 
 ### 安全
@@ -595,6 +599,5 @@ App 壳内走 WebView 需在 preferences 里写死后端地址，不能用相对
 
 商业授权、定制开发与私有化交付请联系（说明来意，会尽快回复）：
 
-- **邮箱（推荐）**：zxc1275981466 **(at)** qq.com
-- **手机 / 微信**：`130****8975`（邮件说明来意后提供完整号码）
+- **邮箱**：zxc1275981466 **(at)** qq.com
 - 作者：北寻·浅光
