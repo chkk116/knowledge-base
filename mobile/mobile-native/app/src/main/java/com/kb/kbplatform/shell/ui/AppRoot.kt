@@ -241,6 +241,10 @@ fun AppRoot() {
                     openPost = { id, title -> safeNav("post/$id?title=${Uri.encode(title)}") }
                 )
             }
+            // 邮箱：账号 / 收件箱 / 阅读（后端 /api/mail/*）
+            composable("mail") {
+                com.kb.kbplatform.shell.ui.mail.MailScreen(onBack = { nav.popBackStack() })
+            }
             // 私信：会话列表 → 单会话聊天（后端 /api/dm/*）
             composable("dm") {
                 com.kb.kbplatform.shell.ui.messages.DmListScreen(

@@ -78,6 +78,10 @@ public class MailAccount {
     @Column(name = "sync_days")
     private Integer syncDays = 30;
 
+    /** 写信时自动追加的签名（纯文本） */
+    @Column(columnDefinition = "text")
+    private String signature;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -118,6 +122,8 @@ public class MailAccount {
     public void setLastUid(Long lastUid) { this.lastUid = lastUid; }
     public Integer getSyncDays() { return syncDays; }
     public void setSyncDays(Integer syncDays) { this.syncDays = syncDays; }
+    public String getSignature() { return signature; }
+    public void setSignature(String signature) { this.signature = signature; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

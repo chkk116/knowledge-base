@@ -6,7 +6,7 @@
 
 - 登录窗：账号密码 + 滑块验证码，与 Web 端同一套接口
   （`GET /api/auth/captcha` → `POST /api/auth/captcha/slide` → `POST /api/auth/login`）
-- 主窗：左侧原生侧栏（首页/文章/共享空间/培训/考试/AI 问答/我的文件/通知/管理/设置）+ WPS 风白底卡内容区
+- 主窗：左侧原生侧栏（首页/文章/共享空间/培训/考试/AI 问答/我的文件/邮箱/通知/管理/设置）+ WPS 风白底卡内容区
 - 窗口：登录初始 960×640（下限 640×540）/ 主界面 1280×800（下限 960×620）；窗口 <880dp 时侧栏收成图标栏
 - **登录页**：左品牌渐变栏（黛青 + 月白 + 金点缀，产品名 / 卖点）+ 右表单；品牌瓦片 →「欢迎回来」→ 无标签大输入框
   （44 高/10 圆角/聚焦品牌描边）→ 墨色实心按钮；autofocus、Enter 提交、用户名预填上次账号；
@@ -34,6 +34,16 @@
   不要再用 `URLConnection.guessContentTypeFromName` 兜底成 octet-stream，那只会换来后端一句类型错误。
   **右侧预览（2026-11-17）**：左列表 320dp + 右预览区；图片（`contentType=image/*` 或常见扩展名）用
   `DocImage` 原生渲染，PDF/文本/其它交给内嵌 WebView 加载直链；点行选中即预览，行尾「打开」仍在系统浏览器打开。
+- **邮箱（2026-11-18，跟随后端邮箱模块）**：侧栏「邮箱」→ 三栏（账号 / 收件箱 / 阅读）。
+  账号 `email` 由服务端掩码；`GET /api/mail/messages` 返回 **对象** `{items,total,page,size}`（不是数组，别按数组解析）；
+  阅读 `textBody` 优先，`htmlBody` 只做标签剥离转纯文本（不渲染远程 HTML，避免追踪像素与外链）；
+  点开自动标已读、删除二次确认、`POST /accounts/{id}/sync` 手动同步并提示新增封数；
+  **写邮件 / 回复 / 存草稿**（`POST /api/mail/send`、`/api/mail/drafts`；回复带原始 `messageId` 串线程）；
+  收件箱 / 草稿箱切换（`folder=DRAFT`，草稿列表带「【草稿】」前缀，选中后可再「编辑草稿」预填正文）；
+  列表「加载更多」（80 封/页，按 id 去重合并）；**附件列表**（`attachments` 是嵌套 JSON 字符串，点名称走系统浏览器打开站内 `/uploads/…`）；
+  写信时**收件人补全**（`/mail/contacts`，输入 2 字以上 300ms 防抖，接口未上线时静默返回空）；
+  后端 `/send` 未升级时把 404/405 说明成「服务端邮箱发信接口可能尚未升级」。
+  **绑定只做授权码**（QQ/163 等），OAuth 需管理员先配 `mail.oauth.google.*` / `mail.oauth.ms.*`，回调 `/api/mail/oauth/callback`。
 - **AI 问答**：左侧会话列表（`GET/POST/DELETE /api/ai/conversations`）+ 右侧流式对话
   （`POST /api/ai/ask/stream`，SSE 逐段 `{"delta"}/{"reasoning"}`，`done` 事件带 qaId/sources/conversationId；
   「停止」断开连接、已生成内容保留，口径与 Web 端 ai.js 一致）；

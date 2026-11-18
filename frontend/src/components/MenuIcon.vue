@@ -79,6 +79,9 @@ const ICONS = {
   Upload: `<path d="M7.4 18.6a4.2 4.2 0 0 1-.6-8.4A5.4 5.4 0 0 1 17 9.4a3.8 3.8 0 0 1 .4 7.6" fill="none" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 20.6v-7.4" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 12.6 15 15.6H9l3-3Z" fill="${X}"/>`,
   Download: `<path d="M7.4 18.6a4.2 4.2 0 0 1-.6-8.4A5.4 5.4 0 0 1 17 9.4a3.8 3.8 0 0 1 .4 7.6" fill="none" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 11.6v7.4" stroke="${T_D}" stroke-width="1.9" stroke-linecap="round"/><path d="M12 19.6 9 16.6h6l-3 3Z" fill="${X}"/>`,
 
+  // 邮件：袋体（浅）+ 翻盖 V（深部件叠上）+ 琥珀封蜡点
+  Message: `<rect x="3.2" y="5" width="17.6" height="14" rx="2.4" fill="${B_L}"/><path d="M4.6 6.8 12 12.7l7.4-5.9" stroke="url(#gd-B)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="17.7" cy="15.3" r="2" fill="${X}"/>`,
+
   // 消息中心：整个气泡 + 三点
   ChatDotRound: `<path d="M7.4 4.4h9.2a3 3 0 0 1 3 3v5.6a3 3 0 0 1-3 3H10l-4.2 3.1c-.5.4-1.2 0-1.2-.6V7.4a3 3 0 0 1 3-3Z" fill="url(#gd-B)"/><circle cx="9" cy="10.4" r="1.15" fill="#fff"/><circle cx="12.4" cy="10.4" r="1.15" fill="#fff"/><circle cx="15.8" cy="10.4" r="1.15" fill="${X}"/>`,
 
@@ -223,6 +226,7 @@ const ICONS_LINE = {
   Search: `<circle cx="11" cy="10.5" r="5.5" fill="none" stroke="#1D2129" stroke-width="1.5"/><path d="M15.2 14.7 19.5 19" stroke="#1677FF" stroke-width="1.8" stroke-linecap="round" fill="none"/>`,
   Setting: `<path d="M4 8.5h16M4 15.5h16" stroke="#1D2129" stroke-width="1.5" stroke-linecap="round" fill="none"/><circle cx="9.5" cy="8.5" r="2.6" fill="#1677FF"/><circle cx="14.5" cy="15.5" r="2.6" fill="none" stroke="#1D2129" stroke-width="1.5"/>`,
   ChatDotRound: `<rect x="3.5" y="5" width="17" height="14" rx="2.5" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M3.5 7.5 12 13l8.5-5.5" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round" fill="none"/><circle cx="12" cy="16.4" r="1.1" fill="#1677FF"/>`,
+  Message: `<rect x="3.5" y="5" width="17" height="14" rx="2.5" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M3.5 7.5 12 13l8.5-5.5" stroke="#1677FF" stroke-width="1.5" stroke-linejoin="round" fill="none"/>`,
   Star: `<path d="M12 3.8l2.4 5 5.4.8-3.9 3.8.9 5.4-4.8-2.6-4.8 2.6.9-5.4L4.2 9.6l5.4-.8L12 3.8Z" fill="none" stroke="#1677FF" stroke-width="1.5" stroke-linejoin="round"/>`,
   DocumentCopy: `<path d="M8 3.5h7l4.5 4.5V19a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 19V5A1.5 1.5 0 0 1 8 3.5Z" fill="none" stroke="#1D2129" stroke-width="1.5" stroke-linejoin="round"/><path d="M15 3.5V8h4.5" fill="none" stroke="#1D2129" stroke-width="1.5"/><path d="M9.5 14h5" stroke="#1677FF" stroke-width="1.5" stroke-linecap="round" fill="none"/>`,
 }

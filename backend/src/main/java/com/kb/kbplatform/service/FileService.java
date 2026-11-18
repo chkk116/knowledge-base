@@ -74,6 +74,18 @@ public class FileService {
         }
     }
 
+    /** 按 /uploads/... 地址取物理文件（发信附件用）；越界或不存在返回 null */
+    public java.io.File fileByUrl(String url) {
+        if (url == null || !url.startsWith("/uploads/")) return null;
+        try {
+            Path p = root.resolve(url.substring("/uploads/".length())).normalize();
+            if (!p.startsWith(root) || !Files.isRegularFile(p)) return null;
+            return p.toFile();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** 内容摘要（流式，50MB 也不进堆内存）。用于同用户重复上传复用 */
     public String sha256(MultipartFile file) {
         try (var in = file.getInputStream()) {

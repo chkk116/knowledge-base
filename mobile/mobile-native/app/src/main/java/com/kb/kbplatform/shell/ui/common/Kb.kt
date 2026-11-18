@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -231,6 +232,38 @@ fun KbEmpty(emoji: String, text: String, modifier: Modifier = Modifier) {
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             modifier = Modifier.padding(horizontal = 24.dp)
         )
+    }
+}
+
+/** 错误态：与空态同构，但带「重试」。网络/服务异常别伪装成「暂无数据」。 */
+@Composable
+fun KbError(text: String, onRetry: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 60.dp, bottom = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            Modifier
+                .size(64.dp)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("⚠️", fontSize = 26.sp)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text,
+            fontSize = 13.sp,
+            color = KbTextDim,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
+        if (onRetry != null) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onRetry) { Text("重试", fontSize = 13.sp) }
+        }
     }
 }
 

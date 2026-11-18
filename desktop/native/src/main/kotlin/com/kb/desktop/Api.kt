@@ -96,6 +96,55 @@ data class FileItem(
     val createdAt: String,
 )
 
+/** 已绑定邮箱（GET /api/mail/accounts；email 由服务端掩码，如 `1046***@qq.com`）。 */
+data class MailAccountItem(
+    val id: Long,
+    val provider: String,
+    val email: String,
+    val authType: String,
+    val status: String,
+    val lastError: String,
+    val lastSyncAt: String,
+    val lastUid: Long?,
+)
+
+/** 邮件列表项（GET /api/mail/messages → {items,…}）。 */
+data class MailBrief(
+    val id: Long,
+    val accountId: Long,
+    val subject: String,
+    val fromAddr: String,
+    val fromName: String,
+    val sentAt: String,
+    val snippet: String,
+    val hasAttach: Boolean,
+    val unread: Boolean,
+)
+
+/** 邮件详情（GET /api/mail/messages/{id}）：正文 textBody 优先，htmlBody 仅兜底转纯文本。 */
+data class MailDetail(
+    val id: Long,
+    val subject: String,
+    val fromAddr: String,
+    val fromName: String,
+    val toAddrs: String,
+    val sentAt: String,
+    val textBody: String,
+    val htmlBody: String,
+    /** 回复时需要带上的原始 Message-ID（不串线程就传 null）。 */
+    val messageId: String,
+    /** 附件（后端存的是 JSON 字符串 `[{name,size,url}]`，这里已解析成 (名称, 站内 url)）。 */
+    val attachments: List<Pair<String, String>>,
+)
+
+/** 邮箱服务商（GET /api/mail/providers，绑定表单用）。 */
+data class MailProvider(
+    val id: String,
+    val name: String,
+    val authType: String,
+    val emailHint: String,
+)
+
 /** AI 可选模型（GET /api/ai/models）。scope=system 时请求发 modelId，scope=user 时发 userModelId。 */
 data class AiModelOption(
     val id: Long,
@@ -1310,6 +1359,162 @@ class ApiClient(private val base: String) {
                 createdAt = j.str("createdAt").orEmpty(),
             )
         }
+    }
+
+    /**
+     * GET /api/mail/accounts → 已绑定邮箱（服务端已把 email 掩码）。
+     * 邮箱模块是 11-18 新增的全栈能力：账号 / 收件箱 / 阅读 / 已读 / 删除 / 同步 / 授权码绑定。
+     */
+    suspend fun mailAccounts(token: String): List<MailAccountItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/mail/accounts", token)) }.getOrNull()
+            ?: throw ApiError("邮箱账号响应异常")
+        (e as? JsonArray ?: throw ApiError("邮箱账号响应异常")).mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            MailAccountItem(
+                id = id,
+                provider = j.str("provider").orEmpty(),
+                email = j.str("email").orEmpty(),
+                authType = j.str("authType").orEmpty(),
+                status = j.str("status").orEmpty(),
+                lastError = j.str("lastError").orEmpty(),
+                lastSyncAt = j.str("lastSyncAt").orEmpty(),
+                lastUid = j.long("lastUid"),
+            )
+        }
+    }
+
+    /** GET /api/mail/messages → **对象** `{items,total,page,size}`（不是数组）。返回 (列表, 总数)。 */
+    suspend fun mailMessages(
+        token: String,
+        accountId: Long? = null,
+        folder: String = "INBOX",
+        q: String = "",
+        page: Int = 0,
+        size: Int = 50,
+    ): Pair<List<MailBrief>, Long> = withContext(Dispatchers.IO) {
+        val aq = if (accountId == null || accountId <= 0) "" else "&accountId=$accountId"
+        val qq = if (q.isBlank()) "" else "&q=" + java.net.URLEncoder.encode(q, "UTF-8")
+        val e = runCatching {
+            Json.parseToJsonElement(getAuth("/api/mail/messages?folder=$folder&page=$page&size=$size$aq$qq", token))
+        }.getOrNull() ?: throw ApiError("邮件列表响应异常")
+        val root = e as? JsonObject ?: throw ApiError("邮件列表响应异常")
+        val arr = root["items"] as? JsonArray ?: JsonArray(emptyList())
+        val list = arr.mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            MailBrief(
+                id = id,
+                accountId = j.long("accountId") ?: 0L,
+                subject = j.str("subject").orEmpty(),
+                fromAddr = j.str("fromAddr").orEmpty(),
+                fromName = j.str("fromName").orEmpty(),
+                sentAt = j.str("sentAt").orEmpty(),
+                snippet = j.str("snippet").orEmpty(),
+                hasAttach = j.bool("hasAttach") ?: false,
+                unread = j.bool("unread") ?: false,
+            )
+        }
+        list to (root.long("total") ?: list.size.toLong())
+    }
+
+    /** GET /api/mail/messages/{id} → 列表字段 + textBody/htmlBody/toAddrs */
+    suspend fun mailDetail(token: String, id: Long): MailDetail? = withContext(Dispatchers.IO) {
+        val j = runCatching { Json.parseToJsonElement(getAuth("/api/mail/messages/$id", token)) }.getOrNull()
+            as? JsonObject ?: return@withContext null
+        MailDetail(
+            id = id,
+            subject = j.str("subject").orEmpty(),
+            fromAddr = j.str("fromAddr").orEmpty(),
+            fromName = j.str("fromName").orEmpty(),
+            toAddrs = j.str("toAddrs").orEmpty(),
+            sentAt = j.str("sentAt").orEmpty(),
+            textBody = j.str("textBody").orEmpty(),
+            htmlBody = j.str("htmlBody").orEmpty(),
+            messageId = j.str("messageId").orEmpty(),
+            // attachments 是嵌套 JSON 字符串，解析失败就当没有附件
+            attachments = runCatching {
+                (Json.parseToJsonElement(j.str("attachments").orEmpty()) as JsonArray).mapNotNull { e ->
+                    val o = e as? JsonObject ?: return@mapNotNull null
+                    val url = o.str("url") ?: return@mapNotNull null
+                    (o.str("name") ?: url.substringAfterLast('/')) to url
+                }
+            }.getOrDefault(emptyList()),
+        )
+    }
+
+    /** POST /api/mail/messages/{id}/read?read= → 本地已读（尽力回写 IMAP） */
+    suspend fun mailMarkRead(token: String, id: Long, read: Boolean) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/mail/messages/$id/read?read=$read", token) }
+    }
+
+    /** DELETE /api/mail/messages/{id} → 本地删除（并尽力在服务器删除） */
+    suspend fun mailDelete(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/mail/messages/$id", token) }
+    }
+
+    /** POST /api/mail/accounts/{id}/sync → 手动同步，返回新增封数 */
+    suspend fun mailSync(token: String, accountId: Long): Int = withContext(Dispatchers.IO) {
+        val e = runCatching {
+            Json.parseToJsonElement(authReq("POST", "/api/mail/accounts/$accountId/sync", token))
+        }.getOrNull()
+        (e as? JsonObject)?.long("added")?.toInt() ?: 0
+    }
+
+    /** GET /api/mail/providers → 支持的服务商（绑定表单用） */
+    suspend fun mailProviders(token: String): List<MailProvider> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/mail/providers", token)) }.getOrNull()
+            ?: throw ApiError("服务商列表响应异常")
+        (e as? JsonArray ?: throw ApiError("服务商列表响应异常")).mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.str("id") ?: return@mapNotNull null
+            MailProvider(id = id, name = j.str("name").orEmpty(), authType = j.str("authType").orEmpty(),
+                emailHint = j.str("emailHint").orEmpty())
+        }
+    }
+
+    /** POST /api/mail/accounts/code {provider,email,code} → 授权码绑定（后端真连 IMAP 验证） */
+    suspend fun mailBindCode(token: String, provider: String, email: String, code: String) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/mail/accounts/code", token,
+                """{"provider":${jsonStr(provider)},"email":${jsonStr(email)},"code":${jsonStr(code)}}""")
+        }
+    }
+
+    /**
+     * POST /api/mail/send {accountId,to[],cc[],subject,body,inReplyTo?} → 真投递（失败不留本地档）。
+     * ⚠️ 后端 `/send` 与 MailSendService 仍在他人的工作区，未升级时返回 404/405，调用方要把这句透出去。
+     */
+    suspend fun mailSend(
+        token: String,
+        accountId: Long,
+        to: List<String>,
+        subject: String,
+        body: String,
+        inReplyTo: String? = null,
+    ) {
+        withContext(Dispatchers.IO) {
+            val tos = to.joinToString(",") { jsonStr(it) }
+            val extra = if (inReplyTo.isNullOrBlank()) "" else ""","inReplyTo":${jsonStr(inReplyTo)}"""
+            authReq("POST", "/api/mail/send", token,
+                """{"accountId":$accountId,"to":[$tos],"cc":[],"subject":${jsonStr(subject)},"body":${jsonStr(body)}$extra}""")
+        }
+    }
+
+    /** POST /api/mail/drafts {accountId,to,subject,body} → 草稿（folder=DRAFT，不投递） */
+    suspend fun mailSaveDraft(token: String, accountId: Long, to: String, subject: String, body: String) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/mail/drafts", token,
+                """{"accountId":$accountId,"to":${jsonStr(to)},"subject":${jsonStr(subject)},"body":${jsonStr(body)}}""")
+        }
+    }
+
+    /** GET /api/mail/contacts?q= → 历史发件人地址（写信补全）。后端未升级时返回空列表，不报错。 */
+    suspend fun mailContacts(token: String, q: String): List<String> = withContext(Dispatchers.IO) {
+        val qq = if (q.isBlank()) "" else "?q=" + java.net.URLEncoder.encode(q, "UTF-8")
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/mail/contacts$qq", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: emptyList()
     }
 
     /**

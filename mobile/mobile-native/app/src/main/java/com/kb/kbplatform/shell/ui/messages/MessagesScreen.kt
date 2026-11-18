@@ -173,6 +173,23 @@ fun MessagesScreen(openRoute: (String) -> Unit = {}) {
             }
         }
 
+        // 邮箱入口：收件箱 / 草稿箱 / 写邮件都在原生页里（后端 /api/mail）
+        KbCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp)
+                .clickable { openRoute("mail") }
+        ) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("📮", fontSize = 18.sp)
+                Spacer(Modifier.size(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("邮箱", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("收件箱 / 草稿箱 / 写邮件", fontSize = 12.sp, color = KbTextDim)
+                }
+            }
+        }
+
         if (loading && items.isEmpty()) {
             // 骨架屏：消息列表版式先出来（原来转圈，切 Tab 时一片空白）
             com.kb.kbplatform.shell.ui.common.KbSkeletonList(count = 6)

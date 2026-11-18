@@ -451,7 +451,14 @@ const orderedMenus = computed(() => {
     const m = map.get(idx)
     if (m) { out.push(m); map.delete(idx) }
   }
-  for (const m of map.values()) out.push(m)
+  // 新增菜单还没进用户的偏好排序时，插到它的「默认锚点」后面（如邮件跟在消息中心后），
+  // 而不是一股脑排到末尾落到管理分组下面
+  const ANCHOR = { '/mail': '/messages' }
+  for (const m of map.values()) {
+    const at = ANCHOR[m.index] ? out.findIndex((x) => x.index === ANCHOR[m.index]) : -1
+    if (at >= 0) out.splice(at + 1, 0, m)
+    else out.push(m)
+  }
   return out
 })
 

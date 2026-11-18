@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "kb_mail_message", indexes = {
-        @Index(name = "idx_mail_msg_acc_uid", columnList = "account_id,uid", unique = true),
+        @Index(name = "idx_mail_msg_acc_uid", columnList = "account_id,folder,uid", unique = true),
         @Index(name = "idx_mail_msg_user_time", columnList = "user_id,sent_at"),
         @Index(name = "idx_mail_msg_thread", columnList = "thread_key")
 })

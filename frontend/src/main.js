@@ -6,7 +6,7 @@ import { createPinia } from 'pinia'
 // ⚠️ 新增页面用到新组件时：在下面 import 与 EP_COMPONENTS 各补一行，
 // 并在 style 清单里补对应样式，否则组件解析不到（静默空白）或无样式。
 import {
-  ElAlert, ElAside, ElAvatar, ElAvatarGroup, ElBadge, ElButton, ElCard,
+  ElAlert, ElAside, ElAutocomplete, ElAvatar, ElAvatarGroup, ElBadge, ElButton, ElCard,
   ElCheckbox, ElCheckboxGroup, ElCol, ElColorPicker, ElContainer, ElDatePicker,
   ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem, ElDropdownMenu,
   ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput, ElInputNumber, ElMain,
@@ -21,6 +21,7 @@ import 'element-plus/theme-chalk/dark/css-vars.css'
 // —— 按需样式：56 个组件 + message/message-box/loading（命令式 API/指令）——
 import 'element-plus/es/components/alert/style/css'
 import 'element-plus/es/components/aside/style/css'
+import 'element-plus/es/components/autocomplete/style/css'
 import 'element-plus/es/components/avatar/style/css'
 import 'element-plus/es/components/avatar-group/style/css'
 import 'element-plus/es/components/badge/style/css'
@@ -111,7 +112,7 @@ const app = createApp(App)
 
 // 按需注册 Element Plus 组件（模板里直接写 <el-xxx> 靠全局注册解析）
 const EP_COMPONENTS = {
-  ElAlert, ElAside, ElAvatar, ElAvatarGroup, ElBadge, ElButton, ElCard,
+  ElAlert, ElAside, ElAutocomplete, ElAvatar, ElAvatarGroup, ElBadge, ElButton, ElCard,
   ElCheckbox, ElCheckboxGroup, ElCol, ElColorPicker, ElContainer, ElDatePicker,
   ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem, ElDropdownMenu,
   ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput, ElInputNumber, ElMain,

@@ -74,17 +74,26 @@ private fun simpleList(raw: JSONArray?): List<JSONObject> {
 fun CoursesScreen(onBack: () -> Unit, openCourse: (Long, String) -> Unit) {
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(L2.Loading) }
-    LaunchedEffect(Unit) {
+    var err by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick) {
+        state = L2.Loading
+        err = ""
         try {
             items = simpleList(KbApi.courses())
             state = if (items.isEmpty()) L2.Empty else L2.Ok
-        } catch (e: Exception) { state = L2.Empty }
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+            state = L2.Empty
+        }
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "课程中心", onBack = onBack)
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("📚", "暂无课程")
+            L2.Empty -> if (err.isNotEmpty()) {
+                com.kb.kbplatform.shell.ui.common.KbError("课程加载失败：$err", onRetry = { tick++ })
+            } else KbEmpty("📚", "暂无课程")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", 0) }) { c ->
                     KbCard(Modifier.fillMaxWidth().clickable {
@@ -93,9 +102,11 @@ fun CoursesScreen(onBack: () -> Unit, openCourse: (Long, String) -> Unit) {
                         Column(Modifier.padding(14.dp)) {
                             Text(c.optString("title").ifBlank { "未命名课程" },
                                 fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            if (c.optString("description").isNotEmpty()) {
+                            // 后端简介字段是 summary（description 不存在）
+                            val intro = c.optString("summary").ifBlank { c.optString("description") }
+                            if (intro.isNotEmpty()) {
                                 Spacer(Modifier.height(4.dp))
-                                Text(c.optString("description"), fontSize = 12.sp,
+                                Text(intro, fontSize = 12.sp,
                                     color = KbTextDim, maxLines = 2)
                             }
                             Spacer(Modifier.height(4.dp))
@@ -124,13 +135,20 @@ fun CourseDetailScreen(courseId: Long, titleHint: String, onBack: () -> Unit) {
     var state by remember { mutableStateOf(L2.Loading) }
     var doneIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var msg by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(courseId) {
+    LaunchedEffect(courseId, tick) {
+        state = L2.Loading
+        err = ""
         try {
             detail = KbApi.courseDetail(courseId)
             chapters = detail?.optJSONArray("chapters")?.objects() ?: emptyList()
             state = L2.Ok
-        } catch (e: Exception) { state = L2.Empty }
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+            state = L2.Empty
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -138,7 +156,10 @@ fun CourseDetailScreen(courseId: Long, titleHint: String, onBack: () -> Unit) {
         if (msg.isNotEmpty()) Text(msg, fontSize = 12.sp, color = KbGreen, modifier = Modifier.padding(horizontal = 16.dp))
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("📚", "课程不存在或已下架")
+            // 404 才是「不存在或已下架」；网络失败要给重试，别让用户以为课程没了
+            L2.Empty -> if (err.isNotEmpty()) {
+                com.kb.kbplatform.shell.ui.common.KbError("课程加载失败：$err", onRetry = { tick++ })
+            } else KbEmpty("📚", "课程不存在或已下架")
             L2.Ok -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
                 // 后端 course 的简介字段是 summary（没有 description，别只读后者，否则整段不显示）
                 val intro = detail?.optJSONObject("course")?.let { c ->
@@ -261,9 +282,12 @@ fun BadgesScreen(onBack: () -> Unit) {
     var state by remember { mutableStateOf(L2.Loading) }
     var msg by remember { mutableStateOf("") }
     var tick by remember { mutableIntStateOf(0) }
+    var err by remember { mutableStateOf("") }
 
     // 后端返回 {badges:[…], wornBadges:[…], earned, total}，不是数组；佩戴/卸下后 tick++ 重载
     LaunchedEffect(tick) {
+        state = L2.Loading
+        err = ""
         try {
             val r = KbApi.badges()
             items = simpleList(r.optJSONArray("badges"))
@@ -271,8 +295,8 @@ fun BadgesScreen(onBack: () -> Unit) {
             total = r.optInt("total", items.size)
             state = if (items.isEmpty()) L2.Empty else L2.Ok
         } catch (e: Exception) {
+            err = e.message ?: "加载失败"
             state = L2.Empty
-            msg = e.message ?: "加载失败"
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -286,7 +310,10 @@ fun BadgesScreen(onBack: () -> Unit) {
         }
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("🎖️", "暂无徽章")
+            // 有错误文案就是加载失败（带重试），别伪装成「暂无徽章」
+            L2.Empty -> if (err.isNotEmpty()) {
+                com.kb.kbplatform.shell.ui.common.KbError("徽章加载失败：$err", onRetry = { tick++ })
+            } else KbEmpty("🎖️", "暂无徽章")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optString("id", it.optString("name")) }) { b ->
                     val owned = b.optBoolean("earned", false)
@@ -341,14 +368,17 @@ fun FilesScreen(onBack: () -> Unit) {
     var tick by remember { mutableIntStateOf(0) }
     var uploading by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf("") }
 
     LaunchedEffect(tick) {
+        state = L2.Loading
+        err = ""
         try {
             items = simpleList(KbApi.myFiles())
             state = if (items.isEmpty()) L2.Empty else L2.Ok
         } catch (e: Exception) {
+            err = e.message ?: "加载失败"
             state = L2.Empty
-            msg = e.message ?: "加载失败"
         }
     }
 
@@ -398,7 +428,9 @@ fun FilesScreen(onBack: () -> Unit) {
         }
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("🗂️", "暂无文件\n支持图片 / 音频 / 视频 / PDF（单个 ≤ 50MB）\n点右上角「上传」，或把文件分享到 App")
+            L2.Empty -> if (err.isNotEmpty()) {
+                com.kb.kbplatform.shell.ui.common.KbError("文件列表加载失败：$err", onRetry = { tick++ })
+            } else KbEmpty("🗂️", "暂无文件\n支持图片 / 音频 / 视频 / PDF（单个 ≤ 50MB）\n点右上角「上传」，或把文件分享到 App")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { f ->
                     val url = f.optString("url")
@@ -478,18 +510,27 @@ fun VersionsScreen(shareId: Long, docId: Long, onBack: () -> Unit) {
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(L2.Loading) }
     var msg by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
+    var err by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick) {
+        state = L2.Loading
+        err = ""
         try {
             items = simpleList(KbApi.docVersions(shareId, docId))
             state = if (items.isEmpty()) L2.Empty else L2.Ok
-        } catch (e: Exception) { state = L2.Empty }
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+            state = L2.Empty
+        }
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "历史版本", onBack = onBack)
         if (msg.isNotEmpty()) Text(msg, fontSize = 12.sp, color = KbGreen, modifier = Modifier.padding(horizontal = 16.dp))
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("🕘", "还没有保存过版本快照")
+            L2.Empty -> if (err.isNotEmpty()) {
+                com.kb.kbplatform.shell.ui.common.KbError("版本列表加载失败：$err", onRetry = { tick++ })
+            } else KbEmpty("🕘", "还没有保存过版本快照")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { v ->
                     KbCard(Modifier.fillMaxWidth()) {

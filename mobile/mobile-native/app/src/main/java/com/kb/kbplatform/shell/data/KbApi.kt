@@ -541,6 +541,97 @@ object KbApi {
             ApiClient.post("/api/docs/$id/comments", body)
         }
 
+    // ---------- 邮箱（/api/mail，服务端已按用户隔离）----------
+
+    /** GET /mail/accounts → [{id,provider,email(已掩码),authType,status,lastError,lastSyncAt,lastUid,signature}] */
+    suspend fun mailAccounts(): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/mail/accounts")
+    }
+
+    /** GET /mail/providers → [{id,name,authType,emailHint,imapHost,imapPort,smtpHost,smtpPort}] */
+    suspend fun mailProviders(): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/mail/providers")
+    }
+
+    /** POST /mail/accounts/code {provider,email,code} → 授权码绑定（后端会真连 IMAP 验证，失败直接拒绝） */
+    suspend fun mailBindCode(provider: String, email: String, code: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.post(
+                "/api/mail/accounts/code",
+                JSONObject().put("provider", provider).put("email", email).put("code", code)
+            )
+        }
+
+    /** GET /mail/messages?accountId&folder&q&page&size → **对象** {items:[…],total,page,size}（不是数组） */
+    suspend fun mailMessages(
+        accountId: Long? = null,
+        folder: String = "INBOX",
+        q: String = "",
+        page: Int = 0,
+        size: Int = 30
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val aq = if (accountId == null || accountId <= 0) "" else "&accountId=$accountId"
+        val qq = if (q.isBlank()) "" else "&q=" + java.net.URLEncoder.encode(q, "UTF-8")
+        ApiClient.get("/api/mail/messages?folder=$folder&page=$page&size=$size$aq$qq")
+    }
+
+    /** GET /mail/messages/{id} → 列表项字段 + textBody/htmlBody/toAddrs/messageId */
+    suspend fun mailMessage(id: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/mail/messages/$id")
+    }
+
+    /** POST /mail/messages/{id}/read?read= → 本地已读（并尽力回写 IMAP，失败不影响本地） */
+    suspend fun mailMarkRead(id: Long, read: Boolean = true): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/mail/messages/$id/read?read=$read")
+        Unit
+    }
+
+    /** DELETE /mail/messages/{id} → 本地删除（并尽力在服务器删除） */
+    suspend fun mailDelete(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/mail/messages/$id")
+    }
+
+    /** POST /mail/accounts/{id}/sync → 手动同步，返回 {ok,added} */
+    suspend fun mailSync(accountId: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/mail/accounts/$accountId/sync")
+    }
+
+    /** GET /mail/contacts?q= → 历史收件人（补全用） */
+    suspend fun mailContacts(q: String = ""): JSONArray = withContext(Dispatchers.IO) {
+        val qq = if (q.isBlank()) "" else "?q=" + java.net.URLEncoder.encode(q, "UTF-8")
+        ApiClient.getArray("/api/mail/contacts$qq")
+    }
+
+    /**
+     * POST /mail/send {accountId,to[],cc[],subject,body,html?,inReplyTo?,references?,attachments[]} → {ok,id}
+     * 服务端真投递；失败不会本地留档。⚠️ 后端 `/send` 正在由其他人提交，未升级时是 404/405。
+     */
+    suspend fun mailSend(
+        accountId: Long,
+        to: List<String>,
+        subject: String,
+        body: String,
+        cc: List<String> = emptyList(),
+        inReplyTo: String? = null,
+        references: String? = null
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val j = JSONObject().put("accountId", accountId).put("subject", subject).put("body", body)
+        j.put("to", JSONArray().apply { to.forEach { put(it) } })
+        j.put("cc", JSONArray().apply { cc.forEach { put(it) } })
+        if (!inReplyTo.isNullOrBlank()) j.put("inReplyTo", inReplyTo)
+        if (!references.isNullOrBlank()) j.put("references", references)
+        ApiClient.post("/api/mail/send", j)
+    }
+
+    /** POST /mail/drafts {accountId,to,subject,body,id?} → 草稿（folder=DRAFT，不投递） */
+    suspend fun mailSaveDraft(accountId: Long, to: String, subject: String, body: String, id: Long? = null): JSONObject =
+        withContext(Dispatchers.IO) {
+            val j = JSONObject().put("accountId", accountId)
+                .put("to", to).put("subject", subject).put("body", body)
+            if (id != null && id > 0) j.put("id", id)
+            ApiClient.post("/api/mail/drafts", j)
+        }
+
     /** GET /users/{id}/card → 用户名片 */
     suspend fun userCard(id: Long): JSONObject = withContext(Dispatchers.IO) {
         ApiClient.get("/api/users/$id/card")

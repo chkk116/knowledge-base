@@ -104,6 +104,7 @@ public class MailAccountService {
         m.put("lastError", a.getLastError());
         m.put("lastSyncAt", a.getLastSyncAt() == null ? "" : a.getLastSyncAt().toString());
         m.put("lastUid", a.getLastUid());
+        m.put("signature", a.getSignature() == null ? "" : a.getSignature());
         return m;
     }
 
@@ -319,6 +320,18 @@ public class MailAccountService {
             log.warn("获取邮箱地址失败：{}", e.getMessage());
             return "";
         }
+    }
+
+    /** 发信请求（来自 /api/mail/send）；cc 可为单串或数组，服务层统一拆分 */
+    public record SendRequest(Long accountId, java.util.List<String> to, java.util.List<String> cc,
+                              String subject, String body, String html,
+                              String inReplyTo, String references,
+                              java.util.List<java.util.Map<String, Object>> attachments) {}
+
+    /** 给发信器用的 SMTP 密码：授权码直接解密，OAuth 用刷新出来的 access token */
+    public String smtpSecret(MailAccount a) {
+        String secret = cipher.decrypt(a.getCredentialEnc());
+        return "OAUTH".equals(a.getAuthType()) ? accessToken(a, secret) : secret;
     }
 
     // ---------------- IMAP 连接（同步器复用） ----------------

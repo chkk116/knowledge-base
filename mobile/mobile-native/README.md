@@ -53,6 +53,7 @@ Web 页面在 WebView 中以标准 PWA 形态运行（无 Capacitor 对象，mai
 | 个人成长（原生） | 积分明细（`delta` 正负着色 + `total` 分页）、排行榜（`top` + 「我：第 N 名」，人数用 `total`）、徽章成就（`badges[]` 按 `earned`/`worn` 渲染，佩戴/再点卸下，`id` 是字符串如 `first_post`）；课程中心（课程列表 + 章节阅读 + 完成打卡） | `/api/points/*` `/api/badges` `/api/badges/wear` `/api/courses/*` |
 | 我的订阅（原生） | 订阅列表（`docId`/`title`/`deleted`/`subscribedAt`，已删除置灰不可点）+ 点行进文章 + 「退订」 | `/api/docs/subscriptions` `/api/docs/{id}/subscribe` |
 | 回收站（原生） | 我删除的文章（`title`/`deletedAt`）+ 恢复 / 彻底删除（二次确认） | `/api/docs/recycle` `/api/docs/{id}/restore` `/api/docs/{id}/purge` |
+| 邮箱（原生） | 账号切换（`全部` / 单账号，`email` 服务端已掩码）+ 收件箱列表（未读点、发件人、主题、摘要、附件标记、时间）+ 阅读（`textBody` 优先，`htmlBody` 只转纯文本，不渲染远程 HTML）+ 标已读/删除 + 手动同步 + **授权码绑定**（QQ/163 等）+ **写邮件 / 回复 / 存草稿**（`/mail/send`、`/mail/drafts`，后端未升级时提示「服务端发信可能尚未升级」）+ **收件箱 / 草稿箱切换**（`folder=DRAFT`，草稿可再「编辑草稿」预填回收件人/主题/正文）+ **分页「加载更多」**（30 封/页，按 id 去重合并）+ **附件列表**（后端 `attachments` 是嵌套 JSON 字符串，点名称用系统浏览器打开站内 `/uploads/…`）+ **收件人补全**（`/mail/contacts`，输入 2 字以上 300ms 防抖给候选）；入口在「我的 → 邮箱」和「消息」页 | `/api/mail/accounts` `/api/mail/messages` `/api/mail/{id}/read` `/api/mail/send` `/api/mail/accounts/code` |
 | 我的 | 资料、积分、服务器地址设置、退出登录 | `/api/auth/me` |
 | WebView 承载页 | 任意 /m/ 页面；令牌桥接自动登录；**文件选择/拍照桥**（input file + capture 相机）、JS alert/confirm、进度条、返回栈 | — |
 
@@ -113,7 +114,15 @@ gradlew.bat assembleDebug
 4. ~~**P3 原生能力**：系统分享导入、离线缓存、应用内更新~~ ✅
 5. ~~**P4 转正**：applicationId 替换、断点续传、正文级离线、应用锁、考试中心~~ ✅
 
-**后续候选**（无排期）：离线草稿队列、生物识别、课程中心原生化、推送、AI Agent 模式原生化
+**后续候选**（无排期）：离线草稿队列、生物识别、推送、AI Agent 模式原生化
+
+## 加载三态（Loading / Empty / Error）
+
+- 公共组件：`KbLoading` / `KbEmpty` / **`KbError(text, onRetry)`**（`ui/common/Kb.kt`，错误态与空态同构但多一个「重试」）。
+- 约定：请求失败**不再伪装成「暂无数据」**，而是错误态 + 重试（走各屏自己的 `load()` / `tick++`）。
+- 已覆盖：待整理箱、我的考试、积分明细、排行榜、我的订阅、回收站、我的摘录、全部文档、徽章成就、文件中心、课程中心。
+  其余（课程详情 / 版本 / 部分管理页）仍复用空态，后续统一。
+- 排行榜改用 `itemsIndexed` 取名次（原来 `items.indexOf(r)` 在 LazyColumn 里是 O(n²)）。
 
 ## 管理界面复核加固
 

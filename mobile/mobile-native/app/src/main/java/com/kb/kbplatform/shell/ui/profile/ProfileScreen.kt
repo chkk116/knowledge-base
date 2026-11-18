@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.List
@@ -249,7 +250,9 @@ fun ProfileScreen(
             },
             MenuItem(Icons.Filled.Star, "我的收藏", "收藏过的文档") { openRoute("favorites") },
             MenuItem(Icons.Filled.History, "浏览历史", "最近看过的文档") { openRoute("history") },
-            MenuItem(Icons.Filled.Description, "全部文档", "跨空间聚合") { openRoute("all-docs") }
+            MenuItem(Icons.Filled.Description, "全部文档", "跨空间聚合") { openRoute("all-docs") },
+            // 邮箱：绑定授权码后收件箱原生可读（后端 /api/mail/*）
+            MenuItem(Icons.Filled.Email, "邮箱", "收件箱 / 阅读 / 授权码绑定") { openRoute("mail") }
         )
         val growthItems = listOfNotNull(
             MenuItem(Icons.Filled.WorkspacePremium, "徽章成就", "成长记录") { openRoute("badges") },

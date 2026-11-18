@@ -63,7 +63,7 @@ import org.json.JSONObject
  * 待整理箱 / 本地收藏 / 我的考试 / 积分明细 / 排行榜 / 文档订阅 / 回收站 / 我的摘录 / 浏览历史。
  */
 
-private enum class Load { Loading, Ok, Empty }
+private enum class Load { Loading, Ok, Empty, Error }
 
 // ============ 待整理箱（对标 MobileInbox）============
 
@@ -83,8 +83,8 @@ fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute
                 items = KbApi.inboxList().objects()
                 state = if (items.isEmpty()) Load.Empty else Load.Ok
             } catch (e: Exception) {
-                state = Load.Empty
-                msg = e.message ?: ""
+                state = Load.Error
+                msg = e.message ?: "加载失败"
             }
         }
     }
@@ -96,6 +96,7 @@ fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute
         when (state) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("📥", "暂无待整理\n拍照/速记/分享的内容会先收进这里")
+            Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("待整理箱加载失败：$msg", onRetry = { load() })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { d ->
                     val id = if (d.has("docId")) d.optLong("docId") else d.optLong("id", 0)
@@ -261,17 +262,24 @@ fun FavoritesScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openR
 fun ExamMineScreen(onBack: () -> Unit) {
     var records by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(Load.Loading) }
-    LaunchedEffect(Unit) {
+    var err by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick) {
+        state = Load.Loading
         try {
             records = KbApi.myExams().objects()
             state = if (records.isEmpty()) Load.Empty else Load.Ok
-        } catch (e: Exception) { state = Load.Empty }
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+            state = Load.Error
+        }
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "我的考试", onBack = onBack)
         when (state) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("🏆", "还没有考试记录")
+            Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("考试记录加载失败：$err", onRetry = { tick++ })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 itemsIndexed(records, key = { i, it -> it.optLong("id", -1L).let { id -> if (id <= 0) "exam-$i" else id } }) { i, r ->
                     val passed = r.optBoolean("passed", false)
@@ -308,6 +316,7 @@ fun PointsScreen(onBack: () -> Unit) {
     var page by remember { mutableIntStateOf(0) }
     var total by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf(Load.Loading) }
+    var err by remember { mutableStateOf("") }
 
     fun load(p: Int) {
         state = Load.Loading
@@ -318,7 +327,10 @@ fun PointsScreen(onBack: () -> Unit) {
                 total = r.optInt("total", items.size)
                 page = p
                 state = if (items.isEmpty()) Load.Empty else Load.Ok
-            } catch (e: Exception) { state = Load.Empty }
+            } catch (e: Exception) {
+                err = e.message ?: "加载失败"
+                state = Load.Error
+            }
         }
     }
     LaunchedEffect(Unit) { load(0) }
@@ -328,6 +340,7 @@ fun PointsScreen(onBack: () -> Unit) {
         when (state) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("📈", "暂无积分记录")
+            Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("积分明细加载失败：$err", onRetry = { load(page) })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { l ->
                     val pts = l.optInt("delta", l.optInt("points", 0))
@@ -365,7 +378,11 @@ fun RankingScreen(onBack: () -> Unit) {
     var me by remember { mutableStateOf<JSONObject?>(null) }
     var totalPeople by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf(Load.Loading) }
-    LaunchedEffect(Unit) {
+    var err by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(tick) {
+        state = Load.Loading
         try {
             // 后端返回 {top:[…], total:人数, me:{rank,username,points}}，不是数组
             val r = KbApi.ranking()
@@ -373,13 +390,17 @@ fun RankingScreen(onBack: () -> Unit) {
             totalPeople = r.optInt("total", items.size)
             me = r.optJSONObject("me")
             state = if (items.isEmpty()) Load.Empty else Load.Ok
-        } catch (e: Exception) { state = Load.Empty }
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+            state = Load.Error
+        }
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "积分排行榜", onBack = onBack)
         when (state) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("🏅", "暂无排行数据")
+            Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("排行榜加载失败：$err", onRetry = { tick++ })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -393,11 +414,12 @@ fun RankingScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                items(items, key = { it.optString("username", it.hashCode().toString()) + it.hashCode() }) { r ->
+                // itemsIndexed 取代 items.indexOf(r)：后者是 O(n²)，榜单一长就卡
+                itemsIndexed(items, key = { i, it -> it.optString("username", "u$i") + "#" + i }) { i, r ->
                     KbCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                listOf("🥇", "🥈", "🥉").getOrNull(items.indexOf(r)) ?: "${items.indexOf(r) + 1}",
+                                listOf("🥇", "🥈", "🥉").getOrNull(i) ?: "${r.optInt("rank", i + 1)}",
                                 fontSize = 15.sp, fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(end = 12.dp)
                             )
@@ -422,6 +444,7 @@ fun SubscriptionsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit = {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(Load.Loading) }
+    var err by remember { mutableStateOf("") }
 
     fun load() {
         state = Load.Loading
@@ -429,7 +452,10 @@ fun SubscriptionsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit = {
             try {
                 items = KbApi.subscriptions().objects()
                 state = if (items.isEmpty()) Load.Empty else Load.Ok
-            } catch (e: Exception) { state = Load.Empty }
+            } catch (e: Exception) {
+                err = e.message ?: "加载失败"
+                state = Load.Error
+            }
         }
     }
     LaunchedEffect(Unit) { load() }
@@ -439,6 +465,7 @@ fun SubscriptionsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit = {
         when (state) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("🔔", "还没有订阅的文档\n订阅后文档更新会通知你")
+            Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("订阅列表加载失败：$err", onRetry = { load() })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // 后端字段：{docId,title,category,deleted,subscribedAt}（没有 id，key 用 docId）
                 items(items, key = { it.optLong("docId", it.hashCode().toLong()) }) { s ->
@@ -485,6 +512,7 @@ fun RecycleScreen(onBack: () -> Unit) {
     var state by remember { mutableStateOf(Load.Loading) }
     var purgeTarget by remember { mutableStateOf<JSONObject?>(null) }
     var msg by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf("") }
 
     fun load() {
         state = Load.Loading
@@ -492,7 +520,10 @@ fun RecycleScreen(onBack: () -> Unit) {
             try {
                 items = KbApi.recycleList().objects()
                 state = if (items.isEmpty()) Load.Empty else Load.Ok
-            } catch (e: Exception) { state = Load.Empty }
+            } catch (e: Exception) {
+                err = e.message ?: "加载失败"
+                state = Load.Error
+            }
         }
     }
     LaunchedEffect(Unit) { load() }
@@ -503,6 +534,7 @@ fun RecycleScreen(onBack: () -> Unit) {
         when (state) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("🗑️", "回收站是空的")
+            Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("回收站加载失败：$err", onRetry = { load() })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", 0) }) { d ->
                     val id = d.optLong("id", 0)
@@ -554,17 +586,24 @@ fun RecycleScreen(onBack: () -> Unit) {
 fun NotesScreen(onBack: () -> Unit) {
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(Load.Loading) }
-    LaunchedEffect(Unit) {
+    var err by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick) {
+        state = Load.Loading
         try {
             items = KbApi.myAnnotations().objects()
             state = if (items.isEmpty()) Load.Empty else Load.Ok
-        } catch (e: Exception) { state = Load.Empty }
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+            state = Load.Error
+        }
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "我的摘录", onBack = onBack)
         when (state) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("✂️", "还没有摘录\n在文档阅读页划词保存摘录")
+            Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("摘录加载失败：$err", onRetry = { tick++ })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optString("id", it.hashCode().toString()) + it.hashCode() }) { n ->
                     KbCard(Modifier.fillMaxWidth()) {
@@ -602,12 +641,18 @@ fun AllDocsScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRou
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var keyword by remember { mutableStateOf("") }
     var state by remember { mutableStateOf(Load.Loading) }
+    var err by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(tick) {
+        state = Load.Loading
         try {
             items = KbApi.allShareDocs().objects()
-            state = Load.Ok
-        } catch (e: Exception) { state = Load.Empty }
+            state = if (items.isEmpty()) Load.Empty else Load.Ok
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+            state = Load.Error
+        }
     }
 
     val filtered = if (keyword.isBlank()) items
@@ -627,6 +672,7 @@ fun AllDocsScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRou
         when (state) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("📄", "还没有文档")
+            Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("全部文档加载失败：$err", onRetry = { tick++ })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(filtered, key = { it.optLong("id", it.hashCode().toLong()) }) { d ->
                     val docId = if (d.has("docId")) d.optLong("docId") else d.optLong("id", 0)

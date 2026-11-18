@@ -53,7 +53,7 @@ import java.net.URI
 
 enum class MenuKind(val label: String) {
     HOME("首页"), DOCS("文章"), SHARES("共享空间"), COURSES("培训"), EXAMS("考试"),
-    CHAT("AI 问答"), FILES("我的文件"), NOTIFICATIONS("通知"), ADMIN("管理"), SETTINGS("设置")
+    CHAT("AI 问答"), FILES("我的文件"), MAIL("邮箱"), NOTIFICATIONS("通知"), ADMIN("管理"), SETTINGS("设置")
 }
 
 /** 侧栏收成图标栏的宽度阈值（低于它窗口放不下完整侧栏+内容） */
@@ -130,6 +130,7 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                             MenuKind.COURSES -> CoursesPanel(session)
                             MenuKind.EXAMS -> ExamsPanel(session)
                             MenuKind.FILES -> FilesPanel(session)
+                            MenuKind.MAIL -> MailPanel(session)
                             MenuKind.ADMIN -> AdminPanel(session)
                             MenuKind.SETTINGS -> SettingsPanel(session, onLogout = onLogout)
                             MenuKind.NOTIFICATIONS -> NotificationsPanel(
@@ -244,6 +245,7 @@ private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, badge: Int = 0
         MenuKind.EXAMS -> KbTileRose
         MenuKind.CHAT -> KbTileGreen
         MenuKind.FILES -> KbTileAmber
+        MenuKind.MAIL -> KbTileTeal
         MenuKind.NOTIFICATIONS -> KbTileRose
         MenuKind.ADMIN -> KbTileRose
         MenuKind.SETTINGS -> KbTileBlue
@@ -1852,7 +1854,7 @@ private fun humanSize(bytes: Long?): String {
     return String.format("%.2f GB", mb / 1024.0)
 }
 
-private fun openInBrowser(server: String, url: String) {
+internal fun openInBrowser(server: String, url: String) {
     val full = when {
         url.startsWith("http://") || url.startsWith("https://") -> url
         else -> server.trimEnd('/') + (if (url.startsWith("/")) url else "/$url")
@@ -1947,6 +1949,11 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
                 line(5f, 17.5f, 19f, 17.5f); line(19f, 17.5f, 17.8f, 15f); line(17.8f, 15f, 17.8f, 9f)
                 line(17.8f, 9f, 16f, 6.5f); line(16f, 6.5f, 8f, 6.5f)
                 line(10f, 20f, 14f, 20f)
+            }
+            MenuKind.MAIL -> {
+                // 信封：外框 + 折角
+                p.moveTo(4f, 6.5f); p.lineTo(20f, 6.5f); p.lineTo(20f, 17.5f); p.lineTo(4f, 17.5f); p.close()
+                line(4f, 7f, 12f, 13f); line(12f, 13f, 20f, 7f)
             }
         }
         if (!p.isEmpty) drawPath(p, tint, style = stroke)
