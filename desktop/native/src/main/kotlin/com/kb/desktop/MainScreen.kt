@@ -1633,11 +1633,19 @@ private fun FilesPanel(session: Session) {
         fd.isMultipleMode = false
         fd.isVisible = true
         val f = fd.files.firstOrNull() ?: return
+        // 后端只收图片 / 音频 / 视频 / PDF（FileService.ALLOWED + 魔数嗅探），
+        // 这里先按扩展名拦一道并直接给出 MIME：guessContentTypeFromName 对部分扩展名会返回空，
+        // 落成 octet-stream 会被后端拒，用户只看到一句莫名其妙的失败。
+        val ext = f.extension.lowercase()
+        val mime = UPLOAD_EXT_MIME[ext]
+        if (mime == null) {
+            msg = "仅支持图片 / 音频 / 视频 / PDF（单个 ≤ 50MB）"
+            return
+        }
         uploading = true
         msg = ""
         scope.launch {
             try {
-                val mime = java.net.URLConnection.guessContentTypeFromName(f.name) ?: "application/octet-stream"
                 api.uploadMyFile(session.token, f, mime)
                 msg = "上传成功：${f.name}"
                 refresh++
@@ -1797,6 +1805,16 @@ private fun FileRow(
 
 private val BLANK_READER =
     "<html><head><meta charset=\"utf-8\"><style>html,body{margin:0;background:#fff}</style></head><body></body></html>"
+
+/** 上传白名单：扩展名 → MIME（与后端 FileService.ALLOWED 对齐，兼做本地拦截与类型推断） */
+private val UPLOAD_EXT_MIME = mapOf(
+    "png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "gif" to "image/gif",
+    "webp" to "image/webp", "bmp" to "image/bmp",
+    "mp3" to "audio/mpeg", "wav" to "audio/wav", "ogg" to "audio/ogg", "m4a" to "audio/mp4",
+    "flac" to "audio/flac", "aac" to "audio/aac",
+    "mp4" to "video/mp4", "webm" to "video/webm",
+    "pdf" to "application/pdf",
+)
 
 /** 预览判定：图片原生渲染更清晰，其余（PDF / 文本 / 压缩包）交给 WebView 或系统 */
 private fun isImageFile(f: FileItem): Boolean {

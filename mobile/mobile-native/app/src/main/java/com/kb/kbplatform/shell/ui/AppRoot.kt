@@ -171,7 +171,12 @@ fun AppRoot() {
         composable("exam-mine") { ExamMineScreen(onBack = { nav.popBackStack() }) }
         composable("points") { PointsScreen(onBack = { nav.popBackStack() }) }
         composable("ranking") { RankingScreen(onBack = { nav.popBackStack() }) }
-        composable("subscriptions") { SubscriptionsScreen(onBack = { nav.popBackStack() }) }
+        composable("subscriptions") {
+            SubscriptionsScreen(
+                onBack = { nav.popBackStack() },
+                openPost = { id, title -> safeNav("post/$id?title=${Uri.encode(title)}") }
+            )
+        }
         composable("recycle") { RecycleScreen(onBack = { nav.popBackStack() }) }
         composable("notes") { NotesScreen(onBack = { nav.popBackStack() }) }
             composable("search") {

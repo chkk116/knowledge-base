@@ -140,8 +140,12 @@ fun CourseDetailScreen(courseId: Long, titleHint: String, onBack: () -> Unit) {
             L2.Loading -> KbLoading()
             L2.Empty -> KbEmpty("📚", "课程不存在或已下架")
             L2.Ok -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-                detail?.optString("description")?.takeIf { it.isNotEmpty() }?.let {
-                    Text(it, fontSize = 13.sp, color = KbTextDim)
+                // 后端 course 的简介字段是 summary（没有 description，别只读后者，否则整段不显示）
+                val intro = detail?.optJSONObject("course")?.let { c ->
+                    c.optString("summary").ifBlank { c.optString("description") }
+                }.orEmpty()
+                if (intro.isNotEmpty()) {
+                    Text(intro, fontSize = 13.sp, color = KbTextDim)
                     Spacer(Modifier.height(12.dp))
                 }
                 Text("章节（${chapters.size}）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -174,9 +178,12 @@ fun CourseDetailScreen(courseId: Long, titleHint: String, onBack: () -> Unit) {
                             }
                             if (ch.optString("content").isNotEmpty()) {
                                 Spacer(Modifier.height(8.dp))
+                                // 章节正文解析一次即可，别在每次重组（点赞/消息变化）时重解析
+                                val chapterText = remember(ch.optString("content")) {
+                                    android.text.Html.fromHtml(ch.optString("content"), android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+                                }
                                 Text(
-                                    android.text.Html.fromHtml(ch.optString("content"), android.text.Html.FROM_HTML_MODE_LEGACY)
-                                        .toString(),
+                                    chapterText,
                                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 6
                                 )
@@ -185,9 +192,13 @@ fun CourseDetailScreen(courseId: Long, titleHint: String, onBack: () -> Unit) {
                                 Spacer(Modifier.height(8.dp))
                                 TextButton(onClick = {
                                     scope.launch {
-                                        runCatching { KbApi.finishChapter(courseId, chId) }
-                                        doneIds = doneIds + chId
-                                        msg = "已完成一节"
+                                        // 只有接口成功才记完成，否则重载后勾选会「凭空消失」
+                                        if (runCatching { KbApi.finishChapter(courseId, chId) }.isSuccess) {
+                                            doneIds = doneIds + chId
+                                            msg = "已完成一节"
+                                        } else {
+                                            msg = "标记失败，请重试"
+                                        }
                                     }
                                 }) { Text("标记完成", fontSize = 12.sp) }
                             }
@@ -245,40 +256,71 @@ fun WrongBookScreen(onBack: () -> Unit) {
 fun BadgesScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var earned by remember { mutableIntStateOf(0) }
+    var total by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf(L2.Loading) }
     var msg by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
+    var tick by remember { mutableIntStateOf(0) }
+
+    // 后端返回 {badges:[…], wornBadges:[…], earned, total}，不是数组；佩戴/卸下后 tick++ 重载
+    LaunchedEffect(tick) {
         try {
-            items = simpleList(KbApi.badges())
+            val r = KbApi.badges()
+            items = simpleList(r.optJSONArray("badges"))
+            earned = r.optInt("earned", items.count { it.optBoolean("earned", false) })
+            total = r.optInt("total", items.size)
             state = if (items.isEmpty()) L2.Empty else L2.Ok
-        } catch (e: Exception) { state = L2.Empty }
+        } catch (e: Exception) {
+            state = L2.Empty
+            msg = e.message ?: "加载失败"
+        }
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "徽章成就", onBack = onBack)
         if (msg.isNotEmpty()) Text(msg, fontSize = 12.sp, color = KbGreen, modifier = Modifier.padding(horizontal = 16.dp))
+        if (state == L2.Ok) {
+            Text(
+                "已获得 $earned / $total 枚", fontSize = 12.sp, color = KbTextDim,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
         when (state) {
             L2.Loading -> KbLoading()
             L2.Empty -> KbEmpty("🎖️", "暂无徽章")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(items, key = { it.optLong("id", 0) }) { b ->
-                    val owned = b.optBoolean("owned", b.optBoolean("earned", false))
+                items(items, key = { it.optString("id", it.optString("name")) }) { b ->
+                    val owned = b.optBoolean("earned", false)
+                    val worn = b.optBoolean("worn", false)
+                    val cur = b.optInt("current", 0)
+                    val need = b.optInt("threshold", 0)
                     KbCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(if (owned) "🎖️" else "🔒", fontSize = 24.sp)
                             Spacer(Modifier.size(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(b.optString("name").ifBlank { "徽章" }, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                                if (b.optString("description").isNotEmpty()) {
-                                    Text(b.optString("description"), fontSize = 12.sp, color = KbTextDim, maxLines = 2)
+                                Text(
+                                    b.optString("name").ifBlank { "徽章" }, fontSize = 14.sp, fontWeight = FontWeight.Medium
+                                )
+                                val desc = b.optString("desc").ifBlank { b.optString("description") }
+                                if (desc.isNotEmpty()) {
+                                    Text(desc, fontSize = 12.sp, color = KbTextDim, maxLines = 2)
+                                }
+                                if (!owned && need > 0) {
+                                    Text("$cur / $need", fontSize = 11.sp, color = KbTextDim)
                                 }
                             }
-                            if (owned && !b.optBoolean("worn", false)) {
+                            if (owned) {
                                 TextButton(onClick = {
+                                    // 已佩戴 → 再点一下卸下（后端语义：同 id 再传即卸下）
                                     scope.launch {
-                                        runCatching { KbApi.wearBadge(b.optLong("id", 0)) }
-                                        msg = "已佩戴「${b.optString("name")}」"
+                                        runCatching { KbApi.wearBadge(if (worn) "" else b.optString("id")) }
+                                            .onSuccess {
+                                                msg = if (worn) "已卸下佩戴" else "已佩戴「${b.optString("name")}」"
+                                                tick++
+                                            }
+                                            .onFailure { msg = it.message ?: "操作失败" }
                                     }
-                                }) { Text("佩戴", fontSize = 12.sp) }
+                                }) { Text(if (worn) "佩戴中 · 卸下" else "佩戴", fontSize = 12.sp) }
                             }
                         }
                     }
@@ -310,9 +352,10 @@ fun FilesScreen(onBack: () -> Unit) {
         }
     }
 
-    // 统一上传入口：任意类型文件 → 复制到 cache → multipart 走 /api/files（与扫描/分享导入同一条链路）
+    // 上传入口：后端只收图片 / 音频 / 视频 / PDF（FileService.ALLOWED + 魔数嗅探），
+    // 选择器直接按类型过滤，免得用户选了 txt/docx 才在上传时被拒
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         uploading = true
@@ -320,13 +363,15 @@ fun FilesScreen(onBack: () -> Unit) {
         scope.launch {
             var tmp: java.io.File? = null
             try {
-                val name = queryDisplayName(ctx, uri) ?: "upload_${System.currentTimeMillis()}"
-                val f = java.io.File(ctx.cacheDir, name)
+                val rawName = queryDisplayName(ctx, uri) ?: "upload_${System.currentTimeMillis()}"
+                // 显示名不可信：去掉路径分隔符，并加随机前缀，避免 ../ 越界写或同名互相覆盖
+                val name = rawName.replace('/', '_').replace('\\', '_').takeLast(120)
+                val f = java.io.File(ctx.cacheDir, System.currentTimeMillis().toString() + "_" + name)
                 tmp = f
                 ctx.contentResolver.openInputStream(uri)?.use { input ->
                     f.outputStream().use { out -> input.copyTo(out) }
                 } ?: throw IllegalStateException("无法读取所选文件")
-                val mime = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
+                val mime = guessUploadMime(name, ctx.contentResolver.getType(uri))
                 KbApi.uploadMyFile(f, mime)
                 msg = "上传成功：$name"
                 tick++
@@ -341,7 +386,7 @@ fun FilesScreen(onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "我的文件", onBack = onBack, actions = {
-            TextButton(enabled = !uploading, onClick = { picker.launch("*/*") }) {
+            TextButton(enabled = !uploading, onClick = { picker.launch(PICK_MIMES) }) {
                 Text(if (uploading) "上传中…" else "上传", fontSize = 13.sp)
             }
         })
@@ -353,7 +398,7 @@ fun FilesScreen(onBack: () -> Unit) {
         }
         when (state) {
             L2.Loading -> KbLoading()
-            L2.Empty -> KbEmpty("🗂️", "暂无文件\n点右上角「上传」，或把文件分享到 App")
+            L2.Empty -> KbEmpty("🗂️", "暂无文件\n支持图片 / 音频 / 视频 / PDF（单个 ≤ 50MB）\n点右上角「上传」，或把文件分享到 App")
             L2.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { f ->
                     val url = f.optString("url")
@@ -394,6 +439,27 @@ fun FilesScreen(onBack: () -> Unit) {
             }
         }
     }
+}
+
+/** 上传白名单 MIME（后端 FileService.ALLOWED 的子集；给选择器做类型过滤） */
+private val PICK_MIMES = arrayOf(
+    "image/*", "audio/*", "video/*", "application/pdf"
+)
+
+/** 扩展名 → MIME 兜底：不少机型/分享来源给不出准确 type，回退 octet-stream 会被后端直接拒 */
+private val UPLOAD_EXT_MIME = mapOf(
+    "png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "gif" to "image/gif",
+    "webp" to "image/webp", "bmp" to "image/bmp",
+    "mp3" to "audio/mpeg", "wav" to "audio/wav", "ogg" to "audio/ogg", "m4a" to "audio/mp4",
+    "flac" to "audio/flac", "aac" to "audio/aac",
+    "mp4" to "video/mp4", "webm" to "video/webm", "pdf" to "application/pdf"
+)
+
+/** 优先用系统给的 type，缺失/泛型时按扩展名推断（仍拿不到就交给后端报错，文案后端已给中文） */
+private fun guessUploadMime(name: String, declared: String?): String {
+    val t = declared.orEmpty().lowercase()
+    if (t.isNotEmpty() && t != "application/octet-stream" && t != "*/*") return t
+    return UPLOAD_EXT_MIME[name.substringAfterLast('.', "").lowercase()] ?: "application/octet-stream"
 }
 
 /** 取文件选择器返回的显示名（拿不到就返回 null，由调用方兜底命名） */
@@ -437,8 +503,11 @@ fun VersionsScreen(shareId: Long, docId: Long, onBack: () -> Unit) {
                             }
                             TextButton(onClick = {
                                 scope.launch {
-                                    runCatching { KbApi.restoreDocVersion(shareId, docId, v.optLong("id", 0)) }
-                                    msg = "已恢复到该版本"
+                                    if (runCatching { KbApi.restoreDocVersion(shareId, docId, v.optLong("id", 0)) }.isSuccess) {
+                                        msg = "已恢复到该版本"
+                                    } else {
+                                        msg = "恢复失败，请重试"
+                                    }
                                 }
                             }) { Text("恢复", fontSize = 12.sp) }
                         }
@@ -564,8 +633,8 @@ fun AdminDocsScreen(onBack: () -> Unit) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TextButton(onClick = {
                                     scope.launch {
-                                        runCatching { KbApi.adminSetDocBlocked(d.optLong("id", 0), !blocked) }
-                                        load()
+                                        // 失败就不重载（保持原状态），成功才刷新
+                                        if (runCatching { KbApi.adminSetDocBlocked(d.optLong("id", 0), !blocked) }.isSuccess) load()
                                     }
                                 }) { Text(if (blocked) "解封" else "封禁", fontSize = 12.sp) }
                                 TextButton(onClick = { delTarget = d }) { Text("删除", fontSize = 12.sp, color = KbRed) }
@@ -584,8 +653,10 @@ fun AdminDocsScreen(onBack: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        runCatching { KbApi.adminDeleteDoc(d.optLong("id", 0)) }
-                        items = items.filter { it.optLong("id", 0) != d.optLong("id", 0) }
+                        // 只有删除成功才从列表移除；失败保留在原处
+                        if (runCatching { KbApi.adminDeleteDoc(d.optLong("id", 0)) }.isSuccess) {
+                            items = items.filter { it.optLong("id", 0) != d.optLong("id", 0) }
+                        }
                         delTarget = null
                     }
                 }) { Text("删除", color = KbRed) }

@@ -10,8 +10,11 @@ import android.util.Base64
 import com.kb.kbplatform.shell.AppConfig
 import com.kb.kbplatform.shell.TokenStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -165,21 +168,26 @@ object KbApi {
             ApiClient.delete("/api/doc-shares/$shareId/docs/$docId/annotations/$annoId")
         }
 
-    /** GET /badges → 徽章列表；POST /badges/wear { badgeId } */
-    suspend fun badges(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/badges") }
+    /**
+     * GET /badges → **JSONObject** `{ badges:[{id,name,desc,icon,color,tier,metric,threshold,current,earned,worn,progress}],
+     * wornBadges:[], earned:Int, total:Int }`。
+     * ⚠️ 不是数组：用 getArray 会直接抛异常（徽章页曾经永远「暂无徽章」）。`id` 是字符串（如 `first_post`）。
+     */
+    suspend fun badges(): JSONObject = withContext(Dispatchers.IO) { ApiClient.get("/api/badges") }
 
-    suspend fun wearBadge(badgeId: Long): Unit = withContext(Dispatchers.IO) {
-        ApiClient.post("/api/badges/wear", JSONObject().put("badgeId", if (badgeId > 0) badgeId else ""))
+    /** POST /badges/wear { badgeId:String }：空串=全部卸下，已佩戴再传=卸下，未佩戴=佩戴（上限校验在后端） */
+    suspend fun wearBadge(badgeId: String): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/badges/wear", JSONObject().put("badgeId", badgeId))
     }
 
-    /** GET /points/log/paged → Page { content: [{type, points, reason, createdAt}] } */
+    /** GET /points/log/paged → Page { content: [{type, delta, balance, reason, createdAt}], total, earned, spent } */
     suspend fun pointsLog(page: Int): JSONObject = withContext(Dispatchers.IO) {
         ApiClient.get("/api/points/log/paged?page=$page&size=20")
     }
 
-    /** GET /points/ranking → 排行列表 */
-    suspend fun ranking(): JSONArray = withContext(Dispatchers.IO) {
-        ApiClient.getArray("/api/points/ranking")
+    /** GET /points/ranking → **JSONObject** `{ top:[{rank,username,displayName,avatar,points}], total:Int, me:{rank,username,points} }` */
+    suspend fun ranking(): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/points/ranking")
     }
 
     /** GET /doc-shares/inbox/list → 待整理箱 */
@@ -396,8 +404,13 @@ object KbApi {
         Unit
     }
 
-    /** GET /docs → 文章列表（发现页） */
-    suspend fun articles(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/docs") }
+    /**
+     * GET /docs → **Spring Page** `{content:[…]}`（不是数组；用 getArray 会抛异常，发现页曾经永远空）。
+     * 这里取第一页并拍平成数组，调用方口径不变。
+     */
+    suspend fun articles(page: Int = 0, size: Int = 50): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/docs?page=$page&size=$size").optJSONArray("content") ?: JSONArray()
+    }
 
     // ---------- 我的文章（作者视角）----------
 
@@ -533,9 +546,9 @@ object KbApi {
         ApiClient.get("/api/users/$id/card")
     }
 
-    /** GET /users/{id}//articles?page → 用户文章 */
-    suspend fun userArticles(id: Long): JSONArray = withContext(Dispatchers.IO) {
-        ApiClient.getArray("/api/users/$id/articles?page=0&size=20")
+    /** GET /users/{id}/articles?page → **Spring Page** `{content:[…]}`（不是数组，用 getArray 会抛异常） */
+    suspend fun userArticles(id: Long, page: Int = 0, size: Int = 20): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/users/$id/articles?page=$page&size=$size").optJSONArray("content") ?: JSONArray()
     }
 
     /** POST/DELETE /users/{id}/follow */
@@ -653,6 +666,7 @@ object KbApi {
         onDelta: (String) -> Unit,
         onReasoning: (String) -> Unit
     ): JSONObject = withContext(Dispatchers.IO) {
+      coroutineScope {
         val body = JSONObject().put("question", question).put("mode", mode)
         conversationId?.let { body.put("conversationId", it) }
         modelId?.let { body.put("modelId", it) }
@@ -665,6 +679,11 @@ object KbApi {
         TokenStore.token.value?.let { builder.header("Authorization", "Bearer $it") }
 
         val call = ApiClient.httpLong.newCall(builder.build())
+        // 页面离开/取消协程时，读循环可能正阻塞在 readUtf8Line 上（ensureActive 插不进去），
+        // 用旁路协程在取消时立刻 call.cancel()，把阻塞读打断
+        val canceller = launch {
+            try { awaitCancellation() } finally { call.cancel() }
+        }
         try {
             call.execute().use { r ->
                 if (r.code == 401) { TokenStore.set(null); throw ApiError(401, "登录已过期，请重新登录") }
@@ -676,11 +695,14 @@ object KbApi {
                 val data = StringBuilder()
                 var result: JSONObject? = null
                 fun flush() {
+                    // 先把事件类型取走并重置：空 data / 解析失败也必须清，否则下一条消息会被误路由
+                    val evt = event
+                    event = "message"
                     if (data.isEmpty()) return
                     val payload = try { JSONObject(data.toString()) } catch (e: Exception) { null }
                     data.setLength(0)
                     if (payload == null) return
-                    when (event) {
+                    when (evt) {
                         "done" -> result = payload
                         "error" -> throw ApiError(0, payload.optString("error", "AI 生成中断"))
                         else -> {
@@ -688,7 +710,6 @@ object KbApi {
                             payload.optString("reasoning").takeIf { it.isNotEmpty() }?.let(onReasoning)
                         }
                     }
-                    event = "message"
                 }
                 while (true) {
                     currentCoroutineContext().ensureActive()   // 页面离开/取消时尽快中止，不再白跑满超时
@@ -707,9 +728,14 @@ object KbApi {
                 // done 是协议约定事件；缺失说明流被截断（或协议变更），不能当成功返回空对象
                 result ?: throw ApiError(0, "回答流中断（缺少 done 事件）")
             }
+        } catch (e: java.io.IOException) {
+            currentCoroutineContext().ensureActive()   // 已取消就别把 IOException 当失败抛给界面
+            throw e
         } finally {
+            canceller.cancel()
             call.cancel()   // 取消/异常时释放连接，避免后台继续消耗
         }
+      }
     }
 
     /**

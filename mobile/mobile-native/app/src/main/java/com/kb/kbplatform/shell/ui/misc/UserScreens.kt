@@ -78,7 +78,8 @@ fun UserProfileScreen(
     LaunchedEffect(userId) {
         try {
             card = KbApi.userCard(userId)
-            following = card?.optBoolean("following", false) ?: false
+            // 后端字段是 isFollowing（没有 following）；旧名兜底，避免关注按钮永远显示「+ 关注」
+            following = card?.optBoolean("isFollowing") ?: card?.optBoolean("following") ?: false
             articles = runCatching { KbApi.userArticles(userId).objects() }.getOrDefault(emptyList())
             state = L2.Ok
         } catch (e: kotlinx.coroutines.CancellationException) {

@@ -1,5 +1,11 @@
 package com.kb.desktop
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import net.carcdr.ycrdt.FormattingChunk
 import net.carcdr.ycrdt.YBindingFactory
 import net.carcdr.ycrdt.YXmlElement
@@ -118,11 +124,12 @@ object YjsHtml {
                 } else renderChildren(e, sb, depth)
             }
 
-            // TipTap 自定义块：原生端画不了，明确提示（别静默丢内容）
-            "flowchart-block", "mindmap-block", "sheet-block",
-            "flowchartblock", "mindmapblock", "sheetblock" -> {
-                sb.append("<p>【").append(escape(tag)).append("：交互图块请在 Web 端查看】</p>")
-            }
+            // TipTap 自定义图块：能静态渲染就渲染（表格 / 流程图），渲不了给中文提示，别把节点名丢给用户
+            "sheet-block", "sheetblock" -> sb.append(sheetBlockHtml(attr("data"), attr("title")))
+            "flowchart-block", "flowchartblock" -> sb.append(fcBlockHtml(attr("data"), attr("title")))
+            "mindmap-block", "mindmapblock" -> sb.append(
+                blockNotice("🧠", attr("title") ?: "思维导图", "思维导图是交互块，桌面端只显示提示；要编辑请点「编辑」进网页版")
+            )
 
             else -> {
                 // 未知标签按容器下钻（保住里面的文字），与 DocHtml 的处理口径一致
@@ -174,6 +181,113 @@ object YjsHtml {
             sb.append(escape(c.getText()))
             for (c2 in close.asReversed()) sb.append(c2)
         }
+    }
+
+    // ---------- TipTap 图块（表格 / 流程图 / 导图）的静态渲染 ----------
+
+    private const val MAX_SHEET_ROWS = 30
+    private const val MAX_SHEET_COLS = 15
+    private const val MAX_FC_NODES = 40
+    private const val MAX_FC_EDGES = 60
+
+    /** 图块统一提示框（渲染不了的交互块给出信息，而不是裸节点名）。 */
+    private fun blockNotice(icon: String, title: String, hint: String): String =
+        "<div style=\"margin:14px 0;padding:12px 14px;border:1px dashed #c9cdd4;border-radius:10px;" +
+            "background:#f7f8fa;color:#4e5969;font-size:13px;line-height:1.6\">" + icon + " <b>" +
+            escape(title) + "</b><br><span style=\"font-size:12px;color:#86909c\">" + escape(hint) + "</span></div>"
+
+    /**
+     * sheetBlock：`data = {rows:{len,"<row>":{cells:{"<col>":{text}}}}, cols:{len}, merges:[…]}`。
+     * 桌面端渲染成静态表格（截断到 30×15，避免超大表把 WebView 拖死）；空表给提示。
+     */
+    private fun sheetBlockHtml(data: String?, title: String?): String {
+        val name = title ?: "电子表格"
+        val nameHtml = escape(name)
+        val root = data?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
+            ?: return blockNotice("📊", name, "这个表格块没有可读快照，请点「编辑」在网页版查看")
+        val rows = runCatching { root["rows"]?.jsonObject }.getOrNull()
+            ?: return blockNotice("📊", name, "表格为空，请点「编辑」在网页版查看")
+        val cellsByRow = sortedMapOf<Int, JsonObject>()
+        for ((k, v) in rows) {
+            val r = k.toIntOrNull() ?: continue
+            val cells = runCatching { (v as JsonObject).get("cells")?.jsonObject }.getOrNull() ?: continue
+            if (cells.isNotEmpty()) cellsByRow[r] = cells
+        }
+        if (cellsByRow.isEmpty()) return blockNotice("📊", name, "表格为空，请点「编辑」在网页版查看")
+        var maxCol = 0
+        for (cells in cellsByRow.values) {
+            for (k in cells.keys) k.toIntOrNull()?.let { maxCol = maxOf(maxCol, it) }
+        }
+        val lastRow = minOf(cellsByRow.lastKey(), MAX_SHEET_ROWS - 1)
+        val lastCol = minOf(maxCol, MAX_SHEET_COLS - 1)
+        val sb = StringBuilder()
+        sb.append("<div style=\"margin:10px 0 6px;font-size:12px;color:#86909c\">📊 ")
+            .append(nameHtml).append(" · 静态快照（只读）</div>")
+        sb.append("<table style=\"border-collapse:collapse;width:100%;font-size:13px\">")
+        for (r in 0..lastRow) {
+            val cells = cellsByRow[r]
+            sb.append("<tr>")
+            for (c in 0..lastCol) {
+                val text = cells?.get(c.toString())?.let { cell ->
+                    runCatching { (cell as JsonObject).get("text")?.jsonPrimitive?.content }.getOrNull()
+                }.orEmpty()
+                sb.append("<td style=\"border:1px solid #dcdfe6;padding:4px 6px;vertical-align:top;min-width:54px\">")
+                    .append(if (text.isBlank()) "&nbsp;" else escape(text))
+                    .append("</td>")
+            }
+            sb.append("</tr>")
+        }
+        sb.append("</table>")
+        return sb.toString()
+    }
+
+    /**
+     * flowchartBlock：`data = {nodes:[{id,data:{label}}], edges:[{source,target,label}]}`。
+     * 桌面端不做画布，输出「节点 + 连线」清单（最多 40 节点 / 60 连线）。
+     */
+    private fun fcBlockHtml(data: String?, title: String?): String {
+        val name = title ?: "流程图"
+        val nameHtml = escape(name)
+        val root = data?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
+            ?: return blockNotice("🧭", name, "流程图数据为空，请点「编辑」在网页版查看")
+        val nodes = runCatching { root["nodes"]?.jsonArray }.getOrNull().orEmpty()
+        val edges = runCatching { root["edges"]?.jsonArray }.getOrNull().orEmpty()
+        if (nodes.isEmpty() && edges.isEmpty()) return blockNotice("🧭", name, "流程图数据为空，请点「编辑」在网页版查看")
+
+        fun text(o: JsonObject, key: String): String? =
+            runCatching { (o[key] as JsonObject) }.getOrNull()?.let { inner ->
+                runCatching { inner["label"]?.jsonPrimitive?.content }.getOrNull()
+            } ?: runCatching { o[key]?.jsonPrimitive?.content }.getOrNull()
+
+        val idLabel = HashMap<String, String>()
+        val sb = StringBuilder()
+        sb.append("<div style=\"margin:10px 0 6px;font-size:12px;color:#86909c\">🧭 ")
+            .append(nameHtml).append(" · 静态快照（").append(nodes.size).append(" 个节点 / ")
+            .append(edges.size).append(" 条连线）</div><ul style=\"font-size:13px;line-height:1.8\">")
+        nodes.take(MAX_FC_NODES).forEachIndexed { i, el ->
+            val o = el as? JsonObject ?: return@forEachIndexed
+            val id = runCatching { o["id"]?.jsonPrimitive?.content }.getOrNull() ?: "n$i"
+            val label = text(o, "data") ?: runCatching { o["label"]?.jsonPrimitive?.content }.getOrNull() ?: id
+            idLabel[id] = label
+            sb.append("<li>").append(escape(label)).append("</li>")
+        }
+        sb.append("</ul>")
+        val drawn = edges.take(MAX_FC_EDGES).mapNotNull { el ->
+            val o = el as? JsonObject ?: return@mapNotNull null
+            val from = runCatching { (o["source"] ?: o["from"])?.jsonPrimitive?.content }.getOrNull()
+                ?: return@mapNotNull null
+            val to = runCatching { (o["target"] ?: o["to"])?.jsonPrimitive?.content }.getOrNull()
+                ?: return@mapNotNull null
+            val label = text(o, "data") ?: runCatching { o["label"]?.jsonPrimitive?.content }.getOrNull()
+            val line = "${idLabel[from] ?: from} → ${idLabel[to] ?: to}"
+            if (label.isNullOrBlank()) line else "$line（${label}）"
+        }
+        if (drawn.isNotEmpty()) {
+            sb.append("<ul style=\"font-size:13px;line-height:1.8;color:#4e5969\">")
+            drawn.forEach { sb.append("<li>").append(escape(it)).append("</li>") }
+            sb.append("</ul>")
+        }
+        return sb.toString()
     }
 
     private fun escape(s: String?): String {

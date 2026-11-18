@@ -27,6 +27,11 @@
   顶栏「上传」走系统文件选择器（`FileDialog`，需 `LocalAwtWindow` + `@OptIn(ExperimentalComposeUiApi)`）→
   `multipart POST /api/files/mine`（后端按 sha256 去重，同内容不会重复落盘）；每行「复制」把直链写系统剪贴板，
   「删除」需点两次（第一次变「确认删除?」）→ `DELETE /api/files/mine/{id}`。
+  ⚠️ **上传类型受限（2026-11-18 真后端联调确认）**：`FileService.ALLOWED` 只收
+  图片（png/jpg/jpeg/gif/webp/bmp）/ 音频（mp3/wav/ogg/m4a/flac/aac）/ 视频（mp4/webm）/ **PDF**，单文件 ≤ 50MB，
+  且做**魔数嗅探**（`Content-Type` 只报 `application/octet-stream` 也会被拒）。
+  因此本地先按扩展名拦一道并直接给出 MIME（`UPLOAD_EXT_MIME`），文案提示「仅支持图片 / 音频 / 视频 / PDF」——
+  不要再用 `URLConnection.guessContentTypeFromName` 兜底成 octet-stream，那只会换来后端一句类型错误。
   **右侧预览（2026-11-17）**：左列表 320dp + 右预览区；图片（`contentType=image/*` 或常见扩展名）用
   `DocImage` 原生渲染，PDF/文本/其它交给内嵌 WebView 加载直链；点行选中即预览，行尾「打开」仍在系统浏览器打开。
 - **AI 问答**：左侧会话列表（`GET/POST/DELETE /api/ai/conversations`）+ 右侧流式对话
@@ -144,7 +149,15 @@
     `<bold>` 伪标签（已验证踩坑）。
   - 来源标注：解析成功显示「协同实时」（relay 每 **5s** 落库一次，`COLLAB_SAVE_INTERVAL`），
     否则显示「快照」并回退 `content`。
-  - TipTap 自定义块（流程图/导图/表格块）原生端画不了 → 渲染「请在 Web 端查看」提示，不静默丢内容。
+  - TipTap 自定义图块（**2026-11-18 改为静态渲染**）：
+    - `sheetBlock`（节点名实际是 camelCase，`YjsHtml` 里先 `lowercase()` 再匹配）→ 按
+      `data.rows[].cells[].text` 生成**只读静态表格**（截断 30 行 × 15 列，避免超大表拖死 WebView）；
+      无 `data` / 空表给提示框，不再把 `sheetblock` 这种裸节点名丢给用户；
+    - `flowchartBlock` → 输出「节点清单 + 连线（A → B（标签））」快照（上限 40 节点 / 60 连线），
+      桌面端不做画布；
+    - `mindmapBlock` → 中文提示框（导图是交互块，点「编辑」进网页版编辑）。
+    - 验证方式：从真后端 `/yjs` 拉 6 份 `yjs_state`（表格/流程图/导图/空表）跑 `YjsHtml.toHtml`，
+      全部非空、单元格文本（如 `a`）与连线（`123 → 开始（123）`）正确出现。
   - **2026-11-17 修「文档显示不可解析」**：根因是协同文档的正文只存在 `yjs_state`（relay 写），
     `content` HTML 快照经常为空；旧后端没有 `/yjs` 时桌面端拿不到正文，却只显示一句「正文暂不可解析」。
     现在：

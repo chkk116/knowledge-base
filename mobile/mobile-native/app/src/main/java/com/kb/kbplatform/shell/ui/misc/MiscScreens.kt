@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -50,6 +51,7 @@ import com.kb.kbplatform.shell.ui.common.KbEmpty
 import com.kb.kbplatform.shell.ui.common.KbLoading
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
+import com.kb.kbplatform.shell.ui.theme.KbBlue
 import com.kb.kbplatform.shell.ui.theme.KbGreen
 import com.kb.kbplatform.shell.ui.theme.KbRed
 import com.kb.kbplatform.shell.ui.theme.KbTextDim
@@ -108,14 +110,23 @@ fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute
                             Row(Modifier.padding(top = 8.dp)) {
                                 TextButton(onClick = {
                                     scope.launch {
-                                        runCatching { spaces = KbApi.myShares().objects() }
-                                        archiveTarget = d
+                                        // 空间列表取不到就别弹归档框（否则确认时会用空列表下标，提示成功但什么都没发生）
+                                        val loaded = runCatching { KbApi.myShares().objects() }.getOrNull()
+                                        if (loaded.isNullOrEmpty()) {
+                                            msg = "没有可归档的空间"
+                                        } else {
+                                            spaces = loaded
+                                            archiveTarget = d
+                                        }
                                     }
                                 }) { Text("归档到空间", fontSize = 12.sp) }
                                 TextButton(onClick = {
                                     scope.launch {
-                                        runCatching { KbApi.deleteShareDoc(shareId, id) }
-                                        items = items.filter { (if (it.has("docId")) it.optLong("docId") else it.optLong("id", 0)) != id }
+                                        if (runCatching { KbApi.deleteShareDoc(shareId, id) }.isSuccess) {
+                                            items = items.filter { (if (it.has("docId")) it.optLong("docId") else it.optLong("id", 0)) != id }
+                                        } else {
+                                            msg = "删除失败，请重试"
+                                        }
                                     }
                                 }) { Text("删除", fontSize = 12.sp, color = KbRed) }
                                 TextButton(onClick = { openRoute("reader/$shareId/$id?title=" + android.net.Uri.encode(d.optString("title"))) }) {
@@ -153,12 +164,15 @@ fun InboxScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openRoute
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        runCatching {
-                            KbApi.inboxArchive(id, spaces[target].optLong("id", 0), d.optString("title"))
+                        val space = spaces.getOrNull(target)
+                        if (space == null) {
+                            msg = "归档失败：空间列表已失效，请重试"
+                            archiveTarget = null
+                            return@launch
                         }
+                        val ok = runCatching { KbApi.inboxArchive(id, space.optLong("id", 0), d.optString("title")) }.isSuccess
                         archiveTarget = null
-                        msg = "已归档"
-                        load()
+                        if (ok) { msg = "已归档"; load() } else { msg = "归档失败，请重试" }
                     }
                 }) { Text("归档") }
             },
@@ -192,7 +206,7 @@ fun FavoritesScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openR
                     item {
                         Text("文章收藏（云端 · 多端同步）", fontSize = 12.sp, color = KbTextDim)
                     }
-                    items(articles, key = { "doc:${it.optLong("id", 0)}" }) { d ->
+                    itemsIndexed(articles, key = { i, it -> "doc:" + it.optLong("id", -1L) + ":" + i }) { i, d ->
                         val title = d.optString("title").ifBlank { "未命名" }
                         KbCard(Modifier.fillMaxWidth().clickable {
                             openRoute("post/${d.optLong("id", 0)}?title=" + android.net.Uri.encode(title))
@@ -207,7 +221,8 @@ fun FavoritesScreen(onBack: () -> Unit, openWeb: (String, String) -> Unit, openR
                                 }
                                 TextButton(onClick = {
                                     scope.launch {
-                                        runCatching { KbApi.toggleFavorite(d.optLong("id", 0)) }
+                                        // 失败就不刷新，避免列表与服务端不一致；成功才重新拉取
+                                        if (runCatching { KbApi.toggleFavorite(d.optLong("id", 0)) }.isSuccess) refresh++
                                         refresh++
                                     }
                                 }) { Text("取消收藏", fontSize = 12.sp, color = KbRed) }
@@ -258,7 +273,7 @@ fun ExamMineScreen(onBack: () -> Unit) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("🏆", "还没有考试记录")
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(records, key = { it.optLong("id", 0) }) { r ->
+                itemsIndexed(records, key = { i, it -> it.optLong("id", -1L).let { id -> if (id <= 0) "exam-$i" else id } }) { i, r ->
                     val passed = r.optBoolean("passed", false)
                     KbCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -300,7 +315,7 @@ fun PointsScreen(onBack: () -> Unit) {
             try {
                 val r = KbApi.pointsLog(p)
                 items = r.optJSONArray("content")?.objects() ?: emptyList()
-                total = r.optInt("totalElements", items.size)
+                total = r.optInt("total", items.size)
                 page = p
                 state = if (items.isEmpty()) Load.Empty else Load.Ok
             } catch (e: Exception) { state = Load.Empty }
@@ -315,7 +330,7 @@ fun PointsScreen(onBack: () -> Unit) {
             Load.Empty -> KbEmpty("📈", "暂无积分记录")
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { l ->
-                    val pts = l.optInt("points", 0)
+                    val pts = l.optInt("delta", l.optInt("points", 0))
                     KbCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -347,10 +362,16 @@ fun PointsScreen(onBack: () -> Unit) {
 @Composable
 fun RankingScreen(onBack: () -> Unit) {
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var me by remember { mutableStateOf<JSONObject?>(null) }
+    var totalPeople by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf(Load.Loading) }
     LaunchedEffect(Unit) {
         try {
-            items = KbApi.ranking().objects()
+            // 后端返回 {top:[…], total:人数, me:{rank,username,points}}，不是数组
+            val r = KbApi.ranking()
+            items = r.optJSONArray("top")?.objects() ?: emptyList()
+            totalPeople = r.optInt("total", items.size)
+            me = r.optJSONObject("me")
             state = if (items.isEmpty()) Load.Empty else Load.Ok
         } catch (e: Exception) { state = Load.Empty }
     }
@@ -360,6 +381,18 @@ fun RankingScreen(onBack: () -> Unit) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("🏅", "暂无排行数据")
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("共 $totalPeople 人参与", fontSize = 12.sp, color = KbTextDim, modifier = Modifier.weight(1f))
+                        me?.let { m ->
+                            val rk = m.optInt("rank", 0)
+                            Text(
+                                if (rk > 0) "我：第 $rk 名 · ${m.optInt("points", 0)} 分" else "我：暂未上榜",
+                                fontSize = 12.sp, color = KbBlue
+                            )
+                        }
+                    }
+                }
                 items(items, key = { it.optString("username", it.hashCode().toString()) + it.hashCode() }) { r ->
                     KbCard(Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -385,7 +418,7 @@ fun RankingScreen(onBack: () -> Unit) {
 // ============ 文档订阅（对标 MobileSubscriptions）============
 
 @Composable
-fun SubscriptionsScreen(onBack: () -> Unit) {
+fun SubscriptionsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit = { _, _ -> }) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var state by remember { mutableStateOf(Load.Loading) }
@@ -407,21 +440,30 @@ fun SubscriptionsScreen(onBack: () -> Unit) {
             Load.Loading -> KbLoading()
             Load.Empty -> KbEmpty("🔔", "还没有订阅的文档\n订阅后文档更新会通知你")
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(items, key = { it.optString("id", it.hashCode().toString()) + it.hashCode() }) { s ->
+                // 后端字段：{docId,title,category,deleted,subscribedAt}（没有 id，key 用 docId）
+                items(items, key = { it.optLong("docId", it.hashCode().toLong()) }) { s ->
+                    val docId = s.optLong("docId", 0)
                     val deleted = s.optBoolean("deleted", false)
-                    KbCard(Modifier.fillMaxWidth()) {
+                    val title = s.optString("title").ifBlank { "已删除文档" }
+                    KbCard(
+                        Modifier.fillMaxWidth().clickable(enabled = !deleted) { openPost(docId, title) }
+                    ) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    s.optString("title").ifBlank { "已删除文档" },
+                                    title,
                                     fontSize = 14.sp,
                                     color = if (deleted) KbTextDim else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "订阅于 " + formatDateTime(s.optString("subscribedAt")),
+                                    fontSize = 11.sp, color = KbTextDim
                                 )
                             }
                             if (!deleted) {
                                 TextButton(onClick = {
                                     scope.launch {
-                                        runCatching { KbApi.unsubscribe(s.optLong("id", s.optLong("docId", 0))) }
+                                        runCatching { KbApi.unsubscribe(docId) }
                                         load()
                                     }
                                 }) { Text("退订", fontSize = 12.sp, color = KbRed) }

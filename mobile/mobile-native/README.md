@@ -41,7 +41,7 @@ Web 页面在 WebView 中以标准 PWA 形态运行（无 Capacitor 对象，mai
 | 私信（原生） | 会话列表（收件箱/归档、未读角标、删除）+ 单会话聊天（游标翻更早、2 分钟内撤回、已读回执、未互关剩余条数提示）；入口在消息页与用户主页 | `/api/dm/*` |
 | 我的帖子（原生） | 作者视角：草稿「提交审核」、待审「撤回」、任意「删除」（二次确认，已发布会提示删除后读者不可访问）；显示状态徽标/阅读量/驳回理由 | `/api/docs/mine` `/api/docs/{id}/submit` `/api/docs/{id}/withdraw` `/api/docs/{id}` |
 | 草稿箱（本机） | 断网/后台暂存的图片与编辑草稿（`DraftStore`）：「全部上传」批量补传、单条「立即上传」、查看详情、删除；入口在「我的」页（带待上传条数副标题），首页横幅同步计数 | 上传走统一文件/文档链路 |
-| 文件中心（原生） | 我的文件列表 + **统一上传**（系统文件选择器 → 复制到 cache → `/api/files/mine`）+ 复制链接；扫描/分享导入复用同一条上传链路 | `/api/files/mine` |
+| 文件中心（原生） | 我的文件列表 + **统一上传**（`OpenDocument` 按白名单过滤 → 复制到 cache → `/api/files/mine`）+ 复制链接；**只支持图片 / 音频 / 视频 / PDF，单文件 ≤ 50MB**（后端 `FileService.ALLOWED` + 魔数嗅探，故按扩展名兜底推断 MIME，见 `guessUploadMime`）；扫描/分享导入复用同一条上传链路 | `/api/files/mine` |
 | 搜索（原生） | 我的空间全文档标题/正文检索 + 搜索历史 | `/api/doc-shares/*` |
 | 复习卡片（原生） | SM-2 到期队列：翻面 + 四档评分 + 本轮小结 | `/api/flashcards/due` `/api/flashcards/{id}/review` |
 | 模拟练习（原生） | 随机抽题、逐题判分看解析、答题卡跳题、错题回顾 | `/api/exams/practice/*` |
@@ -50,10 +50,13 @@ Web 页面在 WebView 中以标准 PWA 形态运行（无 Capacitor 对象，mai
 | 离线缓存 | 列表 + 打开过的正文（100 篇上限），按账号隔离落盘 | — |
 | 应用锁 | 4-6 位 PIN（salt+SHA-256），冷启动必锁、后台超 60s 回切加锁 | — |
 | 应用内更新 | 版本检查 → 下载（断点续传 + **域名白名单**）→ 系统安装器 | `/api/public/app-version` |
-
-**版本线**：Capacitor 版停更于 versionCode 29；原生壳从 30+ 起步（现 32）——同一 app-version 通道下旧套壳用户会被提示升级到原生 APK。
+| 个人成长（原生） | 积分明细（`delta` 正负着色 + `total` 分页）、排行榜（`top` + 「我：第 N 名」，人数用 `total`）、徽章成就（`badges[]` 按 `earned`/`worn` 渲染，佩戴/再点卸下，`id` 是字符串如 `first_post`）；课程中心（课程列表 + 章节阅读 + 完成打卡） | `/api/points/*` `/api/badges` `/api/badges/wear` `/api/courses/*` |
+| 我的订阅（原生） | 订阅列表（`docId`/`title`/`deleted`/`subscribedAt`，已删除置灰不可点）+ 点行进文章 + 「退订」 | `/api/docs/subscriptions` `/api/docs/{id}/subscribe` |
+| 回收站（原生） | 我删除的文章（`title`/`deletedAt`）+ 恢复 / 彻底删除（二次确认） | `/api/docs/recycle` `/api/docs/{id}/restore` `/api/docs/{id}/purge` |
 | 我的 | 资料、积分、服务器地址设置、退出登录 | `/api/auth/me` |
 | WebView 承载页 | 任意 /m/ 页面；令牌桥接自动登录；**文件选择/拍照桥**（input file + capture 相机）、JS alert/confirm、进度条、返回栈 | — |
+
+**版本线**：Capacitor 版停更于 versionCode 29；原生壳从 30+ 起步（现 32）——同一 app-version 通道下旧套壳用户会被提示升级到原生 APK。
 
 令牌桥接机制（配对代码：`frontend/src/main-mobile.js` 顶部的 bootstrap 段）：
 
@@ -97,7 +100,9 @@ gradlew.bat assembleDebug
 
 - 离线草稿队列**已迁移**（拍照/编辑断网暂存 →「我的 → 草稿箱」批量/单条补传）；离线正文中的外链图片不可见（文字完整）
 - WebView 内下载类动作（a[download]）未接系统下载
-- 课程中心 / 错题本 / 学习计划等长尾页面仍走 WebView；正式考试防泄题细节（如切后台策略）以 Web 版为准
+- 交互一致性：标记完成、归档、恢复版本、封禁/删除、退订等只在接口成功后才改本地列表并提示成功；失败保留原状并给出原因。列表 key 一律带位置兜底，id 缺失或重复不再触发崩溃；上传临时文件名去掉路径分隔符并加随机前缀。AI 流式回答改为取消即中断连接，事件类型在每个事件边界重置。
+
+- 错题本 / 学习计划等长尾页面仍走 WebView（课程中心已原生化：列表 / 章节 / 完成打卡）；正式考试防泄题细节（如切后台策略）以 Web 版为准
 - 生物识别解锁未做（仅 PIN）
 
 ## 迁移路线图
