@@ -155,6 +155,13 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 - OCR 图片识别可在「AI 模型管理」里勾选「用于图片 OCR」指定视觉模型（不勾时沿用智谱条目），无独立密钥配置
 - **AI 反馈工作台**：问答反馈从只读看板升级为可处理的闭环——高频未命中一键「检索测试」验证能否搜到、一键「补文档」生成知识缺口草稿（骨架预置问题 / 背景 / 待补充）；最近差评支持「复制上下文」（问题 + 回答 + 原因 + 用户，贴给文档作者）与「定性」归档（检索没命中 / 文档不对 / 模型答错），顶部待处理计数与全部 / 待处理 / 已处理 / 已忽略筛选；处理状态服务端持久化（`kb_ai_feedback_action` 表，按 AI_MANAGE 口径读写，跨设备同步），补文档标记「已处理」后自动回测——该问题再未出现未命中即判定补文档生效，复现则重新拉回待处理
 
+### 邮箱
+- 每人可绑定多个外部邮箱：QQ / 网易 163·126 / 腾讯企业邮 / 阿里钉钉邮箱走**授权码 + IMAP**，Gmail 与 Outlook 走**OAuth 授权**（管理员在后台配置 OAuth 应用的 clientId / clientSecret / 回调地址）
+- 授权码与 refresh_token 一律 AES-GCM 加密落库，接口只回脱敏邮箱与连接状态；解绑会同时删除该邮箱已同步的邮件
+- 增量同步收件箱（UID 游标，默认只回溯最近 30 天），取正文用 `BODY.PEEK`，**不会把邮件标成已读**；图片附件落到站内上传目录，其它附件保留文件名与大小
+- 三栏阅读：左账号与文件夹、中邮件列表（按账号 / 关键词过滤）、右阅读窗；HTML 正文做了脚本、iframe 与事件属性清理
+- Agent 工具：`mail_accounts` / `mail_search` / `mail_read` / `mail_to_doc`——搜索、读信、把整封邮件整理成知识库文档草稿（保留来源发件人与时间）
+
 ### 安全
 - 滑动拼图验证码（服务端基准 + 容差 + 轨迹检测 + IP 限流）、HMAC-SHA256 自签令牌、salt+SHA-256 密码
 - 管理员脚本登录实时告警（SSE 通知）、细粒度管理接口鉴权（过滤器 + 控制器双层）、安全响应头、路径穿越防护
@@ -257,6 +264,7 @@ knowledge-base/
 │       ├── features/ai/      # 5 个 composable（会话操作/附件/反馈/模型选择/Markdown 视图）+ 4 组纯规则，均可单测
 │       ├── features/docShare/# exportDoc：图块快照与 Markdown/HTML/Excel 导出（可单测）
 │       ├── features/post/    # postDoc：文章目录树生成与正文颜色规则（可单测）
+│       ├── api/mail.js       # 邮箱账户绑定 / 邮件列表与详情接口
 │       ├── composables/      # useUnsavedGuard：编辑/答题页的路由离开确认与关闭标签页提示
 │       ├── components/       # SlideCaptcha / RichEditor / CommentSection / WornBadgeStrip…
 │       ├── utils/            # time / text / appearance(外观共享缓存) / theme / level…

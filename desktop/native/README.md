@@ -27,6 +27,8 @@
   顶栏「上传」走系统文件选择器（`FileDialog`，需 `LocalAwtWindow` + `@OptIn(ExperimentalComposeUiApi)`）→
   `multipart POST /api/files/mine`（后端按 sha256 去重，同内容不会重复落盘）；每行「复制」把直链写系统剪贴板，
   「删除」需点两次（第一次变「确认删除?」）→ `DELETE /api/files/mine/{id}`。
+  **右侧预览（2026-11-17）**：左列表 320dp + 右预览区；图片（`contentType=image/*` 或常见扩展名）用
+  `DocImage` 原生渲染，PDF/文本/其它交给内嵌 WebView 加载直链；点行选中即预览，行尾「打开」仍在系统浏览器打开。
 - **AI 问答**：左侧会话列表（`GET/POST/DELETE /api/ai/conversations`）+ 右侧流式对话
   （`POST /api/ai/ask/stream`，SSE 逐段 `{"delta"}/{"reasoning"}`，`done` 事件带 qaId/sources/conversationId；
   「停止」断开连接、已生成内容保留，口径与 Web 端 ai.js 一致）；

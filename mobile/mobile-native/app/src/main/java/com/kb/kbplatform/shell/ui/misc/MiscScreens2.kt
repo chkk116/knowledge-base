@@ -327,7 +327,7 @@ fun FilesScreen(onBack: () -> Unit) {
                     f.outputStream().use { out -> input.copyTo(out) }
                 } ?: throw IllegalStateException("无法读取所选文件")
                 val mime = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
-                KbApi.uploadFile(f, mime)
+                KbApi.uploadMyFile(f, mime)
                 msg = "上传成功：$name"
                 tick++
             } catch (e: Exception) {

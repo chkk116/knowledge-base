@@ -1611,6 +1611,8 @@ private fun FilesPanel(session: Session) {
     var uploading by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     var pendingDel by remember { mutableStateOf<Long?>(null) }
+    // 右侧预览选中项
+    var sel by remember { mutableStateOf<FileItem?>(null) }
 
     LaunchedEffect(refresh) {
         loading = true
@@ -1671,6 +1673,9 @@ private fun FilesPanel(session: Session) {
             )
         }
         HorizontalDivider()
+        Row(Modifier.weight(1f)) {
+            // 左：文件列表（点一下即选中并在右侧预览）
+            Column(Modifier.width(320.dp).fillMaxHeight()) {
         Box(Modifier.weight(1f)) {
             when {
                 loading -> PanelHint("加载中…")
@@ -1689,6 +1694,8 @@ private fun FilesPanel(session: Session) {
                         FileRow(
                             session = session,
                             f = f,
+                            selected = sel?.id == f.id,
+                            onSelect = { sel = f },
                             confirming = pendingDel == f.id,
                             onCopy = {
                                 runCatching {
@@ -1715,6 +1722,15 @@ private fun FilesPanel(session: Session) {
                 }
             }
         }
+            }
+            Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
+            // 右：预览（图片原生渲染，PDF / 文本 / 其它交给 WebView）
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                val cur = sel
+                if (cur == null) PanelHint("选择一个文件查看预览")
+                else FilePreview(session, cur)
+            }
+        }
     }
 }
 
@@ -1722,6 +1738,8 @@ private fun FilesPanel(session: Session) {
 private fun FileRow(
     session: Session,
     f: FileItem,
+    selected: Boolean = false,
+    onSelect: () -> Unit = {},
     confirming: Boolean = false,
     onCopy: () -> Unit = {},
     onDelete: () -> Unit = {},
@@ -1729,7 +1747,8 @@ private fun FileRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable { openInBrowser(session.server, f.url) }
+            .clickable(onClick = onSelect)
+            .background(if (selected) KbSidebarSelected else Color.Transparent)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1778,6 +1797,25 @@ private fun FileRow(
 
 private val BLANK_READER =
     "<html><head><meta charset=\"utf-8\"><style>html,body{margin:0;background:#fff}</style></head><body></body></html>"
+
+/** 预览判定：图片原生渲染更清晰，其余（PDF / 文本 / 压缩包）交给 WebView 或系统 */
+private fun isImageFile(f: FileItem): Boolean {
+    val ct = f.contentType.orEmpty().lowercase()
+    if (ct.startsWith("image/")) return true
+    val ext = f.name.substringAfterLast('.', "").lowercase()
+    return ext in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg")
+}
+
+@Composable
+private fun FilePreview(session: Session, f: FileItem) {
+    if (isImageFile(f)) {
+        DocImage(f.url, session.server, Modifier.fillMaxSize().padding(12.dp))
+    } else {
+        val full = session.server.trimEnd('/') + f.url
+        val st = remember(full) { WebViewState(WebContent.Url(full)) }
+        WebView(st, Modifier.fillMaxSize())
+    }
+}
 
 /** JS 字符串字面量转义（token 注入 initScript 用）。 */
 private fun jsStr(s: String): String =

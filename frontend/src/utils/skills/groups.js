@@ -5,7 +5,8 @@ export const SKILL_GROUPS = [
   { id: 'create', label: '内容生成', desc: '生成图片、短视频、流程图' },
   { id: 'exam', label: '出题测评', desc: '按主题生成考题并加入题库' },
   { id: 'nav', label: '页面导航', desc: '跳转到应用内页面' },
-  { id: 'assist', label: '协作辅助', desc: '获取当前时间、需要拍板时向用户提问' }
+  { id: 'assist', label: '协作辅助', desc: '获取当前时间、需要拍板时向用户提问' },
+  { id: 'mail', label: '邮箱', desc: '搜索 / 读取已绑定邮箱的邮件，整封转为知识库文档' }
 ]
 
 export const ALL_GROUP_IDS = SKILL_GROUPS.map((g) => g.id)

@@ -9,6 +9,7 @@
 //   perm   可选，声明所需权限码；由宿主/执行器做二次校验（展示层不能只靠它，
 //          普通用户几乎没有管理员权限码，一刀切过滤会把工具砍光）
 import { search, getDoc } from '../../api/kb'
+import { listMailAccounts, listMailMessages, getMailMessage } from '../../api/mail'
 
 const DOC_SNIPPET = 3000
 const unsupported = (what) => `当前环境不支持${what}`
@@ -213,6 +214,63 @@ export const TOOLS = [
       say('📝 AI 出题：' + topic.slice(0, 30))
       // 确认（外网/通用知识）、生成、入库都封在宿主里：这里只管调与回填
       return await hooks.createQuestions({ ...args, topic })
+    }
+  },
+  {
+    id: 'mail_accounts',
+    group: 'mail',
+    manual: `mail_accounts —— 列出我已绑定的邮箱（邮箱地址、服务商、连接状态）。参数 {}`,
+    async run({ say }) {
+      say('📬 查看已绑定邮箱')
+      const { data } = await listMailAccounts()
+      if (!data || !data.length) return '我还没有绑定任何邮箱，请先在「邮件」页绑定'
+      return data.map((a) => `- ${a.email}（${a.provider}，${a.status === 'OK' ? '连接正常' : '连接异常'}）`).join('\n')
+    }
+  },
+  {
+    id: 'mail_search',
+    group: 'mail',
+    manual: `mail_search —— 搜索我的邮件（主题 / 发件人 / 摘要）。参数 {q:关键词,accountId:可选数字,limit:1-20}`,
+    async run({ args, say }) {
+      const q = String(args.q || '').slice(0, 60)
+      const size = Math.min(20, Math.max(1, Number(args.limit) || 8))
+      const params = { page: 0, size }
+      if (q) params.q = q
+      if (args.accountId) params.accountId = Number(args.accountId)
+      say('🔍 搜索邮件：' + (q || '最近邮件'))
+      const { data } = await listMailMessages(params)
+      const items = data.items || []
+      if (!items.length) return '没有匹配的邮件'
+      return items.map((m) => `- [${m.id}] ${m.subject || '（无主题）'} — ${m.fromName || m.fromAddr}（${m.sentAt.slice(0, 16)}）`).join('\n')
+    }
+  },
+  {
+    id: 'mail_read',
+    group: 'mail',
+    manual: `mail_read —— 读取一封邮件正文（节选 3000 字）。参数 {id:邮件id}（来自 mail_search）`,
+    async run({ args, say }) {
+      const id = Number(args.id)
+      if (!id) return '缺少邮件 id'
+      say('📧 读取邮件 #' + id)
+      const { data } = await getMailMessage(id)
+      const body = String(data.textBody || '').slice(0, 3000)
+      return `《${data.subject || '无主题'}》\n发件人：${data.fromName || ''} <${data.fromAddr || ''}>\n时间：${String(data.sentAt || '').slice(0, 16)}\n\n${body}`
+    }
+  },
+  {
+    id: 'mail_to_doc',
+    group: 'mail',
+    manual: `mail_to_doc —— 把一封邮件整理成知识库文档草稿（保留来源）。参数 {id:邮件id,title:可选标题}`,
+    async run({ args, hooks, say }) {
+      if (typeof hooks.createDoc !== 'function') return unsupported('保存文档')
+      const id = Number(args.id)
+      if (!id) return '缺少邮件 id'
+      say('📥 邮件转文档 #' + id)
+      const { data } = await getMailMessage(id)
+      const title = String(args.title || data.subject || '邮件整理').slice(0, 100)
+      const source = `> 来源：${data.fromName || data.fromAddr} 于 ${String(data.sentAt || '').slice(0, 16)} 发来的邮件\n\n`
+      const content = source + String(data.textBody || '').slice(0, 20000)
+      return await hooks.createDoc({ title, content, status: 'draft' })
     }
   }
 ]

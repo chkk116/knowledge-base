@@ -353,6 +353,7 @@ const menus = computed(() => {
     if (featureOpen('ranking')) base.push({ index: '/ranking', title: t('ranking', '积分排行榜'), icon: 'TrendCharts' })
     if (featureOpen('ai_chat')) base.push({ index: '/ai/chat', title: t('aiChat', 'AI 问答'), icon: 'AiSpark' })
     base.push({ index: '/messages', title: t('messages', '消息中心'), icon: 'ChatDotRound' })
+    base.push({ index: '/mail', title: t('mail', '邮件'), icon: 'Message' })
     if (featureOpen('courses')) base.push({ index: '/study/courses', title: t('courses', '培训'), icon: 'Reading' })
     // 考试与练习：原 7 个入口收敛为「在线考试」「练习」两个主入口（原「答题闯关」/quiz 并入在线考试），
     // 错题本 / 我的成绩 / 我的题库 在页内用 tab 切换（2026-10-29 入口收敛）

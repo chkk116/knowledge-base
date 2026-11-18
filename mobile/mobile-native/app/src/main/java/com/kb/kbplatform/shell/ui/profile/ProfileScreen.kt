@@ -73,6 +73,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.border
 import androidx.compose.animation.core.tween
@@ -237,6 +238,15 @@ fun ProfileScreen(
         val contentItems = listOfNotNull(
             MenuItem(Icons.Filled.FolderOpen, "我的文件", "上传的图片与附件") { openRoute("files") },
             MenuItem(Icons.Filled.List, "我的帖子", "草稿 / 待审 / 已发布") { openRoute("my-posts") },
+            // 离线草稿箱：数量来自 DraftStore（首页横幅之外的第二入口，免得草稿藏起来找不到）
+            run {
+                val draftCount = com.kb.kbplatform.shell.data.DraftStore.list(ctx).size
+                MenuItem(
+                    Icons.Filled.Edit,
+                    "草稿箱",
+                    if (draftCount > 0) "$draftCount 篇待上传" else "离线草稿，联网后自动同步"
+                ) { openRoute("drafts") }
+            },
             MenuItem(Icons.Filled.Star, "我的收藏", "收藏过的文档") { openRoute("favorites") },
             MenuItem(Icons.Filled.History, "浏览历史", "最近看过的文档") { openRoute("history") },
             MenuItem(Icons.Filled.Description, "全部文档", "跨空间聚合") { openRoute("all-docs") }

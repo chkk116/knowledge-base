@@ -115,6 +115,7 @@ const routes = [
   { path: '/admin/system', component: () => import('../views/admin/SystemStatus.vue'), meta: { admin: true, perm: 'SYSTEM_STATUS_VIEW|CORE_MAINTAIN', title: '系统状态' } },
   { path: '/my-quiz', component: () => import('../views/MyQuiz.vue'), meta: { title: '我的题库' } },
   { path: '/messages', component: () => import('../views/Messages.vue'), meta: { title: '私信' } },
+  { path: '/mail', component: () => import('../views/Mail.vue'), meta: { title: '邮件' } },
   { path: '/my-quiz/run', component: () => import('../views/MyQuizRun.vue'), meta: { title: '刷题' } },
   { path: '/admin/sso-ldap', component: () => import('../views/admin/SsoSettings.vue'), meta: { admin: true, perm: 'SSO_MANAGE|CORE_MAINTAIN', title: '企业登录' } },
   { path: '/admin/login-qr', component: () => import('../views/admin/LoginQrSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '登录页二维码' } },

@@ -771,6 +771,18 @@ object KbApi {
         ApiClient.postBody("/api/files", body)
     }
 
+    /**
+     * POST /api/files/mine → 上传到「我的文件」（登记归属，才会出现在 `GET /files/mine`）。
+     * ⚠️ 编辑器/扫描走的 `POST /api/files` **不登记 owner**，用它上传的文件不会出现在文件列表里。
+     */
+    suspend fun uploadMyFile(file: java.io.File, mime: String): JSONObject = withContext(Dispatchers.IO) {
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody(mime.toMediaType()))
+            .build()
+        ApiClient.postBody("/api/files/mine", body)
+    }
+
     /** POST /doc-shares/{id}/docs[?inbox=true] { title, content } */
     suspend fun createShareDoc(
         shareId: Long,
