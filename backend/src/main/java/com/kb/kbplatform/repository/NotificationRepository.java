@@ -20,12 +20,12 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     long deleteByUserIdAndIdIn(Long userId, List<Long> ids);   // 批量删除（仅限本人）
     long deleteByUserId(Long userId);                           // 清空本人全部
 
-    /** 全部标记已读：一条 UPDATE 完成，不再把历史通知全部加载进内存逐实体保存 */
-    @Modifying
-    @Query("update Notification n set n.read = true where n.userId = :uid and n.read = false")
     /** 取消点赞撤回通知（N29） */
     void deleteByUserIdAndTypeAndDocIdAndActor(Long userId, String type, Long docId, String actor);
 
+    /** 全部标记已读：一条 UPDATE 完成，不再把历史通知全部加载进内存逐实体保存 */
+    @Modifying
+    @Query("update Notification n set n.read = true where n.userId = :uid and n.read = false")
     int markAllRead(@Param("uid") Long userId);
 
     /** 批量未读数（订阅推送用）：一条分组查询算完所有接收者的未读数，避免逐用户 count（外部审查 2026-10-13） */
