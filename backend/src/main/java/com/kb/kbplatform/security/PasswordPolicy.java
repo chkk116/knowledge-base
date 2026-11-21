@@ -44,17 +44,22 @@ public final class PasswordPolicy {
         if (kinds < 2) {
             return "密码需包含字母、数字、符号中的至少两类";
         }
-        String lower = password.toLowerCase();
+        String lower = password.toLowerCase(java.util.Locale.ROOT);
         if (WEAK.contains(lower)) {
             return "该密码过于常见，请换一个";
         }
-        if (username != null && !username.isBlank()
-                && (lower.equals(username.toLowerCase()) || lower.equals(username.toLowerCase() + "123"))) {
-            return "密码不能与用户名相同或仅在其后加数字";
+        if (username != null && !username.isBlank()) {
+            String u = username.toLowerCase(java.util.Locale.ROOT);
+            // 用户名本身，或「用户名 + 任意数字串」（admin1234 / root888 / admin2024 都是常见弱口令）
+            if (lower.equals(u) || lower.matches(java.util.regex.Pattern.quote(u) + "\d{1,6}")) {
+                return "密码不能与用户名相同或仅在其后加数字";
+            }
         }
-        // 连续重复字符（aaaaaaaa、11111111 这类已在弱口令表里，这里兜更长的）
-        if (password.matches("(.)\\1{7,}")) {
-            return "密码不能是同一个字符重复";
+        // 连续重复字符：用 find 而不是 matches —— matches 是全文锚定，
+        // 只能命中「整个密码就是一个字符重复」（那种已被 kinds<2 拒掉），
+        // 而 aaaaaaaaaaaa123 这种带一点数字的弱口令会漏过去。
+        if (java.util.regex.Pattern.compile("(.)\\1{7,}").matcher(password).find()) {
+            return "密码不能包含 8 个以上连续重复字符";
         }
         return null;
     }
