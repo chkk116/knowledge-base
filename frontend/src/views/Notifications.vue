@@ -1,5 +1,22 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+
+/**
+ * 通知摘要净化（N32）：summary 走 v-html，存量数据里可能已有存储型载荷。
+ * 策略：先整体转义，再把「站内表情」标签恢复——形态固定
+ * （<img class="kb-emoji" src="/emojis|/uploads/…" alt="表情">），src 白名单前缀，无可执行属性。
+ */
+function safeSummary(raw) {
+  if (!raw) return ''
+  const esc = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return esc.replace(
+    /&lt;img\s+class=&quot;kb-emoji&quot;\s+src=&quot;([^&]+)&quot;\s+alt=&quot;([^&]*)&quot;\s*&gt;/g,
+    (m, src) => {
+      const url = String(src).replace(/&amp;/g, '&')
+      if (!/^(\/emojis\/|\/uploads\/)/.test(url)) return ''
+      return '<img class="kb-emoji" src="' + url + '" alt="表情">'
+    })
+}
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -290,7 +307,7 @@ onMounted(load)
                 <!-- 标题只放类型，正文由下面的 .summary 渲染：原来两处都输出 summary，同一段长文本显示两遍 -->
                 <div class="line"><span class="txt">{{ n.type === 'SECURITY_ALERT' ? '安全提醒' : '通知' }}</span></div>
               </template>
-              <p class="summary" v-if="n.summary && !isReviewType(n.type)" v-html="n.summary"></p>
+              <p class="summary" v-if="n.summary && !isReviewType(n.type)" v-html="safeSummary(n.summary)"></p>
               <span class="time" v-if="n.createdAt">{{ fromNow(n.createdAt) }}（{{ fmtDateTime(n.createdAt) }}）</span>
             </div>
             <div class="ops" @click.stop>

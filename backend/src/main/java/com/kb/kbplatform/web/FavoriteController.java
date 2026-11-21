@@ -36,6 +36,14 @@ public class FavoriteController {
         this.userRepo = userRepo;
     }
 
+    /** 取消收藏（幂等）：已取消再删同样返回成功。原来只有 POST 切换语义，
+     *  DELETE 探针打到无匹配方法时走 500 兜底（外部测试 N39）。 */
+    @DeleteMapping("/{docId}")
+    public Map<String, Object> delete(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long docId) {
+        svc.remove(resolveUserId(c), docId);
+        return Map.of("ok", true);
+    }
+
     /** 切换收藏：返回 { favorited: true/false } */
     @PostMapping("/{docId}")
     public Map<String, Object> toggle(@RequestAttribute("kbUser") TokenClaims c,

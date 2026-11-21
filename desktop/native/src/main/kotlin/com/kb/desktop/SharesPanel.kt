@@ -89,6 +89,8 @@ fun SharesPanel(session: Session) {
     var showShareLink by remember { mutableStateOf(false) }
     // 文档级权限（单篇覆盖空间权限，能管理该文档的人可改）
     var showDocPerm by remember { mutableStateOf(false) }
+    // 文档整理：改标签 / 移动到其他空间
+    var showOrganize by remember { mutableStateOf(false) }
 
     var spacesLoading by remember { mutableStateOf(true) }
     var docsLoading by remember { mutableStateOf(false) }
@@ -363,6 +365,7 @@ fun SharesPanel(session: Session) {
                     onOpenVersions = { showVersions = true },
                     onOpenShare = { showShareLink = true },
                     onOpenPerm = { showDocPerm = true },
+                    onOpenOrganize = { showOrganize = true },
                     onOpenInBrowser = {
                         val sid = docShareId
                         if (sid == null || sid <= 0) {
@@ -503,6 +506,28 @@ fun SharesPanel(session: Session) {
             onChanged = { detailTick++ },
         )
     }
+
+    // 文档整理（标签 / 移动）：改动后刷新列表；移动成功后该文档已不在当前空间，直接收起阅读区
+    val organizeDoc = detail
+    if (showOrganize && shareSid != null && shareSid > 0 && shareDid != null && organizeDoc != null) {
+        DocOrganizeDialog(
+            session = session,
+            api = api,
+            shareId = shareSid,
+            doc = organizeDoc,
+            allSpaces = spaces,
+            onClose = { showOrganize = false },
+            onChanged = {
+                detailTick++
+                docsTick++
+            },
+            onMoved = {
+                showOrganize = false
+                detailTick++
+                docsTick++
+            },
+        )
+    }
 }
 
 @Composable
@@ -628,6 +653,7 @@ private fun ShareReader(
     onOpenVersions: () -> Unit = {},
     onOpenShare: () -> Unit = {},
     onOpenPerm: () -> Unit = {},
+    onOpenOrganize: () -> Unit = {},
     onOpenInBrowser: () -> Unit,
 ) {
     val blocks = remember(doc.id, html) { DocHtml.parse(html) }
@@ -657,6 +683,9 @@ private fun ShareReader(
                     }
                     TextButton(onClick = onOpenPerm, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("权限", fontSize = 11.5.sp)
+                    }
+                    TextButton(onClick = onOpenOrganize, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("整理", fontSize = 11.5.sp)
                     }
                     TextButton(onClick = onOpenVersions, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("版本", fontSize = 11.5.sp)

@@ -212,6 +212,13 @@ public class DocumentController {
         if (d.getId() != null) {
             throw new ResponseStatusException(BAD_REQUEST, "创建文档不能携带 id");
         }
+        if (d.getTitle() == null || d.getTitle().isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "标题不能为空");
+        }
+        if (d.getTitle().length() > 120) {
+            throw new ResponseStatusException(BAD_REQUEST, "标题过长（最多 120 字）");
+        }
+        d.setTitle(d.getTitle().trim());
         d.setContent(HtmlSanitizer.sanitize(d.getContent()));
         boolean admin = c.isAdmin();   // 与后台门禁同口径（含权限码全覆盖）
         if (admin) {

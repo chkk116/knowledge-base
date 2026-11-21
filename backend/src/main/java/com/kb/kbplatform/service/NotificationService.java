@@ -139,7 +139,9 @@ public class NotificationService {
     /** 标题截断（避免通知正文过长） */
     private String clipTitle(String t) {
         if (t == null) return "";
-        t = t.trim();
+        t = com.kb.kbplatform.security.HtmlSanitizer.escapeHtml(t.trim());
+        // 标题是用户可输入的纯文本，而通知 summary 在前端走 v-html 渲染：
+        // 不转义的话 <img onerror=…> 之类的存储型载荷会原样进通知列表（外部测试 N32）。
         return t.length() > 30 ? t.substring(0, 30) + "…" : t;
     }
 
@@ -190,7 +192,7 @@ public class NotificationService {
         n.setActor(actorName(actorUsername));
         n.setDocId(docId);
         n.setShareId(shareId);
-        n.setSummary(docTitle);
+        n.setSummary(clipTitle(docTitle));
         saveAndPush(n);
     }
 
@@ -221,6 +223,16 @@ public class NotificationService {
         n.setCommentId(commentId);
         n.setSummary("《" + clipTitle(docTitle) + "》 " + p);
         saveAndPush(n);
+    }
+
+    /** 取消点赞时撤回对应的通知（外部测试 N29：原来取消后通知永久留在列表里） */
+    public void removeLikeNotification(Long docId, Long docOwnerId, String actorUsername) {
+        if (docOwnerId == null) return;
+        try {
+            repo.deleteByUserIdAndTypeAndDocIdAndActor(docOwnerId, "LIKE", docId, actorName(actorUsername));
+        } catch (Exception e) {
+            log.warn("撤回点赞通知失败 doc={}: {}", docId, e.getMessage());
+        }
     }
 
     /** 文章被点赞：通知文章作者（给自己点赞不通知） */

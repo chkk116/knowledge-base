@@ -132,6 +132,13 @@ public class CommentService {
         if (sensitiveWordFilter.contains(plainText)) {
             throw new BizException("评论内容包含敏感词：" + String.join("、", sensitiveWordFilter.find(plainText)));
         }
+        // 双击/网络重试幂等（外部测试 N34）：同一人同一对象 2 秒内同一内容视为同一条
+        java.util.Optional<Comment> dup = claims == null ? java.util.Optional.empty()
+                : repo.findFirstByDocIdAndUserIdAndContentOrderByCreatedAtDesc(targetType, targetId, claims.userId(), content);
+        if (dup.isPresent() && dup.get().getCreatedAt() != null
+                && dup.get().getCreatedAt().isAfter(java.time.LocalDateTime.now().minusSeconds(2))) {
+            return dup.get();
+        }
         Comment c = new Comment();
         // 父评论归属校验（2026-10-13 审查 M10）：parentId 须指向同一对象下的评论，否则可跨文档伪造楼层
         if (parentId != null) {

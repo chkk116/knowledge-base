@@ -75,6 +75,10 @@ public class DmController {
                                               @RequestParam Long peerId,
                                               @RequestParam(required = false) Long beforeId,
                                               @RequestParam(defaultValue = "30") int size) {
+        if (peerId != null && peerId.equals(uid(c))) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "不能查看与自己的会话");
+        }
         return svc.history(uid(c), peerId, beforeId, size);
     }
 

@@ -2385,6 +2385,28 @@ class ApiClient(private val base: String) {
             """{"content":${jsonStr(content)}}""",
         )
     }
+
+    /** PUT …/docs/{docId}/tags {tags:[…]} → 更新后的文档（库里 tags 是逗号分隔字符串）。 */
+    suspend fun updateShareDocTags(token: String, shareId: Long, docId: Long, tags: List<String>): SharedDocItem =
+        withContext(Dispatchers.IO) {
+            val arr = tags.map { it.trim() }.filter { it.isNotEmpty() }
+                .joinToString(",", prefix = "[", postfix = "]") { jsonStr(it) }
+            val o = parse(authReq("PUT", "/api/doc-shares/$shareId/docs/$docId/tags", token, """{"tags":$arr}"""))
+                ?: throw ApiError("更新标签响应异常")
+            parseSharedDoc(o)
+        }
+
+    /**
+     * POST …/docs/{docId}/move {targetShareId} → 移动后的文档。
+     * 需要空间/文档管理员或**文档所有者**；目标空间必须有写权限（配额仍算原所有者）。
+     */
+    suspend fun moveShareDoc(token: String, shareId: Long, docId: Long, targetShareId: Long): SharedDocItem =
+        withContext(Dispatchers.IO) {
+            val o = parse(
+                authReq("POST", "/api/doc-shares/$shareId/docs/$docId/move", token, """{"targetShareId":$targetShareId}""")
+            ) ?: throw ApiError("移动文档响应异常")
+            parseSharedDoc(o)
+        }
 }
 
 /**

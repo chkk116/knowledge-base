@@ -33,6 +33,11 @@ public class FavoriteService {
 
     /** 切换收藏：已收藏则取消（返回 false），未收藏则收藏（返回 true） */
     @Transactional(rollbackFor = Exception.class)
+    /** 直接取消收藏（幂等） */
+    public void remove(Long userId, Long docId) {
+        favoriteRepo.deleteByUserIdAndDocId(userId, docId);
+    }
+
     public boolean toggle(Long userId, Long docId) {
         // 安全/数据完整性：不存在或已删除的文档不允许被收藏（否则可灌入 doc_id 为负数/已删文档的幽灵收藏）
         Document target = docRepo.findById(docId).orElse(null);

@@ -15,6 +15,10 @@ import java.util.List;
 
 public interface CommentRepository extends JpaRepository<Comment, Long> {
 
+    /** 评论双击幂等（N34）：取同人同对象同内容的最新一条 */
+    java.util.Optional<Comment> findFirstByDocIdAndUserIdAndContentOrderByCreatedAtDesc(
+            String targetType, Long docId, Long userId, String content);
+
     List<Comment> findByDocIdOrderByCreatedAtAsc(Long docId);
 
     /** 评论点赞数原子自增：并发点赞不再丢更新 */

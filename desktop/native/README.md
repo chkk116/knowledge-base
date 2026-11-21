@@ -158,6 +158,10 @@
   未开启时「生成链接」，已开启时显示 `{server}/s/{token}`（复制 / 打开）+ 状态（是否密码 / 有效期 / 禁止复制 / 浏览数）；
   可设密码（留空=无密码）、有效期永久·7·30·90 天、允许/禁止复制；「更新设置」保持同 token，「撤销链接」后历史链接立即 404。
   查询/生成都要求能管理该文档（后端 `canAdminDoc`），失败时原文透出。
+  **文档级权限（2026-11-21）**：阅读区顶栏「权限」→ `GET …/docs/{docId}/members`（空间成员 + 各自
+  `spacePermission` / 有效 `permission` / `override`）→ 每行「只读 / 可编辑 / 可管理」三档 + 「继承」：
+  `PUT …/members/{userId} {permission}` 传**与空间权限相同**的值即 `cleared=true`（自动回退继承，界面标「本篇单独设置」消失）；
+  `DELETE …/members/{userId}` 直接恢复继承。同样仅 `canAdminDoc` 可改。
   ⚠️ **协同正文（2026-11-16 起本地解析）**：`GET /api/doc-shares/{id}/docs/{docId}/yjs` 下发
   `yjs_state`（base64；超 8MB 不下发，返回 `state=null` + `tooLarge`），桌面端用
   **`net.carcdr:ycrdt-core` / `ycrdt-jni` 0.3.0**（Yrs 的 Java 绑定，Apache-2.0，jar 内含
