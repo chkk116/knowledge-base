@@ -152,8 +152,8 @@ public class WebClipService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "域名无法解析：" + host);
         }
         for (InetAddress a : addrs) {
-            if (a.isAnyLocalAddress() || a.isLoopbackAddress() || a.isLinkLocalAddress()
-                    || a.isSiteLocalAddress() || a.isMulticastAddress() || isUniqueLocalV6(a)) {
+            // 与 AI 模型的地址校验同一口径（含 IPv4 映射 IPv6 / IPv4 兼容地址）
+            if (com.kb.kbplatform.security.NetAddressSafety.isInternal(a)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持抓取内网地址");
             }
         }

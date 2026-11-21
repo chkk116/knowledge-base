@@ -203,6 +203,13 @@ public class DocShareService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "空间不存在");
         if (docRepo.findByIdAndShareId(docId, shareId).orElse(null) == null)
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在");
+        // 目标用户必须存在且启用：原先不校验，随便填个 id 也能建出一条权限记录，
+        // 界面上看不到、数据里却留着（外部白盒审计点）
+        com.kb.kbplatform.domain.User target = targetUserId == null ? null
+                : userRepo.findById(targetUserId).orElse(null);
+        if (target == null || !target.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "目标用户不存在或已停用");
+        }
         DocSharePermission spacePerm = permRepo.findByShareIdAndUserId(shareId, targetUserId).orElse(null);
         String perm = normalizeDocPerm(permission);
         SharedDocPermission existing = docPermRepo.findByDocIdAndUserId(docId, targetUserId).orElse(null);

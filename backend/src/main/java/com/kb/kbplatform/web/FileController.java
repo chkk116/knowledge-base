@@ -36,12 +36,15 @@ public class FileController {
     private final DocumentRepository docRepo;
     private final DocShareService docShare;
     private final SharedDocumentRepository sharedDocRepo;
+    private final com.kb.kbplatform.security.RateLimitService rateLimit;
 
     public FileController(FileService svc, UploadedFileRepository fileRepo, DocumentRepository docRepo,
+                          com.kb.kbplatform.security.RateLimitService rateLimit,
                           DocShareService docShare, SharedDocumentRepository sharedDocRepo) {
         this.svc = svc;
         this.fileRepo = fileRepo;
         this.docRepo = docRepo;
+        this.rateLimit = rateLimit;
         this.docShare = docShare;
         this.sharedDocRepo = sharedDocRepo;
     }
@@ -53,7 +56,14 @@ public class FileController {
      * ⚠️ 这条是编辑器内联上传用，**不登记**到「我的文件」（否则正文每张配图都会灌进文件中心）。
      */
     @PostMapping
-    public Map<String, Object> upload(@RequestParam("file") MultipartFile file) {
+    public Map<String, Object> upload(@RequestAttribute("kbUser") com.kb.kbplatform.security.TokenClaims c,
+                                      @RequestParam("file") MultipartFile file) {
+        // 编辑器内联上传不登记归属、也不走「我的文件」的配额闸门，任一登录用户可无限传（白盒审计点）。
+        // 这里补一道量级闸：单用户每天 300 次、单次仍限 50MB，正常写文章远够用。
+        if (c == null || !rateLimit.allow("upload:inline:" + c.userId(), 300, 24L * 60 * 60 * 1000)) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
+                    "上传过于频繁，请稍后再试（单账号每天 300 次）");
+        }
         try {
             String url = svc.upload(file);
             Map<String, Object> data = new LinkedHashMap<>();
