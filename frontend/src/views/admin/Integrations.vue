@@ -16,7 +16,6 @@ const cfg = reactive({
   sdkAppId: '',
   secretKey: '',
   adminId: 'administrator',
-  region: 'console.tim.qq.com',
   configured: false,
 })
 
@@ -30,7 +29,7 @@ const load = async () => {
     cfg.adminId = data.adminId || 'administrator'
     cfg.configured = !!data.configured
   } catch (e) {
-    ElMessage.error('加载集成配置失败：' + (e.response ? e.response.status : ''))
+    ElMessage.error('加载集成配置失败：' + (e.response?.data?.error || e.message || '未知错误'))
   } finally {
     loading.value = false
   }
@@ -41,18 +40,24 @@ const save = async () => {
     ElMessage.warning('SDKAppID 是控制台分配的一串纯数字')
     return
   }
-  if (!cfg.configured && !cfg.secretKey) {
+  // 传 trim 后的值：校验过的输入和落库的输入要一致（原来校验 trim、传原始串）
+  const payload = {
+    enabled: cfg.enabled,
+    sdkAppId: String(cfg.sdkAppId).trim(),
+    secretKey: String(cfg.secretKey || '').trim(),
+    adminId: String(cfg.adminId || '').trim(),
+  }
+  if (!payload.adminId) {
+    ElMessage.warning('管理员账号不能为空（TRTC 登录签名要用）')
+    return
+  }
+  if (!cfg.configured && !payload.secretKey) {
     ElMessage.warning('首次配置必须填写 SecretKey')
     return
   }
   saving.value = true
   try {
-    await api.put('/admin/integrations/trtc-chat', {
-      enabled: cfg.enabled,
-      sdkAppId: cfg.sdkAppId,
-      secretKey: cfg.secretKey,
-      adminId: cfg.adminId,
-    })
+    await api.put('/admin/integrations/trtc-chat', payload)
     ElMessage.success('已保存')
     await load()
   } catch (e) {
@@ -115,7 +120,7 @@ onMounted(load)
           <el-button type="primary" :loading="saving" @click="save">保存</el-button>
           <el-button :loading="testing" :disabled="!cfg.configured" @click="test">测试连接</el-button>
           <span class="muted" style="margin-left:10px;font-size:12px;">
-            测试会给当前管理员的 TRTC 账号（kb_{{ $route.params?.id || 'me' }}）发一条自定义消息
+            测试会给当前管理员的 TRTC 账号发一条自定义消息（发送前请先保存）
           </span>
         </el-form-item>
       </el-form>

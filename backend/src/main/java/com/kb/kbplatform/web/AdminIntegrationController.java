@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * 集成中心：可选第三方能力的配置与测试（第一单品：TRTC Chat 离线推送）。
- * 仅真实 ADMIN 可用（与 AI 模型管理同口径），配置存 KvStore、密钥加密。
+ * 仅真实 ADMIN 可用（与 AI 模型管理同口径），配置存 sys_setting 表、SecretKey AES 加密。
  */
 @RestController
 @RequestMapping("/api/admin/integrations")

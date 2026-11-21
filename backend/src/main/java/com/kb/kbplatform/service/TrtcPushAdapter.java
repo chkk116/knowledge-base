@@ -12,6 +12,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -24,9 +25,9 @@ import java.util.Map;
  *
  * 消息本体永远走自有后端（PG + /api/dm），这里只在目标用户离线时
  * 给他发一条轻量自定义消息（TIMCustomElem），由腾讯云代触发厂商离线推送。
- * App 点通知拉起后仍然从自有后端拉取，内容不落腾讯云的漫游记录之外。
+ * App 点通知拉起后仍然从自有后端拉取，消息内容不落腾讯云的漫游记录之外。
  *
- * 配额（体验版）：REST 每天 1000 条 → 同一会话 10 分钟内只提醒一次（KvStore 节流）。
+ * 配额（体验版）：REST 每天 1000 条 → 同一收件人 10 分钟内只提醒一次（KvStore 节流）。
  */
 @Service
 public class TrtcPushAdapter {
@@ -39,14 +40,20 @@ public class TrtcPushAdapter {
     private final IntegrationService integrations;
     private final KvStore kv;
     private final ObjectMapper om = new ObjectMapper();
-    private final RestTemplate rest = new RestTemplate();
-
+    private final RestTemplate rest;
+    /** 管理员 UserSig 缓存：key 是配置指纹（换 SecretKey/sdkAppId/adminId 立即失效，不会用 30 天旧签名） */
+    private volatile String cachedSigFingerprint = "";
     private volatile String cachedAdminSig;
     private volatile long cachedSigAt;
 
     public TrtcPushAdapter(IntegrationService integrations, KvStore kv) {
         this.integrations = integrations;
         this.kv = kv;
+        // 外部 REST 必须有超时：这条链路挂在私信发送请求线程上，腾讯云慢或挂起不能拖死线程池
+        SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
+        f.setConnectTimeout(3000);
+        f.setReadTimeout(5000);
+        this.rest = new RestTemplate(f);
     }
 
     public boolean enabled() {
@@ -73,7 +80,7 @@ public class TrtcPushAdapter {
         return sendCustom(toUserId, content, "你有新的私信");
     }
 
-    /** 发自定义消息。offlineInfo 是厂商推送展示的标题/正文（离线时才会用到） */
+    /** 发自定义消息。offlineTitle 是厂商推送展示的标题（离线时才会用到） */
     public boolean sendCustom(Long toUserId, Map<String, Object> msgContent, String offlineTitle) {
         Map<String, Object> cfg = integrations.load(INTEGRATION_KEY);
         if (cfg == null) return false;
@@ -81,11 +88,19 @@ public class TrtcPushAdapter {
         try {
             sdkAppId = Long.parseLong(String.valueOf(cfg.get("sdkAppId")));
         } catch (Exception e) {
-            log.warn("TRTC 配置 sdkAppId 不合法");
+            log.warn("TRTC 推送跳过：sdkAppId 缺失或不合法");
             return false;
         }
-        String secretKey = String.valueOf(cfg.get("secretKey"));
-        String adminId = String.valueOf(cfg.getOrDefault("adminId", "administrator"));
+        // String.valueOf(null) 会得到字符串 "null"，用它当密钥会生成必然鉴权失败的签名还烧配额
+        Object secretObj = cfg.get("secretKey");
+        String secretKey = secretObj == null ? "" : String.valueOf(secretObj);
+        Object adminObj = cfg.get("adminId");
+        String adminId = (adminObj == null || String.valueOf(adminObj).isBlank())
+                ? "administrator" : String.valueOf(adminObj).trim();
+        if (secretKey.isBlank()) {
+            log.warn("TRTC 推送跳过：SecretKey 缺失");
+            return false;
+        }
 
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -106,24 +121,37 @@ public class TrtcPushAdapter {
                     + "&random=" + (int) (Math.random() * Integer.MAX_VALUE)
                     + "&contenttype=json";
             ResponseEntity<String> resp = rest.postForEntity(url, new HttpEntity<>(toJson(body), headers), String.class);
-            if (!resp.getStatusCode().is2xxSuccessful() || String.valueOf(resp.getBody()).contains("\"ActionStatus\":\"FAIL\"")) {
-                log.warn("TRTC 推送失败 {} -> {}: {}", toUserId, resp.getStatusCode(), resp.getBody());
+            // 显式解析 ActionStatus，不做字符串包含猜测（HTTP 2xx + FAIL 会被误判成功的坑）
+            String respBody = resp.getBody() == null ? "" : resp.getBody();
+            Map<String, Object> parsed;
+            try {
+                parsed = om.readValue(respBody, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
+            } catch (Exception parseEx) {
+                log.warn("TRTC 推送响应无法解析（HTTP {}）: {}", resp.getStatusCode(), respBody);
+                return false;
+            }
+            if (!"OK".equals(parsed.get("ActionStatus"))) {
+                log.warn("TRTC 推送失败 -> {}: {}", toUserId, respBody);
                 return false;
             }
             return true;
         } catch (Exception e) {
-            log.warn("TRTC 推送异常 -> {}: {}", toUserId, e.getMessage());
+            // 只记异常类名：异常消息里可能带完整 URL（含 90 天有效的管理员 UserSig），不能进日志
+            log.warn("TRTC 推送异常 -> {}: {}", toUserId, e.getClass().getSimpleName());
             return false;
         }
     }
 
-    /** 管理员 UserSig，缓存到过期前 1 小时（默认签 90 天，实际缓存按 30 天滚动重签） */
+    /** 管理员 UserSig，缓存到过期前滚动重签；配置指纹变化（换 Key/AppID/账号）立即失效 */
     private String adminSig(long sdkAppId, String secretKey, String adminId) {
+        String fingerprint = sdkAppId + "|" + adminId + "|" + Integer.toHexString(secretKey.hashCode());
         long now = System.currentTimeMillis();
-        if (cachedAdminSig != null && now - cachedSigAt < 30L * 24 * 3600 * 1000) {
+        if (cachedAdminSig != null && fingerprint.equals(cachedSigFingerprint)
+                && now - cachedSigAt < 30L * 24 * 3600 * 1000) {
             return cachedAdminSig;
         }
         cachedAdminSig = TrtcUserSig.gen(sdkAppId, secretKey, adminId, 90L * 24 * 3600);
+        cachedSigFingerprint = fingerprint;
         cachedSigAt = now;
         return cachedAdminSig;
     }
