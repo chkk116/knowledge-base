@@ -95,8 +95,7 @@ public class DmController {
     @PostMapping("/attachment")
     public Map<String, Object> uploadAttachment(@RequestAttribute("kbUser") TokenClaims c,
                                                 @RequestParam("file") MultipartFile file) {
-        uid(c);
-        return Map.of("ok", true, "ref", svc.uploadAttachment(file));
+        return Map.of("ok", true, "ref", svc.uploadAttachment(file, uid(c)));
     }
 
     /**

@@ -72,8 +72,8 @@ public class DmService {
     }
 
     /** 私信图片上传：落私有目录，返回存进 content 的引用（dm:<name>，不含可直接访问的 URL） */
-    public String uploadAttachment(MultipartFile file) {
-        return "dm:" + files.uploadDmImage(file);
+    public String uploadAttachment(MultipartFile file, Long uploaderId) {
+        return "dm:" + files.uploadDmImage(file, uploaderId);
     }
 
     /**
@@ -82,15 +82,36 @@ public class DmService {
      */
     public Path attachmentPath(Long me, String ref) {
         if (ref == null || ref.isBlank()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
+        Long uploader = uploaderOf(ref);
         boolean allowed = false;
-        for (DmMessage m : msgs.findByContent(ref)) {
-            if (!"IMAGE".equals(m.getKind())) continue;
-            if (me.equals(m.getFromId()) || me.equals(m.getToId())) { allowed = true; break; }
+        if (uploader != null && uploader.equals(me)) {
+            allowed = true;   // 自己上传的，不用看消息是否存在
+        } else {
+            for (DmMessage m : msgs.findByContent(ref)) {
+                if (!"IMAGE".equals(m.getKind())) continue;
+                // 新格式：发送方必须就是上传者本人。否则「把别人的 ref 发给自己同伙」就能借
+                // 「我是会话参与者」这一条读到不相干的附件
+                if (uploader != null && !uploader.equals(m.getFromId())) continue;
+                if (me.equals(m.getFromId()) || me.equals(m.getToId())) { allowed = true; break; }
+            }
         }
         if (!allowed) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在或无权访问");
         Path p = files.resolveDmRef(ref);
         if (p == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "附件不存在");
         return p;
+    }
+
+    /** 从 dm:<id>-<32hex> 里取上传者；历史文件（纯 32hex）返回 null */
+    private static Long uploaderOf(String ref) {
+        if (ref == null || !ref.startsWith("dm:")) return null;
+        String name = ref.substring(3);
+        int dash = name.indexOf('-');
+        if (dash <= 0) return null;
+        try {
+            return Long.valueOf(name.substring(0, dash));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public boolean allowDm(Long userId) {
@@ -147,6 +168,8 @@ public class DmService {
         // 会话级锁：让「查配额 → 落库」对同一会话串行，防止并发请求把 3 条限制刷穿
         String lockKey = DmMessage.convKey(me, to);
         Object lock = CONV_LOCKS[Math.floorMod(lockKey.hashCode(), CONV_LOCKS.length)];
+        Map<String, Object> ev = null;   // 推送事件在锁外发送，声明在这里
+        Long savedId = null;
         synchronized (lock) {
             Map<String, Object> q = quota(me, to);
             if (Boolean.TRUE.equals(q.get("limited")) && ((Number) q.get("remaining")).longValue() <= 0) {
@@ -173,6 +196,7 @@ public class DmService {
         }
         m.setCreatedAt(LocalDateTime.now());
         msgs.save(m);
+        savedId = m.getId();
 
         // 收件人曾把该会话删掉：新消息到达即恢复显示，否则红点在、会话却永久消失
         convStates.findByUserIdAndPeerId(to, me).filter(DmConvState::isDeleted).ifPresent(st -> {
@@ -184,7 +208,7 @@ public class DmService {
 
         // 实时推给收件人（多标签页都能收到）；发送方自己靠接口返回当场渲染，不用回推
         try {
-            Map<String, Object> ev = new LinkedHashMap<>();
+            ev = new LinkedHashMap<>();
             ev.put("type", "dm");
             ev.put("id", m.getId());
             ev.put("fromId", me);
@@ -196,16 +220,22 @@ public class DmService {
                 ev.put("replyFrom", m.getReplyFrom());
                 ev.put("replyText", m.getReplyText());
             }
-            sse.pushDm(to, ev);
+        } catch (Exception ignore) {
+            // 推送事件构造失败不影响消息落库（离线用户靠下次拉取）
+        }
+        }   // 会话锁结束
+
+        // 推送与剩余额度计算放到锁外：SSE 是同步写连接，收件人连接慢会一直占着这把会话锁，
+        // 把同一会话的双向发送全堵住。消息此时已经落库，这里不再需要互斥。
+        try {
+            if (ev != null) sse.pushDm(to, ev);
         } catch (Exception ignore) {
             // 推送失败不影响消息落库（离线用户靠下次拉取）
         }
-
         Map<String, Object> ret = new LinkedHashMap<>();
-        ret.put("id", m.getId());
+        ret.put("id", savedId);
         ret.put("quota", quota(me, to));
         return ret;
-        }   // 会话锁结束
     }
 
     /** 会话历史（升序返回，beforeId 用于向上翻页） */
@@ -242,11 +272,22 @@ public class DmService {
         // 窗口取 500 条：过滤归档/删除后仍要有足够候选，避免极端流量把主列表挤空
         List<DmMessage> recent = msgs.findTop500ByFromIdOrToIdOrderByIdDesc(me, me);
         Map<Long, Map<String, Object>> byPeer = new LinkedHashMap<>();
+        // 先把所有对端 id 收齐，一次批量取用户与设置：
+        // 原先每发现一个新对端就 findById + 查一次 allowDm，500 条窗口最多 1000 次查询
+        java.util.Set<Long> peerIds = new java.util.LinkedHashSet<>();
+        for (DmMessage m : recent) {
+            peerIds.add(m.getFromId().equals(me) ? m.getToId() : m.getFromId());
+        }
+        Map<Long, User> peers = new java.util.HashMap<>();
+        for (User u : users.findAllById(peerIds)) peers.put(u.getId(), u);
+        Map<Long, Boolean> allowMap = new java.util.HashMap<>();
+        for (DmSetting st : settings.findAllById(peerIds)) allowMap.put(st.getUserId(), st.isAllowDm());
+
         for (DmMessage m : recent) {
             Long peerId = m.getFromId().equals(me) ? m.getToId() : m.getFromId();
             Map<String, Object> row = byPeer.get(peerId);
             if (row == null) {
-                User u = users.findById(peerId).orElse(null);
+                User u = peers.get(peerId);
                 row = new LinkedHashMap<>();
                 row.put("peerId", peerId);
                 row.put("name", u == null ? "已注销用户" : (u.getDisplayName() == null || u.getDisplayName().isBlank()
@@ -256,7 +297,7 @@ public class DmService {
                 row.put("lastFromMe", m.getFromId().equals(me));
                 row.put("lastAt", m.getCreatedAt());
                 row.put("unread", 0);
-                row.put("allowDm", allowDm(peerId));
+                row.put("allowDm", allowMap.getOrDefault(peerId, true));
                 byPeer.put(peerId, row);
             }
         }

@@ -114,12 +114,22 @@ public class FileService {
 
     /** 私信图片上传：只返回文件名，消息 content 存 dm:<name>，不暴露物理路径 */
     public String uploadDmImage(MultipartFile file) {
+        return uploadDmImage(file, null);
+    }
+
+    /**
+     * 私信图片上传。文件名带上上传者 id（`dm/<uploader>-<32hex><ext>`）：
+     * 读取时据此校验「这张图是不是你传的、或是不是发给你的人传的」，
+     * 否则拿到 ref 的人可以把它当 IMAGE 发给自己同伙，再借「我是会话参与者」读到别人的图。
+     */
+    public String uploadDmImage(MultipartFile file, Long uploaderId) {
         validate(file);
         String ct = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
         if (!ct.startsWith("image/")) throw new IllegalArgumentException("私信附件仅支持图片");
         if (file.getSize() > 8L * 1024 * 1024) throw new IllegalArgumentException("私信图片不能超过 8MB");
         String ext = extOf(file.getOriginalFilename());
-        String name = UUID.randomUUID().toString().replace("-", "") + ext;
+        String name = (uploaderId == null ? "" : uploaderId + "-")
+                + UUID.randomUUID().toString().replace("-", "") + ext;
         Path dir = root.resolve("dm");
         try {
             Files.createDirectories(dir);
@@ -140,7 +150,8 @@ public class FileService {
         String rel;
         if (ref.startsWith("dm:")) {
             String name = ref.substring(3);
-            if (!name.matches("[a-f0-9]{32}(\\.[A-Za-z0-9]{1,8})?")) return null;
+            // 新格式带上传者前缀（<id>-<32hex>[.ext]），历史文件仍是纯 32hex
+            if (!name.matches("([0-9]+-)?[a-f0-9]{32}(\\.[A-Za-z0-9]{1,8})?")) return null;
             rel = "dm/" + name;
         } else if (ref.startsWith("/uploads/")) {
             rel = ref.substring("/uploads/".length());
