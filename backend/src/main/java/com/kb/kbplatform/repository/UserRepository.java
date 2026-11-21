@@ -18,6 +18,17 @@ import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 
 public interface UserRepository extends JpaRepository<User, Long> {
+
+    /**
+     * 抢占「今天的登录奖励」：只有真正把 lastLoginDate 推到今天的那个请求拿到 1。
+     * 原来「先查 lastLoginDate != 今天，再发分」是典型先查后发，两个并发登录能各领一次。
+     */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query(
+            "update User u set u.lastLoginDate = :day "
+                    + "where u.id = :id and (u.lastLoginDate is null or u.lastLoginDate < :day)")
+    int claimDailyLoginReward(@org.springframework.data.repository.query.Param("id") Long id,
+                              @org.springframework.data.repository.query.Param("day") java.time.LocalDate day);
     Optional<User> findByUsername(String username);
 
     /** 批量按用户名取用户（评论列表附昵称/头像用） */

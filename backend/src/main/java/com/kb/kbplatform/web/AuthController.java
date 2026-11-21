@@ -106,12 +106,13 @@ public class AuthController {
         // 抗爆破第一道：IP + 用户名双维滑动窗口限流（滑动验证码为前端判定，脚本可绕过，
         // 服务端限流才是真闸门）。IP 10 次/10 分钟；单用户名 5 次/10 分钟。
         String ip = com.kb.kbplatform.security.ClientIp.resolve(request);
-        if (!rateLimit.allow("login:ip:" + ip, 10, 10L * 60 * 1000)) {
-            throw new BizException("登录尝试过于频繁，请 10 分钟后再试");
-        }
-        // 再校验滑动验证码票据（一次性 + 必须已完成滑动），失败直接拒绝，避免对密码做无谓校验
+        // IP 维度限流放到验证码之后：否则任何人裸刷 10 次就能烧掉同一出口 IP 下所有用户的登录额度
+        // （共享出口 / NAT 环境下一个脚本就能把整栋楼锁在门外）。
         if (!captchaService.consume(r.captchaToken)) {
             throw new BizException("请先完成滑动验证或刷新后重试");
+        }
+        if (!rateLimit.allow("login:ip:" + ip, 10, 10L * 60 * 1000)) {
+            throw new BizException("登录尝试过于频繁，请 10 分钟后再试");
         }
         // 用户名维度限流：放在验证码通过之后（外部审查 2026-10-11：原先在验证码前计数，
         // 攻击者刷验证码失败就能烧掉目标账号的登录窗口 = 变相远程锁号）。IP 维度仍在最前。
@@ -123,6 +124,8 @@ public class AuthController {
         String logName = r.username == null ? "" : r.username.trim();
         try {
             Map<String, Object> result = authService.login(r.username, r.password);
+            // 登录成功就释放用户名维度的失败额度：否则正常换设备、反复重登会被自己锁住（实测第 6 次被拒）
+            if (!uname.isEmpty()) rateLimit.reset("login:user:" + uname);
             Object uid = result.get("id");
             loginLogService.record(uid instanceof Number ? ((Number) uid).longValue() : null,
                     logName, true, null, request);

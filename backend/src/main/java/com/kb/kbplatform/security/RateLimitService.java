@@ -34,6 +34,11 @@ public class RateLimitService {
      * @param windowMillis 滑动窗口大小（毫秒）
      * @return true=放行，false=已达上限
      */
+    /** 清零某个计数（成功登录后释放用户名额度，避免正常多设备重登把自己锁住） */
+    public void reset(String key) {
+        kv.delete("rl:" + key);
+    }
+
     public boolean allow(String key, int max, long windowMillis) {
         return kv.allowSliding("rl:" + key, max, windowMillis);
     }

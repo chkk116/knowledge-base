@@ -109,11 +109,27 @@ public class CourseService {
                     np.setChapterId(chapterId);
                     return np;
                 });
-        boolean firstFinish = !p.isFinished();   // 幂等：已完成的章节重复提交不再加分
-        p.setFinished(true);
-        p.setProgress(100);
-        p.setLastAt(LocalDateTime.now());
-        LearningProgress saved = progressRepo.save(p);
+        // 首次完成判定交给条件更新：两个并发请求只有一条能把 finished=false 改成 true，
+        // 另一条拿到 0 行就不加分（原来先读 isFinished 再保存，并发下会双领 +10，还可能写出重复行）
+        boolean firstFinish;
+        LearningProgress saved;
+        if (p.getId() == null) {
+            p.setFinished(true);
+            p.setProgress(100);
+            p.setLastAt(LocalDateTime.now());
+            saved = progressRepo.save(p);
+            firstFinish = true;
+        } else {
+            firstFinish = progressRepo.markFinished(userId, chapterId, LocalDateTime.now()) == 1;
+            if (firstFinish) {
+                p.setFinished(true);
+                p.setProgress(100);
+                p.setLastAt(LocalDateTime.now());
+                saved = progressRepo.save(p);
+            } else {
+                saved = p;
+            }
+        }
         if (firstFinish) {
             CourseChapter ch = chapterRepo.findById(chapterId).orElse(null);
             String title = ch != null && ch.getTitle() != null ? ch.getTitle() : "章节";

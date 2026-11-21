@@ -205,19 +205,34 @@ public class KvStore {
      * Redis 用 ZSET（member 唯一，score=时间戳）实现精确滑动窗口；
      * 内存兜底用双端队列，语义一致。
      */
+    /**
+     * 滑动窗口限流（Lua 版）：清理过期 → 计数 → 写入在同一段脚本内完成。
+     * ARGV: now, windowMillis, max, member；返回 1 放行 / 0 拒绝。
+     */
+    private static final org.springframework.data.redis.core.script.DefaultRedisScript<Long> SLIDING_LUA =
+            new org.springframework.data.redis.core.script.DefaultRedisScript<>(
+                    "local key = KEYS[1] " +
+                    "local now = tonumber(ARGV[1]) " +
+                    "local window = tonumber(ARGV[2]) " +
+                    "local max = tonumber(ARGV[3]) " +
+                    "redis.call('ZREMRANGEBYSCORE', key, 0, now - window) " +
+                    "local n = redis.call('ZCARD', key) " +
+                    "if n >= max then return 0 end " +
+                    "redis.call('ZADD', key, now, ARGV[4]) " +
+                    "redis.call('PEXPIRE', key, window + 1000) " +
+                    "return 1", Long.class);
+
     public boolean allowSliding(String key, int max, long windowMillis) {
         maybeRecover();
         long now = System.currentTimeMillis();
         if (redisUp) {
             try {
-                ZSetOperations<String, String> z = redis.opsForZSet();
-                z.removeRangeByScore(key, 0, now - windowMillis);
-                Long n = z.zCard(key);
-                if (n != null && n >= max) return false;
-                z.add(key, now + ":" + UUID.randomUUID(), now);
-                // TTL 略大于窗口，避免 key 永久驻留
-                redis.expire(key, Duration.ofMillis(windowMillis + 1000L));
-                return true;
+                // 原子执行：原来的「清过期 → 计数 → 写入」是三次独立往返，
+                // 并发突发时多个请求会同时读到旧计数、一起放行（实测顺序第 11 次被拦、并行能绕过）。
+                Long ok = redis.execute(SLIDING_LUA, java.util.List.of(key),
+                        String.valueOf(now), String.valueOf(windowMillis), String.valueOf(max),
+                        now + ":" + UUID.randomUUID());
+                return ok != null && ok == 1L;
             } catch (Exception e) {
                 markDown(e);
             }

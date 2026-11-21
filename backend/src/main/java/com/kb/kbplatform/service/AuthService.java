@@ -125,7 +125,9 @@ public class AuthService {
         // 每日登录发分（当天已登录过则不再重复发，避免刷分）
         LocalDate today = LocalDate.now();
         int pointsNow = u.getPoints();
-        if (!today.equals(u.getLastLoginDate())) {
+        // 条件更新抢占「今天已发」：并发登录只有一条能把 lastLoginDate 推到今天并拿到 1，
+        // 其余请求直接跳过——原先是先查后发，两个并发登录可各领一次（实测可复现）
+        if (userRepo.claimDailyLoginReward(u.getId(), today) == 1) {
             // awardPoints 返回原子增量后的新余额；u 里是进方法时的旧值（首登会少 5 分）
             pointsNow = awardPoints(u.getId(), LOGIN_POINTS, "LOGIN", "每日登录");
             u.setLastLoginDate(today);
