@@ -95,11 +95,16 @@ public class PasswordResetService {
     /** 用链接设置新密码：校验 token → 改密 → 递增 tokenVersion（旧登录态全部失效）→ 标记已用 */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> reset(String token, String newPassword) {
-        if (newPassword == null || newPassword.length() < 6) {
-            throw new IllegalArgumentException("新密码至少 6 位");
+        String weak = com.kb.kbplatform.security.PasswordPolicy.check(newPassword, null);
+        if (weak != null) {
+            throw new IllegalArgumentException(weak);
         }
         PasswordReset pr = findValid(token);
         if (pr == null) throw new IllegalArgumentException("链接已失效或已使用，请重新获取");
+        // 抢占式消费：并发双击同一链接时只有一个请求能继续
+        if (repo.claim(pr.getId(), LocalDateTime.now()) != 1) {
+            throw new IllegalArgumentException("链接已失效或已使用，请重新获取");
+        }
 
         User u = userRepo.findById(pr.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
@@ -107,9 +112,7 @@ public class PasswordResetService {
         u.setTokenVersion(u.getTokenVersion() + 1);
         userRepo.save(u);
 
-        pr.setUsedAt(LocalDateTime.now());
-        repo.save(pr);
-        return Map.of("ok", true, "username", u.getUsername());
+        return Map.of("ok", true, "username", u.getUsername());   // usedAt 已由 claim 原子写入
     }
 
     private PasswordReset findValid(String token) {

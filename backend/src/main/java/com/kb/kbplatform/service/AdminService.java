@@ -89,8 +89,9 @@ public class AdminService {
 
     @Transactional(rollbackFor = Exception.class)
     public User createUser(CreateReq r) {
-        if (r.password == null || r.password.length() < 6) {
-            throw new IllegalArgumentException("密码至少 6 位");
+        String weak = com.kb.kbplatform.security.PasswordPolicy.check(r.password, r.username);
+        if (weak != null) {
+            throw new IllegalArgumentException(weak);
         }
         // 与注册同源校验：用户名含竖线会破坏令牌载荷分段，导致该账号永远无法登录（F17）
         String username = com.kb.kbplatform.security.UsernamePolicy.normalize(r.username);
@@ -175,7 +176,8 @@ public class AdminService {
             u.setBio(bio.isEmpty() ? null : bio);
         }
         if (r.password != null && !r.password.isBlank()) {
-            if (r.password.length() < 6) throw new IllegalArgumentException("密码至少 6 位");
+            String weak2 = com.kb.kbplatform.security.PasswordPolicy.check(r.password, null);
+            if (weak2 != null) throw new IllegalArgumentException(weak2);
             u.setPassword(PasswordUtil.encode(r.password));
             u.setTokenVersion(u.getTokenVersion() + 1);   // 管理员改用户密码后，旧 token 立即失效
         }

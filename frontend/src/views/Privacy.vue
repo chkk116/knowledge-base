@@ -5,6 +5,11 @@
  * 内容与移动端 MobilePrivacy.vue 保持一致 —— 改动其一时请同步另一处。
  * 运营主体与联系方式已确定；如更换运营方，请同步修改「联系我们」一节。
  */
+import { useSiteInfoStore } from '../store/siteInfo'
+
+// 备案号与页脚同源：原先这里写死「-2」、页脚配置是「-3」，两边对不上
+const siteInfo = useSiteInfoStore()
+
 const UPDATED = '2026-10-09'
 const EFFECTIVE = '2026-10-01'
 </script>
@@ -119,7 +124,7 @@ const EFFECTIVE = '2026-10-01'
       <ul>
         <li>运营主体：<b>本站运营者</b></li>
         <li>联系邮箱：<b>zxc1275981466@qq.com</b></li>
-        <li>备案号：湘 ICP 备 2024087310 号-2</li>
+        <li>备案号：{{ siteInfo.icpNo || '以网站底部展示为准' }}</li>
       </ul>
       <p>我们将在收到你的请求后 15 个工作日内予以答复。</p>
     </article>

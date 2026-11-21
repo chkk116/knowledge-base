@@ -287,8 +287,9 @@ public class AuthService {
     }
 
     public void register(String username, String password, String role, String displayName) {
-        if (password == null || password.length() < 6) {
-            throw new RuntimeException("用户名/密码不合法（密码至少 6 位）");
+        String weak = com.kb.kbplatform.security.PasswordPolicy.check(password, username);
+        if (weak != null) {
+            throw new RuntimeException(weak);
         }
         // 用户名含竖线会让令牌载荷分段错位 → 该账号每次请求都 401（永远登不进来），必须在建号时拦住
         String name = com.kb.kbplatform.security.UsernamePolicy.normalize(username);
@@ -387,9 +388,12 @@ public class AuthService {
 
     /** 当前登录用户修改密码：校验原密码后更新（新密码至少 6 位） */
     public void changePassword(String username, String oldPassword, String newPassword) {
-        if (oldPassword == null || oldPassword.isBlank()
-                || newPassword == null || newPassword.length() < 6) {
-            throw new BizException("原密码/新密码不合法（新密码至少 6 位）");
+        if (oldPassword == null || oldPassword.isBlank()) {
+            throw new BizException("请填写原密码");
+        }
+        String weak = com.kb.kbplatform.security.PasswordPolicy.check(newPassword, username);
+        if (weak != null) {
+            throw new BizException(weak);
         }
         User u = userRepo.findByUsername(username)
                 .orElseThrow(() -> new BizException("账号不存在"));
