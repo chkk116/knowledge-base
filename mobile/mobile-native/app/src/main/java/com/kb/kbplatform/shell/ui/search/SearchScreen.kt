@@ -154,6 +154,13 @@ fun SearchScreen(openWeb: (String, String) -> Unit, openRoute: (String) -> Unit 
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
+        // 范围提示（测试报告 N3）：这里只检索「我加入的空间」里的共享文档，不含公开文章/课程
+        Text(
+            "范围：我加入的空间文档（不含公开文章，文章请用「发现」）",
+            fontSize = 10.5.sp,
+            color = com.kb.kbplatform.shell.ui.theme.KbTextDim,
+            modifier = Modifier.padding(horizontal = 18.dp).padding(bottom = 4.dp)
+        )
 
         when {
             searching -> CenterHint("搜索中…", loading = true)

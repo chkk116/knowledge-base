@@ -106,6 +106,8 @@ data class MailAccountItem(
     val lastError: String,
     val lastSyncAt: String,
     val lastUid: Long?,
+    /** 账号签名：后端只存不拼，写信时由客户端追加到正文末尾。 */
+    val signature: String = "",
 )
 
 /** 邮件列表项（GET /api/mail/messages → {items,…}）。 */
@@ -1380,6 +1382,7 @@ class ApiClient(private val base: String) {
                 lastError = j.str("lastError").orEmpty(),
                 lastSyncAt = j.str("lastSyncAt").orEmpty(),
                 lastUid = j.long("lastUid"),
+                signature = j.str("signature").orEmpty(),
             )
         }
     }
@@ -1515,6 +1518,14 @@ class ApiClient(private val base: String) {
         val e = runCatching { Json.parseToJsonElement(getAuth("/api/mail/contacts$qq", token)) }.getOrNull()
             ?: return@withContext emptyList()
         (e as? JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: emptyList()
+    }
+
+    /** PUT /api/mail/accounts/{id}/signature {signature} → 保存账号签名（≤2000 字，服务端截断） */
+    suspend fun mailSaveSignature(token: String, accountId: Long, signature: String) {
+        withContext(Dispatchers.IO) {
+            authReq("PUT", "/api/mail/accounts/$accountId/signature", token,
+                """{"signature":${jsonStr(signature)}}""")
+        }
     }
 
     /**

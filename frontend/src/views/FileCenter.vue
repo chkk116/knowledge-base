@@ -184,7 +184,7 @@ onMounted(load)
     <!-- 存储用量 -->
     <div v-if="storage.has" class="fc-store">
       <div class="fc-store-row">
-        <span class="fc-store-t">已用 {{ fmtSize(storage.used) }}<template v-if="storage.quota"> / {{ fmtSize(storage.quota) }}</template></span>
+        <span class="fc-store-t">已用 {{ fmtSize(storage.used) }}<template v-if="storage.quota"> / {{ fmtSize(storage.quota) }}</template><span class="fc-store-tip" title="包含你名下文档正文与共享空间占用，不只是下面列出的文件">（含文档占用）</span></span>
         <span class="fc-store-n">共 {{ files.length }} 个文件</span>
       </div>
       <div class="fc-store-bar"><i :style="{ width: usedPercent + '%' }"></i></div>

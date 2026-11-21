@@ -234,8 +234,25 @@ export const wearBadge = (badgeId) =>
 
 // ---- 分类树 / 标签体系（规范表，管理后台与发帖选择共用）----
 // 分类层级树（{ id, name, parentId, children }）
-export const getCategoryTree = () =>
-  api.get('/categories')
+//
+// 站内其实有两套分类：/api/categories 是后台维护的「规范分类表」，
+// /api/docs/categories 是从已发布文档聚合出来的实际分类。
+// 规范表常常是空的（分类是发帖时手填的），下拉就会显示「无数据」——
+// 所以这里先取规范表，空则回退文档聚合，两套都空才算真空。
+export const getCategoryTree = async () => {
+  try {
+    const { data } = await api.get('/categories')
+    if (Array.isArray(data) && data.length) return { data }
+  } catch (e) { /* 规范表不可用时继续兜底 */ }
+  try {
+    const { data } = await api.get('/docs/categories')
+    const list = (Array.isArray(data) ? data : []).map((c) =>
+      (typeof c === 'string' ? { name: c, children: [] } : { ...c, children: c.children || [] }))
+    return { data: list }
+  } catch (e) {
+    return { data: [] }
+  }
+}
 
 export const createCategory = (payload) =>
   api.post('/admin/categories', payload)

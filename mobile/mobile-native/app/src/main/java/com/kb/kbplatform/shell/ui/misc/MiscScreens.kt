@@ -315,6 +315,9 @@ fun PointsScreen(onBack: () -> Unit) {
     var items by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var page by remember { mutableIntStateOf(0) }
     var total by remember { mutableIntStateOf(0) }
+    // 汇总口径（后端 log/paged 的 earned / spent）：明细余额之和≠账号 points 时，用户能看懂差异
+    var earned by remember { mutableIntStateOf(0) }
+    var spent by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf(Load.Loading) }
     var err by remember { mutableStateOf("") }
 
@@ -325,6 +328,8 @@ fun PointsScreen(onBack: () -> Unit) {
                 val r = KbApi.pointsLog(p)
                 items = r.optJSONArray("content")?.objects() ?: emptyList()
                 total = r.optInt("total", items.size)
+                earned = r.optInt("earned", 0)
+                spent = r.optInt("spent", 0)
                 page = p
                 state = if (items.isEmpty()) Load.Empty else Load.Ok
             } catch (e: Exception) {
@@ -342,6 +347,15 @@ fun PointsScreen(onBack: () -> Unit) {
             Load.Empty -> KbEmpty("📈", "暂无积分记录")
             Load.Error -> com.kb.kbplatform.shell.ui.common.KbError("积分明细加载失败：$err", onRetry = { load(page) })
             Load.Ok -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("累计获得 $earned", fontSize = 12.sp, color = KbGreen, modifier = Modifier.weight(1f))
+                        Text("已用 $spent", fontSize = 12.sp, color = KbTextDim)
+                    }
+                }
                 items(items, key = { it.optLong("id", it.hashCode().toLong()) }) { l ->
                     val pts = l.optInt("delta", l.optInt("points", 0))
                     KbCard(Modifier.fillMaxWidth()) {
@@ -413,6 +427,12 @@ fun RankingScreen(onBack: () -> Unit) {
                             )
                         }
                     }
+                    // 口径说明（测试报告 N6）：排行榜用账号累计积分，与「积分明细」的余额是两套数
+                    Text(
+                        "积分口径：账号累计获得（明细流水见「我的 → 积分明细」）",
+                        fontSize = 10.5.sp, color = KbTextDim,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
                 }
                 // itemsIndexed 取代 items.indexOf(r)：后者是 O(n²)，榜单一长就卡
                 itemsIndexed(items, key = { i, it -> it.optString("username", "u$i") + "#" + i }) { i, r ->

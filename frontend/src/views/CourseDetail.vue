@@ -51,6 +51,8 @@
           <span class="exam-score">得分 {{ myExamRecord.score }} / {{ examPaper?.totalScore }}</span>
         </template>
         <span v-else class="exam-tip">完成全部章节后可参加结业考试</span>
+        <el-button v-if="myExamRecord && myExamRecord.id" size="small"
+                   @click="router.push('/exams/records/' + myExamRecord.id)">查看成绩</el-button>
         <el-button
           type="primary"
           size="small"

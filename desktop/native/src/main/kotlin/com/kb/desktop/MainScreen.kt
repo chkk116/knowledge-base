@@ -1197,6 +1197,9 @@ private fun DocsPanel(
             Box(Modifier.weight(1f)) {
                 val inSub = mode == "sub"
                 val inMine = mode == "mine"
+                // 「我的」档走 myOwnDocs，不参与服务端搜索 → 用标题本地过滤（测试报告 F5）
+                val mineShown = if (q.trim().isEmpty()) mineItems
+                else mineItems.filter { it.title.contains(q.trim(), ignoreCase = true) }
                 val shown = if (q.trim().isNotEmpty()) results else docs
                 when {
                     inMine && mineLoading -> PanelHint("加载中…")
@@ -1210,8 +1213,9 @@ private fun DocsPanel(
                         TextButton(onClick = { refresh++ }) { Text("重试", fontSize = 12.sp) }
                     }
                     inMine && mineItems.isEmpty() -> PanelHint("还没有写过文章\n可点上方「新建」在 Web 端编辑器里写")
+                    inMine && mineShown.isEmpty() -> PanelHint("没有匹配「${q.trim()}」的文章")
                     inMine -> LazyColumn(Modifier.fillMaxSize()) {
-                        items(mineItems, key = { it.id }) { m ->
+                        items(mineShown, key = { it.id }) { m ->
                             MineRow(
                                 item = m,
                                 sel = selected?.id == m.id,

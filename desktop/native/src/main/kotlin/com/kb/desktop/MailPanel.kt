@@ -79,6 +79,8 @@ internal fun MailPanel(session: Session) {
     var folder by remember { mutableStateOf("INBOX") }
     // 已加载页（「加载更多」递增；切账号/文件夹/刷新归零）
     var page by remember { mutableStateOf(0) }
+    // 签名编辑（非空即弹窗，只对选中的账号生效）
+    var signingAccount by remember { mutableStateOf<MailAccountItem?>(null) }
 
     LaunchedEffect(refresh) {
         accounts = runCatching { api.mailAccounts(session.token) }.getOrDefault(emptyList())
@@ -157,6 +159,12 @@ internal fun MailPanel(session: Session) {
                             refresh++
                         }
                     }, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("同步此邮箱", fontSize = 11.sp) }
+                    TextButton(
+                        onClick = {
+                            signingAccount = accounts.firstOrNull { it.id == accId }
+                        },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) { Text("签名", fontSize = 11.sp) }
                 }
                 Text(
                     if (accounts.isEmpty()) "还没有绑定邮箱" else "共 ${accounts.size} 个邮箱",
@@ -196,6 +204,8 @@ internal fun MailPanel(session: Session) {
             ) {
                 SortChip("收件箱", sel = folder == "INBOX") { folder = "INBOX" }
                 SortChip("草稿箱", sel = folder == "DRAFT") { folder = "DRAFT" }
+                // 已发送：发信成功后后端在本地存 folder=SENT（uid 为负的合成记录）
+                SortChip("已发送", sel = folder == "SENT") { folder = "SENT" }
             }
             if (msg.isNotEmpty()) {
                 Text(msg, fontSize = 10.5.sp, color = KbPrimary, modifier = Modifier.padding(horizontal = 12.dp))
@@ -209,6 +219,7 @@ internal fun MailPanel(session: Session) {
                         accounts.isEmpty() -> "先在左侧「绑定」一个邮箱"
                         q.isNotBlank() -> "没有匹配「$q」的邮件"
                         folder == "DRAFT" -> "草稿箱是空的\n写邮件时点「存草稿」会存到这里"
+                        folder == "SENT" -> "还没有发出过邮件"
                         else -> "收件箱是空的\n点「刷新」或同步此邮箱"
                     }
                 )
@@ -359,6 +370,19 @@ internal fun MailPanel(session: Session) {
             onDone = { m ->
                 composeOpen = false
                 msg = m
+                refresh++
+            },
+        )
+    }
+
+    signingAccount?.let { acc ->
+        MailSignatureDialog(
+            session = session,
+            account = acc,
+            onDismiss = { signingAccount = null },
+            onSaved = {
+                signingAccount = null
+                msg = "签名已保存（写信时会自动追加）"
                 refresh++
             },
         )
@@ -575,6 +599,14 @@ private fun MailComposeDialog(
     fun recipients(): List<String> =
         to.split(',', ';', '，', '；', '\n').map { it.trim() }.filter { it.contains("@") }
 
+    // 后端只存签名不拼，这里发信/存草稿时追加（已经包含就不重复）
+    fun bodyWithSignature(): String {
+        val sig = accounts.firstOrNull { it.id == accId }?.signature.orEmpty()
+        if (sig.isBlank() || body.contains(sig)) return body
+        val b = body.trimEnd()
+        return if (b.isEmpty()) sig else b + "\n\n" + sig
+    }
+
     fun friendly(e: Exception): String {
         val m = e.message ?: "操作失败"
         return if (m.startsWith("请求失败(404)") || m.startsWith("请求失败(405)")) "$m（服务端邮箱发信接口可能尚未升级）" else m
@@ -655,7 +687,7 @@ private fun MailComposeDialog(
                                 accountId = accId,
                                 to = recipients(),
                                 subject = subject.ifBlank { "（无主题）" },
-                                body = body,
+                                body = bodyWithSignature(),
                                 inReplyTo = inReplyTo,
                             )
                             onDone("已发送")
@@ -677,7 +709,7 @@ private fun MailComposeDialog(
                         err = ""
                         scope.launch {
                             try {
-                                api.mailSaveDraft(session.token, accId, to, subject, body)
+                                api.mailSaveDraft(session.token, accId, to, subject, bodyWithSignature())
                                 onDone("已保存草稿（网页版邮箱可继续编辑）")
                             } catch (e: Exception) {
                                 err = friendly(e)
@@ -690,6 +722,69 @@ private fun MailComposeDialog(
                 TextButton(enabled = !busy, onClick = onDismiss) { Text("取消") }
             }
         },
+    )
+}
+
+/** 账号签名编辑：后端只存不拼，写信时由客户端追加（见 `bodyWithSignature`）。 */
+@Composable
+private fun MailSignatureDialog(
+    session: Session,
+    account: MailAccountItem,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit,
+) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var text by remember(account.id) { mutableStateOf(account.signature) }
+    var busy by remember { mutableStateOf(false) }
+    var err by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("邮箱签名 · ${account.email}") },
+        text = {
+            Column {
+                Text("写信 / 存草稿时自动追加到正文末尾（只对这个账号生效）", fontSize = 10.5.sp, color = KbTextSub)
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .background(androidx.compose.ui.graphics.Color.White, RoundedCornerShape(6.dp))
+                        .padding(8.dp),
+                ) {
+                    if (text.isEmpty()) {
+                        Text("例如：— 张三 / 产品部", fontSize = 11.sp, color = KbTextSub.copy(alpha = 0.7f))
+                    }
+                    BasicTextField(
+                        value = text,
+                        onValueChange = { if (it.length <= 2000) text = it },
+                        textStyle = TextStyle(fontSize = 11.5.sp, color = KbTextMain),
+                        cursorBrush = SolidColor(KbPrimary),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Text("${text.length} / 2000", fontSize = 10.sp, color = KbTextSub)
+                if (err.isNotEmpty()) Text(err, fontSize = 11.sp, color = KbTileRose.second)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                busy = true
+                err = ""
+                scope.launch {
+                    try {
+                        api.mailSaveSignature(session.token, account.id, text)
+                        onSaved()
+                    } catch (e: Exception) {
+                        err = e.message ?: "保存失败"
+                    } finally {
+                        busy = false
+                    }
+                }
+            }) { Text(if (busy) "保存中…" else "保存") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("取消") } },
     )
 }
 

@@ -64,7 +64,8 @@ const status = ref('connecting') // connecting | connected | disconnected
 const peers = ref([])
 const saving = ref(false)
 const dirty = ref(false)       // 有本地改动、尚未写入后端快照
-useUnsavedGuard(() => dirty.value, '文档还有未同步的修改，确定离开吗？')
+// 只读打开时也弹「未保存」会让人以为丢东西：只读本来就不能保存，dirty 只是本地缓存了远端更新
+useUnsavedGuard(() => props.canWrite && dirty.value, '文档还有未同步的修改，确定离开吗？')
 const seeded = ref(false)
 let seedRetries = 0
 const wordCount = ref(0)
@@ -650,13 +651,16 @@ defineExpose({ insertMention })
         <el-button size="small" type="primary" :loading="savingVersion" :disabled="!canWrite" @click="saveCurrentVersion">
           保存当前版本
         </el-button>
-        <span class="ver-tip">「保存当前版本」手动留档；回滚会替换当前内容（不会自动备份），可删除不需要的版本。</span>
+        <span class="ver-tip">下面是历史快照，<b>当前内容不在列表里</b>；点「保存当前版本」把现在的内容留一档，回滚会替换当前内容（不会自动备份）。</span>
       </div>
       <div v-loading="versionLoading" class="ver-list">
         <el-empty v-if="!versions.length" description="暂无版本（编辑保存后会自动生成）" :image-size="90" />
         <div class="ver-item" v-for="v in versions" :key="v.id">
           <div class="ver-info">
-            <div class="ver-t">#{{ v.id }} {{ v.title || '（无标题）' }}</div>
+            <div class="ver-t">
+              #{{ v.id }} {{ v.title || '（无标题）' }}
+              <el-tag v-if="v.kind === 'RESTORE'" size="small" type="info" effect="plain">回滚前备份</el-tag>
+            </div>
             <div class="ver-meta">
               编辑于 {{ fromNow(v.createdAt) }}（{{ fmtDateTime(v.createdAt) }}）
               <template v-if="v.editorName"> · {{ v.editorName }}</template>

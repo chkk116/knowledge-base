@@ -602,6 +602,12 @@ object KbApi {
         ApiClient.getArray("/api/mail/contacts$qq")
     }
 
+    /** PUT /mail/accounts/{id}/signature {signature} → 保存账号签名（≤2000 字，服务端截断） */
+    suspend fun mailSaveSignature(accountId: Long, signature: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.put("/api/mail/accounts/$accountId/signature", JSONObject().put("signature", signature))
+        }
+
     /**
      * POST /mail/send {accountId,to[],cc[],subject,body,html?,inReplyTo?,references?,attachments[]} → {ok,id}
      * 服务端真投递；失败不会本地留档。⚠️ 后端 `/send` 正在由其他人提交，未升级时是 404/405。

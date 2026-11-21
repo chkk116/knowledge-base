@@ -208,7 +208,12 @@ watch(activeTab, (t) => {
       <el-tab-pane label="空间列表" name="spaces">
         <el-table v-stack-table :data="shares" border stripe v-loading="loading">
           <el-table-column prop="id" label="ID" width="70"  class-name="stack-hide" />
-          <el-table-column prop="name" label="空间名称" />
+          <el-table-column label="空间名称" min-width="180">
+            <template #default="{ row }">
+              <!-- 个人空间默认都叫「我的空间」，并列展示容易被看成重复卡片，这里带上所有者 -->
+              {{ row.type === 'PERSONAL' ? (row.ownerName || '未知用户') + ' 的个人空间' : row.name }}
+            </template>
+          </el-table-column>
           <el-table-column prop="description" label="描述" />
           <el-table-column label="所有者" width="140">
             <template #default="{ row }">{{ row.ownerName || '-' }}</template>

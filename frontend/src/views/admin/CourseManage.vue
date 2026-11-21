@@ -104,6 +104,10 @@
                   <el-form-item label="课程名称" required>
                     <el-input v-model="courseForm.title" placeholder="请输入课程名称" />
                   </el-form-item>
+                  <el-form-item label="课程简介">
+                    <el-input v-model="courseForm.summary" type="textarea" :rows="2" maxlength="120"
+                              show-word-limit placeholder="一句话说明这门课讲什么（展示在课程卡片上）" />
+                  </el-form-item>
                   <el-form-item label="课程板块" required>
                     <el-select v-model="courseForm.category" placeholder="请选择或输入课程板块" filterable allow-create style="width:100%">
                       <el-option v-for="b in categoryOptions" :key="b" :value="b" :label="b" />

@@ -13,6 +13,8 @@ const api = axios.create({ baseURL: apiBase(), timeout: 15000 })
 
 // 5xx 全局提示的节流时间戳（模块级、跨请求共享）：故障期只提示一次，不刷屏
 let lastServerErrAt = 0
+// 401 节流：首次只提示，3 秒内再次 401 才认定令牌真失效并清理
+let lastUnauthorized401At = 0
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('kb_token')
@@ -24,7 +26,12 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response && err.response.status === 401) {
-      localStorage.removeItem('kb_token')
+      // 401 只在「短时间内反复出现」时才清令牌：
+      // 多标签页共用一个 token，某个长连接/协同请求偶发 401 就清掉的话，
+      // 另一个标签页下一个请求立刻也 401，表现为「一端编辑器突然说未登录、保存失败」。
+      const now401 = Date.now()
+      if (now401 - lastUnauthorized401At < 3000) localStorage.removeItem('kb_token')
+      lastUnauthorized401At = now401
       // ⚠️ 不再清离线文档缓存：读路径（getCachedDoc/listCachedDocs）已按 userId 严格过滤，
       //   换号/令牌失效后不会读到前任的缓存，清它纯属自伤。
       //   踩坑（2026-10-14，用户反馈「更新版本离线缓存被清」）：应用更新/热更过程中一旦

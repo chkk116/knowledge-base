@@ -118,7 +118,9 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
           <option :value="90">近 90 天</option>
         </select>
         <input v-model="tags" class="tags-input" placeholder="标签，逗号分隔" @keyup.enter="doSearch" />
-        <span class="hint" v-if="hasSearched">共 <b>{{ list.length }}</b> 条结果</span>
+        <span class="hint" v-if="hasSearched">共 <b>{{ list.length }}</b> 条结果
+          <span class="scope-tip" title="协作空间（共享文档）的内容不进入全站搜索与 AI 检索，需进入空间内搜索">仅知识库文章</span>
+        </span>
       </div>
     </section>
 
@@ -185,6 +187,7 @@ const list = computed(() => tab.value === 'author' ? authorResults.value : docRe
 </template>
 
 <style scoped>
+.scope-tip { margin-left: 8px; padding: 1px 6px; border-radius: 4px; background: #f1f5f9; color: #94a3b8; font-size: 11px; cursor: help; }
 .page { max-width: 880px; margin: 0 auto; padding: 24px; color: #0f172a; }
 .search .bar { display: flex; gap: 8px; }
 .q { flex: 1; padding: 12px 14px; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 10px; outline: none; }

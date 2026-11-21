@@ -287,7 +287,8 @@ onMounted(load)
                 <div class="line"><b>{{ n.actor }}</b><span class="txt">提交了新头像，待你审核</span></div>
               </template>
               <template v-else>
-                <div class="line"><span class="txt">{{ n.summary }}</span></div>
+                <!-- 标题只放类型，正文由下面的 .summary 渲染：原来两处都输出 summary，同一段长文本显示两遍 -->
+                <div class="line"><span class="txt">{{ n.type === 'SECURITY_ALERT' ? '安全提醒' : '通知' }}</span></div>
               </template>
               <p class="summary" v-if="n.summary && !isReviewType(n.type)" v-html="n.summary"></p>
               <span class="time" v-if="n.createdAt">{{ fromNow(n.createdAt) }}（{{ fmtDateTime(n.createdAt) }}）</span>

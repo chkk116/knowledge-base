@@ -168,7 +168,7 @@ onMounted(load)
     </el-tabs>
 
     <div class="filters">
-      <el-input v-model="keyword" placeholder="搜索标题 / 正文 / 分类" clearable
+      <el-input v-model="keyword" placeholder="搜索标题 / 正文 / 分类（不含用户草稿）" clearable
                 style="width: 240px" @keyup.enter="onSearch" @clear="onSearch" />
       <el-select v-model="sort" style="width: 130px" @change="onSort">
         <el-option label="最新更新" value="updatedAt" />

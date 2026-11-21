@@ -44,7 +44,8 @@ function normUrls(raw) {
  *   模型失败后常会用同样参数重试，若每次都重新弹确认，用户会被问 5、6 遍（2026-10-20 实际发生）。
  * @returns {Promise<string>} 回填进 agent 轨迹的文本
  */
-export async function agentCreateQuestions(args = {}, { askUser, isDemo, session, forcePersonal = false } = {}) {
+// forcePersonal 保留仅为兼容既有调用方：现在无论有没有 EXAM_MANAGE，出题一律进个人题库
+export async function agentCreateQuestions(args = {}, { askUser, isDemo, session } = {}) {
   if (isDemo) return '演示账号是只读的，不能出题（请用正式账号登录后再试）'
   if (typeof askUser !== 'function') return '当前环境不支持向用户确认，无法出题'
 

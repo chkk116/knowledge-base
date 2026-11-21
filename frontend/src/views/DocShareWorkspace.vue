@@ -315,7 +315,12 @@ const createDoc = async (kind = 'doc') => {
 // 从外部文件导入为共享文档（.md/.txt/.html/.docx/.pdf）
 const importFileInput = ref(null)
 const importing = ref(false)
-const openImport = () => { if (canWrite.value && importFileInput.value) importFileInput.value.click() }
+const openImport = () => {
+  // 原先 canWrite=false 时直接 return，按钮点了毫无反应（外部测试连点两次都以为是坏按钮）
+  if (!canWrite.value) { ElMessage.warning('你对这个空间只读，无法导入文档'); return }
+  if (!importFileInput.value) { ElMessage.error('导入组件未就绪，请刷新页面重试'); return }
+  importFileInput.value.click()
+}
 const onImportFile = async (e) => {
   const file = e.target.files && e.target.files[0]
   e.target.value = '' // 允许重复选择同一文件
@@ -789,7 +794,7 @@ async function copyPubUrl() {
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <el-button size="small" :loading="importing" @click="openImport">导入</el-button>
+            <el-button v-if="canWrite" size="small" :loading="importing" @click="openImport">导入</el-button>
             <input ref="importFileInput" type="file" accept=".md,.markdown,.txt,.text,.html,.htm,.docx,.pdf"
                    style="display:none" @change="onImportFile" />
           </div>
@@ -830,7 +835,7 @@ async function copyPubUrl() {
               <span class="doc-time">{{ fmtTime(d.updatedAt) }}</span>
             </div>
           </div>
-          <el-empty v-if="!docs.length" description="暂无文档" :image-size="60" />
+          <el-empty v-if="!loading && !docs.length" description="暂无文档" :image-size="60" />
         </div>
       </aside>
 

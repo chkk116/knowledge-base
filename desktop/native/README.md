@@ -39,9 +39,10 @@
   阅读 `textBody` 优先，`htmlBody` 只做标签剥离转纯文本（不渲染远程 HTML，避免追踪像素与外链）；
   点开自动标已读、删除二次确认、`POST /accounts/{id}/sync` 手动同步并提示新增封数；
   **写邮件 / 回复 / 存草稿**（`POST /api/mail/send`、`/api/mail/drafts`；回复带原始 `messageId` 串线程）；
-  收件箱 / 草稿箱切换（`folder=DRAFT`，草稿列表带「【草稿】」前缀，选中后可再「编辑草稿」预填正文）；
+  收件箱 / 草稿箱 / 已发送（`folder=INBOX|DRAFT|SENT`；草稿带「【草稿】」前缀，选中后可再「编辑草稿」预填正文）；
   列表「加载更多」（80 封/页，按 id 去重合并）；**附件列表**（`attachments` 是嵌套 JSON 字符串，点名称走系统浏览器打开站内 `/uploads/…`）；
   写信时**收件人补全**（`/mail/contacts`，输入 2 字以上 300ms 防抖，接口未上线时静默返回空）；
+  **账号签名**（左栏「签名」→ `PUT /mail/accounts/{id}/signature`，写信/存草稿时客户端自动追加）；
   后端 `/send` 未升级时把 404/405 说明成「服务端邮箱发信接口可能尚未升级」。
   **绑定只做授权码**（QQ/163 等），OAuth 需管理员先配 `mail.oauth.google.*` / `mail.oauth.ms.*`，回调 `/api/mail/oauth/callback`。
 - **AI 问答**：左侧会话列表（`GET/POST/DELETE /api/ai/conversations`）+ 右侧流式对话

@@ -76,6 +76,8 @@ fun MailScreen(onBack: () -> Unit) {
     var folder by remember { mutableStateOf("INBOX") }
     // 已加载到的页（「加载更多」递增；切账号/搜索/文件夹/刷新时归零）
     var page by remember { mutableIntStateOf(0) }
+    // 签名编辑（仅对当前选中账号生效）
+    var signing by remember { mutableStateOf(false) }
 
     LaunchedEffect(tick) {
         runCatching { KbApi.mailAccounts() }
@@ -177,6 +179,7 @@ fun MailScreen(onBack: () -> Unit) {
                         }
                     }
                 }) { Text(if (syncing) "同步中…" else "同步", fontSize = 13.sp) }
+                TextButton(onClick = { signing = true }) { Text("签名", fontSize = 13.sp) }
             }
             TextButton(onClick = { binding = true }) { Text("绑定", fontSize = 13.sp) }
         })
@@ -209,6 +212,8 @@ fun MailScreen(onBack: () -> Unit) {
         ) {
             KbChip("收件箱", selected = folder == "INBOX", onClick = { folder = "INBOX" })
             KbChip("草稿箱", selected = folder == "DRAFT", onClick = { folder = "DRAFT" })
+            // 已发送：后端发信成功后在本地存 folder=SENT（uid 为负的合成记录）
+            KbChip("已发送", selected = folder == "SENT", onClick = { folder = "SENT" })
         }
 
         OutlinedTextField(
@@ -237,6 +242,7 @@ fun MailScreen(onBack: () -> Unit) {
                 when {
                     q.isNotBlank() -> "没有匹配「$q」的邮件"
                     folder == "DRAFT" -> "草稿箱是空的\n写邮件时点「存草稿」会存到这里"
+                    folder == "SENT" -> "还没有发出过邮件"
                     else -> "收件箱是空的\n点右上角「同步」拉取最新邮件"
                 }
             )
@@ -330,6 +336,20 @@ fun MailScreen(onBack: () -> Unit) {
             onBound = {
                 binding = false
                 msg = "绑定成功，正在同步…"
+                tick++
+            }
+        )
+    }
+
+    if (signing && accId > 0) {
+        val acc = accounts.firstOrNull { it.optLong("id", 0) == accId }
+        MailSignatureDialog(
+            accountId = accId,
+            current = acc?.optString("signature").orEmpty(),
+            onDismiss = { signing = false },
+            onSaved = {
+                signing = false
+                msg = "签名已保存（写信时会自动追加）"
                 tick++
             }
         )
@@ -518,6 +538,57 @@ private fun MailBindDialog(onDismiss: () -> Unit, onBound: () -> Unit) {
     )
 }
 
+/** 账号签名：后端只存不拼，写信时由客户端追加（见 `bodyWithSignature`）。 */
+@Composable
+private fun MailSignatureDialog(
+    accountId: Long,
+    current: String,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var text by remember { mutableStateOf(current) }
+    var busy by remember { mutableStateOf(false) }
+    var err by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("邮箱签名") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { if (it.length <= 2000) text = it },
+                    label = { Text("写信时自动追加到正文末尾", fontSize = 11.sp) },
+                    minLines = 4,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("${text.length} / 2000", fontSize = 10.sp, color = KbTextDim)
+                if (err.isNotEmpty()) {
+                    Text(err, fontSize = 11.sp, color = KbRed)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                busy = true
+                err = ""
+                scope.launch {
+                    try {
+                        KbApi.mailSaveSignature(accountId, text)
+                        onSaved()
+                    } catch (e: Exception) {
+                        err = e.message ?: "保存失败"
+                    } finally {
+                        busy = false
+                    }
+                }
+            }) { Text(if (busy) "保存中…" else "保存") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("取消") } }
+    )
+}
+
 /** 写信种子：回复预填收件人/主题/inReplyTo；编辑草稿再带上正文。 */
 data class ComposeSeed(
     val to: String,
@@ -549,6 +620,15 @@ private fun MailCompose(
     fun parseTo(): List<String> =
         to.split(',', ';', '，', '；', '\n').map { it.trim() }.filter { it.contains("@") }
 
+    fun bodyWithSignature(): String {
+        // 后端不发信时追加签名（只在保存账号签名后由客户端拼），已经包含就不重复拼
+        val sig = accounts.firstOrNull { it.optLong("id", 0) == accId }
+            ?.optString("signature").orEmpty()
+        if (sig.isBlank() || body.contains(sig)) return body
+        val b = body.trimEnd()
+        return if (b.isEmpty()) sig else b + "\n\n" + sig
+    }
+
     Column(Modifier.fillMaxSize()) {
         TopBar(
             title = if (seed.inReplyTo == null) "写邮件" else "回复邮件",
@@ -565,7 +645,7 @@ private fun MailCompose(
                                     accountId = accId,
                                     to = parseTo(),
                                     subject = subject.ifBlank { "（无主题）" },
-                                    body = body,
+                                    body = bodyWithSignature(),
                                     inReplyTo = seed.inReplyTo
                                 )
                                 onDone("已发送")
@@ -646,7 +726,7 @@ private fun MailCompose(
                     err = ""
                     scope.launch {
                         try {
-                            KbApi.mailSaveDraft(accId, to, subject, body)
+                            KbApi.mailSaveDraft(accId, to, subject, bodyWithSignature())
                             onDone("已保存草稿（网页版邮箱可继续编辑）")
                         } catch (e: Exception) {
                             val m = e.message ?: "保存失败"

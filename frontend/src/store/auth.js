@@ -47,7 +47,15 @@ export const useAuthStore = defineStore('auth', () => {
     } catch { return null }
   })())
   const loggedIn = ref(!!token.value)
-  const isAdmin = computed(() => user.value?.role === 'ADMIN')
+  // 与后端 TokenClaims.isAdmin() 对齐：role=ADMIN，或权限码覆盖管理员全集，都算管理员。
+  // 原先只认 role，全权限角色在后台能进管理页、发文时却只有「提交审核」没有「发布」。
+  const isAdmin = computed(() => {
+    if (!user.value) return false
+    if (user.value.role === 'ADMIN') return true
+    const perms = permissions.value
+    if (perms.includes('*')) return true
+    return isFullAdminPerms(perms)
+  })
   // 细粒度权限码数组（如 ['USER_MANAGE','DOC_REVIEW']）；ADMIN 角色隐式拥有全部
   const permissions = computed(() => {
     if (!user.value) return []

@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,6 +69,8 @@ fun MyPostsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit) {
     var busyId by remember { mutableStateOf(0L) }
     var msg by remember { mutableStateOf("") }
     var delTarget by remember { mutableStateOf<JSONObject?>(null) }
+    // 标题筛选（测试报告 F5：草稿/待审多的时候没搜索很难找）
+    var q by remember { mutableStateOf("") }
 
     fun load() {
         state = L2.Loading
@@ -97,14 +100,30 @@ fun MyPostsScreen(onBack: () -> Unit, openPost: (Long, String) -> Unit) {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
         }
+        OutlinedTextField(
+            value = q,
+            onValueChange = { q = it },
+            placeholder = { Text("按标题筛选", fontSize = 13.sp) },
+            singleLine = true,
+            trailingIcon = {
+                if (q.isNotEmpty()) {
+                    TextButton(onClick = { q = "" }) { Text("清除", fontSize = 12.sp) }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+        val shown = if (q.isBlank()) items
+        else items.filter { it.optString("title").contains(q.trim(), ignoreCase = true) }
         when (state) {
             L2.Loading -> KbLoading()
             L2.Empty -> KbEmpty("📝", "还没有写过文章\n在 Web 端编辑器里可以写")
-            L2.Ok -> LazyColumn(
+            L2.Ok -> if (shown.isEmpty()) {
+                KbEmpty("🔍", "没有匹配「$q」的文章")
+            } else LazyColumn(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                itemsIndexed(items, key = { i, it -> it.optLong("id", -1L).let { id -> if (id == -1L) "post-$i" else id } }) { i, d ->
+                itemsIndexed(shown, key = { i, it -> it.optLong("id", -1L).let { id -> if (id == -1L) "post-$i" else id } }) { i, d ->
                     val id = d.optLong("id", 0)
                     val status = d.optString("status")
                     val busy = busyId == id

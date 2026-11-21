@@ -28,7 +28,9 @@ async function load() {
   }
 }
 
-const myLevel = computed(() => getLevel(auth.user?.points || 0))
+// 用接口返回的实时积分（与榜单同一份数据）；auth.user.points 是登录时的缓存，会与榜单行对不上
+const myPoints = computed(() => (me.value && me.value.points) || auth.user?.points || 0)
+const myLevel = computed(() => getLevel(myPoints.value))
 </script>
 
 <template>
@@ -73,7 +75,7 @@ const myLevel = computed(() => getLevel(auth.user?.points || 0))
       </div>
       <div class="me-right">
         <div class="me-rank">第 <b>{{ me.rank || '—' }}</b> 名</div>
-        <div class="me-points">{{ auth.user?.points || 0 }} 积分</div>
+        <div class="me-points">{{ myPoints }} 积分</div>
       </div>
     </div>
 
