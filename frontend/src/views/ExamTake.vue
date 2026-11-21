@@ -64,7 +64,7 @@
       </div>
 
       <div class="exam-foot">
-        <el-button @click="$router.push('/exams')">退出</el-button>
+        <el-button @click="quitExam">退出</el-button>
         <el-button type="primary" :loading="submitting" @click="submit">交卷</el-button>
       </div>
     </div>
@@ -75,9 +75,9 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Clock } from '@element-plus/icons-vue'
-import { getPaper, startExam, submitExam } from '../api/training'
+import { getPaper, startExam, submitExam, abandonExam } from '../api/training'
 import { errMsg } from '../utils/errMsg'
 import { useUnsavedGuard } from '../composables/useUnsavedGuard'
 
@@ -164,6 +164,19 @@ const submit = () => {
   submitExam(route.params.id, recordId.value, buildItems())
     .then(() => { submitted.value = true; clearInterval(timer); router.push('/exams/records/' + recordId.value) })
     .catch(e => { submitting.value = false; ElMessage.error(errMsg(e, '交卷失败')) })
+}
+
+// 退出即作废：调后端删掉进行中记录，避免留下 0 分未及格、还占掉一次考试机会
+async function quitExam() {
+  try {
+    await ElMessageBox.confirm('退出后本次作答作废，不计入考试次数。确定退出？', '退出考试', { type: 'warning' })
+  } catch { return }
+  try {
+    if (recordId.value) await abandonExam(recordId.value)
+  } catch (e) { /* 作废失败也不拦用户退出 */ }
+  submitted.value = true   // 标志置位，避免离开守卫再弹一次
+  clearInterval(timer)
+  router.push('/exams')
 }
 
 // 试卷加载后到交卷前，误点侧边栏 / 返回 / 退出 / 关标签页都要先确认

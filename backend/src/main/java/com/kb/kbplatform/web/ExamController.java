@@ -130,6 +130,13 @@ public class ExamController {
         return svc.recordDetail(resolveOwner(c), rid);
     }
 
+    /** 放弃进行中的考试：作废记录，不计次也不计分（已交卷的不允许） */
+    @PostMapping("/records/{rid}/abandon")
+    public Map<String, Object> abandon(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long rid) {
+        svc.abandon(resolveOwner(c), rid);
+        return Map.of("ok", true);
+    }
+
     public static class SubmitReq {
         public Long recordId;
         public List<ExamService.AnswerItem> items;

@@ -67,6 +67,9 @@ export const startExam = (id) =>
 export const submitExam = (paperId, recordId, items) =>
   api.post('/exams/' + paperId + '/submit', { recordId, items })
 
+/** 放弃进行中的考试：作废记录，不计次也不计分 */
+export const abandonExam = (rid) => api.post('/exams/records/' + rid + '/abandon')
+
 export const myExams = () =>
   api.get('/exams/mine')
 

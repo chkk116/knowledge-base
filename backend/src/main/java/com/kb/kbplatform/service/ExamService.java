@@ -195,7 +195,12 @@ public class ExamService {
             rec.setPassed(false);
             rec.setSubmittedAt(LocalDateTime.now());
             if (rec.getStartedAt() != null) {
-                rec.setDurationSec((int) Math.max(0, Duration.between(rec.getStartedAt(), rec.getSubmittedAt()).getSeconds()));
+                long sec = Math.max(0, Duration.between(rec.getStartedAt(), rec.getSubmittedAt()).getSeconds());
+                // 用时按试卷时长封顶（+1 分钟宽限）：超时记录下次 start 才结算，
+                // 直接算「现在 - 开始时间」会写出 983 分钟这种明显没意义的数字
+                Integer limitMin = paperRepo.findById(rec.getPaperId()).map(ExamPaper::getDurationMin).orElse(null);
+                long cap = (limitMin != null && limitMin > 0) ? limitMin * 60L + 60 : sec;
+                rec.setDurationSec((int) Math.min(sec, cap));
             }
             recordRepo.save(rec);
         });
@@ -282,8 +287,30 @@ public class ExamService {
     }
 
     /** 登录：我的考试成绩 */
+    /**
+     * 放弃进行中的考试：直接删掉这条记录。
+     * 没有这个入口时，用户点开就退出会留下一条 0 分未及格记录，还占掉 10 次上限里的一次。
+     * 已交卷的记录不允许放弃（那会变成刷分/抹成绩）。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void abandon(Long userId, Long recordId) {
+        ExamRecord rec = recordRepo.findById(recordId)
+                .orElseThrow(() -> new IllegalArgumentException("考试记录不存在"));
+        if (!java.util.Objects.equals(rec.getUserId(), userId)) {
+            throw new ResponseStatusException(FORBIDDEN, "只能放弃自己的考试");
+        }
+        if (rec.getSubmittedAt() != null) {
+            throw new ResponseStatusException(BAD_REQUEST, "已交卷的考试不能放弃");
+        }
+        recordRepo.delete(rec);
+    }
+
     public List<ExamRecord> myRecords(Long userId) {
-        List<ExamRecord> list = recordRepo.findByUserIdOrderByStartedAtDesc(userId);
+        // 只展示已交卷的记录：进行中的记录还没作答，列表里按 0 分/未及格展示会让人以为「考砸了」，
+        // 实际只是没交卷（下次点开始会复用同一条进行中记录）
+        List<ExamRecord> list = recordRepo.findByUserIdOrderByStartedAtDesc(userId).stream()
+                .filter(r -> r.getSubmittedAt() != null)
+                .toList();
         if (list.isEmpty()) return list;
         // paperTitle / questionCount 在实体里是 @Transient（不落库），列表页要显示试卷名，
         // 这里一次性批量补齐，避免逐条查试卷的 N+1。缺了就退化成前端显示的「考试 #id」。
@@ -617,6 +644,11 @@ public class ExamService {
     public ExamPaper adminSavePaper(ExamPaper p) {
         if (p.getTitle() == null || p.getTitle().isBlank()) throw new IllegalArgumentException("试卷标题不能为空");
         if (p.getStatus() == null || p.getStatus().isBlank()) p.setStatus("PUBLISHED");
+        // 0 题试卷发布出去就是「点开始即 0 分、结业闭环断裂」，实测已经踩过两次
+        if ("PUBLISHED".equals(p.getStatus()) && p.getId() != null
+                && pqRepo.countByPaperId(p.getId()) == 0) {
+            throw new IllegalArgumentException("试卷还没有题目，不能发布；请先在「组卷」里选题");
+        }
         // #7 及格线合法性：0 <= passScore <= totalScore（totalScore 为 0 时跳过比较，交由 assemble 回写后校验）
         if (p.getPassScore() < 0) {
             throw new IllegalArgumentException("及格线不能为负数");
