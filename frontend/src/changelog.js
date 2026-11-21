@@ -10,6 +10,15 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.50-native',
+    date: '2026-11-21',
+    title: '空间申请审批',
+    items: [
+      '管理后台新增「空间申请」：团队空间创建与扩容申请的查看、通过和驳回',
+    ],
+  },
+
+  {
     version: '1.3.49-native',
     date: '2026-11-21',
     title: '安全加固与体验修复',
