@@ -42,7 +42,12 @@ public class RagIndexService {
     private static final int CHUNK_LEN = 500;
     private static final int CHUNK_OVERLAP = 60;
     private static final int MAX_CHUNKS = 60;
-    private static final double MIN_SCORE = 0.05;
+    /**
+     * 相关度下限：0.05 等于「什么都算命中」，问答会挂上一堆无关来源（实测问数据库索引、
+     * 来源却是光合作用/卡路里/免疫系统）。0.30 是中文 embedding 有明显语义相关时的经验下限，
+     * 可用 kb.ai.rag.min-score 覆盖；宁可少给来源，也不要假装有据可查。
+     */
+    private double minScore = 0.30;
 
     private final DocChunkRepository chunkRepo;
     private final DocumentRepository documentRepo;
@@ -59,6 +64,9 @@ public class RagIndexService {
         t.setDaemon(true);
         return t;
     });
+
+    @org.springframework.beans.factory.annotation.Value("${kb.ai.rag.min-score:0.30}")
+    public void setMinScore(double v) { if (v > 0 && v <= 1) this.minScore = v; }
 
     public RagIndexService(DocChunkRepository chunkRepo,
                            DocumentRepository documentRepo,
@@ -174,7 +182,7 @@ public class RagIndexService {
             float[] v = parseVec(c.getEmbedding());
             if (v == null || v.length != qv.length) continue;
             double s = cosine(qv, v);
-            if (s < MIN_SCORE) continue;
+            if (s < minScore) continue;
             Double prev = bestScore.get(c.getDocId());
             if (prev == null || s > prev) {
                 bestScore.put(c.getDocId(), s);

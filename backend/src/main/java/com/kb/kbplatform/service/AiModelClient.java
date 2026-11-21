@@ -47,6 +47,18 @@ public class AiModelClient {
     private final Map<Long, RestClient> clients = new ConcurrentHashMap<>();
     /** 流式解析 SSE 用（RestClient 不支持逐块读取，单独走 java.net.http）；项目是 Jackson 3（tools.jackson） */
     private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder().build();
+    /** 首 token 看门狗：服务端接了连接却一个 token 都不吐时，靠它到点关流把阻塞读打断 */
+    private static final java.util.concurrent.ScheduledExecutorService FIRST_TOKEN_WATCHDOG =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "ai-first-token-watchdog");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** 首 token 等待上限（秒），可用 kb.ai.first-token-timeout-sec 覆盖 */
+    @org.springframework.beans.factory.annotation.Value("${kb.ai.first-token-timeout-sec:90}")
+    private long firstTokenTimeoutSec = 90;
+
     private final java.net.http.HttpClient streamingHttp = java.net.http.HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
@@ -186,6 +198,15 @@ public class AiModelClient {
                 }
 
                 String sinkError = null;
+                // 看门狗：N 秒内没有任何正文/思考片段就关流，把阻塞在 it.hasNext() 的线程踢出来。
+                // 之前只有整体 600s 超时，模型卡住时用户要干等十分钟（实测 110 秒无输出只能手动停）。
+                final java.util.concurrent.atomic.AtomicBoolean gotFirst = new java.util.concurrent.atomic.AtomicBoolean(false);
+                final java.util.concurrent.ScheduledFuture<?> guard = FIRST_TOKEN_WATCHDOG.schedule(() -> {
+                    if (!gotFirst.get()) {
+                        log.warn("AI 首 token 超时（{}s，模型 {}），关闭响应流", firstTokenTimeoutSec, m.getName());
+                        try { resp.body().close(); } catch (Exception ignore) { }
+                    }
+                }, Math.max(10, firstTokenTimeoutSec), java.util.concurrent.TimeUnit.SECONDS);
                 try (var lines2 = resp.body()) {
                     var it = lines2.iterator();
                     while (it.hasNext()) {
@@ -204,6 +225,7 @@ public class AiModelClient {
                         String piece = delta.path("content").asText("");
                         String thinkPiece = delta.path("reasoning_content").asText("");
                         if (piece.isEmpty() && thinkPiece.isEmpty()) continue;
+                        gotFirst.set(true);   // 真正拿到内容了，撤销看门狗
                         if (!piece.isEmpty()) acc.append(piece);
                         if (!thinkPiece.isEmpty()) think.append(thinkPiece);
                         try {
@@ -215,6 +237,7 @@ public class AiModelClient {
                         }
                     }
                 }
+                guard.cancel(false);
                 long ms = System.currentTimeMillis() - t0;
                 if (acc.isEmpty()) throw new IllegalStateException("模型未返回任何内容" + (sinkError == null ? "" : "（客户端中断）"));
                 recordUsage(m, "chat", true, usage, ms, null);
@@ -222,8 +245,12 @@ public class AiModelClient {
                         think.isEmpty() ? null : think.toString());
             } catch (Exception e) {
                 long ms = System.currentTimeMillis() - t0;
-                log.warn("AI 流式调用失败(name={}): {}", m.getName(), e.getMessage());
-                errors.add(m.getName() + ": " + e.getMessage());
+                String why = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                if (why.contains("closed") || why.contains("cancel")) {
+                    why = "模型 " + firstTokenTimeoutSec + " 秒内没有返回内容（首 token 超时）";
+                }
+                log.warn("AI 流式调用失败(name={}): {}", m.getName(), why);
+                errors.add(m.getName() + ": " + why);
                 recordUsage(m, "chat", false, null, ms, e.getMessage());
             }
         }

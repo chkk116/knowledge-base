@@ -50,6 +50,12 @@ public class SearchService {
                 try {
                     hits = verifyVisible(meili.search(kw, category));
                     engine = "meili";
+                    // Meili 正常但 0 命中：索引写入失败只记日志（文档会长期搜不到而库里明明有），
+                    // 这里回退一次 MySQL，宁可多一次查询也不让人搜空
+                    if (hits.isEmpty()) {
+                        hits = searchByMysql(kw, category, null, "relevance", null, null);
+                        if (!hits.isEmpty()) engine = "mysql-fallback";
+                    }
                 } catch (MeiliUnavailableException e) {
                     meiliCooldownUntil = System.currentTimeMillis() + MEILI_COOLDOWN_MS;
                     hits = searchByMysql(kw, category, null, "relevance", null, null);
@@ -102,7 +108,10 @@ public class SearchService {
         if (kw.isEmpty()) return Collections.emptyList();
         if (meili.isEnabled() && System.currentTimeMillis() > meiliCooldownUntil) {
             try {
-                return verifyVisible(meili.search(kw, category));
+                List<Map<String, Object>> hits = verifyVisible(meili.search(kw, category));
+                if (hits != null && !hits.isEmpty()) return hits;
+                // 0 命中同样回退 MySQL：索引缺失/写入失败时不能把用户挡在「搜不到」外面
+                log.info("Meilisearch 0 命中，回退 MySQL LIKE：{}", kw);
             } catch (MeiliUnavailableException e) {
                 meiliCooldownUntil = System.currentTimeMillis() + MEILI_COOLDOWN_MS;
                 log.warn("Meilisearch 暂不可用，回退 MySQL LIKE（{}s 内不再重试）: {}",
