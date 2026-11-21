@@ -60,15 +60,18 @@ public class AdminFileController {
         List<Map<String, Object>> all = fileSvc.findOrphans(docRepo.findAllContents(), used);
 
         // 类型统计（过滤前）
-        long imageCount = all.stream().filter(f -> !isAudio(str(f.get("url")))).count();
-        long audioCount = all.size() - imageCount;
+        // 按扩展名分三类：原先把「非音频」全算图片，17 个 exe 安装包也被计成「图片（17）」
+        long imageCount = all.stream().filter(f -> isImage(str(f.get("url")))).count();
+        long audioCount = all.stream().filter(f -> isAudio(str(f.get("url")))).count();
+        long otherCount = all.size() - imageCount - audioCount;
 
         // 过滤：类型（all/image/audio）+ 路径关键字
         String kw = (q == null) ? "" : q.trim().toLowerCase();
         List<Map<String, Object>> filtered = all.stream().filter(f -> {
             String url = str(f.get("url"));
-            if ("image".equals(kind) && isAudio(url)) return false;
+            if ("image".equals(kind) && !isImage(url)) return false;
             if ("audio".equals(kind) && !isAudio(url)) return false;
+            if ("other".equals(kind) && (isImage(url) || isAudio(url))) return false;
             return kw.isEmpty() || url.toLowerCase().contains(kw);
         }).toList();
 
@@ -86,7 +89,15 @@ public class AdminFileController {
         result.put("size", s);
         result.put("imageCount", imageCount);
         result.put("audioCount", audioCount);
+        result.put("otherCount", otherCount);
         return result;
+    }
+
+    private static final java.util.regex.Pattern IMAGE_EXT =
+            java.util.regex.Pattern.compile("\\.(png|jpe?g|gif|webp|bmp|svg)(\\?|$)", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private static boolean isImage(String url) {
+        return url != null && IMAGE_EXT.matcher(url).find();
     }
 
     private static boolean isAudio(String url) {
