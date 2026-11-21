@@ -252,6 +252,21 @@ data class SharePublicLink(
     val views: Long,
 )
 
+/**
+ * 文档级权限成员（`GET /api/doc-shares/{sid}/docs/{docId}/members`）。
+ * `spacePermission` 为空间级权限（null = 已不在空间里的历史覆盖）；`permission` 是有效权限（文档级优先）；
+ * `override=true` 表示这篇文档单独设置过（可「恢复继承」）。
+ */
+data class DocMemberItem(
+    val userId: Long,
+    val username: String,
+    val displayName: String,
+    val avatar: String,
+    val spacePermission: String?,
+    val permission: String,
+    val override: Boolean,
+)
+
 /** 作者小卡片（GET /api/users/{id}/card，公开字段，不含登录名）。 */
 data class AuthorCard(
     val id: Long,
@@ -2102,6 +2117,50 @@ class ApiClient(private val base: String) {
     suspend fun revokeSharePublicLink(token: String, shareId: Long, docId: Long) {
         withContext(Dispatchers.IO) {
             authReq("DELETE", "/api/doc-shares/$shareId/docs/$docId/public-link", token)
+        }
+    }
+
+    /** GET …/docs/{docId}/members → 文档级权限（空间成员 + 各自有效权限） */
+    suspend fun docMembers(token: String, shareId: Long, docId: Long): List<DocMemberItem> =
+        withContext(Dispatchers.IO) {
+            val e = runCatching {
+                Json.parseToJsonElement(authReq("GET", "/api/doc-shares/$shareId/docs/$docId/members", token))
+            }.getOrNull() ?: throw ApiError("文档权限响应异常")
+            (e as? JsonArray ?: throw ApiError("文档权限响应异常")).mapNotNull { item ->
+                val j = item as? JsonObject ?: return@mapNotNull null
+                val uid = j.long("userId") ?: return@mapNotNull null
+                DocMemberItem(
+                    userId = uid,
+                    username = j.str("username").orEmpty(),
+                    displayName = j.str("displayName").orEmpty(),
+                    avatar = j.str("avatar").orEmpty(),
+                    spacePermission = j.str("spacePermission"),
+                    permission = j.str("permission").orEmpty().ifBlank { "READ" },
+                    override = j.bool("override") ?: false,
+                )
+            }
+        }
+
+    /**
+     * 设置文档级权限：`PUT …/members/{userId} {permission}` → `{ok, cleared}`。
+     * 传与空间权限相同的值 = 清除单独设置（`cleared=true`，回退继承）。
+     */
+    suspend fun setDocMember(
+        token: String,
+        shareId: Long,
+        docId: Long,
+        userId: Long,
+        permission: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val body = """{"permission":${jsonStr(permission)}}"""
+        val j = parse(authReq("PUT", "/api/doc-shares/$shareId/docs/$docId/members/$userId", token, body))
+        j?.bool("cleared") ?: true
+    }
+
+    /** 清除文档级权限（回退继承空间权限）：`DELETE …/members/{userId}` */
+    suspend fun clearDocMember(token: String, shareId: Long, docId: Long, userId: Long) {
+        withContext(Dispatchers.IO) {
+            authReq("DELETE", "/api/doc-shares/$shareId/docs/$docId/members/$userId", token)
         }
     }
 

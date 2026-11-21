@@ -87,6 +87,8 @@ fun SharesPanel(session: Session) {
     var showMembers by remember { mutableStateOf(false) }
     // 外部分享链接（`/s/{token}`，只有能管理该文档的人可生成/撤销）
     var showShareLink by remember { mutableStateOf(false) }
+    // 文档级权限（单篇覆盖空间权限，能管理该文档的人可改）
+    var showDocPerm by remember { mutableStateOf(false) }
 
     var spacesLoading by remember { mutableStateOf(true) }
     var docsLoading by remember { mutableStateOf(false) }
@@ -360,6 +362,7 @@ fun SharesPanel(session: Session) {
                     versionNote = versionNote,
                     onOpenVersions = { showVersions = true },
                     onOpenShare = { showShareLink = true },
+                    onOpenPerm = { showDocPerm = true },
                     onOpenInBrowser = {
                         val sid = docShareId
                         if (sid == null || sid <= 0) {
@@ -487,6 +490,19 @@ fun SharesPanel(session: Session) {
             onClose = { showShareLink = false },
         )
     }
+
+    // 文档级权限：同样用真实 shareId；改动后重拉详情（我的权限可能变化）
+    if (showDocPerm && shareSid != null && shareSid > 0 && shareDid != null) {
+        DocPermDialog(
+            session = session,
+            api = api,
+            shareId = shareSid,
+            docId = shareDid,
+            docTitle = detail?.title.orEmpty(),
+            onClose = { showDocPerm = false },
+            onChanged = { detailTick++ },
+        )
+    }
 }
 
 @Composable
@@ -611,6 +627,7 @@ private fun ShareReader(
     versionNote: String = "",
     onOpenVersions: () -> Unit = {},
     onOpenShare: () -> Unit = {},
+    onOpenPerm: () -> Unit = {},
     onOpenInBrowser: () -> Unit,
 ) {
     val blocks = remember(doc.id, html) { DocHtml.parse(html) }
@@ -637,6 +654,9 @@ private fun ShareReader(
                     }
                     TextButton(onClick = onOpenShare, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("分享", fontSize = 11.5.sp)
+                    }
+                    TextButton(onClick = onOpenPerm, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("权限", fontSize = 11.5.sp)
                     }
                     TextButton(onClick = onOpenVersions, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("版本", fontSize = 11.5.sp)
@@ -1266,6 +1286,153 @@ private fun ShareLinkDialog(
                                     },
                                     contentPadding = PaddingValues(horizontal = 8.dp),
                                 ) { Text("撤销链接", fontSize = 12.sp, color = ShareErrRed) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("关闭", fontSize = 12.sp)
+            }
+        },
+    )
+}
+
+/**
+ * 文档级权限（单篇覆盖空间权限）。
+ *
+ * 后端：`GET /{sid}/docs/{docId}/members` → `[{userId,username,displayName,avatar,spacePermission,permission,override}]`
+ * （`spacePermission=null` 表示已不在空间里的历史覆盖）；`PUT …/members/{userId} {permission}` 传**与空间权限相同**的
+ * 值等于清除单篇设置（返回 `cleared=true`，回退继承）；`DELETE …/members/{userId}` 直接恢复继承。
+ * 仅「能管理该文档」的人可查/可改（空间 OWNER/ADMIN，或文档级 ADMIN），其余 403 原文透出。
+ */
+@Composable
+private fun DocPermDialog(
+    session: Session,
+    api: ApiClient,
+    shareId: Long,
+    docId: Long,
+    docTitle: String,
+    onClose: () -> Unit,
+    onChanged: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var members by remember { mutableStateOf<List<DocMemberItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var note by remember { mutableStateOf("") }
+    var tick by remember { mutableStateOf(0) }
+    var busyId by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            members = api.docMembers(session.token, shareId, docId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            err = e.message ?: "文档权限加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    fun setPerm(m: DocMemberItem, perm: String) {
+        busyId = m.userId
+        scope.launch {
+            try {
+                val cleared = api.setDocMember(session.token, shareId, docId, m.userId, perm)
+                note = if (cleared) "已恢复继承（与空间权限同为「${permLabel(perm)}」）"
+                else "已把这条文档的权限设为「${permLabel(perm)}」"
+                tick++
+                onChanged()
+            } catch (e: Exception) {
+                note = e.message ?: "改权限失败"
+            } finally {
+                busyId = null
+            }
+        }
+    }
+
+    fun inherit(m: DocMemberItem) {
+        busyId = m.userId
+        scope.launch {
+            try {
+                api.clearDocMember(session.token, shareId, docId, m.userId)
+                note = "已恢复继承空间权限"
+                tick++
+                onChanged()
+            } catch (e: Exception) {
+                note = e.message ?: "恢复继承失败"
+            } finally {
+                busyId = null
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("文档权限 · ${docTitle.ifBlank { "当前文档" }}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.width(520.dp)) {
+                Text(
+                    "单篇可覆盖空间权限；选回与空间相同的档位即自动恢复继承（「单独」标记消失）",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = KbBorder)
+                Box(Modifier.heightIn(max = 340.dp)) {
+                    when {
+                        loading -> ShareHint("加载中…")
+                        err != null -> ShareError(err ?: "", onRetry = { tick++ })
+                        members.isEmpty() -> ShareHint("这个空间还没有其他成员\n先在「成员」里邀请")
+                        else -> LazyColumn(Modifier.fillMaxWidth()) {
+                            items(members, key = { it.userId }) { m ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            m.displayName.ifBlank { m.username.ifBlank { "用户 ${m.userId}" } },
+                                            fontSize = 12.5.sp,
+                                            color = KbTextMain,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "空间：" + permLabel(m.spacePermission ?: "无") +
+                                                if (m.override) " · 本篇单独设置" else "",
+                                            fontSize = 10.5.sp,
+                                            color = if (m.override) ShareErrRed else KbTextSub,
+                                        )
+                                    }
+                                    for (p in listOf("READ", "WRITE", "ADMIN")) {
+                                        TextButton(
+                                            enabled = busyId != m.userId,
+                                            onClick = { if (p != m.permission.uppercase()) setPerm(m, p) },
+                                            contentPadding = PaddingValues(horizontal = 4.dp),
+                                        ) {
+                                            Text(
+                                                if (p == m.permission.uppercase()) "● ${permLabel(p)}" else permLabel(p),
+                                                fontSize = 10.5.sp,
+                                                color = if (p == m.permission.uppercase()) ShareErrRed else KbTextSub,
+                                            )
+                                        }
+                                    }
+                                    TextButton(
+                                        enabled = busyId != m.userId && m.override,
+                                        onClick = { inherit(m) },
+                                        contentPadding = PaddingValues(horizontal = 4.dp),
+                                    ) { Text("继承", fontSize = 10.5.sp, color = KbTextSub) }
+                                }
                             }
                         }
                     }

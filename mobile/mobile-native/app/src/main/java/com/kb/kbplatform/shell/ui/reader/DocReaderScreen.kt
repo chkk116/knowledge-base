@@ -78,6 +78,8 @@ fun DocReaderScreen(
     var refreshing by remember { mutableStateOf(false) }
     // 外部分享链接（生成/更新/撤销，免登录只读 /s/{token}）
     var showShare by remember { mutableStateOf(false) }
+    // 文档级权限（单篇覆盖空间权限）
+    var showPerm by remember { mutableStateOf(false) }
 
     LaunchedEffect(shareId, docId, refreshKey) {
         if (refreshKey > 0) refreshing = true else loading = true
@@ -118,6 +120,9 @@ fun DocReaderScreen(
             }) { Text(if (bookmarked) "★ 已藏" else "☆ 收藏", fontSize = 13.sp) }
             IconButton(onClick = { showShare = true }) {
                 Icon(Icons.Filled.Share, contentDescription = "分享", modifier = Modifier.size(18.dp))
+            }
+            IconButton(onClick = { showPerm = true }) {
+                Icon(Icons.Filled.Lock, contentDescription = "权限", modifier = Modifier.size(18.dp))
             }
             TextButton(
                 onClick = { if (!refreshing) refreshKey++ },
@@ -176,6 +181,15 @@ fun DocReaderScreen(
             docId = docId,
             docTitle = title,
             onClose = { showShare = false }
+        )
+    }
+
+    if (showPerm) {
+        DocPermDialog(
+            shareId = shareId,
+            docId = docId,
+            docTitle = title,
+            onClose = { showPerm = false }
         )
     }
 }

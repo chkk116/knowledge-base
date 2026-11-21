@@ -321,6 +321,34 @@ object KbApi {
         ApiClient.delete("/api/doc-shares/$shareId/docs/$docId/public-link")
     }
 
+    // ---------- 文档级成员权限（单篇覆盖空间权限）----------
+
+    /**
+     * GET …/docs/{docId}/members → [{userId,username,displayName,avatar,spacePermission,permission,override}]
+     * `spacePermission` 为 null 表示该用户已不在空间里（历史覆盖）；`override=true` 表示本篇单独设置。
+     */
+    suspend fun docMembers(shareId: Long, docId: Long): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/doc-shares/$shareId/docs/$docId/members")
+    }
+
+    /**
+     * PUT …/members/{userId} {permission} → {ok, cleared}。
+     * 传与空间权限相同的值 = 清除单篇设置（cleared=true，回退继承）。
+     */
+    suspend fun setDocMember(shareId: Long, docId: Long, userId: Long, permission: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.put(
+                "/api/doc-shares/$shareId/docs/$docId/members/$userId",
+                JSONObject().put("permission", permission)
+            )
+        }
+
+    /** DELETE …/members/{userId} → 恢复继承空间权限 */
+    suspend fun clearDocMember(shareId: Long, docId: Long, userId: Long): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.delete("/api/doc-shares/$shareId/docs/$docId/members/$userId")
+        }
+
     // ---------- 后台：空间创建 / 扩容申请审批（仅完全管理员）----------
 
     /** GET /admin/doc-shares/create-requests → 待审的团队空间创建申请（list） */
