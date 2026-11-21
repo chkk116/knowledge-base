@@ -68,7 +68,8 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
         `将让服务器访问这些网页、抓取正文作为出题依据：\n${urls.join('\n')}\n\n确认继续？`,
         ['继续', '取消'],
       )
-      s.webOk = String(ans).includes('继续')
+      // 只认精确点击的选项文案：对话框允许自由输入，「不要继续」里也含「继续」
+      s.webOk = String(ans).trim() === '继续'
       if (!s.webOk) return '用户取消了联网出题，不要重试'
     }
   } else if (sourceType === 'AI') {
@@ -78,7 +79,7 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
         '这组题将完全不依据知识库内容，由 AI 凭通用知识生成，可能与你们的实际制度不符。确认继续？',
         ['继续', '取消'],
       )
-      s.aiOk = String(ans).includes('继续')
+      s.aiOk = String(ans).trim() === '继续'
       if (!s.aiOk) return '用户取消了通用知识出题，不要重试'
     }
   }
@@ -119,7 +120,7 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
   } catch (e) {
     const code = e?.response?.status
     const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message || ''
-    if (code === 403) return '出题失败：当前账号没有「考试管理」权限，无法写入题库'
+    if (code === 403) return '出题失败：服务端拒绝了这次请求（' + (msg || '403') + '）'
     if (code === 429) return '出题失败：操作太频繁，请稍等一会儿再试'
     if (/timeout/i.test(msg) || e?.code === 'ECONNABORTED') {
       return `出题超时：生成 ${count} 道题一般要 20~60 秒，这次等了 3 分钟还没回来。建议把题量减到 5 道以内再试`
@@ -143,8 +144,9 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
     `已生成 ${qs.length} 道题。\n${basis}\n\n${preview}\n\n要加入题库吗？`,
     ['加入题库', '先不入库'],
   )
-  if (!String(ans).includes('加入')) {
-    return `用户选择先不入库。以下是候选题目，可让他到「考试管理 → AI 出题」里重新生成并勾选保存：\n${preview}`
+  // 只认精确的「加入题库」：自由输入里的「别加入 / 先不加入」都含「加入」，不能算同意
+  if (String(ans).trim() !== '加入题库') {
+    return `用户选择先不入库。以下是候选题目，可让他到「我的测验」的出题入口重新生成并勾选保存（后台「考试管理 → AI 出题」写入的是公共题库）：\n${preview}`
   }
 
   try {

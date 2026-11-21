@@ -309,16 +309,8 @@ public class DmService {
 
     @Transactional
     public int markRead(Long me, Long peer) {
-        List<DmMessage> list = msgs.findByConvKeyOrderByIdDesc(DmMessage.convKey(me, peer), PageRequest.of(0, 100));
-        int n = 0;
-        for (DmMessage m : list) {
-            if (m.getToId().equals(me) && m.getReadAt() == null) {
-                m.setReadAt(LocalDateTime.now());
-                msgs.save(m);
-                n++;
-            }
-        }
-        return n;
+        // 一条 UPDATE 覆盖整个会话（原来只扫最近 100 条并逐条保存）
+        return msgs.markConvRead(DmMessage.convKey(me, peer), me, LocalDateTime.now());
     }
 
     /** 撤回窗口：2 分钟内（与飞书/微信一致） */

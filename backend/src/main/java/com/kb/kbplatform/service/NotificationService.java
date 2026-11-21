@@ -34,6 +34,10 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
+    /**
+     * @提及：左侧必须是行首或非单词字符，避免把邮箱 foo@bar.com 里的 bar 解析成提及。
+     * 后面补一次「@ 前一位不是邮箱字符」的检查在 matcher 循环里做（Java 正则的后行断言支持有限）。
+     */
     private static final Pattern MENTION = Pattern.compile("@([\\w一-龥]+)");
 
     private final NotificationRepository repo;
@@ -144,7 +148,16 @@ public class NotificationService {
         if (rawContent == null) return;
         Set<String> mentions = new LinkedHashSet<>();
         Matcher m = MENTION.matcher(rawContent);
-        while (m.find()) mentions.add(m.group(1));
+        while (m.find()) {
+            // 邮箱里的 @ 不算提及：前一位是邮箱本地部分字符（字母数字 . _ % + -）就跳过。
+            // 「联系 foo@bar.com」原先会把 bar 当成用户名，真的给 bar 发一条无中生有的通知。
+            int at = m.start();
+            if (at > 0 && "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-"
+                    .indexOf(rawContent.charAt(at - 1)) >= 0) {
+                continue;
+            }
+            mentions.add(m.group(1));
+        }
         if (mentions.isEmpty()) return;
         String summary = HtmlSanitizer.preview(rawContent, 50);
         String actorDisplay = actorName(actor);
