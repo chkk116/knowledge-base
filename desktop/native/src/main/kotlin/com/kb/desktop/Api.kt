@@ -147,6 +147,29 @@ data class MailProvider(
     val emailHint: String,
 )
 
+/** 团队空间创建申请（GET /api/admin/doc-shares/create-requests，待审）。 */
+data class SpaceCreateRequestItem(
+    val id: Long,
+    val applicantName: String,
+    val requestedName: String,
+    val requestedDescription: String,
+    val requestedMembers: String,
+    val reason: String,
+    val createdAt: String,
+)
+
+/** 空间扩容申请（GET /api/admin/doc-shares/capacity-requests，待审）。容量单位字节，0 = 不限。 */
+data class SpaceCapacityRequestItem(
+    val id: Long,
+    val shareId: Long,
+    val shareName: String,
+    val applicantName: String,
+    val requestedCapacity: Long,
+    val currentCapacity: Long,
+    val reason: String,
+    val createdAt: String,
+)
+
 /** AI 可选模型（GET /api/ai/models）。scope=system 时请求发 modelId，scope=user 时发 userModelId。 */
 data class AiModelOption(
     val id: Long,
@@ -1525,6 +1548,72 @@ class ApiClient(private val base: String) {
         withContext(Dispatchers.IO) {
             authReq("PUT", "/api/mail/accounts/$accountId/signature", token,
                 """{"signature":${jsonStr(signature)}}""")
+        }
+    }
+
+    // ---------- 后台：空间创建 / 扩容申请审批（仅完全管理员）----------
+
+    /** GET /api/admin/doc-shares/create-requests → 待审的团队空间创建申请 */
+    suspend fun spaceCreateRequests(token: String): List<SpaceCreateRequestItem> = withContext(Dispatchers.IO) {
+        val e = runCatching {
+            Json.parseToJsonElement(getAuth("/api/admin/doc-shares/create-requests", token))
+        }.getOrNull() ?: throw ApiError("空间申请响应异常")
+        (e as? JsonArray ?: throw ApiError("空间申请响应异常")).mapNotNull { it ->
+            val j = it as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            SpaceCreateRequestItem(
+                id = id,
+                applicantName = j.str("applicantName").orEmpty(),
+                requestedName = j.str("requestedName").orEmpty(),
+                requestedDescription = j.str("requestedDescription").orEmpty(),
+                requestedMembers = j.str("requestedMembers").orEmpty(),
+                reason = j.str("reason").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** GET /api/admin/doc-shares/capacity-requests → 待审的空间扩容申请 */
+    suspend fun spaceCapacityRequests(token: String): List<SpaceCapacityRequestItem> = withContext(Dispatchers.IO) {
+        val e = runCatching {
+            Json.parseToJsonElement(getAuth("/api/admin/doc-shares/capacity-requests", token))
+        }.getOrNull() ?: throw ApiError("扩容申请响应异常")
+        (e as? JsonArray ?: throw ApiError("扩容申请响应异常")).mapNotNull { it ->
+            val j = it as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            SpaceCapacityRequestItem(
+                id = id,
+                shareId = j.long("shareId") ?: 0L,
+                shareName = j.str("shareName").orEmpty(),
+                applicantName = j.str("applicantName").orEmpty(),
+                requestedCapacity = j.long("requestedCapacity") ?: 0L,
+                currentCapacity = j.long("currentCapacity") ?: 0L,
+                reason = j.str("reason").orEmpty(),
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** 通过 / 驳回（驳回必须带理由） */
+    suspend fun approveSpaceCreateRequest(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/admin/doc-shares/create-requests/$id/approve", token) }
+    }
+
+    suspend fun rejectSpaceCreateRequest(token: String, id: Long, comment: String) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/doc-shares/create-requests/$id/reject", token,
+                """{"comment":${jsonStr(comment)}}""")
+        }
+    }
+
+    suspend fun approveSpaceCapacityRequest(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("POST", "/api/admin/doc-shares/capacity-requests/$id/approve", token) }
+    }
+
+    suspend fun rejectSpaceCapacityRequest(token: String, id: Long, comment: String) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/doc-shares/capacity-requests/$id/reject", token,
+                """{"comment":${jsonStr(comment)}}""")
         }
     }
 
