@@ -170,6 +170,8 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 - 滑动拼图验证码（服务端基准 + 容差 + 轨迹检测 + IP 限流）、HMAC-SHA256 自签令牌、salt+SHA-256 密码
 - **注册与登录同口径**：`POST /api/auth/register` 必须消费一张已完成的滑动验证码票据，单靠 IP 限流不够（换出口即可批量建号）
 - **演示账号不再有硬编码口令**：`admin` / `zhangsan` / `lisi` 只有在你设置了 `KB_SEED_ADMIN_PASSWORD` / `KB_SEED_USER_PASSWORD` 时才会创建；已存在的账号不会被启动流程强制重新启用（禁用就是禁用）。生产建议直接设 `kb.seed.enabled=false`，用 `KB_ADMIN_USERNAME` + `KB_ADMIN_PASSWORD` 引导管理员
+- **管理员口径统一到一处**：`role=ADMIN` 或「权限码覆盖管理员全集」都算管理员（`TokenClaims.isAdmin()`），共享文档、版本回滚、扩容审批、协同中继共用同一判定；此前共享文档与版本回滚只认 `role=ADMIN`，同一个账号在后台是管理员、在共享空间里却是普通用户
+- **黑名单权限码可用**：`BLACKLIST_MANAGE` 现在真正生效（列表与解封都由它把守），不再被帖子管理的 `POST_MANAGE` 顶替
 - **孤儿文件清理会跳过分发目录**：`uploads/desktop`、`apk`、`app`、`dist`、`files` 与安装包类扩展名（exe/msi/apk/dmg/pkg/deb/zip）不参与孤儿判定，避免一键清理删掉正在分发的安装包
 - **共享文档保存有防覆盖护栏**：请求可带 `baseRev`（打开时读到的 `yjsRev`），代次不一致返回 409；提交正文不足现有正文一半且原文超过 200 字时直接拒绝并提示先刷新——对应实测到的「一端本地未同步完整、保存后整篇覆盖」路径
 - 管理员脚本登录实时告警（SSE 通知）、细粒度管理接口鉴权（过滤器 + 控制器双层）、安全响应头、路径穿越防护

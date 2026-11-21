@@ -106,7 +106,7 @@ async function authorizeDocument(documentName, claims) {
       || claims.exp <= Date.now()) throw new Error('token expired')
   const rows = await q(
     `SELECT u.enabled, u.token_version, u.role, u.avatar, u.display_name,
-            d.owner_id AS doc_owner_id, s.owner_id AS space_owner_id,
+            d.owner_id AS doc_owner_id, s.owner_id AS space_owner_id, u.permissions AS user_permissions,
             COALESCE(d.yjs_rev, 0) AS yjs_rev,
             dp.permission AS doc_permission, sp.permission AS space_permission
        FROM kb_shared_document d
@@ -120,11 +120,24 @@ async function authorizeDocument(documentName, claims) {
   const row = rows[0]
   if (!row || !(row.enabled === true || row.enabled === 1)) throw new Error('forbidden')
   if (Number(row.token_version || 0) !== claims.tokenVersion) throw new Error('token revoked')
+  const perms = String(row.user_permissions || '')
+  // 与 REST 的 isAdmin() 同一语义的最小对齐：role=ADMIN，或权限串含通配 *（=全部权限）
+  const isAdminLike = row.role === 'ADMIN' || perms.split(',').some((x) => x.trim() === '*')
   let permission
-  if (row.role === 'ADMIN' || Number(row.space_owner_id) === claims.userId
+  if (isAdminLike || Number(row.space_owner_id) === claims.userId
       || Number(row.doc_owner_id) === claims.userId) permission = 'OWNER'
   else permission = row.doc_permission ?? row.space_permission
-  if (!READ_PERMISSIONS.has(permission)) throw new Error('forbidden')
+  if (!READ_PERMISSIONS.has(permission)) {
+    // 拒绝原因写清楚：所有者被拒基本只有一种可能——doc_owner_id 为空（历史数据），
+    // 此时 Number(null)=0 永远对不上 userId，需要补数据而不是改代码。
+    console.warn('[collab] deny', JSON.stringify({
+      shareId, docId, userId: claims.userId, role: row.role,
+      docOwner: row.doc_owner_id, spaceOwner: row.space_owner_id,
+      docPerm: row.doc_permission, spacePerm: row.space_permission,
+      perms,
+    }))
+    throw new Error('forbidden')
+  }
   if (Number(row.yjs_rev) !== revision) throw new Error('document revision changed')
   return { permission, avatar: row.avatar || '', name: row.display_name || claims.username, role: row.role }
 }

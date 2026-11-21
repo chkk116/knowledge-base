@@ -467,7 +467,7 @@ public class DocumentService {
     @Transactional(rollbackFor = Exception.class)
     public Document moveDoc(Long id, Long newParentId, Integer sortOrder, TokenClaims c) {
         Document d = get(id);
-        boolean admin = c != null && "ADMIN".equals(c.role());
+        boolean admin = c != null && c.isAdmin();   // 与后台门禁同口径
         boolean canOrganize = c != null && c.hasPerm("TAXONOMY_MANAGE");
         boolean owner = c != null && d.getOwnerId() != null && d.getOwnerId().equals(c.userId());
         if (!admin && !canOrganize && !owner) {

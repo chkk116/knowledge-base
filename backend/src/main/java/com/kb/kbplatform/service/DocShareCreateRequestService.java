@@ -184,7 +184,7 @@ public class DocShareCreateRequestService {
     /** 刻意仅真实 ADMIN（非 isAdmin() 全集语义）：团队空间创建审批属资源管理决策，见类头注释；
      *  不随 AuthFilter 的 isAdmin 门放宽（2026-09-21 ocr 评审后确认为刻意例外）。 */
     private void requireAdmin(TokenClaims c) {
-        if (c == null || !"ADMIN".equals(c.role()))
+        if (c == null || !c.isAdmin())
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要系统管理员（完全管理员）权限");
     }
 

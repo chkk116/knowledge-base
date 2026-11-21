@@ -670,7 +670,8 @@ public class DocShareController {
 
     /** 刻意仅真实 ADMIN（非 isAdmin() 全集语义）：共享空间的系统级审批/配额属资源管理决策，传给 DocShare*Service 的
      *  「完全管理员」旁路只认 ADMIN 角色，不随 AuthFilter 的 isAdmin 门放宽（2026-09-21 ocr 评审后确认为刻意例外）。 */
-    private boolean isSysAdmin(TokenClaims c) { return c != null && "ADMIN".equals(c.role()); }
+    /** 统一口径：role=ADMIN 或权限码覆盖管理员全集（见 TokenClaims.isAdmin），不再只看 role */
+    private boolean isSysAdmin(TokenClaims c) { return c != null && c.isAdmin(); }
 
     private String str(Object o) { return o == null ? null : String.valueOf(o); }
     private Long lng(Object o) { return o == null ? null : Long.valueOf(String.valueOf(o)); }

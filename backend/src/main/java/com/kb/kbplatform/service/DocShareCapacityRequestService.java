@@ -159,10 +159,10 @@ public class DocShareCapacityRequestService {
 
     /** 刻意仅真实 ADMIN（非 isAdmin() 全集语义）：扩容审批属资源管理决策，注释与类头「系统完全管理员（ADMIN 角色）审批」一致，
      *  不随 AuthFilter 的 isAdmin 门放宽——全权限非 ADMIN 账号不参与共享空间资源审批（2026-09-21 ocr 评审后确认为刻意例外）。 */
-    private boolean isSysAdmin(TokenClaims c) { return c != null && "ADMIN".equals(c.role()); }
+    private boolean isSysAdmin(TokenClaims c) { return c != null && c.isAdmin(); }
 
     private void requireAdmin(TokenClaims c) {
-        if (c == null || !"ADMIN".equals(c.role()))
+        if (c == null || !c.isAdmin())
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要系统管理员（完全管理员）权限");
     }
 }

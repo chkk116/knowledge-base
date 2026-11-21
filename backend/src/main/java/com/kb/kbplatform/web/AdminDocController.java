@@ -57,7 +57,8 @@ public class AdminDocController {
     public Page<Document> blocked(@RequestAttribute("kbUser") TokenClaims c,
                                   @RequestParam(required = false, defaultValue = "0") int page,
                                   @RequestParam(required = false, defaultValue = "15") int size) {
-        requirePerm(c, "POST_MANAGE");
+        // 黑名单单独授权：原先与帖子管理共用 POST_MANAGE，导致 BLACKLIST_MANAGE 授了也无处生效
+        requirePerm(c, "BLACKLIST_MANAGE");
         if (page < 0) page = 0;
         if (size <= 0 || size > 100) size = 15;
         return docSvc.listBlocked(page, size);
@@ -132,7 +133,8 @@ public class AdminDocController {
     @PostMapping("/{id}/unblock")
     public Map<String, Object> unblock(@RequestAttribute("kbUser") TokenClaims c,
                                        @PathVariable Long id) {
-        requirePerm(c, "POST_MANAGE");
+        // 解封与黑名单列表同属一个页面，权限码保持一致
+        requirePerm(c, "BLACKLIST_MANAGE");
         String title = docSvc.get(id).getTitle();
         docSvc.unblock(id);
         audit.log(c.userId(), c.username(), "UNBLOCK_DOC", "DOCUMENT", id, title, "解封文档《" + clip(title) + "》");

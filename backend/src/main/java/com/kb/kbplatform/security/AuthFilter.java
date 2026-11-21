@@ -227,6 +227,8 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/admin/roles")) return "USER_MANAGE";
         if (path.startsWith("/api/admin/departments")) return "USER_MANAGE";
         if (path.startsWith("/api/admin/assets")) return "ASSET_MANAGE";
+        if (path.equals("/api/admin/docs/blocked")) return "BLACKLIST_MANAGE";   // 黑名单独立权限码
+        if (path.matches("/api/admin/docs/\\d+/unblock")) return "BLACKLIST_MANAGE";
         if (path.startsWith("/api/admin/docs")) {
             // 拆分：文章审核（待审核队列 + 通过/驳回）= DOC_REVIEW；其余帖子管理操作 = POST_MANAGE
             if (path.equals("/api/admin/docs/pending")) return "DOC_REVIEW";
