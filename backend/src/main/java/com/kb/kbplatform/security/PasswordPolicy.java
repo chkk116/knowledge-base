@@ -51,7 +51,7 @@ public final class PasswordPolicy {
         if (username != null && !username.isBlank()) {
             String u = username.toLowerCase(java.util.Locale.ROOT);
             // 用户名本身，或「用户名 + 任意数字串」（admin1234 / root888 / admin2024 都是常见弱口令）
-            if (lower.equals(u) || lower.matches(java.util.regex.Pattern.quote(u) + "\d{1,6}")) {
+            if (lower.equals(u) || lower.matches(java.util.regex.Pattern.quote(u) + "\\d{1,6}")) {
                 return "密码不能与用户名相同或仅在其后加数字";
             }
         }

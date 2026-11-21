@@ -317,15 +317,20 @@ public class NotificationService {
         repo.saveAll(batch);
         // 一条分组查询取全部接收者未读数，再逐连接推送（推送是纯内存 SSE 发送，开销可忽略）
         Map<Long, Long> counts = new HashMap<>();
+        boolean countsOk = true;
         try {
             for (Object[] row : repo.countUnreadByUserIds(targets)) {
                 counts.put((Long) row[0], (Long) row[1]);
             }
         } catch (Exception e) {
+            countsOk = false;
             log.warn("订阅推送未读数批量查询失败 doc={}: {}", docId, e.getMessage());
         }
-        for (Long uid : targets) {
-            sse.pushUnread(uid, counts.getOrDefault(uid, 0L));
+        // 查询失败就整个跳过推送：拿着一张空 Map 去推 0，会让所有订阅者的红点被错误清零
+        if (countsOk) {
+            for (Long uid : targets) {
+                sse.pushUnread(uid, counts.getOrDefault(uid, 0L));
+            }
         }
     }
 
