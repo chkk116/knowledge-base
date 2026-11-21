@@ -349,6 +349,28 @@ object KbApi {
             ApiClient.delete("/api/doc-shares/$shareId/docs/$docId/members/$userId")
         }
 
+    // ---------- 文档整理：标签 / 移动到其他空间 ----------
+
+    /** PUT …/docs/{docId}/tags {tags:[…]} → 更新后的文档（库里 tags 是逗号分隔字符串） */
+    suspend fun updateDocTags(shareId: Long, docId: Long, tags: List<String>): JSONObject =
+        withContext(Dispatchers.IO) {
+            val arr = org.json.JSONArray()
+            tags.forEach { arr.put(it) }
+            ApiClient.put(
+                "/api/doc-shares/$shareId/docs/$docId/tags",
+                JSONObject().put("tags", arr)
+            )
+        }
+
+    /** POST …/docs/{docId}/move {targetShareId} → 移动后的文档（需管理员或文档所有者，目标空间要可写） */
+    suspend fun moveShareDoc(shareId: Long, docId: Long, targetShareId: Long): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.post(
+                "/api/doc-shares/$shareId/docs/$docId/move",
+                JSONObject().put("targetShareId", targetShareId)
+            )
+        }
+
     // ---------- 后台：空间创建 / 扩容申请审批（仅完全管理员）----------
 
     /** GET /admin/doc-shares/create-requests → 待审的团队空间创建申请（list） */

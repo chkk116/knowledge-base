@@ -1,4 +1,4 @@
-package com.kb.desktop
+﻿package com.kb.desktop
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -2393,7 +2393,7 @@ class ApiClient(private val base: String) {
                 .joinToString(",", prefix = "[", postfix = "]") { jsonStr(it) }
             val o = parse(authReq("PUT", "/api/doc-shares/$shareId/docs/$docId/tags", token, """{"tags":$arr}"""))
                 ?: throw ApiError("更新标签响应异常")
-            parseSharedDoc(o)
+            parseSharedDoc(o) ?: throw ApiError("更新标签响应异常（缺少 id）")
         }
 
     /**
@@ -2405,7 +2405,7 @@ class ApiClient(private val base: String) {
             val o = parse(
                 authReq("POST", "/api/doc-shares/$shareId/docs/$docId/move", token, """{"targetShareId":$targetShareId}""")
             ) ?: throw ApiError("移动文档响应异常")
-            parseSharedDoc(o)
+            parseSharedDoc(o) ?: throw ApiError("移动文档响应异常（缺少 id）")
         }
 }
 

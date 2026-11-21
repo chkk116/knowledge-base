@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -81,6 +82,8 @@ fun DocsScreen(
     // 空间内检索/排序（本地状态；换空间时清空关键字，排序偏好保留）
     var query by remember { mutableStateOf("") }
     var order by remember { mutableStateOf("time") }
+    // 文档整理（标签 / 移动）的目标文档
+    var organizing by remember { mutableStateOf<JSONObject?>(null) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val docsLoaded = remember { mutableStateOf(mutableMapOf<Long, List<JSONObject>>()) }
 
@@ -278,18 +281,46 @@ fun DocsScreen(
                                 }
                         ) {
                             Column(Modifier.padding(14.dp)) {
-                                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 2)
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    formatDateTime(d.optString("updatedAt")),
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 2)
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            formatDateTime(d.optString("updatedAt")),
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    // 用明确的「⋯」而不是长按：改标签 / 移动到其他空间
+                                    IconButton(onClick = { organizing = d }) {
+                                        Icon(
+                                            Icons.Filled.MoreVert,
+                                            contentDescription = "整理文档",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    // 文档整理：改标签 / 移动到其他空间（列表项「⋯」进入）
+    organizing?.let { d ->
+        val sid = space?.optLong("id", 0) ?: 0
+        if (sid > 0) {
+            DocOrganizeDialog(
+                shareId = sid,
+                docId = if (d.has("docId")) d.optLong("docId") else d.optLong("id", 0),
+                title = d.optString("title"),
+                tagsRaw = d.optString("tags"),
+                spaces = spaces,
+                onClose = { organizing = null },
+                onDone = { refreshKey++ }
+            )
         }
     }
 }

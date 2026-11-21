@@ -1475,3 +1475,159 @@ private fun DocPermDialog(
         },
     )
 }
+
+/**
+ * 文档整理：改标签 / 移动到其他空间。
+ *
+ * 后端：`PUT …/docs/{docId}/tags {tags:[…]}`（标签在库里是逗号分隔字符串，返回更新后的文档）；
+ * `POST …/docs/{docId}/move {targetShareId}`（需空间/文档管理员或**文档所有者**，目标空间要有写权限）。
+ */
+@Composable
+private fun DocOrganizeDialog(
+    session: Session,
+    api: ApiClient,
+    shareId: Long,
+    doc: SharedDocItem,
+    allSpaces: List<AgentSpace>,
+    onClose: () -> Unit,
+    onChanged: () -> Unit,
+    onMoved: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var tags by remember(doc.id) { mutableStateOf(splitSharedTags(doc.tags).joinToString("，")) }
+    var note by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var movingTo by remember { mutableStateOf<Long?>(null) }
+    var confirmingTarget by remember { mutableStateOf<AgentSpace?>(null) }
+
+    // 只有能写的空间才能作为目标（后端也会再校验）
+    val targets = allSpaces.filter { s ->
+        s.id != shareId && s.myPermission.uppercase().let { it == "WRITE" || it == "ADMIN" || it == "OWNER" }
+    }
+
+    fun saveTags() {
+        busy = true
+        scope.launch {
+            try {
+                val list = tags.split(SHARED_TAG_SEP).map { it.trim() }.filter { it.isNotEmpty() }.take(20)
+                api.updateShareDocTags(session.token, shareId, doc.id, list)
+                note = if (list.isEmpty()) "已清空标签" else "已保存 " + list.size + " 个标签"
+                onChanged()
+            } catch (e: Exception) {
+                note = e.message ?: "保存标签失败"
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("整理 · ${doc.title.ifBlank { "当前文档" }}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.width(500.dp)) {
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(bottom = 4.dp))
+                }
+                Text("标签（逗号分隔，最多 20 个）", fontSize = 11.sp, color = KbTextSub)
+                OutlinedTextField(
+                    value = tags,
+                    onValueChange = { tags = it },
+                    singleLine = true,
+                    placeholder = { Text("例如：产品，需求，2026", fontSize = 11.5.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.padding(top = 4.dp)) {
+                    TextButton(enabled = !busy, onClick = { saveTags() }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text(if (busy) "保存中…" else "保存标签", fontSize = 12.sp)
+                    }
+                    TextButton(
+                        enabled = !busy && splitSharedTags(doc.tags).isNotEmpty(),
+                        onClick = { tags = "" },
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) { Text("清空输入", fontSize = 12.sp) }
+                }
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = KbBorder)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "移动到其他空间（我的权限为可编辑/可管理的空间才列出；需要你对本文档有管理权或你是作者）",
+                    fontSize = 11.sp,
+                    color = KbTextSub,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(Modifier.heightIn(max = 220.dp)) {
+                    if (targets.isEmpty()) {
+                        ShareHint("没有可移动的目标空间")
+                    } else {
+                        LazyColumn(Modifier.fillMaxWidth()) {
+                            items(targets, key = { it.id }) { s ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            s.name.ifBlank { "空间 ${s.id}" },
+                                            fontSize = 12.5.sp,
+                                            color = KbTextMain,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            spaceTypeLabel(s.type) + " · " + permLabel(s.myPermission),
+                                            fontSize = 10.5.sp,
+                                            color = KbTextSub,
+                                        )
+                                    }
+                                    TextButton(
+                                        enabled = movingTo == null,
+                                        onClick = { confirmingTarget = s },
+                                        contentPadding = PaddingValues(horizontal = 6.dp),
+                                    ) { Text(if (movingTo == s.id) "移动中…" else "移到这里", fontSize = 11.5.sp) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("关闭", fontSize = 12.sp)
+            }
+        },
+    )
+
+    // 移动二次确认（不可撤销的整理动作）
+    confirmingTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmingTarget = null },
+            title = { Text("移动到「${target.name.ifBlank { "空间 " + target.id }}」？") },
+            text = { Text("移动后本文档会从当前空间消失，历史版本随文档一起走；归属人不变。", fontSize = 12.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val t = target
+                    confirmingTarget = null
+                    movingTo = t.id
+                    busy = true
+                    scope.launch {
+                        try {
+                            api.moveShareDoc(session.token, shareId, doc.id, t.id)
+                            note = "已移动到「" + t.name.ifBlank { "空间 " + t.id } + "」"
+                            onMoved()
+                        } catch (e: Exception) {
+                            note = e.message ?: "移动失败"
+                        } finally {
+                            movingTo = null
+                            busy = false
+                        }
+                    }
+                }) { Text("确认移动") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingTarget = null }) { Text("取消") }
+            },
+        )
+    }
+}

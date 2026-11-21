@@ -1,4 +1,4 @@
-# 知识库桌面端（原生 Compose）
+﻿# 知识库桌面端（原生 Compose）
 
 `knowledge-base/desktop/native/` — 用 **Kotlin + Compose Multiplatform Desktop** 写的原生 Windows 客户端（非 WebView 套壳），交付形态为单文件安装程序。`desktop/` 上一层的 Electron 版保留不动。
 
@@ -162,6 +162,9 @@
   `spacePermission` / 有效 `permission` / `override`）→ 每行「只读 / 可编辑 / 可管理」三档 + 「继承」：
   `PUT …/members/{userId} {permission}` 传**与空间权限相同**的值即 `cleared=true`（自动回退继承，界面标「本篇单独设置」消失）；
   `DELETE …/members/{userId}` 直接恢复继承。同样仅 `canAdminDoc` 可改。
+  **文档整理（2026-11-22）**：阅读区顶栏「整理」→ 改标签（`PUT …/docs/{docId}/tags {tags:[…]}`，逗号分隔最多 20 个）
+  + 移动到其他空间（`POST …/docs/{docId}/move {targetShareId}`，只列我有写权限的空间，需空间/文档管理员或文档作者，二次确认）；
+  移动后文档离开当前空间、历史版本随行走、归属人不变。
   ⚠️ **协同正文（2026-11-16 起本地解析）**：`GET /api/doc-shares/{id}/docs/{docId}/yjs` 下发
   `yjs_state`（base64；超 8MB 不下发，返回 `state=null` + `tooLarge`），桌面端用
   **`net.carcdr:ycrdt-core` / `ycrdt-jni` 0.3.0**（Yrs 的 Java 绑定，Apache-2.0，jar 内含
