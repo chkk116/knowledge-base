@@ -571,7 +571,7 @@ private fun MailCompose(
                                 onDone("已发送")
                             } catch (e: Exception) {
                                 val m = e.message ?: "发送失败"
-                                err = if (m.contains("404") || m.contains("405"))
+                                err = if (m.startsWith("请求失败(404)") || m.startsWith("请求失败(405)"))
                                     "$m（服务端邮箱发信接口可能尚未升级）" else m
                             } finally {
                                 busy = false
@@ -650,7 +650,7 @@ private fun MailCompose(
                             onDone("已保存草稿（网页版邮箱可继续编辑）")
                         } catch (e: Exception) {
                             val m = e.message ?: "保存失败"
-                            err = if (m.contains("404") || m.contains("405"))
+                            err = if (m.startsWith("请求失败(404)") || m.startsWith("请求失败(405)"))
                                 "$m（服务端草稿接口可能尚未升级）" else m
                         } finally {
                             busy = false

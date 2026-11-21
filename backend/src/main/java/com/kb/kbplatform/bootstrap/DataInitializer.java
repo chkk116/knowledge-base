@@ -34,17 +34,24 @@ public class DataInitializer implements ApplicationRunner {
     private final CommentRepository commentRepo;
     private final FeatureFlagService flagSvc;
     private final boolean seedEnabled;
+    /** 演示账号口令：必须由部署方通过环境变量提供，源码里不再硬编码弱口令 */
+    private final String seedAdminPassword;
+    private final String seedUserPassword;
 
     public DataInitializer(UserRepository userRepo,
                            DocumentService docService,
                            CommentRepository commentRepo,
                            FeatureFlagService flagSvc,
-                           @org.springframework.beans.factory.annotation.Value("${kb.seed.enabled:true}") boolean seedEnabled) {
+                           @org.springframework.beans.factory.annotation.Value("${kb.seed.enabled:true}") boolean seedEnabled,
+                           @org.springframework.beans.factory.annotation.Value("${kb.seed.admin-password:${KB_SEED_ADMIN_PASSWORD:}}") String seedAdminPassword,
+                           @org.springframework.beans.factory.annotation.Value("${kb.seed.user-password:${KB_SEED_USER_PASSWORD:}}") String seedUserPassword) {
         this.userRepo = userRepo;
         this.docService = docService;
         this.commentRepo = commentRepo;
         this.flagSvc = flagSvc;
         this.seedEnabled = seedEnabled;
+        this.seedAdminPassword = seedAdminPassword == null ? "" : seedAdminPassword.trim();
+        this.seedUserPassword = seedUserPassword == null ? "" : seedUserPassword.trim();
     }
 
     @Override
@@ -82,29 +89,30 @@ public class DataInitializer implements ApplicationRunner {
     );
 
     private void ensureSeededUsers() {
-        ensureUser("admin", "Admin@123", "ADMIN", "系统管理员");
-        ensureUser("zhangsan", "Zhang@123", "USER", "张三");
-        ensureUser("lisi", "Li@123", "USER", "李四");
+        // 口令必须由部署方提供（KB_SEED_ADMIN_PASSWORD / KB_SEED_USER_PASSWORD），
+        // 未配置就直接不建号——绝不在源码里留可登录的默认口令。
+        ensureUser("admin", seedAdminPassword, "ADMIN", "系统管理员");
+        ensureUser("zhangsan", seedUserPassword, "USER", "张三");
+        ensureUser("lisi", seedUserPassword, "USER", "李四");
     }
 
     /**
-     * 幂等写入种子账号：不存在则创建；已存在则自愈——
-     * 历史表中 enabled 因 ddl 加列隐式默认 false，这里保证种子演示账号始终可用。
+     * 幂等写入种子账号：不存在则创建；已存在则**完全不动**。
+     *
+     * 以前这里会在账号被禁用时强制重新启用（注释说是为了修 ddl 加列的隐式默认值），
+     * 结果管理员在后台禁用了演示号、重启一次又活了——等于给弱口令开了后门；
+     * ddl 隐式默认问题已在建表脚本里显式声明默认值解决，不需要运行时兜底。
      */
     private void ensureUser(String username, String pwd, String role, String displayName) {
-        User existing = userRepo.findByUsername(username).orElse(null);
-        if (existing == null) {
-            User u = new User();
-            u.setUsername(username);
-            u.setPassword(PasswordUtil.encode(pwd));
-            u.setRole(role);
-            u.setDisplayName(displayName);
-            u.setEnabled(true);
-            userRepo.save(u);
-        } else if (!existing.isEnabled()) {
-            existing.setEnabled(true);
-            userRepo.save(existing);
-        }
+        if (pwd == null || pwd.isBlank()) return;   // 未配置口令 = 不建号
+        if (userRepo.findByUsername(username).isPresent()) return;
+        User u = new User();
+        u.setUsername(username);
+        u.setPassword(PasswordUtil.encode(pwd));
+        u.setRole(role);
+        u.setDisplayName(displayName);
+        u.setEnabled(true);
+        userRepo.save(u);
     }
 
     private void seedDocs() {

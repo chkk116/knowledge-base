@@ -92,6 +92,8 @@ public class AuthController {
     }
 
     public static class RegisterRequest {
+        /** 滑动验证码票据（与登录同一套：一次性，必须已完成滑动） */
+        public String captchaToken;
         public String username;
         public String password;
         public String role;
@@ -306,6 +308,11 @@ public class AuthController {
         String ip = com.kb.kbplatform.security.ClientIp.resolve(request);
         if (!rateLimit.allow("register:" + ip, 10, 60L * 60 * 1000)) {
             throw new BizException("注册过于频繁，请稍后再试");
+        }
+        // 与登录同口径：必须消费一张已完成的滑动验证码票据。
+        // 原先只靠 IP 限流，脚本换个出口就能批量建号（外部测试已实测）。
+        if (!captchaService.consume(r.captchaToken)) {
+            throw new BizException("请先完成滑动验证或刷新后重试");
         }
         authService.register(r.username, r.password, r.role, r.displayName);
         return Map.of("ok", true);

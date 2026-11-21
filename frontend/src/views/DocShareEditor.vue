@@ -282,7 +282,11 @@ async function saveSnapshot(silent = false) {
   if (!props.canWrite || !editor.value) return
   if (!silent) saving.value = true
   try {
-    await updateShareDoc(props.shareId, props.docId, { content: await buildSnapshotHtml(editor.value) })
+    // 带上打开时的代次：别人刚改过会收到 409，提示刷新，而不是静默整篇覆盖
+    await updateShareDoc(props.shareId, props.docId, {
+      content: await buildSnapshotHtml(editor.value),
+      baseRev: props.revision || 0,
+    })
     dirty.value = false
     if (!silent) ElMessage.success('已保存快照')
   } catch (e) {

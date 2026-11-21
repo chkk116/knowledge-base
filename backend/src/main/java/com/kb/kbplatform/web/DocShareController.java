@@ -360,10 +360,25 @@ public class DocShareController {
     public SharedDocument updateDoc(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
                                     @PathVariable Long docId, @RequestBody Map<String, Object> body) {
         SharedDocument before = svc.getDoc(id, docId, resolveUserId(c), isSysAdmin(c));
-        SharedDocument d = svc.updateDoc(id, docId, str(body.get("title")), str(body.get("content")), resolveUserId(c), isSysAdmin(c));
+        // baseRev 可选：新客户端带上读到的 yjsRev 做乐观锁，老客户端不带则只走「内容骤减」护栏
+        Long baseRev = baseRevOf(body);
+        SharedDocument d = svc.updateDoc(id, docId, str(body.get("title")), str(body.get("content")),
+                resolveUserId(c), isSysAdmin(c), baseRev);
         audit.log(c.userId(), c.username(), "UPDATE_SHARE_DOC", "SHARE_DOC", docId, d.getTitle(),
                 "更新空间文档「" + before.getTitle() + "」");
         return d;
+    }
+
+    /** 老客户端不带 baseRev 时返回 null */
+    private static Long baseRevOf(Map<String, Object> body) {
+        if (body == null) return null;
+        Object v = body.get("baseRev");
+        if (v == null) return null;
+        try {
+            return Long.valueOf(String.valueOf(v));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 更新文档多标签；标签只允许数组格式，空数组表示清除全部标签。 */

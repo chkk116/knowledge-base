@@ -1326,6 +1326,21 @@ public class DocShareService {
 
     @Transactional(rollbackFor = Exception.class)
     public SharedDocument updateDoc(Long shareId, Long docId, String title, String content, Long userId, boolean sysAdmin) {
+        return updateDoc(shareId, docId, title, content, userId, sysAdmin, null);
+    }
+
+    /**
+     * 保存正文（带防覆盖护栏）。
+     *
+     * 平台实测过一条真实的丢数据路径：一端本地内容没同步完整（只有新追加段），点保存即整篇覆盖，
+     * 另一端原文与其它段落同时消失、没有任何提示。这里加两道闸：
+     *   1) baseRev：调用方带上读到的 yjsRev，与库里不一致直接 409（别默默盖掉别人的改动）；
+     *   2) 骤减拦截：新正文不足现有正文一半（且原文不短）时拒绝，提示先刷新再看，
+     *      确需删减走「保存当前版本 + 恢复」而不是直接覆盖。
+     * baseRev 为 null 视为老客户端，只走第 2 道。
+     */
+    public SharedDocument updateDoc(Long shareId, Long docId, String title, String content,
+                                    Long userId, boolean sysAdmin, Long baseRev) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canWriteDoc(shareId, docId, userId, sysAdmin))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "对该文档无写入权限");
@@ -1353,6 +1368,22 @@ public class DocShareService {
                             "空间「" + s.getName() + "」容量不足（已用 " + formatSize(spaceUsed) + " / 上限 " + formatSize(s.getCapacity()) + "），如需扩容请联系管理员");
             }
         }
+        // 闸 1：代次校验（乐观锁）——别把别人刚写的版本静默盖掉
+        if (baseRev != null && baseRev != d.getYjsRev()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "文档已在别处更新（版本 " + d.getYjsRev() + "），请刷新后再保存");
+        }
+        // 闸 2：正文骤减拦截——客户端本地未同步完整时，内容会「只剩自己刚写的一段」
+        if (content != null && d.getContent() != null) {
+            int oldLen = d.getContent().length();
+            int newLen = nextContent.length();
+            if (oldLen > 200 && newLen * 2 < oldLen) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "提交的内容比现有正文少了一半以上（" + newLen + " / " + oldLen
+                                + " 字），可能是本地未同步完整。请刷新后再修改；确需删减请先保存版本再恢复。");
+            }
+        }
+
         // 改前先留一版快照（版本历史）
         SharedDocVersion snap = new SharedDocVersion();
         snap.setSharedDocId(docId);
@@ -1366,6 +1397,8 @@ public class DocShareService {
         if (content != null) d.setContent(nextContent);
         // 注意：更新不得变更所有者。此前无条件 setOwnerId(userId) 会让仅有编辑权限者夺取所有权，
         // 进而在 deleteDoc/moveDoc（按 owner 判定）中删除或搬走他人文档。owner 仅在创建时设定。
+        // 注意：这里刻意不递增 yjsRev —— 自动快照每几秒触发一次，递增会让父组件按 key 重建编辑器，
+        // 用户会看到闪烁/光标丢失。内容骤减与代次失配已在上面两道闸拦下。
         d.setUpdatedAt(LocalDateTime.now());
         SharedDocument saved = docRepo.save(d);
         fillDocOwnerName(saved);

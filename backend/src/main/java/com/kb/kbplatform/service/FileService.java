@@ -297,6 +297,18 @@ public class FileService {
      *  contents 传入文档正文列表（标量投影即可，勿传全量实体）；extraUsed 可传入其他已引用
      *  URL（如用户头像 /uploads/...），防止误删在用文件。
      *  返回 [{ url, size, lastModified }]，删除由 deleteByUrl 完成。 */
+    /**
+     * 受保护的顶层目录：不属于「文档/头像/文件中心」引用体系，但仍在对外分发，
+     * 孤儿扫描必须跳过，否则管理员点一次清理就会删掉正在分发的安装包（下载页立刻 404）。
+     * desktop = 桌面端安装包（发版脚本直接放进去）；apk / app / dist 同理。
+     */
+    private static final java.util.Set<String> PROTECTED_TOP_DIRS =
+            java.util.Set.of("dm", "desktop", "apk", "app", "dist", "files");
+
+    /** 受保护的安装包扩展名：即使放在 uploads 根目录，也不当孤儿 */
+    private static final java.util.Set<String> PROTECTED_EXT =
+            java.util.Set.of("exe", "msi", "apk", "dmg", "pkg", "deb", "zip");
+
     public List<Map<String, Object>> findOrphans(List<String> contents, Set<String> extraUsed) {
         Set<String> used = new HashSet<>();
         if (extraUsed != null) used.addAll(extraUsed);
@@ -310,11 +322,27 @@ public class FileService {
         // 私信附件在私有目录，引用形如 dm:<name>（存在 kb_dm_message.content），不匹配这里
         // /uploads/... 形状的 used 集合。若不排除，每一张正在使用的私信图都会被误报成孤儿，
         // 管理员点「清理」就经由 deleteByUrl 把双方还在看的图删掉。未发送的私信上传另走 TTL 清理。
-        Path dmDir = root.resolve("dm");
+        Path dmDir = root.resolve("dm");   // 私信图片同上，单独排除
         // try-with-resources 关闭目录流（2026-10-13 审查 L1）：Files.walk 返回的 Stream 持有目录句柄，不关会泄漏文件描述符
         try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(path -> !path.startsWith(dmDir))
+                    .filter(path -> {
+                        // 顶层受保护目录（desktop/apk/app/dist/files）整棵跳过
+                        Path relPath = root.relativize(path);
+                        if (relPath.getNameCount() > 1
+                                && PROTECTED_TOP_DIRS.contains(relPath.getName(0).toString())) return false;
+                        // uploads 根目录下的安装包文件同样不算孤儿
+                        return true;
+                    })
+                    .filter(path -> {
+                        Path relPath = root.relativize(path);
+                        if (relPath.getNameCount() != 1) return true;
+                        String fileName = relPath.getFileName().toString();
+                        int dot = fileName.lastIndexOf(46);
+                        String ext = dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase();
+                        return !PROTECTED_EXT.contains(ext);
+                    })
                     .forEach(path -> {
                         String rel = "/uploads/" + root.relativize(path).toString().replace('\\', '/');
                         if (!used.contains(rel)) {

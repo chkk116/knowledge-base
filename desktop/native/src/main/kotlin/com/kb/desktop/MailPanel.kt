@@ -577,7 +577,7 @@ private fun MailComposeDialog(
 
     fun friendly(e: Exception): String {
         val m = e.message ?: "操作失败"
-        return if (m.contains("404") || m.contains("405")) "$m（服务端邮箱发信接口可能尚未升级）" else m
+        return if (m.startsWith("请求失败(404)") || m.startsWith("请求失败(405)")) "$m（服务端邮箱发信接口可能尚未升级）" else m
     }
 
     AlertDialog(
