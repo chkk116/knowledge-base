@@ -27,6 +27,13 @@ public class UserController {
         this.docSvc = docSvc;
     }
 
+    /** 选人（发起私信）：按用户名/昵称搜索，排除自己 */
+    @GetMapping("/search")
+    public List<Map<String, Object>> search(@RequestAttribute("kbUser") TokenClaims c,
+                                           @RequestParam(required = false, defaultValue = "") String q) {
+        return svc.searchPeople(q, c == null ? null : c.userId());
+    }
+
     /** 作者小卡片（公开） */
     @GetMapping("/{id}/card")
     public Map<String, Object> card(@RequestAttribute(value = "kbUser", required = false) TokenClaims c,

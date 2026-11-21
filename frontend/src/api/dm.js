@@ -1,6 +1,9 @@
 import api from './request'
 
 export const dmConversations = () => api.get('/dm/conversations')
+
+/** 发起私信时选人：按用户名/昵称搜索（后端排除自己） */
+export const dmSearchUsers = (q) => api.get('/users/search', { params: { q: q || '' } })
 // 归档 / 删除会话（本用户视角）
 export const dmArchiveConv = (peerId, archived = true) =>
   api.post(`/dm/conversations/${peerId}/archive`, { archived })

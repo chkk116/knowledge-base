@@ -8,8 +8,7 @@
 //   - 这边是对话驱动，用户说「帮我出 5 道关于请假的单选题」即可，
 //     生成后同样**先问要不要入库**，不擅自写题库。
 
-import { adminAiGenerateQuestions, adminBatchCreateQuestions, selfExamGenerate, selfExamBatchCreate } from '../api/training'
-import { useAuthStore } from '../store/auth'
+import { selfExamGenerate, selfExamBatchCreate } from '../api/training'
 import { listMyShares } from '../api/docShare'
 
 const TYPE_NAME = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }
@@ -100,8 +99,10 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
   try {
     // 没有「考试管理」权限的用户（个人版）走个人自测接口：题库按 个人-{uid} 隔离
     // forcePersonal：从「我的测验」发起的生成，一律进个人题库（哪怕账号是管理员）
-    const isManager = !forcePersonal && useAuthStore().hasPerm('EXAM_MANAGE')
-    const genApi = isManager ? adminAiGenerateQuestions : selfExamGenerate
+    // Agent / 「我的测验」发起的出题一律进个人题库：
+    // 原先按 EXAM_MANAGE 走管理端接口，题目直接落进公共题库，个人题库刷新还是 0 题，
+    // 而公共题库练习里会冒出这批个人题（外部测试实测到的「假成功」就是这个根因）。
+    const genApi = selfExamGenerate
     const res = await genApi({
       topic,
       count,
@@ -156,11 +157,13 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
       },
       options: (q.options || []).map((o) => ({ label: o.label, content: o.content, isCorrect: !!o.isCorrect })),
     }))
-    const saveApi = (!forcePersonal && useAuthStore().hasPerm('EXAM_MANAGE'))
-      ? adminBatchCreateQuestions : selfExamBatchCreate
+    const saveApi = selfExamBatchCreate
     const res = await saveApi(items)
-    const saved = res.data || res || []
-    return `已加入题库 ${saved.length} 道（${basis}）。可在「考试管理 → 题库」查看，或去 /admin/exams 直接组卷。${warn}\n\n${preview}`
+    const saved = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : [])
+    if (saved.length !== items.length) {
+      return `入库未成功：提交 ${items.length} 道，实际落库 ${saved.length} 道。请到「我的测验 → 题库」确认后重试。${warn}`
+    }
+    return `已加入个人题库 ${saved.length} 道（${basis}）。可在「我的测验 → 题库」查看。${warn}\n\n${preview}`
   } catch (e) {
     return '题目已生成但入库失败：' + (e?.response?.data?.error || e?.message || '未知错误')
   }

@@ -42,6 +42,25 @@ public class UserService {
         this.followRepo = followRepo;
     }
 
+    /** 选人（发起私信 / 提及）：用户名或昵称模糊匹配，排除自己，最多 20 条 */
+    public java.util.List<Map<String, Object>> searchPeople(String keyword, Long selfId) {
+        String kw = keyword == null ? "" : keyword.trim();
+        java.util.List<com.kb.kbplatform.domain.User> users = kw.isEmpty()
+                ? userRepo.findByEnabledTrue(org.springframework.data.domain.PageRequest.of(0, 20)).getContent()
+                : userRepo.searchEnabledUsers(kw, org.springframework.data.domain.PageRequest.of(0, 20));
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (com.kb.kbplatform.domain.User u : users) {
+            if (selfId != null && selfId.equals(u.getId())) continue;
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("id", u.getId());
+            m.put("username", u.getUsername());
+            m.put("displayName", u.getDisplayName() == null ? u.getUsername() : u.getDisplayName());
+            m.put("avatar", u.getAvatar());
+            out.add(m);
+        }
+        return out;
+    }
+
     /** 作者小卡片：原创数 / 获赞数 / 被收藏数 / 粉丝 / 关注 / 码龄 / 当前访客是否已关注 */
     @Cacheable(cacheNames = "userCard", key = "#id + '_' + #viewerId", unless = "#result == null")
     public Map<String, Object> getCard(Long id, Long viewerId) {

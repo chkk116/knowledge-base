@@ -8,6 +8,9 @@
           <span class="on">私信</span>
           <span @click="router.push('/notifications')">通知</span>
         </div>
+        <el-tooltip content="发起私信" placement="bottom">
+          <el-button text size="small" @click="openNewDm"><el-icon><EditPen /></el-icon></el-button>
+        </el-tooltip>
         <el-tooltip content="私信设置" placement="bottom">
           <el-button text size="small" @click="openSettings"><el-icon><Setting /></el-icon></el-button>
         </el-tooltip>
@@ -164,6 +167,26 @@
       </div>
     </el-dialog>
   </div>
+
+  <!-- 发起私信：先选人，再进入会话（原先 Web 端只能回复已有会话，没有任何新建入口） -->
+  <el-dialog v-model="newDmOpen" title="发起私信" width="420px">
+    <el-input v-model="newDmKw" size="small" placeholder="搜索用户名或昵称" clearable
+              @input="searchNewDm" @keyup.enter="searchNewDm">
+      <template #prefix><el-icon><Search /></el-icon></template>
+    </el-input>
+    <div class="newdm-list">
+      <div v-if="newDmLoading" class="newdm-hint">搜索中…</div>
+      <div v-else-if="!newDmList.length" class="newdm-hint">没有匹配的用户</div>
+      <div v-for="u in newDmList" :key="u.id" class="newdm-item" @click="pickNewDm(u)">
+        <el-avatar :size="28" :src="u.avatar || undefined">{{ (u.displayName || u.username || '?').slice(0, 1) }}</el-avatar>
+        <div class="newdm-main">
+          <div class="newdm-name">{{ u.displayName || u.username }}</div>
+          <div class="newdm-sub">@{{ u.username }}</div>
+        </div>
+      </div>
+    </div>
+  </el-dialog>
+
 </template>
 
 <script setup>
@@ -171,7 +194,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../store/auth'
-import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings, dmRecall, dmArchiveConv, dmDeleteConv, dmArchivedConversations, uploadDmImage, dmAttachment } from '../api/dm'
+import { dmConversations, dmMessages, dmSend, dmRead, dmQuota, dmSettings, dmSaveSettings, dmRecall, dmArchiveConv, dmDeleteConv, dmArchivedConversations, uploadDmImage, dmAttachment , dmSearchUsers } from '../api/dm'
 import { refreshDmUnread } from '../store/dm'
 import ReportDialog from '../components/ReportDialog.vue'
 import EmojiPanel from '../components/EmojiPanel.vue'
@@ -189,6 +212,31 @@ const archivedCount = ref(0)
 const showArchived = ref(false)
 const kw = ref('')
 const peer = ref(null)
+const newDmOpen = ref(false)
+const newDmKw = ref('')
+const newDmList = ref([])
+const newDmLoading = ref(false)
+
+async function openNewDm() {
+  newDmOpen.value = true
+  newDmKw.value = ''
+  await searchNewDm()
+}
+async function searchNewDm() {
+  newDmLoading.value = true
+  try {
+    const { data } = await dmSearchUsers(newDmKw.value)
+    newDmList.value = data || []
+  } catch (e) {
+    newDmList.value = []
+  } finally {
+    newDmLoading.value = false
+  }
+}
+function pickNewDm(u) {
+  newDmOpen.value = false
+  openPeer(u.id, { name: u.displayName || u.username, avatar: u.avatar })
+}
 const msgs = ref([])
 
 // 私信图片：附件落在私有目录，必须带令牌取 blob，不能拿 content 直接当 <img src>
@@ -675,6 +723,12 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 </script>
 
 <style scoped>
+.newdm-list { margin-top: 10px; max-height: 320px; overflow: auto; }
+.newdm-hint { padding: 18px; text-align: center; color: #94a3b8; font-size: 12.5px; }
+.newdm-item { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 8px; cursor: pointer; }
+.newdm-item:hover { background: #f1f5f9; }
+.newdm-name { font-size: 13px; color: #1e293b; }
+.newdm-sub { font-size: 11px; color: #94a3b8; }
 .dm { display: flex; height: calc(100vh - 120px); background: #fff; border: 1px solid #ebeef5; border-radius: 12px; overflow: hidden; }
 .dm-side { width: 264px; border-right: 1px solid #f0f0f0; display: flex; flex-direction: column; background: #fafbfc; }
 .dm-side-hd { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; font-weight: 600; font-size: 14px; }
