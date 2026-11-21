@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -38,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -449,4 +451,148 @@ private fun ShareLinkDialog(shareId: Long, docId: Long, docTitle: String, onClos
             TextButton(onClick = onClose) { Text("关闭") }
         }
     )
+}
+
+/**
+ * 文档级权限（单篇覆盖空间权限）。
+ *
+ * 后端：`GET /doc-shares/{sid}/docs/{docId}/members` →
+ * `[{userId,username,displayName,avatar,spacePermission,permission,override}]`（`spacePermission` 为 null = 已不在空间）；
+ * `PUT …/members/{userId} {permission}` 传**与空间权限相同**的值 = 清除单篇设置（返回 `cleared=true`，回退继承）；
+ * `DELETE …/members/{userId}` 直接恢复继承。仅「能管理该文档」的人可查/可改，其余 403 原文透出。
+ */
+@Composable
+private fun DocPermDialog(shareId: Long, docId: Long, docTitle: String, onClose: () -> Unit) {
+    val cs = androidx.compose.runtime.rememberCoroutineScope()
+    var rows by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
+    var busyId by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = ""
+        try {
+            rows = KbApi.docMembers(shareId, docId).let { arr ->
+                (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+            }
+        } catch (e: Exception) {
+            err = e.message ?: "文档权限加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    fun setPerm(uid: Long, perm: String) {
+        busyId = uid
+        cs.launch {
+            try {
+                val r = KbApi.setDocMember(shareId, docId, uid, perm)
+                note = if (r.optBoolean("cleared", false))
+                    "已恢复继承（与空间权限同为「" + permLabelOf(perm) + "」）"
+                else "已把这篇文档的权限设为「" + permLabelOf(perm) + "」"
+                tick++
+            } catch (e: Exception) {
+                note = e.message ?: "改权限失败"
+            } finally {
+                busyId = null
+            }
+        }
+    }
+
+    fun inherit(uid: Long) {
+        busyId = uid
+        cs.launch {
+            try {
+                KbApi.clearDocMember(shareId, docId, uid)
+                note = "已恢复继承空间权限"
+                tick++
+            } catch (e: Exception) {
+                note = e.message ?: "恢复继承失败"
+            } finally {
+                busyId = null
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("文档权限", fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    "「" + docTitle.ifBlank { "当前文档" } + "」· 单篇可覆盖空间权限；选回与空间相同的档位即自动恢复继承",
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (note.isNotEmpty()) {
+                    Text(
+                        note,
+                        fontSize = 11.5.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                when {
+                    loading -> CenterHint("加载中…", loading = true)
+                    err.isNotEmpty() -> CenterHint(err)
+                    rows.isEmpty() -> CenterHint("这个空间还没有其他成员\n先在「成员」里邀请")
+                    else -> androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                        items(rows.size) { idx ->
+                            val m = rows[idx]
+                            val uid = m.optLong("userId", 0)
+                            val name = m.optString("displayName").ifBlank {
+                                m.optString("username").ifBlank { "用户 " + uid }
+                            }
+                            val spacePerm = m.optString("spacePermission").ifBlank { null }
+                            val perm = m.optString("permission").ifBlank { "READ" }
+                            val override = m.optBoolean("override", false)
+                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Text(name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    "空间：" + permLabelOf(spacePerm ?: "无") +
+                                        (if (override) " · 本篇单独设置" else ""),
+                                    fontSize = 11.sp,
+                                    color = if (override) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    for (p in listOf("READ", "WRITE", "ADMIN")) {
+                                        KbChip(
+                                            permLabelOf(p),
+                                            selected = perm.uppercase() == p,
+                                            onClick = { if (busyId != uid && perm.uppercase() != p) setPerm(uid, p) }
+                                        )
+                                        Spacer(Modifier.size(4.dp))
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    TextButton(
+                                        enabled = busyId != uid && override,
+                                        onClick = { inherit(uid) }
+                                    ) { Text("继承", fontSize = 11.sp) }
+                                }
+                            }
+                            androidx.compose.material3.HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose) { Text("关闭") }
+        }
+    )
+}
+
+/** READ / WRITE / ADMIN / OWNER 的中文名（与桌面/成员管理同口径） */
+private fun permLabelOf(perm: String): String = when (perm.uppercase()) {
+    "OWNER" -> "所有者"
+    "ADMIN" -> "可管理"
+    "WRITE", "EDIT" -> "可编辑"
+    "READ", "VIEW" -> "只读"
+    else -> perm.lowercase()
 }

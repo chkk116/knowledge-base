@@ -218,7 +218,7 @@ onMounted(() => load({
 .cell.done { background: #dcfce7; border-color: #86efac; color: #15803d; }
 .cell.wrong { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
 .cell.manual { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
-.cell.cur { box-shadow: 0 0 0 2px #6366f1; font-weight: 700; }
+.cell.cur { box-shadow: inset 0 0 0 2px #6366f1; font-weight: 700; }
 .lg-legend { display: flex; flex-flow: row wrap; gap: 6px 10px; margin-top: 12px; font-size: 11.5px; color: #94a3b8; }
 .lg-legend > span { display: flex; flex-direction: row; align-items: center; gap: 4px; height: 14px; line-height: 14px; }
 .lg-dot { flex: none; width: 9px; height: 9px; border-radius: 3px; border: 1px solid #e9eef5; display: block; box-sizing: border-box; }

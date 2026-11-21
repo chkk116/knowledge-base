@@ -254,12 +254,12 @@ onMounted(() => load({
 .cell.done { background: rgba(22, 163, 74, .12); border-color: var(--m-success); color: var(--m-success); }
 .cell.wrong { background: rgba(220, 38, 38, .1); border-color: var(--m-danger); color: var(--m-danger); }
 .cell.manual { background: var(--m-primary-soft); border-color: var(--m-primary); color: var(--m-primary); }
-.cell.cur { box-shadow: 0 0 0 2px var(--m-primary); font-weight: 700; }
+.cell.cur { box-shadow: inset 0 0 0 2px var(--m-primary); font-weight: 700; }
 .lg-legend { display: flex; flex-flow: row wrap; gap: 8px 14px; margin-top: 12px; font-size: 11.5px; color: var(--m-text-dim); }
 .lg-legend > span { display: flex; flex-direction: row; align-items: center; gap: 4px; height: 14px; line-height: 14px; }
 .lg-dot { flex: none; width: 9px; height: 9px; border-radius: 3px; border: 1px solid var(--m-border); display: block; box-sizing: border-box; }
-.lg-dot.lg-done { background: rgba(22, 163, 74, .5); border-color: var(--m-success); }
-.lg-dot.lg-wrong { background: rgba(220, 38, 38, .45); border-color: var(--m-danger); }
+.lg-dot.lg-done { background: rgba(22, 163, 74, .12); border-color: var(--m-success); }
+.lg-dot.lg-wrong { background: rgba(220, 38, 38, .1); border-color: var(--m-danger); }
 .lg-dot.lg-manual { background: var(--m-primary-soft); border-color: var(--m-primary); }
 .sheet-actions { display: flex; gap: 10px; margin-top: 14px; }
 .ghost-btn { flex: none; width: 110px; height: 44px; border: 1px solid var(--m-border); border-radius: 12px;
