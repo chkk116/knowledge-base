@@ -765,14 +765,17 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .dm-conv :deep(img) { -webkit-user-drag: none; }
 .dm-conv.dragging { transition: none; box-shadow: 0 6px 18px rgba(15, 23, 42, .12); }
 .dm-conv:hover { background: #f2f4f7; }
-.dm-conv.on { background: #eaf2ff; }
+.dm-conv.on { background: linear-gradient(90deg, rgba(28, 102, 229, .08), rgba(28, 102, 229, .02)); }
+.dm-conv.on::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px;
+  border-radius: 0 3px 3px 0; background: #1c66e5; }
 .dm-conv-body { flex: 1; min-width: 0; }
 .dm-conv-top { display: flex; justify-content: space-between; align-items: baseline; }
 .dm-conv-top .nm { font-size: 13.5px; font-weight: 500; color: #1f2937; }
 .dm-conv-top .tm { font-size: 11px; color: #9ca3af; }
 .dm-conv-bot { display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; }
 .dm-conv-bot .msg { font-size: 12.5px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.badge { background: #ef4444; color: #fff; font-size: 11px; border-radius: 9px; padding: 0 6px; line-height: 17px; }
+.badge { background: linear-gradient(135deg, #ff7878, #ef4444); color: #fff; font-size: 11px; border-radius: 9px;
+  padding: 0 6px; line-height: 17px; box-shadow: 0 2px 6px rgba(239, 68, 68, .3); font-weight: 600; }
 .dm-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .dm-blank { flex: 1; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 13px; }
 .dm-chat-hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #f0f0f0; background: #fff; }
@@ -780,7 +783,7 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .dm-chat-hd .nm { font-size: 14px; font-weight: 600; }
 .hd-acts { display: flex; gap: 4px; }
 /* 消息贴底（大厂 IM 惯例）：内容少时贴着输入框，留白在上方；内容多时正常滚动 */
-.dm-msgs { flex: 1; overflow-y: auto; padding: 20px 24px; background: #f5f6f7; display: flex; flex-direction: column; }
+.dm-msgs { flex: 1; overflow-y: auto; padding: 20px 24px; background: #f6f7fa; display: flex; flex-direction: column; }
 .dm-msgs::before { content: ''; margin-top: auto; }
 .dm-tip { text-align: center; color: #9ca3af; font-size: 12px; padding: 12px; }
 /* ---------- 消息列表（飞书式：头像 + 分组 + 悬停操作） ---------- */
@@ -790,15 +793,19 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
    DOM 顺序是 [气泡][头像]，所以用 row + 靠右对齐即可，不能用 row-reverse（会把头像翻到左边）。 */
 .dm-row.mine { flex-direction: row; justify-content: flex-end; }
 .row-av { flex: 0 0 auto; margin-top: 2px; }
+.row-av :deep(.el-avatar) { border-radius: 50%; }
+.row-av :deep(.el-avatar--square) { border-radius: 50%; }
 .row-main { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 68%; }
 .dm-row.mine .row-main { align-items: flex-end; }
 .row-name { font-size: 12px; color: #8a94a6; margin: 0 0 4px 4px; }
 .bubble-wrap { display: flex; align-items: center; gap: 6px; max-width: 100%; }
 .dm-row.mine .bubble-wrap { flex-direction: row-reverse; }
-.bubble { padding: 9px 13px; border-radius: 12px; background: #fff; border: 1px solid #e5e6eb;
+/* ChatKit 风格气泡：大圆角 + 指向说话人的小尾角；自己的消息用主题渐变 */
+.bubble { padding: 9px 13px; border-radius: 14px; background: #fff; border: 1px solid #e5e6eb;
   font-size: 13.5px; line-height: 1.65; color: #1f2937; white-space: pre-wrap; word-break: break-word;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
-.dm-row.mine .bubble { background: #1677ff; border-color: #1677ff; color: #fff; box-shadow: 0 1px 2px rgba(22, 119, 255, .2); }
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05); border-bottom-left-radius: 4px; }
+.dm-row.mine .bubble { background: linear-gradient(135deg, #2f7bef, #1c66e5); border-color: transparent;
+  color: #fff; box-shadow: 0 2px 8px rgba(28, 102, 229, .25); border-bottom-left-radius: 14px; border-bottom-right-radius: 4px; }
 .bubble.img { padding: 4px; background: #fff; }
 .bubble .img { max-width: 220px; border-radius: 8px; display: block; }
 .row-acts { display: flex; gap: 4px; opacity: 0; transition: opacity .12s; flex: 0 0 auto; }
@@ -814,8 +821,8 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .dm-quota { padding: 6px 16px; background: #fffbeb; color: #b45309; font-size: 12px; border-top: 1px solid #fde68a; }
 .dm-input { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid #f0f0f0; }
 .dm-input-bot { display: flex; align-items: center; justify-content: space-between; }
-.dm-input :deep(.el-textarea__inner) { border-radius: 10px; background: #fff; border: 1px solid #e5e6eb; transition: all .15s; }
-.dm-input :deep(.el-textarea__inner:focus) { background: #fff; border-color: #1677ff; box-shadow: 0 0 0 3px rgba(22, 119, 255, .1); }
+.dm-input :deep(.el-textarea__inner) { border-radius: 12px; background: #fff; border: 1px solid #e5e6eb; transition: all .15s; }
+.dm-input :deep(.el-textarea__inner:focus) { background: #fff; border-color: #1c66e5; box-shadow: 0 0 0 3px rgba(28, 102, 229, .12); }
 .dm-tools { display: flex; align-items: center; gap: 2px; }
 .tool { width: 30px; height: 30px; border: 0; background: transparent; border-radius: 8px; cursor: pointer;
   font-size: 16px; color: #64748b; display: inline-flex; align-items: center; justify-content: center; }

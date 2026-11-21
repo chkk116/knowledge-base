@@ -821,6 +821,7 @@ onBeforeUnmount(() => {
       <ul class="clist" v-if="sortedComments.length">
         <li v-for="c in sortedComments" :key="c.id" class="citem" :id="'pc' + c.id" :class="{ 'cmt-flash': flashCommentId === c.id }">
           <div class="chead">
+            <el-avatar :size="24" :src="c.avatar || undefined" class="chead-ava">{{ (c.username || '?').slice(0, 1) }}</el-avatar>
             <b>{{ c.username }}</b>
             <span class="ctime" v-if="c.createdAt">{{ fromNow(c.createdAt) }}（{{ fmtDateTime(c.createdAt) }}）</span>
             <button class="clike" :class="{ on: commentLikedIds.has(c.id) }" @click="onToggleCommentLike(c)" title="点赞">
@@ -833,6 +834,7 @@ onBeforeUnmount(() => {
           <ul class="replies" v-if="c.replies && c.replies.length">
             <li v-for="r in (expandedReplies[c.id] ? c.replies : c.replies.slice(0, 3))" :key="r.id" class="ritem" :id="'pc' + r.id" :class="{ 'cmt-flash': flashCommentId === r.id }">
               <div class="chead">
+                <el-avatar :size="20" :src="r.avatar || undefined" class="chead-ava">{{ (r.username || '?').slice(0, 1) }}</el-avatar>
                 <b>{{ r.username }}</b>
                 <span class="r-to" v-if="r.parentName">回复 @{{ r.parentName }}</span>
                 <span class="ctime" v-if="r.createdAt">{{ fromNow(r.createdAt) }}（{{ fmtDateTime(r.createdAt) }}）</span>
@@ -1097,7 +1099,10 @@ html.dark .cmt-flash { animation: cmtFlashDark 2s ease-out; }
 
 .chead { display: flex; gap: 10px; align-items: center; color: #334155; flex-wrap: wrap; }
 .ctime { color: #94a3b8; font-size: 12px; }
-.cdel { margin-left: auto; border: none; background: none; color: #ef4444; cursor: pointer; font-size: 12px; padding: 0; }
+.cdel { margin-left: auto; border: none; background: none; color: #b0b7c3; cursor: pointer; font-size: 12px; padding: 0; }
+.cdel:hover { color: #ef4444; }
+.chead-ava { flex: none; }
+.chead { display: flex; align-items: center; gap: 6px; }
 .cdel:hover { text-decoration: underline; }
 .cbody { margin-top: 6px; color: #475569; line-height: 1.7; }
 .cbody :deep(img.kb-emoji) { height: 20px; vertical-align: middle; margin: 0 1px; }

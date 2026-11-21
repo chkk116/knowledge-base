@@ -154,6 +154,10 @@
   `GET /{id}/members` 列表（权限 READ/WRITE/ADMIN）、`PUT …/members/{userId} {permission}` 三档切换、
   `DELETE …/members/{userId}` 移除、`GET /users?keyword=`（250ms 防抖）+ `POST …/members {userId,permission}` 邀请；
   只有 `myPermission` 为 OWNER/ADMIN 时显示增删改（后端仍二次校验），所有者行不可改。
+  **外部分享链接（2026-11-21）**：阅读区顶栏「分享」→ `GET|POST|DELETE …/docs/{docId}/public-link`：
+  未开启时「生成链接」，已开启时显示 `{server}/s/{token}`（复制 / 打开）+ 状态（是否密码 / 有效期 / 禁止复制 / 浏览数）；
+  可设密码（留空=无密码）、有效期永久·7·30·90 天、允许/禁止复制；「更新设置」保持同 token，「撤销链接」后历史链接立即 404。
+  查询/生成都要求能管理该文档（后端 `canAdminDoc`），失败时原文透出。
   ⚠️ **协同正文（2026-11-16 起本地解析）**：`GET /api/doc-shares/{id}/docs/{docId}/yjs` 下发
   `yjs_state`（base64；超 8MB 不下发，返回 `state=null` + `tooLarge`），桌面端用
   **`net.carcdr:ycrdt-core` / `ycrdt-jni` 0.3.0**（Yrs 的 Java 绑定，Apache-2.0，jar 内含
