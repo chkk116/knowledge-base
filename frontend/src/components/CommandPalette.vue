@@ -73,6 +73,7 @@ const PAGES = [
   { label: '资产管理', path: '/admin/assets', perm: 'ASSET_MANAGE', kw: 'zichan asset' },
   { label: '附件管理', path: '/admin/files', adminOnly: true, kw: 'fujian attachment' },
   { label: 'AI 模型管理', path: '/admin/ai-models', perm: 'AI_MANAGE', kw: 'ai moxing model key' },
+  { label: '集成中心', path: '/admin/integrations', perm: 'AI_MANAGE', kw: 'jicheng integration trtc tuiguang push' },
   { label: '操作审计', path: '/admin/audit', adminOnly: true, kw: 'shenji audit log' },
   { label: '登录日志', path: '/admin/login-logs', adminOnly: true, kw: 'denglu login log' },
   { label: '检索测试', path: '/admin/search-test', adminOnly: true, kw: 'jiansuo ceshi search test' },

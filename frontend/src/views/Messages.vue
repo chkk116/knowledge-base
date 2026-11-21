@@ -131,7 +131,7 @@
           </div>
           <div class="dm-editor">
             <el-input
-              ref="inputRef" v-model="draft" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" resize="none"
+              ref="inputRef" v-model="draft" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" resize="none"
               :placeholder="quota.peerAllowDm ? '输入消息…' : '对方未开放私信'"
               :disabled="!quota.peerAllowDm || (quota.limited && quota.sent >= 3)"
               @keydown.enter.exact.prevent="send" />
@@ -819,7 +819,7 @@ watch(() => route.query.peer, (v) => { if (v) openPeer(Number(v)) })
 .day-sep { text-align: center; margin: 8px 0 14px; }
 .day-sep span { background: #eef0f3; color: #a8b0bd; font-size: 11.5px; padding: 2px 10px; border-radius: 999px; }
 .dm-quota { padding: 6px 16px; background: #fffbeb; color: #b45309; font-size: 12px; border-top: 1px solid #fde68a; }
-.dm-input { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid #f0f0f0; }
+.dm-input { display: flex; flex-direction: column; gap: 6px; padding: 8px 14px 10px; border-top: 1px solid #f0f0f0; }
 .dm-input-bot { display: flex; align-items: center; justify-content: space-between; }
 .dm-input :deep(.el-textarea__inner) { border-radius: 12px; background: #fff; border: 1px solid #e5e6eb; transition: all .15s; }
 .dm-input :deep(.el-textarea__inner:focus) { background: #fff; border-color: #1c66e5; box-shadow: 0 0 0 3px rgba(28, 102, 229, .12); }
