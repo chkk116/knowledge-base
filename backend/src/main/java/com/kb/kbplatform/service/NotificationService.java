@@ -42,20 +42,31 @@ public class NotificationService {
     private final DocSubscriptionRepository subRepo;
     private final WebhookNotifier webhook;
     private final MailService mailService;
+    private final KvStore kv;
 
     public NotificationService(NotificationRepository repo, UserRepository userRepo, SseSessionRegistry sse,
-                               DocSubscriptionRepository subRepo, WebhookNotifier webhook, MailService mailService) {
+                               DocSubscriptionRepository subRepo, WebhookNotifier webhook, MailService mailService,
+                               KvStore kv) {
         this.repo = repo;
         this.userRepo = userRepo;
         this.sse = sse;
         this.subRepo = subRepo;
         this.webhook = webhook;
         this.mailService = mailService;
+        this.kv = kv;
     }
 
     /** 保存通知后立即通过 SSE 向接收者推送最新未读数（实时刷新顶栏红点）；
      *  同时异步外发到企业微信/钉钉（未配置或失败都不影响站内通知）。 */
     private void saveAndPush(Notification n) {
+        // 去重：同一「接收人 + 类型 + 触发者 + 关联对象」60 秒内只留一条。
+        // 否则反复点赞/取消、连续未命中都能把对方通知箱刷满（外部白盒审计 T5）。
+        // 用滑动窗口而不是查库：这一步在点赞/评论主链路上，不能多打一次库。
+        String dedupKey = "notify:" + n.getUserId() + ":" + n.getType() + ":" + n.getActor()
+                + ":" + (n.getDocId() == null ? "" : n.getDocId());
+        if (!kv.allowSliding(dedupKey, 1, 60_000)) {
+            return;
+        }
         this.repo.save(n);
         sse.pushUnread(n.getUserId(), unreadCount(n.getUserId()));
         try {

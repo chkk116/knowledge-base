@@ -213,7 +213,7 @@ public class DocumentController {
             throw new ResponseStatusException(BAD_REQUEST, "创建文档不能携带 id");
         }
         d.setContent(HtmlSanitizer.sanitize(d.getContent()));
-        boolean admin = "ADMIN".equals(c.role());
+        boolean admin = c.isAdmin();   // 与后台门禁同口径（含权限码全覆盖）
         if (admin) {
             if (d.getStatus() == null || d.getStatus().isBlank()) d.setStatus("PUBLISHED");
         } else if (d.getStatus() == null || d.getStatus().isBlank() || "PUBLISHED".equals(d.getStatus())) {

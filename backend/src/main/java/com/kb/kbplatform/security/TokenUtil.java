@@ -37,7 +37,10 @@ public final class TokenUtil {
         if (!MessageDigest.isEqual(expected, actual)) throw new IllegalArgumentException("bad signature");
         String decoded = new String(b64urlDecode(payload), StandardCharsets.UTF_8);
         String[] f = decoded.split("\\|", 7);
-        if (f.length < 3) throw new IllegalArgumentException("bad payload");
+        // 只接受 6 段新格式（username|role|exp|userId|permissions|tokenVersion）。
+        // 旧 5 段令牌没有版本号、回退成 0，一旦某账号 tokenVersion 恰好为 0，改密也失效不了（白盒 T8）。
+        // 拒绝旧格式的代价是旧客户端需要重登一次，换的是「改密/重置后旧令牌必然失效」。
+        if (f.length < 6) throw new IllegalArgumentException("bad payload");
         long exp = Long.parseLong(f[2]);
         if (exp < System.currentTimeMillis()) throw new IllegalArgumentException("token expired");
         long userId = f.length > 3 && !f[3].isEmpty() ? Long.parseLong(f[3]) : 0;

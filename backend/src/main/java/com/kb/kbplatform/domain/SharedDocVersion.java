@@ -30,6 +30,10 @@ public class SharedDocVersion {
     @JdbcTypeCode(SqlTypes.LONGVARBINARY)   // PG 映射 bytea（LENGTH 可用），MySQL 映射 longblob
     @Column(name = "yjs_state", columnDefinition = "bytea")
     private byte[] yjsState;      // 协同 Yjs 状态快照（精确还原用）
+    /** RESTORE = 回滚前自动留的备份；空/NORMAL = 用户手动快照与保存产生的版本 */
+    @Column(name = "kind", length = 16)
+    private String kind;
+
     private Long editorId;        // 保存者
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -48,6 +52,8 @@ public class SharedDocVersion {
     public byte[] getYjsState() { return yjsState; }
     public void setYjsState(byte[] yjsState) { this.yjsState = yjsState; }
 
+    public String getKind() { return kind; }
+    public void setKind(String kind) { this.kind = kind; }
     public Long getEditorId() { return editorId; }
     public void setEditorId(Long editorId) { this.editorId = editorId; }
 

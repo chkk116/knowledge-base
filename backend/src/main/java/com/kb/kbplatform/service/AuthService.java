@@ -156,6 +156,10 @@ public class AuthService {
      */
     public Map<String, Object> loginExternal(String username, String displayName, String email, String avatar) {
         if (username == null || username.isBlank()) throw new BizException("身份源未返回用户名");
+        // 外部身份源（LDAP/OIDC/GitHub）返回的用户名可能带竖线、空格等非法字符：
+        // 含竖线会让令牌载荷分段错位，建出来的账号每次请求都 401（永远登不进来）。
+        // 这里先按站内规范归一化，非法直接拒绝，不建垃圾账号（白盒审计 T3）。
+        username = com.kb.kbplatform.security.UsernamePolicy.normalize(username);
         User u = userRepo.findByUsername(username).orElse(null);
         if (u == null) {
             u = new User();

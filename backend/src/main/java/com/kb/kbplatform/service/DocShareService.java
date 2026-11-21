@@ -1493,6 +1493,19 @@ public class DocShareService {
         if (!v.getSharedDocId().equals(docId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该版本不属于此文档");
         if (!canAdminDoc(shareId, docId, editorId, sysAdmin) && !d.getOwnerId().equals(editorId))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间/文档管理员权限或文档所有者身份");
+        // 回滚前先把「当前内容」留一档，并标记 RESTORE：
+        // 既不会出现「回滚后再也找不回刚才的内容」，也不会像早期实现那样把版本列表刷满
+        // （前端对该类条目标注「回滚前备份」，不影响正常历史浏览）
+        SharedDocVersion backup = new SharedDocVersion();
+        backup.setSharedDocId(docId);
+        backup.setTitle(d.getTitle());
+        backup.setContent(d.getContent());
+        backup.setYjsState(d.getYjsState());
+        backup.setEditorId(editorId);
+        backup.setKind("RESTORE");
+        backup.setCreatedAt(LocalDateTime.now());
+        sharedDocVerRepo.save(backup);
+
         d.setTitle(v.getTitle());
         d.setContent(v.getContent());
         d.setYjsState(v.getYjsState());   // 写回 Yjs 状态；协同端重连后 onLoadDocument 会加载此状态

@@ -35,7 +35,7 @@ public final class PasswordPolicy {
             return "密码至少 8 位";
         }
         if (password.length() > 72) {
-            return "密码过长（最多 72 位）";
+            return "密码过长（最多 72 位）";   // 防超长输入拖慢哈希，不是 bcrypt 的截断限制
         }
         int kinds = 0;
         if (password.matches(".*[A-Za-z].*")) kinds++;

@@ -90,6 +90,12 @@ public class WebClipService {
      * 调用方需自己控频（见 AiQuestionService 的整体限流）。
      */
     public Map<String, Object> fetchForAi(String rawUrl) {
+        return fetchForAi(rawUrl, null);
+    }
+
+    /** 带用户节流：同账号两分钟内只能抓一页（与剪藏入口同一把闸，白盒 T7） */
+    public Map<String, Object> fetchForAi(String rawUrl, Long userId) {
+        if (userId != null) throttle(userId);
         URI uri = safeUri(rawUrl);
         Fetched page;
         try {

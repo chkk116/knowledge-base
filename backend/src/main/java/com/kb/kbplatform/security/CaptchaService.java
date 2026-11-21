@@ -272,11 +272,29 @@ public class CaptchaService {
     /** 轻量轨迹校验：人类拖拽必有时长且至少 3 个采样点；缺轨迹/过短视为脚本，直接拒绝。
      *  返回 true=像人类/放行；false=瞬时提交（疑似脚本）。 */
     private boolean trajectoryLooksHuman(List<Map<String, Object>> traj) {
-        if (traj == null || traj.size() < 3) return false;
+        if (traj == null || traj.size() < 8) return false;   // 真拖拽事件密集；脚本常只发 3~5 个点
         try {
             long t0 = ((Number) traj.get(0).get("t")).longValue();
             long t1 = ((Number) traj.get(traj.size() - 1).get("t")).longValue();
-            return (t1 - t0) >= 120; // 人类一次拖拽远超 120ms；瞬时 POST 直接判非人类
+            if ((t1 - t0) < 250) return false;   // 320px 拖拽人类普遍 >250ms（原来 120ms 太宽松）
+            // 位移是否「等距」：脚本常按固定步长发点，人类有加速/减速，相邻 dx 一定不均匀。
+            // 阈值取得很宽松（方差 >0.01 即通过），只挡完全机械的轨迹。
+            double prev = ((Number) traj.get(0).get("x")).doubleValue();
+            double sum = 0, sum2 = 0;
+            int n = 0;
+            for (int i = 1; i < traj.size(); i++) {
+                double x = ((Number) traj.get(i).get("x")).doubleValue();
+                double dx = x - prev;
+                prev = x;
+                if (dx <= 0) continue;   // 回拖不算步长
+                sum += dx;
+                sum2 += dx * dx;
+                n++;
+            }
+            if (n < 4) return false;
+            double mean = sum / n;
+            double variance = sum2 / n - mean * mean;
+            return variance > 0.01;
         } catch (Exception e) {
             return false;
         }

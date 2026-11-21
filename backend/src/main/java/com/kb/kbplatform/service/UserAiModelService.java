@@ -46,7 +46,14 @@ public class UserAiModelService {
         UserAiModel m = new UserAiModel();
         m.setUserId(userId);
         apply(m, body, true);
-        return view(repo.save(m));
+        UserAiModel saved = repo.save(m);
+        // 复查一次上限：并发创建时「先 count 再 insert」会同时通过检查（白盒审计 T9），
+        // 插入后再数一遍，超了就撤掉自己这条，避免突破 10 个上限。
+        if (repo.countByUserId(userId) > MAX_PER_USER) {
+            repo.delete(saved);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "最多配置 " + MAX_PER_USER + " 个自定义模型");
+        }
+        return view(saved);
     }
 
     public Map<String, Object> update(Long userId, Long id, Map<String, Object> body) {

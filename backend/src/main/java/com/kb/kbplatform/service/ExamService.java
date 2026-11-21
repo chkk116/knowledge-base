@@ -593,7 +593,9 @@ public class ExamService {
     @Transactional(rollbackFor = Exception.class)
     public Question adminSaveQuestion(Question q, List<QuestionOption> options) {
         if (q.getContent() == null || q.getContent().isBlank()) throw new IllegalArgumentException("题干不能为空");
-        if (q.getType() == null || q.getType().isBlank()) q.setType("SINGLE");
+        // 题型统一规范成大写：导入的 CSV/人工填的可能是单/小写，前端按 SINGLE/MULTI/JUDGE/FILL 分支渲染，
+        // 小写会落到默认分支渲染成文本框（外部测试遇到的「单选却给输入框」就是这么来的）
+        q.setType(q.getType() == null || q.getType().isBlank() ? "SINGLE" : q.getType().trim().toUpperCase());
         // #7 客观题必须有选项且至少 1 个正确，避免"无选项题"永远 0 分
         boolean objective = "SINGLE".equals(q.getType()) || "MULTI".equals(q.getType()) || "JUDGE".equals(q.getType());
         if (objective) {
@@ -805,16 +807,10 @@ public class ExamService {
 
     /** 判分限流：每用户每分钟最多 120 次（同时防止刷流水写爆 kb_practice_log） */
     private void checkPracticeRate(Long userId) {
-        long now = System.currentTimeMillis();
-        long[] st = CHECK_RATE.computeIfAbsent(userId, (k) -> new long[]{now, 0});
-        synchronized (st) {
-            if (now - st[0] > 60_000L) { st[0] = now; st[1] = 0; }
-            if (++st[1] > 120)
-                throw new ResponseStatusException(TOO_MANY_REQUESTS, "练习判分太频繁，请稍后再试");
-        }
-        // 只增不删会让这张表按用户数无限长（审查 r12 Medium）：过阈值时按窗口清理过期条目
-        if (CHECK_RATE.size() > 2000 && (rateSweep.incrementAndGet() % 200 == 0)) {
-            CHECK_RATE.entrySet().removeIf((e) -> now - e.getValue()[0] > 120_000L);
+        // 走 KvStore（Redis 可用时多实例共享，未配 Redis 时自动落到进程内存并发安全）：
+        // 原来固定用进程内 Map，多实例部署时每个实例各算各的，等于把上限放大 N 倍（白盒 T10）。
+        if (!kvStore.allowSliding("practice:rate:" + userId, 120, 60_000L)) {
+            throw new ResponseStatusException(TOO_MANY_REQUESTS, "练习判分太频繁，请稍后再试");
         }
     }
 

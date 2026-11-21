@@ -39,7 +39,15 @@ public class DmService {
      * 会话级发送锁：配额是「检查后写入」，并发下可被绕过（审查 r20 High）。
      * 单实例部署用 JVM 锁即可；上多实例时要换成数据库行锁或 Redis 锁。
      */
-    private final Map<String, Object> convLocks = new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * 会话级锁：固定 64 把按会话 key 取模，不再「每个会话 new 一个对象」。
+     * 原来的 Map 只增不删，长期运行会随会话数无限长（白盒 T6）；固定数组没有这个问题，
+     * 并发度对单机私信量足够（不同会话撞同一把锁只是短暂排队）。
+     */
+    private static final Object[] CONV_LOCKS = new Object[64];
+    static {
+        for (int i = 0; i < CONV_LOCKS.length; i++) CONV_LOCKS[i] = new Object();
+    }
 
     private final DmMessageRepository msgs;
     private final DmSettingRepository settings;
@@ -137,7 +145,8 @@ public class DmService {
         if (text.length() > MAX_LEN) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "消息太长（上限 " + MAX_LEN + " 字）");
 
         // 会话级锁：让「查配额 → 落库」对同一会话串行，防止并发请求把 3 条限制刷穿
-        Object lock = convLocks.computeIfAbsent(DmMessage.convKey(me, to), k -> new Object());
+        String lockKey = DmMessage.convKey(me, to);
+        Object lock = CONV_LOCKS[Math.floorMod(lockKey.hashCode(), CONV_LOCKS.length)];
         synchronized (lock) {
             Map<String, Object> q = quota(me, to);
             if (Boolean.TRUE.equals(q.get("limited")) && ((Number) q.get("remaining")).longValue() <= 0) {
