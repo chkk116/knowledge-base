@@ -178,7 +178,7 @@ export const getStorage = () => api.get('/doc-shares/storage')
 export const getShareStorage = (id) => api.get('/doc-shares/' + pid(id) + '/storage')
 
 // 管理后台
-export const listAllShares = () => api.get('/admin/doc-shares')
+export const listAllShares = (type) => api.get('/admin/doc-shares', { params: { type: type || '' } })
 export const adminDeleteShare = (id) => api.delete('/admin/doc-shares/' + pid(id))
 // 管理员设置空间容量上限（字节），capacity=0 取消上限
 export const adminSetCapacity = (id, capacity) => api.put('/admin/doc-shares/' + pid(id) + '/capacity', { capacity })

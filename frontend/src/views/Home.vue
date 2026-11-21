@@ -45,7 +45,7 @@ const paged = computed(() => {
 
 // 统计文案：列表模式用服务端总数，搜索模式用结果数
 const totalText = computed(() =>
-  mode.value === 'search' ? ('共 ' + total.value + ' 条结果') : ('共 ' + total.value + ' 篇文档')
+  mode.value === 'search' ? ('共 ' + total.value + ' 条结果') : ('共 ' + total.value + ' 条')
 )
 
 // 去掉 HTML 标签，得到纯文本摘要（避免卡片里出现 <p><strong> 等源码）

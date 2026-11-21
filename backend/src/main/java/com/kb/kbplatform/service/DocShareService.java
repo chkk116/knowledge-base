@@ -1559,8 +1559,17 @@ public class DocShareService {
 
     // 管理员：列出所有空间（含所有者名）
     public List<DocShare> listAll(Long userId, boolean sysAdmin) {
+        return listAll(userId, sysAdmin, null);
+    }
+
+    /** 管理后台的空间列表。type=TEAM 只看团队空间：个人空间每人自动生成一个（全站 159 个、
+     *  默认都叫「我的空间」），堆在管理页里既无信息量也把真正的团队空间挤没了（外部测试 C3）。 */
+    public List<DocShare> listAll(Long userId, boolean sysAdmin, String type) {
         if (!sysAdmin) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要管理员权限");
         List<DocShare> list = shareRepo.findAll();
+        if (type != null && !type.isBlank()) {
+            list = list.stream().filter((s0) -> type.equalsIgnoreCase(s0.getType())).collect(Collectors.toList());
+        }
         fillOwnerNamesInBatch(list);   // 旧实现是逐条 findById 查所有者名，N+1
         for (DocShare s : list) s.setMyPermission("OWNER");
         return list;

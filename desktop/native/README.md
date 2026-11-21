@@ -150,6 +150,10 @@
   **跨空间「全部文档」（2026-11-17）**：左侧列表顶部固定一条「全部文档」，走 `GET /api/doc-shares/docs/all`
   列出所有空间里我可见的文档（后端有总量截断、默认不带全文）；列表项补「所属空间名」以便区分同名文档。
   该视图下详情/版本/「在 Web 端打开」都用文档自带的 `shareId`（`docShareId` 状态），而不是左侧选中的空间 id。
+  **成员管理（2026-11-21）**：中间列标题栏「成员」→ 对话框（所有者 / 我的权限 / 已用·容量来自 `/my` 的瞬态字段）：
+  `GET /{id}/members` 列表（权限 READ/WRITE/ADMIN）、`PUT …/members/{userId} {permission}` 三档切换、
+  `DELETE …/members/{userId}` 移除、`GET /users?keyword=`（250ms 防抖）+ `POST …/members {userId,permission}` 邀请；
+  只有 `myPermission` 为 OWNER/ADMIN 时显示增删改（后端仍二次校验），所有者行不可改。
   ⚠️ **协同正文（2026-11-16 起本地解析）**：`GET /api/doc-shares/{id}/docs/{docId}/yjs` 下发
   `yjs_state`（base64；超 8MB 不下发，返回 `state=null` + `tooLarge`），桌面端用
   **`net.carcdr:ycrdt-core` / `ycrdt-jni` 0.3.0**（Yrs 的 Java 绑定，Apache-2.0，jar 内含
@@ -215,10 +219,17 @@
     删除（`DELETE /{id}`，**只移入回收站**，界面明示可恢复）。
   - **回收站**（`POST_MANAGE`）：`GET /api/admin/docs/recycle` + 恢复（`POST /{id}/restore`）；
     彻底删除与批量操作留 Web（不可逆）。
-  - **代码组织**：外壳与小件在 `AdminPanel.kt`（204 行），模块按域拆分——
+  - **空间申请**（仅 ADMIN）：两个页签——**创建申请**（`GET /api/admin/doc-shares/create-requests`，
+    展示拟建空间名/描述/附带成员/理由/申请人/时间）与**扩容申请**
+    （`GET /api/admin/doc-shares/capacity-requests`，展示空间名 + 当前容量 → 申请容量）。
+    操作：通过（`POST …/create-requests|capacity-requests/{rid}/approve`，服务端自动建空间 / 调容量，
+    二次确认并说明后果）与驳回（`POST …/{rid}/reject` body `{comment}`，理由必填）。
+    与 App 端同名模块共用接口；两接口在 `AuthFilter` 里**不回退细粒度权限码**，只认 ADMIN 角色。
+  - **代码组织**：外壳与小件在 `AdminPanel.kt`（220 行，**15 个页签**），模块按域拆分——
     `AdminReviewPanel.kt`（审核/阅卷/举报）、`AdminPeoplePanel.kt`（用户/部门）、
     `AdminContentPanel.kt`（公告/违禁词/孤儿附件）、`AdminTaxonomyPanel.kt`（分类标签）、
-    `AdminDocPanel.kt`（帖子/回收站）、`AdminInsightPanel.kt`（看板/审计/登录日志）。
+    `AdminDocPanel.kt`（帖子/回收站）、`AdminSpacesPanel.kt`（空间创建/扩容审批）、
+    `AdminInsightPanel.kt`（看板/审计/登录日志）。
 - **培训 / 考试（浏览与进度）**：
   - 培训：`GET /api/courses`（分类 chips 横向滚动，`/categories` 取分类）→ 课程列表；
     中列显示 `GET /api/courses/{id}` 的章节与 `GET /api/courses/{id}/progress` 的完成状态

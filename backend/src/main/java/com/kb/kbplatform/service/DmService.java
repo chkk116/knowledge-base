@@ -58,9 +58,12 @@ public class DmService {
     private final SseSessionRegistry sse;
     private final FileService files;
 
+    private final com.kb.kbplatform.service.TrtcPushAdapter trtcPush;
+
     public DmService(DmMessageRepository msgs, DmSettingRepository settings, DmConvStateRepository convStates,
                      FollowRepository follows, UserRepository users,
-                     SseSessionRegistry sse, AuditService audit, FileService files) {
+                     SseSessionRegistry sse, AuditService audit, FileService files,
+                     com.kb.kbplatform.service.TrtcPushAdapter trtcPush) {
         this.msgs = msgs;
         this.settings = settings;
         this.convStates = convStates;
@@ -69,6 +72,7 @@ public class DmService {
         this.sse = sse;
         this.audit = audit;
         this.files = files;
+        this.trtcPush = trtcPush;
     }
 
     /** 私信图片上传：落私有目录，返回存进 content 的引用（dm:<name>，不含可直接访问的 URL） */
@@ -232,6 +236,11 @@ public class DmService {
         } catch (Exception ignore) {
             // 推送失败不影响消息落库（离线用户靠下次拉取）
         }
+        // App 离线时的厂商推送提醒（未配置 TRTC 时适配器内部直接跳过）
+        try {
+            trtcPush.notifyOfflineDm(to, 1L);
+        } catch (Exception ignore) { }
+
         Map<String, Object> ret = new LinkedHashMap<>();
         ret.put("id", savedId);
         ret.put("quota", quota(me, to));

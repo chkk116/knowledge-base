@@ -326,7 +326,7 @@ const restoreVersion = async (v) => {
       <el-form-item label="标签">
         <el-select v-model="selectedTags" multiple filterable allow-create default-first-option
           placeholder="选择或输入标签" style="width:100%">
-          <el-option v-for="t in tagOptions" :key="t.id" :label="t.name" :value="t.name" />
+          <el-option v-for='t in tagOptions' :key='t.tag' :label="t.tag + '（' + t.count + '）'" :value='t.tag' />
         </el-select>
       </el-form-item>
       <el-form-item label="正文">

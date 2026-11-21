@@ -14,6 +14,8 @@ const formatGb = (b) => ((b || 0) / GB).toFixed(1) + ' GB'
 const shares = ref([])
 const loading = ref(false)
 const activeTab = ref('spaces')
+// 空间类型筛选：个人空间每人自动生成一个（全站 159 个同名），默认只看团队空间
+const spaceType = ref('TEAM')
 
 // 创建审批（仅完全管理员）
 const createReqList = ref([])
@@ -73,7 +75,7 @@ const capSaving = ref(false)
 const load = async () => {
   loading.value = true
   try {
-    const { data } = await listAllShares()
+    const { data } = await listAllShares(spaceType.value)
     shares.value = data || []
   } catch (e) {
     ElMessage.error('加载失败')
@@ -206,6 +208,13 @@ watch(activeTab, (t) => {
   <div v-if="auth.hasPerm('SHARE_VIEW')">
     <el-tabs v-model="activeTab" class="doc-tabs">
       <el-tab-pane label="空间列表" name="spaces">
+        <div style="margin-bottom:8px;max-width:240px">
+          <el-select v-model="spaceType" size="small" @change="load" style="width:100%">
+            <el-option label="团队空间" value="TEAM" />
+            <el-option label="个人空间" value="PERSONAL" />
+            <el-option label="全部" value="" />
+          </el-select>
+        </div>
         <el-table v-stack-table :data="shares" border stripe v-loading="loading">
           <el-table-column prop="id" label="ID" width="70"  class-name="stack-hide" />
           <el-table-column label="空间名称" min-width="180">

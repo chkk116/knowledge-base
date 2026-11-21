@@ -94,6 +94,10 @@ public class ExamService {
     public Map<String, Object> getPaperForStudent(Long userId, Long paperId) {
         ExamPaper paper = paperRepo.findById(paperId).orElseThrow(() -> new IllegalArgumentException("试卷不存在"));
         if (!"PUBLISHED".equals(paper.getStatus())) throw new ResponseStatusException(FORBIDDEN, "该试卷未发布");
+        // 0 题试卷允许保存但不允许开考：开始只会得到一条 0 分记录（简介与实际不符也是它引起的）
+        if (pqRepo.countByPaperId(paperId) == 0) {
+            throw new ResponseStatusException(BAD_REQUEST, "该试卷还没有题目，请联系管理员组卷");
+        }
         ExamRecord running = recordRepo.findByUserIdOrderByStartedAtDesc(userId).stream()
                 .filter(r -> r.getPaperId().equals(paperId) && r.getSubmittedAt() == null)
                 .findFirst().orElse(null);

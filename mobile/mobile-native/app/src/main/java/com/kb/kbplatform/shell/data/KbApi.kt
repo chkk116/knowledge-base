@@ -253,6 +253,74 @@ object KbApi {
     /** GET /admin/roles → 角色列表 */
     suspend fun adminRoles(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/admin/roles") }
 
+    // ---------- 团队空间成员（仅 OWNER/ADMIN 可增删改，后端二次校验）----------
+
+    /** GET /doc-shares/{sid}/members → 成员列表（不含所有者行；权限 READ/WRITE/ADMIN） */
+    suspend fun shareMembers(shareId: Long): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/doc-shares/$shareId/members")
+    }
+
+    /** POST /doc-shares/{sid}/members {userId, permission} */
+    suspend fun addShareMember(shareId: Long, userId: Long, permission: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.post(
+                "/api/doc-shares/$shareId/members",
+                JSONObject().put("userId", userId).put("permission", permission)
+            )
+        }
+
+    /** PUT /doc-shares/{sid}/members/{userId} {permission} */
+    suspend fun updateShareMember(shareId: Long, userId: Long, permission: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.put(
+                "/api/doc-shares/$shareId/members/$userId",
+                JSONObject().put("permission", permission)
+            )
+        }
+
+    /** DELETE /doc-shares/{sid}/members/{userId} */
+    suspend fun removeShareMember(shareId: Long, userId: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/doc-shares/$shareId/members/$userId")
+    }
+
+    /** GET /doc-shares/users?keyword= → 可邀请用户（启用账号，最多 20 个） */
+    suspend fun shareInviteUsers(keyword: String): JSONArray = withContext(Dispatchers.IO) {
+        val kw = java.net.URLEncoder.encode(keyword, "UTF-8")
+        ApiClient.getArray("/api/doc-shares/users?keyword=$kw")
+    }
+
+    // ---------- 共享文档外部分享链接（Web 端 /s/{token} 免登录只读）----------
+
+    /** GET /doc-shares/{sid}/docs/{docId}/public-link → {enabled,token,hasPassword,expireAt,noCopy,views} */
+    suspend fun shareLinkInfo(shareId: Long, docId: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/doc-shares/$shareId/docs/$docId/public-link")
+    }
+
+    /**
+     * 生成 / 更新：POST …/public-link {password?, expireDays?, noCopy}。
+     * password 空 = 无密码；expireDays 0 = 永久。
+     */
+    suspend fun saveShareLink(
+        shareId: Long,
+        docId: Long,
+        password: String?,
+        expireDays: Int,
+        noCopy: Boolean
+    ): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.post(
+            "/api/doc-shares/$shareId/docs/$docId/public-link",
+            JSONObject()
+                .put("password", if (password.isNullOrBlank()) JSONObject.NULL else password)
+                .put("expireDays", expireDays.coerceAtLeast(0))
+                .put("noCopy", noCopy)
+        )
+    }
+
+    /** 撤销：DELETE …/public-link（历史链接立即 404） */
+    suspend fun revokeShareLink(shareId: Long, docId: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/doc-shares/$shareId/docs/$docId/public-link")
+    }
+
     // ---------- 后台：空间创建 / 扩容申请审批（仅完全管理员）----------
 
     /** GET /admin/doc-shares/create-requests → 待审的团队空间创建申请（list） */

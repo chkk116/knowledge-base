@@ -60,7 +60,7 @@ class DmAttachmentTest {
                 });
         // recall 只会用到 msgs 与 files；audit / sse 的调用各自包在 try/catch 里，
         // 传 null 抛出的 NPE 会被吞掉，正好不影响「撤回删附件」这条主线的验证。
-        return new DmService(msgs, null, null, null, null, null, null, fileSvc());
+        return new DmService(msgs, null, null, null, null, null, null, fileSvc(), null);
     }
 
     private FileService fileSvc() {

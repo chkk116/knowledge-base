@@ -323,6 +323,22 @@ fun AppRoot() {
                     }
                 )
             }
+            // 团队空间成员管理（列表/邀请/改权限/移除；仅 OWNER/ADMIN 可改）
+            composable(
+                route = "space-members/{shareId}?name={name}",
+                arguments = listOf(
+                    navArgument("shareId") { type = NavType.LongType },
+                    navArgument("name") { type = NavType.StringType; defaultValue = "空间" }
+                )
+            ) { entry ->
+                val sid = entry.arguments?.getLong("shareId") ?: return@composable
+                val nm = entry.arguments?.getString("name").orEmpty().ifBlank { "空间" }
+                com.kb.kbplatform.shell.ui.docs.SpaceMembersScreen(
+                    shareId = sid,
+                    spaceName = nm,
+                    onBack = { nav.popBackStack() }
+                )
+            }
             composable(
                 route = "doc-edit/{shareId}/{docId}?title={title}",
                 arguments = listOf(

@@ -45,9 +45,10 @@ public class AdminDocShareController {
     }
 
     @GetMapping
-    public List<DocShare> list(@RequestAttribute("kbUser") TokenClaims c) {
+    public List<DocShare> list(@RequestAttribute("kbUser") TokenClaims c,
+                               @RequestParam(required = false, defaultValue = "TEAM") String type) {
         requirePerm(c, "SHARE_VIEW");
-        return svc.listAll(resolveUserId(c), true);
+        return svc.listAll(resolveUserId(c), true, type);
     }
 
     @DeleteMapping("/{id}")

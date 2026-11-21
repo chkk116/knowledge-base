@@ -209,7 +209,48 @@ data class AiAskResult(
 data class AgentDoc(val id: Long, val title: String, val snippet: String)
 
 /** Agent 工具用的共享空间项（流程图要落进共享文档的画布）。 */
-data class AgentSpace(val id: Long, val name: String, val type: String)
+data class AgentSpace(
+    val id: Long,
+    val name: String,
+    val type: String,
+    /** 以下均为后端瞬态字段（GET /api/doc-shares/my 时填充），成员/容量展示用 */
+    val ownerId: Long = 0L,
+    val ownerName: String = "",
+    val myPermission: String = "",
+    val memberCount: Long = 0L,
+    val used: Long = 0L,
+    val capacity: Long = 0L,
+)
+
+/** 空间成员（GET /api/doc-shares/{sid}/members；所有者不在 perm 表里，由 AgentSpace.owner* 兜）。 */
+data class ShareMemberItem(
+    val userId: Long,
+    val username: String,
+    val displayName: String,
+    val avatar: String,
+    val permission: String,
+)
+
+/** 可邀请用户（GET /api/doc-shares/users?keyword=；只回启用的账号）。 */
+data class InviteUserItem(
+    val id: Long,
+    val username: String,
+    val displayName: String,
+    val avatar: String,
+)
+
+/**
+ * 共享文档的外部分享链接（`GET|POST /api/doc-shares/{sid}/docs/{docId}/public-link`）。
+ * 访问地址是前端 `/s/{token}`，token 失效即 404（服务端令盘作废）。
+ */
+data class SharePublicLink(
+    val enabled: Boolean,
+    val token: String,
+    val hasPassword: Boolean,
+    val expireAt: String,
+    val noCopy: Boolean,
+    val views: Long,
+)
 
 /** 作者小卡片（GET /api/users/{id}/card，公开字段，不含登录名）。 */
 data class AuthorCard(
@@ -1919,7 +1960,17 @@ class ApiClient(private val base: String) {
         arr.mapNotNull { item ->
             val o = item as? JsonObject ?: return@mapNotNull null
             val id = o.long("id") ?: return@mapNotNull null
-            AgentSpace(id, o.str("name").orEmpty(), o.str("type").orEmpty())
+            AgentSpace(
+                id = id,
+                name = o.str("name").orEmpty(),
+                type = o.str("type").orEmpty(),
+                ownerId = o.long("ownerId") ?: 0L,
+                ownerName = o.str("ownerName").orEmpty(),
+                myPermission = o.str("myPermission").orEmpty(),
+                memberCount = o.long("memberCount") ?: 0L,
+                used = o.long("used") ?: 0L,
+                capacity = o.long("capacity") ?: 0L,
+            )
         }
     }
 
@@ -1944,6 +1995,126 @@ class ApiClient(private val base: String) {
         (e as? JsonArray).orEmpty().mapNotNull { item ->
             (item as? JsonObject)?.let { parseSharedDoc(it) }
         }
+    }
+
+    /** GET /api/doc-shares/{sid}/members → 空间成员列表（不含所有者行；权限 READ/WRITE/ADMIN） */
+    suspend fun shareMembers(token: String, shareId: Long): List<ShareMemberItem> = withContext(Dispatchers.IO) {
+        val e = runCatching {
+            Json.parseToJsonElement(authReq("GET", "/api/doc-shares/$shareId/members", token))
+        }.getOrNull() ?: throw ApiError("成员列表响应异常")
+        (e as? JsonArray ?: throw ApiError("成员列表响应异常")).mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val uid = j.long("userId") ?: return@mapNotNull null
+            ShareMemberItem(
+                userId = uid,
+                username = j.str("username").orEmpty(),
+                displayName = j.str("displayName").orEmpty(),
+                avatar = j.str("avatar").orEmpty(),
+                permission = j.str("permission").orEmpty().ifBlank { "READ" },
+            )
+        }
+    }
+
+    /**
+     * 加成员：POST /api/doc-shares/{sid}/members body {userId, permission}。
+     * 只允许 OWNER/ADMIN（后端校验，客户端先按 myPermission 收起入口）。
+     */
+    suspend fun addShareMember(token: String, shareId: Long, userId: Long, permission: String): ShareMemberItem =
+        withContext(Dispatchers.IO) {
+            val body = """{"userId":$userId,"permission":${jsonStr(permission)}}"""
+            val j = parse(authReq("POST", "/api/doc-shares/$shareId/members", token, body))
+                ?: throw ApiError("添加成员响应异常")
+            ShareMemberItem(
+                userId = j.long("userId") ?: userId,
+                username = j.str("username").orEmpty(),
+                displayName = j.str("displayName").orEmpty(),
+                avatar = j.str("avatar").orEmpty(),
+                permission = j.str("permission").orEmpty().ifBlank { permission },
+            )
+        }
+
+    /** 改权限：PUT /api/doc-shares/{sid}/members/{userId} body {permission} */
+    suspend fun updateShareMember(token: String, shareId: Long, userId: Long, permission: String) {
+        withContext(Dispatchers.IO) {
+            val body = """{"permission":${jsonStr(permission)}}"""
+            authReq("PUT", "/api/doc-shares/$shareId/members/$userId", token, body)
+        }
+    }
+
+    /** 移除成员：DELETE /api/doc-shares/{sid}/members/{userId}（所有者不可移除） */
+    suspend fun removeShareMember(token: String, shareId: Long, userId: Long) {
+        withContext(Dispatchers.IO) {
+            authReq("DELETE", "/api/doc-shares/$shareId/members/$userId", token)
+        }
+    }
+
+    /** GET /api/doc-shares/users?keyword= → 可邀请用户（启用账号，最多 20 个） */
+    suspend fun shareInviteUsers(token: String, keyword: String): List<InviteUserItem> =
+        withContext(Dispatchers.IO) {
+            val path = "/api/doc-shares/users?keyword=${java.net.URLEncoder.encode(keyword, "UTF-8")}"
+            val e = runCatching { Json.parseToJsonElement(authReq("GET", path, token)) }.getOrNull()
+                ?: return@withContext emptyList()
+            (e as? JsonArray).orEmpty().mapNotNull { item ->
+                val j = item as? JsonObject ?: return@mapNotNull null
+                val id = j.long("id") ?: return@mapNotNull null
+                InviteUserItem(
+                    id = id,
+                    username = j.str("username").orEmpty(),
+                    displayName = j.str("displayName").orEmpty(),
+                    avatar = j.str("avatar").orEmpty(),
+                )
+            }
+        }
+
+    /** GET /api/doc-shares/{sid}/docs/{docId}/public-link → 外部分享状态（仅能管理该文档的人可查） */
+    suspend fun sharePublicLink(token: String, shareId: Long, docId: Long): SharePublicLink =
+        withContext(Dispatchers.IO) {
+            val j = parse(authReq("GET", "/api/doc-shares/$shareId/docs/$docId/public-link", token))
+                ?: throw ApiError("分享状态响应异常")
+            parsePublicLink(j, defaultEnabled = false)
+        }
+
+    /**
+     * 生成 / 更新外部分享链接：`POST …/public-link {password?, expireDays?, noCopy}`。
+     * password 空 = 无密码；expireDays 0/缺省 = 永久。
+     */
+    suspend fun saveSharePublicLink(
+        token: String,
+        shareId: Long,
+        docId: Long,
+        password: String?,
+        expireDays: Int,
+        noCopy: Boolean,
+    ): SharePublicLink = withContext(Dispatchers.IO) {
+        val body = buildString {
+            append("{")
+            append("\"password\":").append(if (password.isNullOrBlank()) "null" else jsonStr(password))
+            append(",\"expireDays\":").append(expireDays.coerceAtLeast(0))
+            append(",\"noCopy\":").append(noCopy)
+            append("}")
+        }
+        val j = parse(authReq("POST", "/api/doc-shares/$shareId/docs/$docId/public-link", token, body))
+            ?: throw ApiError("生成链接响应异常")
+        parsePublicLink(j, defaultEnabled = true)
+    }
+
+    /** 撤销外部分享链接：`DELETE …/public-link`（历史链接立即 404） */
+    suspend fun revokeSharePublicLink(token: String, shareId: Long, docId: Long) {
+        withContext(Dispatchers.IO) {
+            authReq("DELETE", "/api/doc-shares/$shareId/docs/$docId/public-link", token)
+        }
+    }
+
+    private fun parsePublicLink(j: JsonObject, defaultEnabled: Boolean): SharePublicLink {
+        val tok = j.str("token").orEmpty()
+        return SharePublicLink(
+            enabled = j.bool("enabled") ?: (defaultEnabled && tok.isNotBlank()),
+            token = tok,
+            hasPassword = j.bool("hasPassword") ?: false,
+            expireAt = j.str("expireAt").orEmpty(),
+            noCopy = j.bool("noCopy") ?: false,
+            views = j.long("views") ?: 0L,
+        )
     }
 
     /** GET /api/doc-shares/{sid}/docs/{docId}/yjs → 协同正文的 Yjs 状态（base64；超限时 state=null） */

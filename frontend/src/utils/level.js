@@ -30,7 +30,8 @@ export function getLevel(points = 0) {
   const current = TIERS[level - 1][0]
   const span = next == null ? 0 : next - current
   const progress = next == null ? 100 : Math.min(100, Math.round(((points - current) / span) * 100))
-  return { level, title, next, current, span, progress }
+  const nextTitle = next == null ? null : TIERS[level][1]
+  return { level, title, next, nextTitle, current, span, progress }
 }
 
 /** 全部等级阈值（供排行/详情展示），每项 { min: 累计积分下限, title: 等级名 } */

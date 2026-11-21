@@ -128,6 +128,7 @@ const routes = [
   // 与后端 AuthFilter 对 /api/admin/ai 前缀「仅 ADMIN 角色」的判定保持一致
   // AI 模型管理：细粒度权限 AI_MANAGE（可在角色管理里授予；演示号勾上后是「能看改不了」）
   { path: '/admin/ai-models', component: () => import('../views/admin/AiModelManage.vue'), meta: { admin: true, perm: 'AI_MANAGE', title: 'AI 模型管理' } },
+  { path: '/admin/integrations', component: () => import('../views/admin/Integrations.vue'), meta: { admin: true, perm: 'AI_MANAGE', title: '集成中心' } },
   // 能力配置：文生图/文生视频/OCR 各用哪个模型（与模型池分开，避免"每条都能设用途"）
   { path: '/admin/ai-capabilities', component: () => import('../views/admin/AiCapability.vue'), meta: { admin: true, perm: 'AI_MANAGE', title: 'AI 能力配置' } },
   { path: '/admin/mail', component: () => import('../views/admin/MailSettings.vue'), meta: { admin: true, perm: 'SITE_SETTINGS_MANAGE|CORE_MAINTAIN', title: '邮件设置' } },

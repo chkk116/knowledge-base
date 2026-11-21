@@ -440,7 +440,7 @@ async function doExport() {
                        :show-text="false"
                        color="#6366f1" />
           <div class="lv-tip" v-if="levelInfo.next != null">
-            还需 {{ levelInfo.next - (auth.user?.points || 0) }} 积分升级到 {{ levelInfo.title }} 下一阶
+            再获得 {{ levelInfo.next - (auth.user?.points || 0) }} 积分即可升级到「{{ levelInfo.nextTitle }}」
           </div>
           <div class="lv-tip" v-else>已达最高等级 🎉</div>
         </div>

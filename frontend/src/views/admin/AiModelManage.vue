@@ -576,8 +576,8 @@ onUnmounted(() => {
                 style="margin-top: 12px;">
         <el-table-column label="模型" min-width="200">
           <template #default="{ row }">
-            <span style="font-weight: 600;">{{ row.modelName }}</span>
-            <span class="mono muted" style="margin-left: 8px;">{{ row.model }}</span>
+            <span style="font-weight: 600;">{{ row.model }}</span>
+            <span v-if="row.model !== row.modelName" class="mono muted" style="margin-left: 8px;">{{ row.modelName }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="requests" label="请求次数" width="100" align="center" />
@@ -589,7 +589,7 @@ onUnmounted(() => {
         </el-table-column>
         <el-table-column prop="tokens" label="Tokens" width="110" align="center" />
         <el-table-column label="平均耗时" width="100" align="center">
-          <template #default="{ row }">{{ row.avgLatencyMs }}ms</template>
+          <template #default="{ row }">{{ row.avgLatencyMs ? row.avgLatencyMs + "ms" : "—" }}</template>
         </el-table-column>
       </el-table>
     </section>

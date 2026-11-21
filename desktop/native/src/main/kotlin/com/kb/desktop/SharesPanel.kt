@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -82,6 +83,10 @@ fun SharesPanel(session: Session) {
     var showVersions by remember { mutableStateOf(false) }
     var versionNote by remember { mutableStateOf("") }
     var versionsTick by remember { mutableStateOf(0) }
+    // 空间成员管理（仅 OWNER/ADMIN 能改；后端仍会二次校验）
+    var showMembers by remember { mutableStateOf(false) }
+    // 外部分享链接（`/s/{token}`，只有能管理该文档的人可生成/撤销）
+    var showShareLink by remember { mutableStateOf(false) }
 
     var spacesLoading by remember { mutableStateOf(true) }
     var docsLoading by remember { mutableStateOf(false) }
@@ -280,6 +285,11 @@ fun SharesPanel(session: Session) {
                     Text("${shownDocs.size} 篇", fontSize = 10.5.sp, color = KbTextSub)
                 }
                 Spacer(Modifier.weight(1f))
+                if (spaceId != null && spaceId != ALL_SPACES) {
+                    TextButton(onClick = { showMembers = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                        Text("成员", fontSize = 11.sp)
+                    }
+                }
                 if (spaceId != null) {
                     TextButton(onClick = { docsTick++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                         Text("刷新", fontSize = 11.sp)
@@ -349,6 +359,7 @@ fun SharesPanel(session: Session) {
                     yjsNote = yjsNote,
                     versionNote = versionNote,
                     onOpenVersions = { showVersions = true },
+                    onOpenShare = { showShareLink = true },
                     onOpenInBrowser = {
                         val sid = docShareId
                         if (sid == null || sid <= 0) {
@@ -448,6 +459,32 @@ fun SharesPanel(session: Session) {
                 }
             },
             confirmButton = {},
+        )
+    }
+
+    // 成员管理：空间 meta（所有者/我的权限/容量）来自 /my 已拉到的 spaces，改动后刷新空间列表
+    val memberSpace = spaces.firstOrNull { it.id == spaceId }
+    if (showMembers && memberSpace != null) {
+        SpaceMembersDialog(
+            session = session,
+            api = api,
+            space = memberSpace,
+            onClose = { showMembers = false },
+            onChanged = { spacesTick++ },
+        )
+    }
+
+    // 外部分享链接：必须用文档真实 shareId（跨空间视图下 spaceId 是 -1 哨兵）
+    val shareSid = docShareId
+    val shareDid = docId
+    if (showShareLink && shareSid != null && shareSid > 0 && shareDid != null) {
+        ShareLinkDialog(
+            session = session,
+            api = api,
+            shareId = shareSid,
+            docId = shareDid,
+            docTitle = detail?.title.orEmpty(),
+            onClose = { showShareLink = false },
         )
     }
 }
@@ -573,6 +610,7 @@ private fun ShareReader(
     yjsNote: String = "",
     versionNote: String = "",
     onOpenVersions: () -> Unit = {},
+    onOpenShare: () -> Unit = {},
     onOpenInBrowser: () -> Unit,
 ) {
     val blocks = remember(doc.id, html) { DocHtml.parse(html) }
@@ -596,6 +634,9 @@ private fun ShareReader(
                     if (!perm.isNullOrBlank()) {
                         Text(permLabel(perm), fontSize = 10.5.sp, color = Color(0xFF94A3B8))
                         Spacer(Modifier.width(6.dp))
+                    }
+                    TextButton(onClick = onOpenShare, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("分享", fontSize = 11.5.sp)
                     }
                     TextButton(onClick = onOpenVersions, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("版本", fontSize = 11.5.sp)
@@ -729,8 +770,9 @@ private fun spaceTypeLabel(type: String): String = when (type.uppercase()) {
 
 private fun permLabel(perm: String): String = when (perm.uppercase()) {
     "OWNER" -> "所有者"
-    "EDIT" -> "可编辑"
-    "VIEW" -> "只读"
+    "ADMIN" -> "可管理"
+    "WRITE", "EDIT" -> "可编辑"
+    "READ", "VIEW" -> "只读"
     else -> perm.lowercase()
 }
 
@@ -759,4 +801,481 @@ private fun openShareInBrowser(server: String, path: String) {
     val base = server.trimEnd('/')
     val url = if (path.startsWith("http")) path else "$base/${path.trimStart('/')}"
     runCatching { Desktop.getDesktop().browse(URI.create(url)) }
+}
+
+/**
+ * 空间成员管理（OWNER/ADMIN 可增删改；其他成员只读）。
+ *
+ * 后端：`GET /{sid}/members`（不含所有者行）、`POST /{sid}/members {userId,permission}`、
+ * `PUT /{sid}/members/{userId} {permission}`、`DELETE /{sid}/members/{userId}`、
+ * `GET /users?keyword=`（邀请候选，启用账号最多 20 个）。权限值只有 READ / WRITE / ADMIN。
+ */
+@Composable
+private fun SpaceMembersDialog(
+    session: Session,
+    api: ApiClient,
+    space: AgentSpace,
+    onClose: () -> Unit,
+    onChanged: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var members by remember { mutableStateOf<List<ShareMemberItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var note by remember { mutableStateOf("") }
+    var tick by remember { mutableStateOf(0) }
+    var busyId by remember { mutableStateOf<Long?>(null) }
+    // 邀请面板
+    var inviting by remember { mutableStateOf(false) }
+    var kw by remember { mutableStateOf("") }
+    var candidates by remember { mutableStateOf<List<InviteUserItem>>(emptyList()) }
+    var invitePerm by remember { mutableStateOf("WRITE") }
+    val canManage = space.myPermission.uppercase().let { it == "OWNER" || it == "ADMIN" }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            members = api.shareMembers(session.token, space.id)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            err = e.message ?: "成员列表加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    // 邀请候选：展开面板时按关键词防抖查询（空关键词返回最近 20 个启用账号）
+    LaunchedEffect(inviting, kw) {
+        if (!inviting) return@LaunchedEffect
+        kotlinx.coroutines.delay(250)
+        candidates = runCatching { api.shareInviteUsers(session.token, kw.trim()) }.getOrDefault(emptyList())
+    }
+
+    fun applyPerm(uid: Long, perm: String) {
+        busyId = uid
+        scope.launch {
+            try {
+                api.updateShareMember(session.token, space.id, uid, perm)
+                note = "已把权限改为「${permLabel(perm)}」"
+                tick++
+                onChanged()
+            } catch (e: Exception) {
+                note = e.message ?: "改权限失败"
+            } finally {
+                busyId = null
+            }
+        }
+    }
+
+    fun remove(uid: Long) {
+        busyId = uid
+        scope.launch {
+            try {
+                api.removeShareMember(session.token, space.id, uid)
+                note = "已移除该成员"
+                tick++
+                onChanged()
+            } catch (e: Exception) {
+                note = e.message ?: "移除失败"
+            } finally {
+                busyId = null
+            }
+        }
+    }
+
+    fun invite(u: InviteUserItem) {
+        busyId = u.id
+        scope.launch {
+            try {
+                api.addShareMember(session.token, space.id, u.id, invitePerm)
+                note = "已邀请「${u.displayName.ifBlank { u.username }}」加入，权限「${permLabel(invitePerm)}」"
+                tick++
+                onChanged()
+            } catch (e: Exception) {
+                note = e.message ?: "邀请失败"
+            } finally {
+                busyId = null
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("成员 · ${space.name}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.width(460.dp)) {
+                // meta：所有者 / 我的权限 / 容量占用（后端瞬态字段，缺省不显示）
+                Text(
+                    "所有者：${space.ownerName.ifBlank { "未知" }} · 我的权限：${permLabel(space.myPermission.ifBlank { "READ" })}" +
+                        if (space.capacity > 0) " · 已用 ${fmtShareSize(space.used).ifBlank { "0 B" }} / ${fmtShareSize(space.capacity)}" else "",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = KbBorder)
+                Box(Modifier.heightIn(max = 300.dp)) {
+                    when {
+                        loading -> ShareHint("加载中…")
+                        err != null -> ShareError(err ?: "", onRetry = { tick++ })
+                        else -> LazyColumn(Modifier.fillMaxWidth()) {
+                            // 所有者行（不可改/不可移除）
+                            if (space.ownerName.isNotBlank()) {
+                                item {
+                                    MemberRow(
+                                        name = space.ownerName,
+                                        sub = "所有者",
+                                        perm = "OWNER",
+                                        canManage = false,
+                                        busy = false,
+                                        onPerm = {},
+                                        onRemove = {},
+                                    )
+                                }
+                            }
+                            if (members.isEmpty()) {
+                                item { ShareHint("除所有者外还没有成员\n点下方「邀请成员」添加") }
+                            }
+                            items(members, key = { it.userId }) { m ->
+                                MemberRow(
+                                    name = m.displayName.ifBlank { m.username.ifBlank { "用户 ${m.userId}" } },
+                                    sub = m.username,
+                                    perm = m.permission,
+                                    canManage = canManage,
+                                    busy = busyId == m.userId,
+                                    onPerm = { p -> applyPerm(m.userId, p) },
+                                    onRemove = { remove(m.userId) },
+                                )
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider(color = KbBorder)
+                if (!canManage) {
+                    Text("只有所有者或「可管理」成员能增删成员", fontSize = 11.sp, color = KbTextSub)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = { inviting = !inviting; if (!inviting) kw = "" },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                        ) { Text(if (inviting) "收起邀请" else "＋ 邀请成员", fontSize = 12.sp) }
+                        if (inviting) {
+                            Text("新成员权限：", fontSize = 11.5.sp, color = KbTextSub)
+                            for (p in listOf("READ", "WRITE", "ADMIN")) {
+                                SharePermChip(p, selected = invitePerm == p) { invitePerm = p }
+                            }
+                        }
+                    }
+                    if (inviting) {
+                        OutlinedTextField(
+                            value = kw,
+                            onValueChange = { kw = it },
+                            placeholder = { Text("按用户名 / 昵称搜索", fontSize = 11.5.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Box(Modifier.heightIn(max = 180.dp)) {
+                            if (candidates.isEmpty()) {
+                                ShareHint("没有可邀请的用户")
+                            } else {
+                                LazyColumn(Modifier.fillMaxWidth()) {
+                                    items(candidates, key = { it.id }) { u ->
+                                        Row(
+                                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                u.displayName.ifBlank { u.username },
+                                                fontSize = 12.5.sp,
+                                                color = KbTextMain,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            TextButton(
+                                                enabled = busyId != u.id,
+                                                onClick = { invite(u) },
+                                                contentPadding = PaddingValues(horizontal = 6.dp),
+                                            ) { Text(if (busyId == u.id) "加入中…" else "加入", fontSize = 11.5.sp) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("关闭", fontSize = 12.sp)
+            }
+        },
+    )
+}
+
+/** 成员行：可管理时显示「只读 / 可编辑 / 可管理」三档切换 + 移除。 */
+@Composable
+private fun MemberRow(
+    name: String,
+    sub: String,
+    perm: String,
+    canManage: Boolean,
+    busy: Boolean,
+    onPerm: (String) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(26.dp).clip(CircleShape).background(ShareRailBg).border(1.dp, KbBorder, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(name.take(1), fontSize = 11.sp, color = KbTextSub)
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, fontSize = 12.5.sp, color = KbTextMain, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (sub.isNotBlank() && sub != name) {
+                Text(sub, fontSize = 10.5.sp, color = KbTextSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (canManage && perm.uppercase() != "OWNER") {
+            for (p in listOf("READ", "WRITE", "ADMIN")) {
+                TextButton(
+                    enabled = !busy,
+                    onClick = { if (p != perm.uppercase()) onPerm(p) },
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text(
+                        if (perm.uppercase() == p) "● ${permLabel(p)}" else permLabel(p),
+                        fontSize = 10.5.sp,
+                        color = if (perm.uppercase() == p) ShareErrRed else KbTextSub,
+                    )
+                }
+            }
+            TextButton(enabled = !busy, onClick = onRemove, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                Text("移除", fontSize = 10.5.sp, color = ShareErrRed)
+            }
+        } else {
+            ShareChip(permLabel(perm), ShareRailBg, KbTextSub)
+        }
+    }
+}
+
+/** 邀请权限小签（选中态描边） */
+@Composable
+private fun SharePermChip(perm: String, selected: Boolean, onClick: () -> Unit) {
+    ShareToggleChip(permLabel(perm), selected, onClick)
+}
+
+/** 通用选择小签（内容原样显示；有效期 / 复制限制这类非权限值用这个） */
+@Composable
+private fun ShareToggleChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        text,
+        fontSize = 10.5.sp,
+        color = if (selected) KbTextMain else KbTextSub,
+        modifier = Modifier
+            .padding(horizontal = 2.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (selected) ShareRailBg else Color.Transparent)
+            .border(1.dp, if (selected) KbTextSub else KbBorder, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/**
+ * 外部分享链接（文档级，只有能管理该文档的人可操作）。
+ *
+ * 后端：`GET|POST|DELETE /{sid}/docs/{docId}/public-link`，POST body `{password?, expireDays?, noCopy}`；
+ * 返回 `token/hasPassword/expireAt/noCopy/views`。访问地址是 Web 端 `/s/{token}`（有密码要输密码），
+ * 撤销后历史链接立即 404。有效期 0 = 永久。
+ */
+@Composable
+private fun ShareLinkDialog(
+    session: Session,
+    api: ApiClient,
+    shareId: Long,
+    docId: Long,
+    docTitle: String,
+    onClose: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var info by remember { mutableStateOf<SharePublicLink?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var note by remember { mutableStateOf("") }
+    var tick by remember { mutableStateOf(0) }
+    var busy by remember { mutableStateOf(false) }
+    // 设置项（默认沿用当前值）
+    var pwd by remember { mutableStateOf("") }
+    var days by remember { mutableStateOf(0) }
+    var noCopy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            val v = api.sharePublicLink(session.token, shareId, docId)
+            info = v
+            noCopy = v.noCopy
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            err = e.message ?: "分享状态加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    val url = if (info?.enabled == true && !info!!.token.isNullOrBlank())
+        session.server.trimEnd('/') + "/s/" + info!!.token else ""
+
+    fun save() {
+        busy = true
+        scope.launch {
+            try {
+                info = api.saveSharePublicLink(
+                    session.token, shareId, docId,
+                    password = pwd.ifBlank { null },
+                    expireDays = days,
+                    noCopy = noCopy,
+                )
+                note = if (url.isBlank()) "已开启外部分享" else "已更新分享设置（链接不变）"
+                pwd = ""
+                tick++
+            } catch (e: Exception) {
+                note = e.message ?: "生成失败"
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun copy(text: String) {
+        runCatching {
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                java.awt.datatransfer.StringSelection(text), null,
+            )
+            note = "链接已复制"
+        }.onFailure { note = "复制失败：${it.message}" }
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("外部分享链接", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.width(480.dp)) {
+                Text(
+                    "「${docTitle.ifBlank { "当前文档" }}」· 拿到链接的人无需登录即可只读打开",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                when {
+                    loading -> ShareHint("加载中…")
+                    err != null -> ShareError(err ?: "", onRetry = { tick++ })
+                    else -> {
+                        if (url.isNotBlank()) {
+                            Text("访问地址", fontSize = 11.sp, color = KbTextSub)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    url,
+                                    fontSize = 11.5.sp,
+                                    color = KbTextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { copy(url) }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                                    Text("复制", fontSize = 11.5.sp)
+                                }
+                                TextButton(
+                                    onClick = { openShareInBrowser(session.server, url) },
+                                    contentPadding = PaddingValues(horizontal = 6.dp),
+                                ) { Text("打开", fontSize = 11.5.sp) }
+                            }
+                            Text(
+                                buildString {
+                                    append(if (info?.hasPassword == true) "需要密码" else "无密码")
+                                    append(" · ")
+                                    append(if (!info?.expireAt.isNullOrBlank()) "有效期至 " + fmtSharedTime(info?.expireAt) else "永久有效")
+                                    if (info?.noCopy == true) append(" · 禁止复制")
+                                    append(" · 已浏览 ${info?.views ?: 0} 次")
+                                },
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            HorizontalDivider(color = KbBorder)
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        // 设置区（已开启时是「更新设置」，未开启时是「开启」）
+                        OutlinedTextField(
+                            value = pwd,
+                            onValueChange = { pwd = it },
+                            label = { Text("访问密码（留空 = 无密码）", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("有效期：", fontSize = 11.5.sp, color = KbTextSub)
+                            for (d in listOf(0, 7, 30, 90)) {
+                                ShareToggleChip(if (d == 0) "永久" else "${d} 天", days == d) { days = d }
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("复制限制：", fontSize = 11.5.sp, color = KbTextSub)
+                            ShareToggleChip("允许复制", !noCopy) { noCopy = false }
+                            ShareToggleChip("禁止复制", noCopy) { noCopy = true }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Row {
+                            TextButton(enabled = !busy, onClick = { save() }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                Text(if (busy) "提交中…" else if (url.isBlank()) "生成链接" else "更新设置", fontSize = 12.sp)
+                            }
+                            if (url.isNotBlank()) {
+                                TextButton(
+                                    enabled = !busy,
+                                    onClick = {
+                                        busy = true
+                                        scope.launch {
+                                            try {
+                                                api.revokeSharePublicLink(session.token, shareId, docId)
+                                                info = null
+                                                note = "已撤销，历史链接立即失效"
+                                                tick++
+                                            } catch (e: Exception) {
+                                                note = e.message ?: "撤销失败"
+                                            } finally {
+                                                busy = false
+                                            }
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                ) { Text("撤销链接", fontSize = 12.sp, color = ShareErrRed) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("关闭", fontSize = 12.sp)
+            }
+        },
+    )
 }

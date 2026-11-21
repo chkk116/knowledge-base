@@ -33,7 +33,9 @@
           <span v-if="p.durationMin">时长 {{ p.durationMin }} 分</span>
         </div>
         <div class="acts">
-          <el-button type="primary" :disabled="p.status !== 'PUBLISHED'" @click="start(p)">开始考试</el-button>
+          <el-button type="primary" :disabled="p.status !== 'PUBLISHED' || !p.questionCount"
+                   @click="start(p)">{{ p.questionCount ? '开始考试' : '未组卷' }}</el-button>
+          <el-tag v-if="p.status === 'PUBLISHED' && !p.questionCount" size="small" type="danger" effect="plain">0 题，未组卷</el-tag>
           <el-button plain :disabled="p.status !== 'PUBLISHED' || p.practiceEnabled === false" @click="practice(p)">练习</el-button>
         </div>
       </div>
