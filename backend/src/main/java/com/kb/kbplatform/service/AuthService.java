@@ -90,6 +90,29 @@ public class AuthService {
      * @return 变动后的积分余额
      */
     @Transactional(rollbackFor = Exception.class)
+    /** 幂等发放：ref 相同的 (userId, type) 只发一次，重复插入时静默返回 0 */
+    public int awardPoints(Long userId, int delta, String type, String reason, String ref) {
+        if (delta == 0) return 0;
+        User u = userRepo.findById(userId).orElse(null);
+        if (u == null) return 0;
+        PointsLog entry = new PointsLog();
+        entry.setUserId(u.getId());
+        entry.setUsername(u.getUsername());
+        entry.setDelta(delta);
+        entry.setType(type);
+        entry.setReason(reason == null ? "" : reason);
+        entry.setCreatedAt(LocalDateTime.now());
+        entry.setRef(ref);
+        try {
+            pointsLogRepo.save(entry);
+        } catch (org.springframework.dao.DataIntegrityViolationException dup) {
+            // 唯一约束拦截：这个 ref 已经发过分（并发提交的两条记录各自到这里，只有一条能成功）
+            return 0;
+        }
+        userRepo.addPointsRaw(userId, delta);
+        return userRepo.findPointsById(userId);
+    }
+
     public int awardPoints(Long userId, int delta, String type, String reason) {
         if (delta == 0) return 0;
         User u = userRepo.findById(userId).orElse(null);

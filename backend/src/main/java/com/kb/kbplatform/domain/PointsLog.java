@@ -9,9 +9,11 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "kb_points_log", indexes =
-        // 积分明细页：按用户 + 时间倒序
-        @Index(name = "idx_points_user", columnList = "userId,createdAt"))
+@Table(name = "kb_points_log",
+        uniqueConstraints = @jakarta.persistence.UniqueConstraint(
+                name = "uk_points_log_ref", columnNames = {"user_id", "type", "ref"}),
+        indexes = @jakarta.persistence.Index(
+                name = "idx_points_user", columnList = "userId,createdAt"))
 public class PointsLog {
 
     @Id
@@ -31,6 +33,11 @@ public class PointsLog {
 
     @Column(length = 200)
     private String reason;        // 变动说明（如「发布《标题》」）
+
+    /** 防重复发放的幂等键（如 paper:5 / chapter:12），随 type 一起构成唯一约束；
+     *  登录 / 发文这类天然一次一条的不带 ref（NULL 不参与唯一判定）。 */
+    @Column(length = 64)
+    private String ref;
 
     private int balance;          // 变动后的积分余额
 
@@ -54,6 +61,8 @@ public class PointsLog {
     public String getReason() { return reason; }
     public void setReason(String reason) { this.reason = reason; }
 
+    public String getRef() { return ref; }
+    public void setRef(String ref) { this.ref = ref; }
     public int getBalance() { return balance; }
     public void setBalance(int balance) { this.balance = balance; }
 

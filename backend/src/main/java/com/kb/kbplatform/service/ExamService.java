@@ -524,7 +524,7 @@ public class ExamService {
 
         if (passed && firstPass) {
             String title = paper != null ? paper.getTitle() : "试卷";
-            authService.awardPoints(rec.getUserId(), AuthService.EXAM_PASS_POINTS, "EXAM", "通过考试《" + title + "》");
+            authService.awardPoints(rec.getUserId(), AuthService.EXAM_PASS_POINTS, "EXAM", "通过考试《" + title + "》", "paper:" + rec.getPaperId());
             Course course = courseRepo.findByExamPaperId(rec.getPaperId()).stream().findFirst().orElse(null);
             if (course != null && courseService.certificateOf(rec.getUserId(), course.getId()) != null) {
                 notificationService.notifyCertificate(rec.getUserId(), "系统",
