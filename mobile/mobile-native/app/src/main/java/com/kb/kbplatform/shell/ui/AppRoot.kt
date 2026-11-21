@@ -228,6 +228,10 @@ fun AppRoot() {
             composable("admin-words") {
                 com.kb.kbplatform.shell.ui.admin.AdminWordScreen(onBack = { nav.popBackStack() })
             }
+            // 空间申请（仅完全管理员）：团队空间创建 / 扩容审批
+            composable("admin-spaces") {
+                com.kb.kbplatform.shell.ui.admin.SpacesAdminScreen(onBack = { nav.popBackStack() })
+            }
             composable("admin-recycle") {
                 com.kb.kbplatform.shell.ui.admin.AdminRecycleScreen(onBack = { nav.popBackStack() })
             }

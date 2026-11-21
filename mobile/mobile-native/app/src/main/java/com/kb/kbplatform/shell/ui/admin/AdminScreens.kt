@@ -127,6 +127,12 @@ fun AdminHomeScreen(
                     AdminEntry(index = enterIdx++, "举报处理", "用户举报核实与处置", KbRed, onClick = { onOpen("admin-reports") })
                 }
             }
+            if (isAdmin) {
+                item {
+                    AdminEntry(index = enterIdx++, "空间申请", "团队空间创建 / 扩容审批", Color(0xFF0EA5E9),
+                        onClick = { onOpen("admin-spaces") })
+                }
+            }
             if (perm("BANNED_WORDS_MANAGE")) {
                 item {
                     AdminEntry(index = enterIdx++, "违禁词库", "词库启停 / 批量加词", KbWarn, onClick = { onOpen("admin-words") })

@@ -253,6 +253,42 @@ object KbApi {
     /** GET /admin/roles → 角色列表 */
     suspend fun adminRoles(): JSONArray = withContext(Dispatchers.IO) { ApiClient.getArray("/api/admin/roles") }
 
+    // ---------- 后台：空间创建 / 扩容申请审批（仅完全管理员）----------
+
+    /** GET /admin/doc-shares/create-requests → 待审的团队空间创建申请（list） */
+    suspend fun adminSpaceCreateRequests(): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/admin/doc-shares/create-requests")
+    }
+
+    /** GET /admin/doc-shares/capacity-requests → 待审的空间扩容申请（list） */
+    suspend fun adminSpaceCapacityRequests(): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/admin/doc-shares/capacity-requests")
+    }
+
+    /** POST …/create-requests/{id}/approve → 通过（服务端自动建空间） */
+    suspend fun approveSpaceCreate(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/doc-shares/create-requests/$id/approve")
+        Unit
+    }
+
+    /** POST …/create-requests/{id}/reject {comment} → 驳回（理由必填） */
+    suspend fun rejectSpaceCreate(id: Long, comment: String): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/doc-shares/create-requests/$id/reject", JSONObject().put("comment", comment))
+        Unit
+    }
+
+    /** POST …/capacity-requests/{id}/approve → 通过（服务端自动调容量） */
+    suspend fun approveSpaceCapacity(id: Long): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/doc-shares/capacity-requests/$id/approve")
+        Unit
+    }
+
+    /** POST …/capacity-requests/{id}/reject {comment} */
+    suspend fun rejectSpaceCapacity(id: Long, comment: String): Unit = withContext(Dispatchers.IO) {
+        ApiClient.post("/api/admin/doc-shares/capacity-requests/$id/reject", JSONObject().put("comment", comment))
+        Unit
+    }
+
     /**
      * GET /admin/docs?page&size&keyword → Spring Page {content:[…]}
      * 注意：后端返回的是分页体（JSONObject），直接按数组解析必抛异常（旧实现内容管理页永远空）。
