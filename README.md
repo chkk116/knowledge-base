@@ -69,7 +69,8 @@ Electron（`desktop/`）与 Capacitor（`mobile/android/`）两个套壳进入**
 
 ## 在线演示
 
-- 在线演示地址由部署方填写（本仓库不内置任何线上站点地址）；下表为公开演示环境的只读账号
+- 演示地址：<https://chkk116.cn>（公开只读演示环境，数据定期重置）
+- 下表为公开演示环境的只读账号：
 
 | 账号 | 密码 | 说明 |
 |---|---|---|
@@ -338,6 +339,7 @@ CREATE DATABASE kb OWNER kb;
 ```
 
 业务表由 JPA（`ddl-auto: update`）**自动创建，无需手动导表**——`update` 模式「只增不删不改」：已有表不重建、已有数据不覆盖，新版加字段时仅自动补列，升级安全。
+⚠️ **如果你把 `KB_DDL_AUTO` 改成 `validate`（生产常见做法）**：请先在**全新库**上跑一次 `update` 把表建出来，之后才切 `validate`；否则首次启动会因缺表直接失败（`validate` 只校验、不建表）。加字段同理：先 `update` 一次补列，再切回 `validate`。
 `db/*.sql` 为结构约束与数据迁移增量脚本；内置测试账号与示例文档仅在**库为空时**自动插入，已有数据不受影响。
 连接信息在 [`backend/src/main/resources/application.yml`](backend/src/main/resources/application.yml) 的 `spring.datasource` 段（约第 15~18 行），改完保存重启后端即可。
 数据库为 PostgreSQL 专用：共享文档的 `bytea` 字段与协同中继（Yjs 快照）都依赖 PG 语义，**不支持切换到 MySQL**；源码里的 MySQL 历史脚本仅作迁移参考，不要在新环境启用。
