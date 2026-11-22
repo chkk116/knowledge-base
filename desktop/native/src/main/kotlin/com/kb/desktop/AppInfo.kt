@@ -9,7 +9,7 @@ package com.kb.desktop
  * 用 [versionCode] 与本地比较决定是否提示升级。
  */
 object AppInfo {
-    const val versionCode: Int = 23
-    const val versionName: String = "1.1.12"
+    const val versionCode: Int = 24
+    const val versionName: String = "1.1.13"
     const val channel: String = "desktop"
 }
