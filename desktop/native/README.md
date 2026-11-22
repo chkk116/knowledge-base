@@ -165,6 +165,11 @@
   **文档整理（2026-11-22）**：阅读区顶栏「整理」→ 改标签（`PUT …/docs/{docId}/tags {tags:[…]}`，逗号分隔最多 20 个）
   + 移动到其他空间（`POST …/docs/{docId}/move {targetShareId}`，只列我有写权限的空间，需空间/文档管理员或文档作者，二次确认）；
   移动后文档离开当前空间、历史版本随行走、归属人不变。
+  **双链（2026-11-22）**：阅读区正文末尾自动展示 `GET …/docs/{docId}/links` 的「本文引用（N）」（`[[标题]]` 指向的，悬空的标「未找到该标题」置灰不可点）与「引用本文（N）」；点击用目标文档自己的 `shareId` 跳转，跨空间也能打开。
+  **空间用量（2026-11-22）**：中间列标题下显示当前空间「已用 x / 上限 y」（`GET …/{id}/storage` 的 `used/capacity`，capacity=null 显示「不限」，超上限标红）；跨空间视图不显示。
+  **扩容申请（2026-11-22）**：用量行旁「扩容」（仅 OWNER/ADMIN）→ 选 4/8/16/32/64GB 或自定义 / 不限 + 理由 → `POST …/{id}/capacity-requests`；下方列出该空间申请记录（待审批/已通过/已驳回 + 驳回意见）。
+  **空间设置（2026-11-22）**：中间列「设置」→ 改名/改描述（`PUT …/{id}`，需 OWNER/ADMIN）；所有者额外可「删除这个空间」（`DELETE …/{id}`，二次确认并明示连带删除文档/版本/成员，不可恢复）。
+  **新建团队空间（2026-11-22）**：左栏「＋」→ `POST …/doc-shares {name, description, type:TEAM}`（需 `SHARE_CREATE`，默认容量 2GB）；非系统管理员达 2 个上限时后端 403，同一对话框自动切换为「提交创建申请」（`POST …/create-requests`），管理员审批通过后自动建空间。
   ⚠️ **协同正文（2026-11-16 起本地解析）**：`GET /api/doc-shares/{id}/docs/{docId}/yjs` 下发
   `yjs_state`（base64；超 8MB 不下发，返回 `state=null` + `tooLarge`），桌面端用
   **`net.carcdr:ycrdt-core` / `ycrdt-jni` 0.3.0**（Yrs 的 Java 绑定，Apache-2.0，jar 内含

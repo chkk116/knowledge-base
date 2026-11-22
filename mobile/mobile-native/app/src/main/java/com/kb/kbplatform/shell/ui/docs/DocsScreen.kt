@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -84,6 +85,14 @@ fun DocsScreen(
     var order by remember { mutableStateOf("time") }
     // 文档整理（标签 / 移动）的目标文档
     var organizing by remember { mutableStateOf<JSONObject?>(null) }
+    // 空间用量（GET /{id}/storage）；切换空间时重拉，失败不显示
+    var spaceStorage by remember { mutableStateOf<JSONObject?>(null) }
+    // 空间设置（改名/描述/删除）的目标空间
+    var settingsSpace by remember { mutableStateOf<JSONObject?>(null) }
+    // 新建团队空间对话框
+    var showCreateSpace by remember { mutableStateOf(false) }
+    // 扩容申请对话框
+    var showCapacity by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val docsLoaded = remember { mutableStateOf(mutableMapOf<Long, List<JSONObject>>()) }
 
@@ -97,9 +106,11 @@ fun DocsScreen(
             val sp = selectedSpace
             if (sp == null) {
                 spaces = KbApi.myShares().objects()
+                spaceStorage = null
             } else {
                 docs = KbApi.shareDocs(sp.optLong("id", 0)).objects()
                 docsLoaded.value[sp.optLong("id", 0)] = docs
+                spaceStorage = runCatching { KbApi.spaceStorage(sp.optLong("id", 0)) }.getOrNull()
             }
             offline = false
             // 在线成功：刷新离线缓存（空间 + 已加载过的文档列表）
@@ -126,6 +137,9 @@ fun DocsScreen(
     Column(Modifier.fillMaxSize()) {
         if (space == null) {
             com.kb.kbplatform.shell.ui.common.KbPageHeader(title = "文档库") {
+                IconButton(onClick = { showCreateSpace = true }) {
+                    Icon(Icons.Filled.Add, contentDescription = "新建空间")
+                }
                 IconButton(onClick = { openRoute("search") }) {
                     Icon(Icons.Filled.Search, contentDescription = "搜索")
                 }
@@ -205,6 +219,13 @@ fun DocsScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                IconButton(onClick = { settingsSpace = s }) {
+                                    Icon(
+                                        Icons.Filled.MoreVert,
+                                        contentDescription = "空间设置",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                                 Icon(
                                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                     contentDescription = null,
@@ -227,6 +248,27 @@ fun DocsScreen(
                         else -> list.sortedByDescending { it.optString("updatedAt") }
                     }
                 }
+            // 空间用量：团队空间常有上限，超出前先看到数字
+            spaceStorage?.let { st ->
+                val used = st.optLong("used", 0)
+                val cap = st.optLong("capacity", 0)   // 0 / 缺失 = 不限
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "已用 " + fmtDocBytes(used) + if (cap > 0) " / " + fmtDocBytes(cap) else " / 不限",
+                        fontSize = 11.sp,
+                        color = if (cap > 0 && used >= cap) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val perm = space.optString("myPermission").uppercase()
+                    if (perm == "OWNER" || perm == "ADMIN") {
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { showCapacity = true }) { Text("扩容", fontSize = 11.sp) }
+                    }
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -308,6 +350,53 @@ fun DocsScreen(
         }
     }
 
+    // 扩容申请：当前空间 + 历史申请记录
+    if (showCapacity && space != null) {
+        CapacityRequestDialog(
+            shareId = space.optLong("id", 0),
+            shareName = space.optString("name"),
+            currentCapacity = space.optLong("capacity", 0),
+            used = spaceStorage?.optLong("used", 0) ?: 0L,
+            onClose = { showCapacity = false },
+            onSubmitted = { refreshKey++ }
+        )
+    }
+
+    // 新建团队空间：直接创建被拒（上限/无权限）时可在同一对话框改走「提交创建申请」
+    if (showCreateSpace) {
+        CreateSpaceDialog(
+            onClose = { showCreateSpace = false },
+            onCreated = {
+                showCreateSpace = false
+                refreshKey++
+            },
+            onRequested = {
+                showCreateSpace = false
+            }
+        )
+    }
+
+    // 空间设置：改名 / 描述 / 删除（删除仅所有者，后端连带清文档与版本）
+    settingsSpace?.let { s ->
+        val sid = s.optLong("id", 0)
+        if (sid > 0) {
+            SpaceSettingsDialog(
+                shareId = sid,
+                name = s.optString("name"),
+                description = s.optString("description"),
+                myPermission = s.optString("myPermission"),
+                type = s.optString("type"),
+                onClose = { settingsSpace = null },
+                onSaved = { refreshKey++ },
+                onDeleted = {
+                    settingsSpace = null
+                    selectedSpace = null
+                    refreshKey++
+                }
+            )
+        }
+    }
+
     // 文档整理：改标签 / 移动到其他空间（列表项「⋯」进入）
     organizing?.let { d ->
         val sid = space?.optLong("id", 0) ?: 0
@@ -323,4 +412,12 @@ fun DocsScreen(
             )
         }
     }
+}
+
+/** 字节 → 人类可读（空间用量展示） */
+private fun fmtDocBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val gb = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+    return if (gb >= 1) String.format("%.1f GB", gb)
+    else String.format("%.1f MB", bytes.toDouble() / (1024.0 * 1024.0))
 }

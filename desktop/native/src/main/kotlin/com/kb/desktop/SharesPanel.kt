@@ -76,6 +76,16 @@ fun SharesPanel(session: Session) {
     // 拿不到协同正文时的原因（404 未部署 / empty 无状态 / parse 解析失败 / tooLarge 超限），
     // 只用于空正文时把「不可解析」换成能照着做的提示
     var yjsNote by remember { mutableStateOf("") }
+    // 双链（本文引用 / 被引用），随详情一起加载
+    var links by remember { mutableStateOf<DocLinks?>(null) }
+    // 当前空间用量（GET /{id}/storage）；跨空间视图下不显示
+    var spaceStorage by remember { mutableStateOf<SpaceStorage?>(null) }
+    // 空间设置（改名/描述/删除）
+    var showSpaceSettings by remember { mutableStateOf(false) }
+    // 新建团队空间（达上限时可改为提交创建申请）
+    var showCreateSpace by remember { mutableStateOf(false) }
+    // 扩容申请（空间管理员提，系统管理员在后台批）
+    var showCapacity by remember { mutableStateOf(false) }
     // 历史版本：既用于手动回滚，也作为「拿不到 /yjs 又没快照」时的兜底正文来源
     var versions by remember { mutableStateOf<List<ApiClient.ShareVersionItem>>(emptyList()) }
     var versionsLoading by remember { mutableStateOf(false) }
@@ -119,6 +129,16 @@ fun SharesPanel(session: Session) {
         }
     }
 
+    // 空间用量：切空间/刷新文档后重拉（失败静默，不显示该行）
+    LaunchedEffect(spaceId, docsTick) {
+        val sid = spaceId
+        if (sid == null || sid == ALL_SPACES) {
+            spaceStorage = null
+            return@LaunchedEffect
+        }
+        spaceStorage = runCatching { api.spaceStorage(session.token, sid) }.getOrNull()
+    }
+
     LaunchedEffect(spaceId, docsTick) {
         val sid = spaceId ?: return@LaunchedEffect
         docsLoading = true
@@ -149,8 +169,11 @@ fun SharesPanel(session: Session) {
         detailLoading = true
         detailErr = null
         detail = null
+        links = null
         try {
             detail = api.shareDocDetail(session.token, sid, did)
+            // 双链：本文 [[标题]] 引用了谁 / 谁引用了本文（可选信息，失败不打断阅读）
+            links = runCatching { api.shareDocLinks(session.token, sid, did) }.getOrNull()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -243,6 +266,9 @@ fun SharesPanel(session: Session) {
             ) {
                 Text("协作空间", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = { showCreateSpace = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("＋", fontSize = 12.sp)
+                }
                 TextButton(onClick = { spacesTick++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     Text("刷新", fontSize = 11.sp)
                 }
@@ -294,9 +320,36 @@ fun SharesPanel(session: Session) {
                         Text("成员", fontSize = 11.sp)
                     }
                 }
+                if (spaceId != null && spaceId != ALL_SPACES) {
+                    TextButton(onClick = { showSpaceSettings = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                        Text("设置", fontSize = 11.sp)
+                    }
+                }
                 if (spaceId != null) {
                     TextButton(onClick = { docsTick++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                         Text("刷新", fontSize = 11.sp)
+                    }
+                }
+            }
+            // 空间用量（团队空间常有上限，超出前给个直观数字）
+            val st = spaceStorage
+            if (spaceId != null && spaceId != ALL_SPACES && st != null) {
+                val cap = st.capacity
+                val over = cap != null && cap > 0 && st.used >= cap
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "已用 " + fmtShareSize(st.used).ifBlank { "0 B" } +
+                            if (cap != null && cap > 0) " / " + fmtShareSize(cap) else " / 不限",
+                        fontSize = 10.5.sp,
+                        color = if (over) ShareErrRed else KbTextSub,
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                    )
+                    val mySpace = spaces.firstOrNull { it.id == spaceId }
+                    if (mySpace != null && mySpace.myPermission.uppercase().let { it == "OWNER" || it == "ADMIN" }) {
+                        TextButton(
+                            onClick = { showCapacity = true },
+                            contentPadding = PaddingValues(horizontal = 4.dp),
+                        ) { Text("扩容", fontSize = 10.5.sp) }
                     }
                 }
             }
@@ -362,6 +415,14 @@ fun SharesPanel(session: Session) {
                     live = yjsLive,
                     yjsNote = yjsNote,
                     versionNote = versionNote,
+                    links = links,
+                    onOpenLink = { sid, did ->
+                        // 双链跳转：用目标文档自己的空间 id，跨空间也能打开
+                        if (sid > 0) {
+                            docShareId = sid
+                            docId = did
+                        }
+                    },
                     onOpenVersions = { showVersions = true },
                     onOpenShare = { showShareLink = true },
                     onOpenPerm = { showDocPerm = true },
@@ -477,6 +538,54 @@ fun SharesPanel(session: Session) {
             space = memberSpace,
             onClose = { showMembers = false },
             onChanged = { spacesTick++ },
+        )
+    }
+
+    // 扩容申请：当前空间 + 历史申请记录
+    val capSpace = spaces.firstOrNull { it.id == spaceId }
+    if (showCapacity && capSpace != null) {
+        CapacityRequestDialog(
+            session = session,
+            api = api,
+            space = capSpace,
+            storage = spaceStorage,
+            onClose = { showCapacity = false },
+            onSubmitted = { spacesTick++ },
+        )
+    }
+
+    // 新建团队空间：400/403 且提示达上限时，可在同一对话框里改为「提交创建申请」
+    if (showCreateSpace) {
+        CreateSpaceDialog(
+            session = session,
+            api = api,
+            onClose = { showCreateSpace = false },
+            onCreated = { newId ->
+                showCreateSpace = false
+                spacesTick++
+                spaceId = newId
+            },
+            onRequested = { showCreateSpace = false },
+        )
+    }
+
+    // 空间设置：改名/描述/删除（删除仅所有者或系统管理员，后端会连带清文档与版本）
+    val settingsSpace = spaces.firstOrNull { it.id == spaceId }
+    if (showSpaceSettings && settingsSpace != null) {
+        SpaceSettingsDialog(
+            session = session,
+            api = api,
+            space = settingsSpace,
+            onClose = { showSpaceSettings = false },
+            onSaved = { spacesTick++ },
+            onDeleted = {
+                showSpaceSettings = false
+                spacesTick++
+                spaceId = null
+                docId = null
+                docShareId = null
+                detail = null
+            },
         )
     }
 
@@ -650,6 +759,8 @@ private fun ShareReader(
     live: Boolean,
     yjsNote: String = "",
     versionNote: String = "",
+    links: DocLinks? = null,
+    onOpenLink: (Long, Long) -> Unit = { _, _ -> },
     onOpenVersions: () -> Unit = {},
     onOpenShare: () -> Unit = {},
     onOpenPerm: () -> Unit = {},
@@ -770,6 +881,109 @@ private fun ShareReader(
                 DocBlockView(blocks[i], server = server, Modifier.fillMaxWidth())
             }
         }
+        // 双链：正文里的 [[标题]] 指向谁、谁又指向本文（空则不占版面）
+        links?.let { lk ->
+            if (lk.out.isNotEmpty() || lk.back.isNotEmpty()) {
+                item { ShareLinksSection(lk, onOpenLink) }
+            }
+        }
+    }
+}
+
+/**
+ * 双链区：`out` = 本文引用的（可能含悬空标题），`back` = 引用本文的。
+ * 点击跳转用目标文档自己的 shareId，因此跨空间也能打开。
+ */
+@Composable
+private fun ShareLinksSection(links: DocLinks, onOpenLink: (Long, Long) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 18.dp)) {
+        HorizontalDivider(color = KbBorder)
+        Spacer(Modifier.height(12.dp))
+        if (links.out.isNotEmpty()) {
+            Text(
+                "本文引用（${links.out.size}）",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = KbTextMain,
+            )
+            Spacer(Modifier.height(4.dp))
+            for (l in links.out) {
+                val sid = l.shareId ?: 0L
+                val did = l.docId ?: 0L
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(enabled = l.resolved && sid > 0 && did > 0) { onOpenLink(sid, did) }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (l.resolved) "↗" else "◌",
+                        fontSize = 11.sp,
+                        color = if (l.resolved) Color(0xFF0369A1) else KbTextSub,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        l.title,
+                        fontSize = 12.5.sp,
+                        color = if (l.resolved) Color(0xFF0369A1) else KbTextSub,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!l.spaceName.isNullOrBlank()) {
+                        ShareChip(l.spaceName ?: "", Color(0xFFF3F4F6), Color(0xFF6B7280))
+                    }
+                    if (!l.resolved) {
+                        Spacer(Modifier.width(4.dp))
+                        Text("未找到该标题", fontSize = 10.5.sp, color = KbTextSub)
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+        if (links.back.isNotEmpty()) {
+            Text(
+                "引用本文（${links.back.size}）",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = KbTextMain,
+            )
+            Spacer(Modifier.height(4.dp))
+            for (l in links.back) {
+                val sid = l.shareId ?: 0L
+                val did = l.docId ?: 0L
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(enabled = sid > 0 && did > 0) { onOpenLink(sid, did) }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("↖", fontSize = 11.sp, color = Color(0xFF0369A1))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        l.title,
+                        fontSize = 12.5.sp,
+                        color = Color(0xFF0369A1),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!l.spaceName.isNullOrBlank()) {
+                        ShareChip(l.spaceName ?: "", Color(0xFFF3F4F6), Color(0xFF6B7280))
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "双链来自正文里的 [[文档标题]]；标题改过的文档会显示为「未找到该标题」",
+            fontSize = 10.5.sp,
+            color = KbTextSub,
+        )
     }
 }
 
@@ -1630,4 +1844,453 @@ private fun DocOrganizeDialog(
             },
         )
     }
+}
+
+/**
+ * 空间设置：改名 / 改描述 / 删除。
+ *
+ * 后端：`PUT /api/doc-shares/{id} {name, description}`（需空间管理员 OWNER/ADMIN；容量不在这里改）；
+ * `DELETE /api/doc-shares/{id}`（**仅所有者或系统管理员**），会连带删除该空间全部文档、版本、成员与文档级权限。
+ */
+@Composable
+private fun SpaceSettingsDialog(
+    session: Session,
+    api: ApiClient,
+    space: AgentSpace,
+    onClose: () -> Unit,
+    onSaved: () -> Unit,
+    onDeleted: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var name by remember(space.id) { mutableStateOf(space.name) }
+    var desc by remember(space.id) { mutableStateOf(space.description) }
+    var note by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var confirmingDelete by remember { mutableStateOf(false) }
+    val canEdit = space.myPermission.uppercase().let { it == "OWNER" || it == "ADMIN" }
+    val canDelete = space.myPermission.uppercase() == "OWNER"
+
+    fun save() {
+        if (name.trim().isEmpty()) {
+            note = "空间名称不能为空"
+            return
+        }
+        busy = true
+        scope.launch {
+            try {
+                api.updateShareSpace(session.token, space.id, name.trim(), desc.trim())
+                note = "已保存"
+                onSaved()
+            } catch (e: Exception) {
+                note = e.message ?: "保存失败"
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("空间设置 · ${space.name.ifBlank { "空间 " + space.id }}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.width(460.dp)) {
+                Text(
+                    "我的权限：${permLabel(space.myPermission.ifBlank { "READ" })} · 类型：${spaceTypeLabel(space.type)}",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("名称", fontSize = 11.sp, color = KbTextSub)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    enabled = canEdit && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text("描述", fontSize = 11.sp, color = KbTextSub)
+                OutlinedTextField(
+                    value = desc,
+                    onValueChange = { desc = it },
+                    minLines = 2,
+                    enabled = canEdit && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (!canEdit) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("只有空间所有者或「可管理」成员能改名/改描述", fontSize = 11.sp, color = KbTextSub)
+                }
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = KbBorder)
+                Spacer(Modifier.height(8.dp))
+                if (canDelete) {
+                    Text(
+                        "危险操作：删除空间会连同该空间的全部文档、历史版本与成员权限一起删除，且不可恢复。",
+                        fontSize = 11.sp,
+                        color = ShareErrRed,
+                    )
+                    TextButton(
+                        enabled = !busy,
+                        onClick = { confirmingDelete = true },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) { Text("删除这个空间", fontSize = 11.5.sp, color = ShareErrRed) }
+                } else {
+                    Text("只有空间所有者能删除空间", fontSize = 11.sp, color = KbTextSub)
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(enabled = canEdit && !busy && !name.trim().isEmpty(), onClick = { save() }) {
+                    Text(if (busy) "保存中…" else "保存", fontSize = 12.sp)
+                }
+                TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text("关闭", fontSize = 12.sp)
+                }
+            }
+        },
+    )
+
+    if (confirmingDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmingDelete = false },
+            title = { Text("确定删除「${space.name.ifBlank { "空间 " + space.id }}」？") },
+            text = {
+                Text(
+                    "该空间的全部文档、历史版本、成员与文档级权限都会被删除，无法恢复。" +
+                        "如果只是想暂时停止使用，可以在 Web 端把空间设为归档。",
+                    fontSize = 12.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmingDelete = false
+                    busy = true
+                    scope.launch {
+                        try {
+                            api.deleteShareSpace(session.token, space.id)
+                            onDeleted()
+                        } catch (e: Exception) {
+                            note = e.message ?: "删除失败"
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }) { Text("确认删除", color = ShareErrRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingDelete = false }) { Text("取消") }
+            },
+        )
+    }
+}
+
+/**
+ * 新建团队空间。
+ *
+ * `POST /api/doc-shares {name, description, type:"TEAM"}` 需 `SHARE_CREATE`；
+ * 非系统管理员团队空间已达上限（2 个）时后端 403 并提示提申请：
+ * 此时对话框里出现「提交创建申请」（`POST /api/doc-shares/create-requests`），管理员审批通过后自动建空间。
+ * 容量一律 2GB（扩容走扩容申请）。成员在创建后到「成员」里加。
+ */
+@Composable
+private fun CreateSpaceDialog(
+    session: Session,
+    api: ApiClient,
+    onClose: () -> Unit,
+    onCreated: (Long) -> Unit,
+    onRequested: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf("") }
+    var desc by remember { mutableStateOf("") }
+    var reason by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    // 直接创建被拒（达上限/无权限）后，允许改走「提交申请」
+    var needRequest by remember { mutableStateOf(false) }
+
+    fun create() {
+        if (name.trim().isEmpty()) {
+            note = "空间名称不能为空"
+            return
+        }
+        busy = true
+        note = ""
+        scope.launch {
+            try {
+                val s = api.createShareSpace(session.token, name.trim(), desc.trim())
+                onCreated(s.id)
+            } catch (e: Exception) {
+                val msg = e.message ?: "创建失败"
+                note = msg
+                if (msg.contains("上限") || msg.contains("权限")) needRequest = true
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun submitRequest() {
+        if (name.trim().isEmpty()) {
+            note = "空间名称不能为空"
+            return
+        }
+        busy = true
+        scope.launch {
+            try {
+                api.submitShareCreateRequest(session.token, name.trim(), desc.trim(), emptyList(), reason.trim())
+                onRequested()
+            } catch (e: Exception) {
+                note = e.message ?: "提交申请失败"
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("新建团队空间", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.width(460.dp)) {
+                Text(
+                    "创建后默认容量 2GB（不够可在「扩容申请」里提）；成员创建后到「成员」里邀请。",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("名称", fontSize = 11.sp, color = KbTextSub)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text("描述（可选）", fontSize = 11.sp, color = KbTextSub)
+                OutlinedTextField(
+                    value = desc,
+                    onValueChange = { desc = it },
+                    minLines = 2,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (needRequest) {
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = KbBorder)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "直接创建被拒（多为团队空间数量已达上限）。可以改为提交申请，由管理员审批后自动建空间：",
+                        fontSize = 11.sp,
+                        color = KbTextSub,
+                    )
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        singleLine = true,
+                        placeholder = { Text("申请理由（可选）", fontSize = 11.5.sp) },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(
+                    enabled = !busy && name.trim().isNotEmpty(),
+                    onClick = { if (needRequest) submitRequest() else create() },
+                ) {
+                    Text(
+                        when {
+                            busy -> "提交中…"
+                            needRequest -> "提交创建申请"
+                            else -> "创建"
+                        },
+                        fontSize = 12.sp,
+                    )
+                }
+                TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text("取消", fontSize = 12.sp)
+                }
+            }
+        },
+    )
+}
+
+/**
+ * 扩容申请：选目标容量 + 理由，提交后由系统管理员在后台审批（通过会自动把上限调到申请值）。
+ *
+ * 后端：`POST …/{sid}/capacity-requests {requestedCapacity, reason}`（需 OWNER/ADMIN；0 = 不限）；
+ * `GET …/{sid}/capacity-requests` → 该空间全部申请（含已处理与驳回理由）。
+ */
+@Composable
+private fun CapacityRequestDialog(
+    session: Session,
+    api: ApiClient,
+    space: AgentSpace,
+    storage: SpaceStorage?,
+    onClose: () -> Unit,
+    onSubmitted: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var list by remember { mutableStateOf<List<CapacityRequestItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var note by remember { mutableStateOf("") }
+    var tick by remember { mutableStateOf(0) }
+    var busy by remember { mutableStateOf(false) }
+    // 目标容量：预设 + 自定义（GB）；0 = 不限
+    var targetGb by remember { mutableStateOf(0) }
+    var customGb by remember { mutableStateOf("") }
+    var reason by remember { mutableStateOf("") }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            list = api.shareCapacityRequests(session.token, space.id)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            err = e.message ?: "申请记录加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    fun submit() {
+        val custom = customGb.trim().toDoubleOrNull()
+        val bytes = when {
+            custom != null && custom > 0 -> (custom * 1024L * 1024L * 1024L).toLong()
+            else -> targetGb.toLong() * 1024L * 1024L * 1024L
+        }
+        busy = true
+        scope.launch {
+            try {
+                api.requestShareCapacity(session.token, space.id, bytes, reason.trim())
+                note = "已提交扩容申请，等待管理员审批"
+                reason = ""
+                tick++
+                onSubmitted()
+            } catch (e: Exception) {
+                note = e.message ?: "提交失败"
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("扩容申请 · ${space.name.ifBlank { "空间 " + space.id }}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.width(500.dp)) {
+                val cap = storage?.capacity
+                Text(
+                    "当前上限：" + if (cap != null && cap > 0) fmtShareSize(cap) else "不限" +
+                        " · 已用：" + (storage?.let { fmtShareSize(it.used).ifBlank { "0 B" } } ?: "—"),
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("申请目标容量", fontSize = 11.sp, color = KbTextSub)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    for (g in listOf(4, 8, 16, 32, 64)) {
+                        ShareToggleChip("${g} GB", targetGb == g && customGb.isBlank()) {
+                            targetGb = g
+                            customGb = ""
+                        }
+                    }
+                    ShareToggleChip("不限", targetGb == 0 && customGb.isBlank()) {
+                        targetGb = 0
+                        customGb = ""
+                    }
+                }
+                OutlinedTextField(
+                    value = customGb,
+                    onValueChange = { customGb = it },
+                    singleLine = true,
+                    placeholder = { Text("自定义 GB（留空则用上面的预设；填 0 表示不限）", fontSize = 11.5.sp) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    enabled = !busy,
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    singleLine = true,
+                    placeholder = { Text("申请理由（可选）", fontSize = 11.5.sp) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    enabled = !busy,
+                )
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = KbBorder)
+                Spacer(Modifier.height(8.dp))
+                Text("这个空间的申请记录", fontSize = 11.sp, color = KbTextSub)
+                Box(Modifier.heightIn(max = 200.dp)) {
+                    when {
+                        loading -> ShareHint("加载中…")
+                        err != null -> ShareError(err ?: "", onRetry = { tick++ })
+                        list.isEmpty() -> ShareHint("还没有提交过扩容申请")
+                        else -> LazyColumn(Modifier.fillMaxWidth()) {
+                            items(list, key = { it.id }) { r ->
+                                val color = when (r.status.uppercase()) {
+                                    "APPROVED" -> Color(0xFF047857)
+                                    "REJECTED" -> ShareErrRed
+                                    else -> Color(0xFFAD6800)
+                                }
+                                val statusText = when (r.status.uppercase()) {
+                                    "APPROVED" -> "已通过"
+                                    "REJECTED" -> "已驳回"
+                                    else -> "待审批"
+                                }
+                                Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            fmtShareSize(r.currentCapacity).ifBlank { "不限" } + " → " +
+                                                fmtShareSize(r.requestedCapacity).ifBlank { "不限" },
+                                            fontSize = 12.sp,
+                                            color = KbTextMain,
+                                        )
+                                        Spacer(Modifier.weight(1f))
+                                        Text(statusText, fontSize = 11.sp, color = color)
+                                    }
+                                    Text(
+                                        fmtSharedTime(r.createdAt) + if (r.reason.isNotBlank()) " · " + r.reason else "",
+                                        fontSize = 10.5.sp,
+                                        color = KbTextSub,
+                                    )
+                                    if (r.reviewComment.isNotBlank()) {
+                                        Text("审批意见：" + r.reviewComment, fontSize = 10.5.sp, color = KbTextSub)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(enabled = !busy, onClick = { submit() }) {
+                    Text(if (busy) "提交中…" else "提交申请", fontSize = 12.sp)
+                }
+                TextButton(onClick = onClose, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text("关闭", fontSize = 12.sp)
+                }
+            }
+        },
+    )
 }

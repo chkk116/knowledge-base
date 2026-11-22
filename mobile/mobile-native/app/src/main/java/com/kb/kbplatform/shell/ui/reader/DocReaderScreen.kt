@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2026 北寻·浅光
  * 本源代码基于 AGPL-3.0 许可证开源，详见仓库根目录 LICENSE 文件。
  */
@@ -6,6 +6,8 @@ package com.kb.kbplatform.shell.ui.reader
 
 import android.annotation.SuppressLint
 import android.webkit.WebView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,6 +17,7 @@ import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,7 +70,8 @@ fun DocReaderScreen(
     docId: Long,
     titleHint: String,
     onBack: () -> Unit,
-    onEdit: () -> Unit = {}
+    onEdit: () -> Unit = {},
+    onOpenDoc: (Long, Long, String) -> Unit = { _, _, _ -> }
 ) {
     val ctx = LocalContext.current
     var title by remember { mutableStateOf(titleHint) }
@@ -82,6 +86,9 @@ fun DocReaderScreen(
     var showShare by remember { mutableStateOf(false) }
     // 文档级权限（单篇覆盖空间权限）
     var showPerm by remember { mutableStateOf(false) }
+    // 双链：本文引用 / 引用本文（可选信息，失败不打断阅读）
+    var linkOut by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var linkBack by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
 
     LaunchedEffect(shareId, docId, refreshKey) {
         if (refreshKey > 0) refreshing = true else loading = true
@@ -96,6 +103,15 @@ fun DocReaderScreen(
             offline = false
             OfflineCache.saveDocContent(ctx, shareId, docId, t, c)
             HistoryStore.record(ctx, shareId, docId, t)   // 浏览历史（对标套壳 history store）
+            // 双链（可选）：拿不到就保持空，不显示该区域
+            runCatching { KbApi.docLinks(shareId, docId) }.getOrNull()?.let { lk ->
+                fun arr(key: String): List<JSONObject> {
+                    val a = lk.optJSONArray(key) ?: return emptyList()
+                    return (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+                }
+                linkOut = arr("out")
+                linkBack = arr("back")
+            }
         } catch (e: Exception) {
             // 网络失败 → 落离线缓存
             val cached = OfflineCache.loadDocContent(ctx, shareId, docId)
@@ -160,7 +176,7 @@ fun DocReaderScreen(
         when {
             loading -> CenterHint("加载中…", loading = true)
             error.isNotEmpty() -> CenterHint(error)
-            html != null -> Box(Modifier.fillMaxSize()) {
+            html != null -> Box(Modifier.weight(1f).fillMaxWidth()) {
                 // 纯文本类正文（段落/标题/列表/粗体/链接）**原生渲染**，滚动/选中/深色/字体缩放都跟系统走；
                 // 只有含图片/表格/视频/iframe 的文档才交给 WebView（原生文本渲染画不出这些）
                 val pieces = androidx.compose.runtime.remember(html) {
@@ -174,6 +190,11 @@ fun DocReaderScreen(
                     else -> NativeHtmlText(html!!)
                 }
             }
+        }
+
+        // 双链条（有才显示）：本文引用 / 引用本文，点一下跳到对应文档
+        if (!loading && error.isEmpty() && (linkOut.isNotEmpty() || linkBack.isNotEmpty())) {
+            DocLinksBar(linkOut, linkBack, onOpenDoc)
         }
     }
 
@@ -595,4 +616,73 @@ private fun permLabelOf(perm: String): String = when (perm.uppercase()) {
     "WRITE", "EDIT" -> "可编辑"
     "READ", "VIEW" -> "只读"
     else -> perm.lowercase()
+}
+
+/**
+ * 底部双链条：`out` = 本文引用，`back` = 引用本文。
+ * 数据来自 `/docs/{docId}/links`（后端按标题索引解析 `[[标题]]`，标题改过会 resolved=false）。
+ */
+@Composable
+private fun DocLinksBar(
+    out: List<JSONObject>,
+    back: List<JSONObject>,
+    onOpen: (Long, Long, String) -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        if (out.isNotEmpty()) {
+            Text(
+                "本文引用 " + out.size + " 篇",
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                for (l in out) {
+                    val resolved = l.optBoolean("resolved", false)
+                    val sid = l.optLong("shareId", 0)
+                    val did = l.optLong("docId", 0)
+                    val t = l.optString("title")
+                    TextButton(
+                        enabled = resolved && sid > 0 && did > 0,
+                        onClick = { onOpen(sid, did, t) },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) {
+                        Text(
+                            (if (resolved) "↗ " else "◌ ") + t.ifBlank { "（无标题）" },
+                            fontSize = 11.5.sp
+                        )
+                    }
+                }
+            }
+        }
+        if (back.isNotEmpty()) {
+            Text(
+                "被 " + back.size + " 篇引用",
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                for (l in back) {
+                    val sid = l.optLong("shareId", 0)
+                    val did = l.optLong("docId", 0)
+                    val t = l.optString("title")
+                    TextButton(
+                        enabled = sid > 0 && did > 0,
+                        onClick = { onOpen(sid, did, t) },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) { Text("↖ " + t.ifBlank { "（无标题）" }, fontSize = 11.5.sp) }
+                }
+            }
+        }
+    }
 }

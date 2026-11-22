@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2026 北寻·浅光
  * 本源代码基于 AGPL-3.0 许可证开源，详见仓库根目录 LICENSE 文件。
  */
@@ -320,6 +320,9 @@ fun AppRoot() {
                     onBack = { nav.popBackStack() },
                     onEdit = {
                         safeNav("doc-edit/$sid/$did?title=${Uri.encode(t)}")
+                    },
+                    onOpenDoc = { s2, d2, t2 ->
+                        safeNav("reader/$s2/$d2?title=${Uri.encode(t2)}")
                     }
                 )
             }

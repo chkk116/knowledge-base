@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2026 北寻·浅光
  * 本源代码基于 AGPL-3.0 许可证开源，详见仓库根目录 LICENSE 文件。
  */
@@ -129,7 +129,7 @@ object KbApi {
         ApiClient.get("/api/doc-shares/inbox/count").optInt("count", 0)
     }
 
-    /** GET /doc-shares/my-quota → { used, quota }（个人存储） */
+    /** GET /doc-shares/my-quota → { teamLimit, isAdmin, canCreate, ownedTeamCount }（是「团队空间数量」配额，不是存储；存储见 storage()） */
     suspend fun myQuota(): JSONObject = withContext(Dispatchers.IO) {
         ApiClient.get("/api/doc-shares/my-quota")
     }
@@ -368,6 +368,90 @@ object KbApi {
             ApiClient.post(
                 "/api/doc-shares/$shareId/docs/$docId/move",
                 JSONObject().put("targetShareId", targetShareId)
+            )
+        }
+
+    /**
+     * GET …/docs/{docId}/links → `{out:[{title,resolved,shareId,docId,spaceName}], back:[…]}`。
+     * `out` 是本文 `[[标题]]` 引用的，`back` 是引用本文的；`resolved=false` 表示标题没对上任何可读文档。
+     */
+    suspend fun docLinks(shareId: Long, docId: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/doc-shares/$shareId/docs/$docId/links")
+    }
+
+    /**
+     * GET /doc-shares/{sid}/storage → `{used, capacity, hasCapacity, ownerQuota, ownerUsed}`。
+     * `capacity` 为 null 表示不限；团队空间的文档算**所有者**的个人存储（ownerUsed/ownerQuota）。
+     */
+    suspend fun spaceStorage(shareId: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.get("/api/doc-shares/$shareId/storage")
+    }
+
+    // ---------- 空间设置：改名 / 改描述 / 删除 ----------
+
+    /** PUT /doc-shares/{id} {name, description} → 更新后的空间（需 OWNER/ADMIN；容量不在这里改） */
+    suspend fun updateShareSpace(shareId: Long, name: String, description: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.put(
+                "/api/doc-shares/$shareId",
+                JSONObject().put("name", name).put("description", description)
+            )
+        }
+
+    /**
+     * DELETE /doc-shares/{id} → {ok:true}（仅所有者或系统管理员）。
+     * 后端会连带删除该空间全部文档、历史版本、成员与文档级权限，不可恢复。
+     */
+    suspend fun deleteShareSpace(shareId: Long): JSONObject = withContext(Dispatchers.IO) {
+        ApiClient.delete("/api/doc-shares/$shareId")
+    }
+
+    /**
+     * POST /doc-shares {name, description, type:"TEAM"} → 新空间。需 SHARE_CREATE；
+     * 非系统管理员团队空间已达上限（2 个）时 403，此时应改走 [submitShareCreateRequest]。
+     */
+    suspend fun createShareSpace(name: String, description: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.post(
+                "/api/doc-shares",
+                JSONObject()
+                    .put("name", name)
+                    .put("description", description)
+                    .put("type", "TEAM")
+            )
+        }
+
+    /**
+     * POST /doc-shares/create-requests {requestedName, requestedDescription, requestedMembers, reason}
+     * → 团队空间创建申请（管理员审批通过后自动建空间）。
+     */
+    // ---------- 空间扩容申请 ----------
+
+    /** GET …/{sid}/capacity-requests → 该空间全部申请（倒序，含已处理与驳回理由） */
+    suspend fun shareCapacityRequests(shareId: Long): JSONArray = withContext(Dispatchers.IO) {
+        ApiClient.getArray("/api/doc-shares/$shareId/capacity-requests")
+    }
+
+    /**
+     * POST …/{sid}/capacity-requests {requestedCapacity, reason}（需空间管理员 OWNER/ADMIN）。
+     * `capacity=0` 表示申请「不限」；通过后服务端会把空间上限调到该值。
+     */
+    suspend fun requestShareCapacity(shareId: Long, capacity: Long, reason: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.post(
+                "/api/doc-shares/$shareId/capacity-requests",
+                JSONObject().put("requestedCapacity", capacity).put("reason", reason)
+            )
+        }
+
+    suspend fun submitShareCreateRequest(name: String, description: String, reason: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            ApiClient.post(
+                "/api/doc-shares/create-requests",
+                JSONObject()
+                    .put("requestedName", name)
+                    .put("requestedDescription", description)
+                    .put("reason", reason)
             )
         }
 

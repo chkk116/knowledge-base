@@ -213,6 +213,7 @@ data class AgentSpace(
     val id: Long,
     val name: String,
     val type: String,
+    val description: String = "",
     /** 以下均为后端瞬态字段（GET /api/doc-shares/my 时填充），成员/容量展示用 */
     val ownerId: Long = 0L,
     val ownerName: String = "",
@@ -222,6 +223,23 @@ data class AgentSpace(
     val capacity: Long = 0L,
 )
 
+/**
+ * 空间扩容申请（`GET|POST /api/doc-shares/{sid}/capacity-requests`）。
+ * `requestedCapacity=0` 表示申请「不限」；`currentCapacity` 是提交时的快照；
+ * 状态 PENDING / APPROVED / REJECTED，驳回理由在 `reviewComment`。
+ */
+data class CapacityRequestItem(
+    val id: Long,
+    val shareId: Long,
+    val shareName: String,
+    val requestedCapacity: Long,
+    val currentCapacity: Long,
+    val reason: String,
+    val status: String,
+    val reviewComment: String,
+    val createdAt: String,
+)
+
 /** 空间成员（GET /api/doc-shares/{sid}/members；所有者不在 perm 表里，由 AgentSpace.owner* 兜）。 */
 data class ShareMemberItem(
     val userId: Long,
@@ -229,6 +247,35 @@ data class ShareMemberItem(
     val displayName: String,
     val avatar: String,
     val permission: String,
+)
+
+/**
+ * 空间存储（`GET /api/doc-shares/{sid}/storage`）：`used` 为本空间文档占用；`capacity` 为空间上限（null = 不限），
+ * `ownerQuota/ownerUsed` 是该空间所有者个人的总配额与已用（团队空间文档算所有者的个人存储）。
+ */
+data class SpaceStorage(
+    val used: Long,
+    val capacity: Long?,
+    val hasCapacity: Boolean,
+    val ownerQuota: Long,
+    val ownerUsed: Long,
+)
+
+/**
+ * 文档双链（`GET /api/doc-shares/{sid}/docs/{docId}/links`）：`out` = 本文 `[[标题]]` 引用的，
+ * `back` = 引用了本文的；`resolved=false` 表示标题没对上任何可读文档（悬空链接）。
+ */
+data class DocLinkItem(
+    val title: String,
+    val resolved: Boolean,
+    val shareId: Long?,
+    val docId: Long?,
+    val spaceName: String?,
+)
+
+data class DocLinks(
+    val out: List<DocLinkItem>,
+    val back: List<DocLinkItem>,
 )
 
 /** 可邀请用户（GET /api/doc-shares/users?keyword=；只回启用的账号）。 */
@@ -1979,6 +2026,7 @@ class ApiClient(private val base: String) {
                 id = id,
                 name = o.str("name").orEmpty(),
                 type = o.str("type").orEmpty(),
+                description = o.str("description").orEmpty(),
                 ownerId = o.long("ownerId") ?: 0L,
                 ownerName = o.str("ownerName").orEmpty(),
                 myPermission = o.str("myPermission").orEmpty(),
@@ -2119,6 +2167,170 @@ class ApiClient(private val base: String) {
             authReq("DELETE", "/api/doc-shares/$shareId/docs/$docId/public-link", token)
         }
     }
+
+    /** GET /api/doc-shares/{sid}/storage → 空间用量与上限（capacity 为 null 表示不限） */
+    suspend fun spaceStorage(token: String, shareId: Long): SpaceStorage = withContext(Dispatchers.IO) {
+        val j = parse(authReq("GET", "/api/doc-shares/$shareId/storage", token))
+            ?: throw ApiError("空间存储响应异常")
+        SpaceStorage(
+            used = j.long("used") ?: 0L,
+            capacity = j.long("capacity"),
+            hasCapacity = j.bool("hasCapacity") ?: (j.long("capacity") != null),
+            ownerQuota = j.long("ownerQuota") ?: 0L,
+            ownerUsed = j.long("ownerUsed") ?: 0L,
+        )
+    }
+
+    /**
+     * 新建团队空间：`POST /api/doc-shares {name, description, type, members, memberPermission}`。
+     * 需 `SHARE_CREATE` 权限；非系统管理员且团队空间已达上限（2 个）时后端 403（此时引导用户提创建申请）。
+     * 容量一律由后端默认 2GB（扩容走申请）。
+     */
+    suspend fun createShareSpace(
+        token: String,
+        name: String,
+        description: String,
+        memberIds: List<Long> = emptyList(),
+        memberPermission: String = "WRITE",
+    ): AgentSpace = withContext(Dispatchers.IO) {
+        val members = memberIds.joinToString(",", "[", "]")
+        val body = buildString {
+            append("{")
+            append("\"name\":").append(jsonStr(name)).append(",")
+            append("\"description\":").append(jsonStr(description)).append(",")
+            append("\"type\":\"TEAM\",")
+            append("\"memberPermission\":").append(jsonStr(memberPermission)).append(",")
+            append("\"members\":").append(members)
+            append("}")
+        }
+        val o = parse(authReq("POST", "/api/doc-shares", token, body)) ?: throw ApiError("创建空间响应异常")
+        val id = o.long("id") ?: throw ApiError("创建空间响应异常（缺少 id）")
+        AgentSpace(
+            id = id,
+            name = o.str("name").orEmpty(),
+            type = o.str("type").orEmpty(),
+            description = o.str("description").orEmpty(),
+            ownerId = o.long("ownerId") ?: 0L,
+            ownerName = o.str("ownerName").orEmpty(),
+            myPermission = o.str("myPermission").orEmpty(),
+            memberCount = o.long("memberCount") ?: 0L,
+            used = o.long("used") ?: 0L,
+            capacity = o.long("capacity") ?: 0L,
+        )
+    }
+
+    /**
+     * 提交「团队空间创建申请」：`POST /api/doc-shares/create-requests`
+     * `{requestedName, requestedDescription, requestedMembers, reason}`。
+     * 用于已达空间数量上限 / 无直接创建权限时，由系统管理员在后台审批（通过后自动建空间）。
+     */
+    suspend fun submitShareCreateRequest(
+        token: String,
+        name: String,
+        description: String,
+        memberIds: List<Long> = emptyList(),
+        reason: String = "",
+    ) {
+        withContext(Dispatchers.IO) {
+            val members = memberIds.joinToString(",", "[", "]")
+            val body = buildString {
+                append("{")
+                append("\"requestedName\":").append(jsonStr(name)).append(",")
+                append("\"requestedDescription\":").append(jsonStr(description)).append(",")
+                append("\"requestedMembers\":").append(members).append(",")
+                append("\"reason\":").append(jsonStr(reason))
+                append("}")
+            }
+            authReq("POST", "/api/doc-shares/create-requests", token, body)
+        }
+    }
+
+    /** GET …/{sid}/capacity-requests → 该空间的扩容申请记录（倒序，含已处理） */
+    suspend fun shareCapacityRequests(token: String, shareId: Long): List<CapacityRequestItem> =
+        withContext(Dispatchers.IO) {
+            val e = runCatching {
+                Json.parseToJsonElement(authReq("GET", "/api/doc-shares/$shareId/capacity-requests", token))
+            }.getOrNull() ?: throw ApiError("扩容申请列表响应异常")
+            (e as? JsonArray ?: throw ApiError("扩容申请列表响应异常")).mapNotNull { item ->
+                val j = item as? JsonObject ?: return@mapNotNull null
+                val id = j.long("id") ?: return@mapNotNull null
+                CapacityRequestItem(
+                    id = id,
+                    shareId = j.long("shareId") ?: shareId,
+                    shareName = j.str("shareName").orEmpty(),
+                    requestedCapacity = j.long("requestedCapacity") ?: 0L,
+                    currentCapacity = j.long("currentCapacity") ?: 0L,
+                    reason = j.str("reason").orEmpty(),
+                    status = j.str("status").orEmpty().ifBlank { "PENDING" },
+                    reviewComment = j.str("reviewComment").orEmpty(),
+                    createdAt = j.str("createdAt").orEmpty(),
+                )
+            }
+        }
+
+    /**
+     * 提交扩容申请：`POST …/{sid}/capacity-requests {requestedCapacity, reason}`。
+     * 需空间管理员（OWNER/ADMIN）；`capacity=0` 表示申请「不限」。
+     */
+    suspend fun requestShareCapacity(token: String, shareId: Long, capacity: Long, reason: String) {
+        withContext(Dispatchers.IO) {
+            val body = "{\"requestedCapacity\":" + capacity + ",\"reason\":" + jsonStr(reason) + "}"
+            authReq("POST", "/api/doc-shares/$shareId/capacity-requests", token, body)
+        }
+    }
+
+    /**
+     * 空间改名 / 改描述：`PUT /api/doc-shares/{id} {name, description}`。
+     * 需要空间管理员（OWNER/ADMIN）；容量不在这里改（普通管理员走扩容申请，系统管理员用管理端直接设）。
+     */
+    suspend fun updateShareSpace(token: String, shareId: Long, name: String, description: String): AgentSpace =
+        withContext(Dispatchers.IO) {
+            val body = "{\"name\":" + jsonStr(name) + ",\"description\":" + jsonStr(description) + "}"
+            val o = parse(authReq("PUT", "/api/doc-shares/$shareId", token, body))
+                ?: throw ApiError("更新空间响应异常")
+            AgentSpace(
+                id = o.long("id") ?: shareId,
+                name = o.str("name").orEmpty(),
+                type = o.str("type").orEmpty(),
+                description = o.str("description").orEmpty(),
+                ownerId = o.long("ownerId") ?: 0L,
+                ownerName = o.str("ownerName").orEmpty(),
+                myPermission = o.str("myPermission").orEmpty(),
+                memberCount = o.long("memberCount") ?: 0L,
+                used = o.long("used") ?: 0L,
+                capacity = o.long("capacity") ?: 0L,
+            )
+        }
+
+    /**
+     * 删除空间：`DELETE /api/doc-shares/{id}`（**仅空间所有者或系统管理员**）。
+     * 后端会连带删除该空间全部文档、文档版本、成员与文档级权限 —— 不可恢复。
+     */
+    suspend fun deleteShareSpace(token: String, shareId: Long) {
+        withContext(Dispatchers.IO) {
+            authReq("DELETE", "/api/doc-shares/$shareId", token)
+        }
+    }
+
+    /** GET …/docs/{docId}/links → 双链（out=本文引用，back=引用本文；resolved=false 为悬空） */
+    suspend fun shareDocLinks(token: String, shareId: Long, docId: Long): DocLinks =
+        withContext(Dispatchers.IO) {
+            val o = parse(authReq("GET", "/api/doc-shares/$shareId/docs/$docId/links", token))
+                ?: throw ApiError("双链响应异常")
+            fun list(key: String): List<DocLinkItem> =
+                (o[key] as? JsonArray).orEmpty().mapNotNull { e ->
+                    val j = e as? JsonObject ?: return@mapNotNull null
+                    val t = j.str("title") ?: return@mapNotNull null
+                    DocLinkItem(
+                        title = t,
+                        resolved = j.bool("resolved") ?: false,
+                        shareId = j.long("shareId"),
+                        docId = j.long("docId"),
+                        spaceName = j.str("spaceName"),
+                    )
+                }
+            DocLinks(out = list("out"), back = list("back"))
+        }
 
     /** GET …/docs/{docId}/members → 文档级权限（空间成员 + 各自有效权限） */
     suspend fun docMembers(token: String, shareId: Long, docId: Long): List<DocMemberItem> =
