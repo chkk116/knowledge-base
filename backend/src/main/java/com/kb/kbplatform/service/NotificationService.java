@@ -247,6 +247,20 @@ public class NotificationService {
         saveAndPush(n);
     }
 
+    /**
+     * 取消点赞时撤回对应的点赞通知（N29）：点赞是可在几秒内反复切换的动作，
+     * 通知却只增不减——取消之后收件人点进通知看到的是一条「某人赞了你」，
+     * 而点赞记录已经没了，属于纯噪声。
+     * 只处理知识库文章（kb_like）：空间文档点赞与文章点赞在通知表里共用 LIKE 类型，
+     * 两者的 docId 来自不同序列、数值会撞，按 docId+actor 删会误删另一边的通知。
+     */
+    @Transactional
+    public void withdrawLike(Long docId, Long docOwnerId, Long actorUserId, String actorUsername) {
+        if (docOwnerId == null || Objects.equals(docOwnerId, actorUserId)) return;
+        String actor = actorName(actorUsername);
+        if (actor == null) return;
+        repo.deleteByUserIdAndTypeAndDocIdAndActor(docOwnerId, "LIKE", docId, actor);    }
+
     /** 审核结果通知作者：通过 / 驳回（驳回可带理由） */
     public void notifyReview(Long docId, String docTitle, Long authorId, boolean approved, String reason) {
         if (authorId == null) return;

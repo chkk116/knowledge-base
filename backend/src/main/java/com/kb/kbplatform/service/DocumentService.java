@@ -185,6 +185,12 @@ public class DocumentService {
      * 客户端传入他人的文档 id 就能覆盖其内容与归属（F01）。
      */
     private void applyCreateWhitelist(Document d, String fallbackStatus) {
+        // 标题必填：前端早就拦了，但直接调接口能建出「无标题草稿」，列表和通知里全是一条空白行（N33）
+        String title = d.getTitle() == null ? "" : d.getTitle().trim();
+        if (title.isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "标题不能为空");
+        }
+        d.setTitle(title);
         d.setId(null);
         d.setOwnerName(null);
         d.setViews(0);
@@ -531,7 +537,11 @@ public class DocumentService {
         if (v.getContent() != null) d.setContent(v.getContent());
         if (v.getCategory() != null) d.setCategory(v.getCategory());
         if (v.getTags() != null) d.setTags(v.getTags());
-        boolean editorAdmin = userRepo.findById(editorId).map(u -> "ADMIN".equals(u.getRole())).orElse(false);
+        // 口径必须与网关 isAdmin() 一致：权限码勾满的非 ADMIN 也算管理员，
+        // 否则同样是「全权限账号」，在后台算管理员、回滚文档却被降级成普通作者、还要重走审核（S-M6）。
+        boolean editorAdmin = userRepo.findById(editorId)
+                .map(u -> com.kb.kbplatform.security.Perm.isFullAdmin(u.getRole(), u.getPermissions()))
+                .orElse(false);
         if (wasPublished && !editorAdmin) {
             d.setStatus("PENDING_REVIEW");
             d.setRejectReason(null);

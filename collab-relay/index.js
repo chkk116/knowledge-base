@@ -122,8 +122,22 @@ async function authorizeDocument(documentName, claims) {
   if (!row || !(row.enabled === true || row.enabled === 1)) throw new Error('forbidden')
   if (Number(row.token_version || 0) !== claims.tokenVersion) throw new Error('token revoked')
   const perms = String(row.user_permissions || '')
-  // 与 REST 的 isAdmin() 同一语义的最小对齐：role=ADMIN，或权限串含通配 *（=全部权限）
-  const isAdminLike = row.role === 'ADMIN' || perms.split(',').some((x) => x.trim() === '*')
+  // 与 REST 的 isAdmin() 对齐：role=ADMIN，或权限码覆盖管理员全集（顺带认通配 *）。
+  // 此前只认 role 和 *，于是「26 个权限码全勾、系统角色仍是 USER」的账号在后台算管理员、
+  // 到协同这儿却被当普通用户（S-M6）。这份清单与后端 Perm.WHITELIST 去掉 DEMO_MODE 一一对应，
+  // 漏更新只会让这类账号退回普通用户（失败即收窄），不会越权。
+  const ADMIN_PERM_SET = [
+    'USER_MANAGE', 'DOC_REVIEW', 'POST_MANAGE', 'STATS_VIEW', 'BLACKLIST_MANAGE', 'TAXONOMY_MANAGE',
+    'ANNOUNCEMENT_MANAGE', 'COURSE_MANAGE', 'EXAM_MANAGE', 'AI_MANAGE',
+    'SHARE_CREATE', 'SHARE_VIEW', 'SHARE_DELETE', 'SHARE_CAPACITY', 'CORE_MAINTAIN',
+    'SITE_FEATURE_MANAGE', 'SITE_SETTINGS_MANAGE', 'SSO_MANAGE', 'SYSTEM_STATUS_VIEW',
+    'DOC_EXPORT', 'BANNED_WORDS_MANAGE', 'ASSET_MANAGE', 'AVATAR_REVIEW',
+    'AUDIT_VIEW', 'LOGIN_LOG_VIEW', 'ADMIN_VIEW',
+  ]
+  const permSet = new Set(perms.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean))
+  const isDemo = permSet.has('DEMO_MODE')   // 演示号只读，绝不算管理员
+  const isAdminLike = !isDemo && (row.role === 'ADMIN' || permSet.has('*')
+    || ADMIN_PERM_SET.every((code) => permSet.has(code)))
   const isSpaceOwner = Number(row.space_owner_id) === claims.userId
   const isDocOwner = Number(row.doc_owner_id) === claims.userId
   const isSpaceMember = Number(row.space_member_id) === claims.userId

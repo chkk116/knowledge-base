@@ -672,6 +672,11 @@ public class ExamService {
     public ExamPaper adminSavePaper(ExamPaper p) {
         if (p.getTitle() == null || p.getTitle().isBlank()) throw new IllegalArgumentException("试卷标题不能为空");
         if (p.getStatus() == null || p.getStatus().isBlank()) p.setStatus("PUBLISHED");
+        // 新建的试卷必然还没题目：直接按 PUBLISHED 落库就会变成「学生看到、点开始即 0 分」的空卷
+        // （E2/N4 里那两份 0 题卷就是这么来的）。先落草稿，组完卷再发布。
+        if (p.getId() == null && "PUBLISHED".equals(p.getStatus())) {
+            p.setStatus("DRAFT");
+        }
         // 0 题试卷发布出去就是「点开始即 0 分、结业闭环断裂」，实测已经踩过两次
         if ("PUBLISHED".equals(p.getStatus()) && p.getId() != null
                 && pqRepo.countByPaperId(p.getId()) == 0) {

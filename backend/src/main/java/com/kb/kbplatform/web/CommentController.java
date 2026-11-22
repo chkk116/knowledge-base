@@ -142,7 +142,10 @@ public class CommentController {
     public Map<String, Object> delete(@RequestAttribute("kbUser") TokenClaims c,
                                       @PathVariable Long id) {
         if (c == null) throw new ResponseStatusException(UNAUTHORIZED, "请先登录");
-        if ("ADMIN".equals(c.role())) {
+        // 管理员可删任意评论：这里用 isAdmin()（role=ADMIN 或权限码覆盖管理员全集），
+        // 与网关同一口径。原先写死 role=="ADMIN"，勾满权限的非 ADMIN 角色在别处是管理员，
+        // 到这儿却只能删自己的评论（S-M6）。
+        if (c.isAdmin()) {
             svc.delete(id);
         } else {
             svc.deleteOwn(id, c);

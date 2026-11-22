@@ -70,10 +70,12 @@ public class LikeService {
             docRepo.incrementLikes(docId);
             liked = true;
         }
-        // 刚点赞成功时，通知文章作者（给自己点赞不通知）
+        // 刚点赞成功时，通知文章作者（给自己点赞不通知）；取消点赞则把那条通知撤回（N29）
+        String username = userRepo.findById(userId).map(User::getUsername).orElse("用户");
         if (liked) {
-            String username = userRepo.findById(userId).map(User::getUsername).orElse("用户");
             notificationService.notifyLike(docId, d.getOwnerId(), userId, username, d.getTitle());
+        } else {
+            notificationService.withdrawLike(docId, d.getOwnerId(), userId, username);
         }
         return liked;
     }

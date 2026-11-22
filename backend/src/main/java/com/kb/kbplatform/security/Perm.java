@@ -99,4 +99,25 @@ public final class Perm {
     public static boolean valid(String code) {
         return code != null && WHITELIST.contains(code.trim().toUpperCase());
     }
+
+    /**
+     * 完全管理员判定（服务层版）：只有 TokenClaims 的那一份实例方法不够用——
+     * 像「版本回滚按编辑者身份决定要不要重新审核」这类地方手里只有 User 实体，没有 claims，
+     * 于是各自写了 `"ADMIN".equals(role)` 的字面检查，和网关 isAdmin() 的口径就分叉了：
+     * 同一个「权限码勾满、系统角色仍是 USER」的账号，后台视同管理员，回滚文档却被当普通作者（S-M6）。
+     * 这里把口径收到一处，语义与 TokenClaims.isAdmin() 完全一致（含演示号不提升）。
+     */
+    public static boolean isFullAdmin(String role, String permissions) {
+        if ("ADMIN".equals(role)) return true;
+        if (permissions == null || permissions.isBlank()) return false;
+        java.util.Set<String> have = new java.util.HashSet<>();
+        for (String p : permissions.split(",")) {
+            String code = p == null ? "" : p.trim().toUpperCase();
+            if (code.isEmpty()) continue;
+            if ("*".equals(code)) return true;            // 通配符 = 全部权限
+            if (DEMO_MODE.equals(code)) return false;      // 演示号永不提升
+            have.add(code);
+        }
+        return have.containsAll(ADMIN_PERM_SET);
+    }
 }
