@@ -62,6 +62,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
+    /** 路径存在但 HTTP 方法不对（如 GET 打到一个只写了 DELETE 的 /{id} 路由）：
+     *  这是客户端调用错误，应返回 405；走通用兜底会变成 500（外部测试 N35/N40）。 */
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleMethodNotSupported(
+            org.springframework.web.HttpRequestMethodNotSupportedException e) {
+        log.info("请求方法不被支持：{}", e.getMessage());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", "该接口不支持此请求方法");
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(body);
+    }
+
     /** 静态资源 404（/uploads/… 文件不存在等）：常见且无害（克隆环境/换机后历史附件缺失、文件被清理），
      *  返回 404 即可——走通用兜底会打 ERROR 全栈刷屏。 */
     @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)

@@ -146,7 +146,10 @@ async function loadDocs() {
   }
 }
 
-const preview = computed(() => avatar.value || '')
+const localPreview = ref('')   // 选图后立刻用本地 objectURL 预览，不等上传往返（N64「预览长期空白」）
+const preview = computed(() => localPreview.value || avatar.value || '')
+const fileInput = ref(null)    // 封面相机角标触发的隐藏 file input
+const fileInput2 = ref(null)   // 表单里「上传图片」的隐藏 file input
 const initial = computed(() => (displayName.value || auth.user?.username || '?').charAt(0).toUpperCase())
 
 // 帖子统计
@@ -167,8 +170,13 @@ const memberDays = computed(() => {
 
 function fmtDate(s) {
   if (!s) return '—'
-  const d = new Date(String(s).replace('T', ' ').replace(/Z$/, ''))
-  if (isNaN(d.getTime())) return String(s)
+  const str = String(s)
+  // 后端是 LocalDateTime「2026-11-22T14:20:00.666092」：6 位小数秒 + 直接交给 new Date() 会解析失败，
+  // 失败后原样回显就是一串 ISO 原文（N67）。用正则取前 19 位解析，不依赖浏览器对小数秒的支持。
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(str)
+  if (m) return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`
+  const d = new Date(str)
+  if (isNaN(d.getTime())) return str
   const p = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
@@ -184,18 +192,27 @@ async function onFile(e) {
     return
   }
   uploading.value = true
+  try { localPreview.value = URL.createObjectURL(file) } catch { /* 老浏览器不支持就地预览也无妨 */ }
   try {
     const { data } = await uploadFile(file)
     avatar.value = data.data.url   // 形如 /uploads/2026/08/14/xxxx.jpg
     ElMessage.success('头像已上传，记得点「保存修改」')
   } catch (err) {
+    localPreview.value = ''        // 上传失败回到原头像，避免「看着换好了其实没存」
     ElMessage.error('头像上传失败：' + (err.response?.data?.message || '请重试'))
   } finally {
     uploading.value = false
   }
 }
 
+/** 封面上的相机角标：用显式 click 打开文件选择（label 包裹 hidden input 在部分浏览器里不触发） */
+function pickAvatar() {
+  const el = fileInput.value || fileInput2.value
+  if (el) el.click()
+}
+
 function resetAvatar() {
+  localPreview.value = ''
   avatar.value = ''
 }
 
@@ -212,8 +229,10 @@ async function save() {
     auth.setProfile(data)
     avatarPending.value = data.avatarPending || null
     if (data.avatarPending) {
-      // 弹提示 + 页面持久「审核中」横幅/角标双保险，避免用户误以为没保存而反复提交
-      ElMessage({ type: 'warning', message: '新头像已提交审核，通过前对外仍展示原头像，请勿重复提交', duration: 6000 })
+      // N63：此前只提示「头像待审核」，用户以为资料没保存成功（简介其实已落库）。
+      // 合并成一条：先确认资料已保存，再说头像的事。
+      ElMessage({ type: 'warning', duration: 6000,
+        message: '资料已保存；新头像已提交审核，通过前对外仍展示原头像，请勿重复提交' })
     } else {
       ElMessage.success('资料已更新')
     }
@@ -404,10 +423,11 @@ async function doExport() {
       <div class="cover-avatar">
         <img v-if="preview" :src="preview" alt="" />
         <span v-else>{{ initial }}</span>
-        <label class="cam" title="更换头像">
-          <input ref="fileInput" type="file" accept="image/*" hidden @change="onFile" />
+        <span class="cam" title="更换头像" role="button" tabindex="0"
+              @click="pickAvatar" @keydown.enter="pickAvatar">
           <span>{{ uploading ? '⏳' : '📷' }}</span>
-        </label>
+        </span>
+        <input ref="fileInput" type="file" accept="image/*" hidden @change="onFile" />
       </div>
     </div>
 

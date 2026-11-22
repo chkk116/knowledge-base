@@ -8,7 +8,8 @@ import { ref, computed, onMounted, watch } from 'vue'
  */
 function safeSummary(raw) {
   if (!raw) return ''
-  const esc = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // 引号也要转义：否则下面的还原正则（按 &quot; 匹配）永远不命中，表情图片全被吞掉
+  const esc = String(raw).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   return esc.replace(
     /&lt;img\s+class=&quot;kb-emoji&quot;\s+src=&quot;([^&]+)&quot;\s+alt=&quot;([^&]*)&quot;\s*&gt;/g,
     (m, src) => {

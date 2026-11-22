@@ -130,7 +130,7 @@ const load = () => {
         : paper.value.paper.durationMin * 60
       timer = setInterval(() => {
         remain.value--
-        if (remain.value <= 0) { clearInterval(timer); submit() }
+        if (remain.value <= 0) { clearInterval(timer); doSubmit() }
       }, 1000)
     }
   }).catch(e => { ElMessage.error(errMsg(e, '试卷加载失败')); router.push('/exams') })
@@ -157,7 +157,19 @@ const buildItems = () => paper.value.questions.map(q => {
   return { questionId: q.id, answer }
 })
 
-const submit = () => {
+const submit = async () => {
+  if (!recordId.value) { ElMessage.warning('考试未开始'); return }
+  if (submitting.value || submitted.value) return
+  // 交卷二次确认（N68）：此前点一下就直接交卷，误点无法挽回
+  try {
+    await ElMessageBox.confirm(
+      `已作答 ${answered.value} / ${paper.value.questions.length} 题。交卷后立即出成绩且不能修改，确定交卷？`,
+      '确认交卷', { type: 'warning', confirmButtonText: '交卷', cancelButtonText: '继续作答' })
+  } catch { return }
+  doSubmit()
+}
+
+const doSubmit = () => {
   if (!recordId.value) { ElMessage.warning('考试未开始'); return }
   if (submitting.value) return   // 倒计时归零自动交卷与手动点击可能同时触发，只放行一次
   submitting.value = true
@@ -180,7 +192,14 @@ async function quitExam() {
 }
 
 // 试卷加载后到交卷前，误点侧边栏 / 返回 / 退出 / 关标签页都要先确认
-useUnsavedGuard(() => !submitted.value && !!paper.value, '考试尚未交卷，离开会丢失本次作答，确定离开吗？')
+useUnsavedGuard(() => !submitted.value && !!paper.value, '考试尚未交卷，离开会丢失本次作答，确定离开吗？', {
+  // 一题未答就离开：直接作废进行中记录，不占考试次数、不留下 0 分记录（E1/N57）
+  onConfirmLeave: async () => {
+    if (answered.value === 0 && recordId.value) {
+      try { await abandonExam(recordId.value) } catch { /* 作废失败只是留下一条待结算记录 */ }
+    }
+  },
+})
 
 onMounted(() => { begin() })
 onUnmounted(() => { unmounted = true; clearInterval(timer) })

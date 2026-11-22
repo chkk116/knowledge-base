@@ -15,8 +15,10 @@ import java.util.List;
 
 public interface CommentRepository extends JpaRepository<Comment, Long> {
 
-    /** 评论双击幂等（N34）：取同人同对象同内容的最新一条 */
-    java.util.Optional<Comment> findFirstByDocIdAndUserIdAndContentOrderByCreatedAtDesc(
+    /** 评论双击幂等（N34）：取同人同对象同内容的最新一条。
+     *  方法名必须带上 TargetType，否则派生查询只解析出 DocId/UserId/Content 三个属性，
+     *  入参按位置绑定会把 "DOC" 塞进 Long docId，抛参数类型不匹配 → 发评论恒定 400（N42）。 */
+    java.util.Optional<Comment> findFirstByTargetTypeAndDocIdAndUserIdAndContentOrderByCreatedAtDesc(
             String targetType, Long docId, Long userId, String content);
 
     List<Comment> findByDocIdOrderByCreatedAtAsc(Long docId);

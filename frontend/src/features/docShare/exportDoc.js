@@ -137,6 +137,25 @@ function htmlToMarkdown(html) {
       }
       else if (tag === 'br') md += '\n'
       else if (tag === 'hr') md += '\n---\n'
+      // 图块在 HTML 里是空 div：表格按工作簿 JSON 转成 Markdown 表格，导图/流程图留占位，
+      // 否则纯图块文档导出得到 0 字节文件且毫无提示（N53/N54）
+      else if ((n.getAttribute('data-type') || '') === 'sheet-block') {
+        const aoa = workbookToAoa(n.getAttribute('data') || '')
+        if (aoa.length) {
+          const width = Math.max(...aoa.map((r) => r.length))
+          const pad = (r) => {
+            const c = r.map((v) => String(v).replace(/\|/g, '\\|'))
+            while (c.length < width) c.push('')
+            return c
+          }
+          md += '\n| ' + pad(aoa[0]).join(' | ') + ' |\n'
+          md += '| ' + pad(aoa[0]).map(() => '---').join(' | ') + ' |\n'
+          aoa.slice(1).forEach((r) => { md += '| ' + pad(r).join(' | ') + ' |\n' })
+          md += '\n'
+        } else md += '\n[电子表格]\n'
+      }
+      else if ((n.getAttribute('data-type') || '') === 'mindmap-block') md += '\n[思维导图：' + (n.getAttribute('title') || '未命名') + ']\n'
+      else if ((n.getAttribute('data-type') || '') === 'flowchart-block') md += '\n[流程图：' + (n.getAttribute('title') || '未命名') + ']\n'
       else md += block(n)
     })
     return md
@@ -177,6 +196,33 @@ function colLetter(n) {
   let s = ''
   while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26) }
   return s
+}
+
+// 表格块（sheet-block）→ 二维数组：块内数据是 x-data-spreadsheet 的工作簿 JSON，
+// 在 HTML 里只是一个 <div data="...">，按 DOM 解析拿不到单元格，导出会得到空表（N54）。
+function workbookToAoa(raw) {
+  let wb
+  try { wb = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { return [] }
+  if (!wb) return []
+  const sheet = Array.isArray(wb) ? wb[0] : (wb.rows ? wb : (Array.isArray(wb.data) ? wb.data[0] : null))
+  const rowsObj = sheet && sheet.rows
+  if (!rowsObj) return []
+  const rIdx = Object.keys(rowsObj).filter((k) => /^\d+$/.test(k)).map(Number)
+  if (!rIdx.length) return []
+  const aoa = []
+  for (let r = 0; r <= Math.max(...rIdx); r++) {
+    const cells = (rowsObj[r] && rowsObj[r].cells) || {}
+    const cIdx = Object.keys(cells).filter((k) => /^\d+$/.test(k)).map(Number)
+    const line = []
+    for (let c = 0; c <= (cIdx.length ? Math.max(...cIdx) : -1); c++) {
+      const cell = cells[c]
+      line.push(cell && cell.text != null ? String(cell.text) : '')
+    }
+    aoa.push(line)
+  }
+  // 去掉尾部整行空白（引擎默认给 100 行格子，否则导出后满屏空行）
+  while (aoa.length && aoa[aoa.length - 1].every((v) => v === '')) aoa.pop()
+  return aoa
 }
 
 // 编辑器 HTML → 二维数组（每行一个数组；标题/段落/列表/代码为单列行，表格按原结构展开成单元格矩阵）
@@ -232,6 +278,15 @@ function htmlToAoa(html) {
         })
         rows.push([])
       }
+      // 图块（表格 / 思维导图 / 流程图）在 HTML 里只是带 data 属性的空 div：
+      // 表格按工作簿 JSON 展开成单元格；导图/流程图导不出内容，至少留一行占位，避免产出 0 字节空文件（N53/N54）
+      else if ((n.getAttribute('data-type') || '') === 'sheet-block') {
+        const aoa = workbookToAoa(n.getAttribute('data') || '')
+        if (aoa.length) { aoa.forEach((r) => rows.push(r)); rows.push([]) }
+        else push('[电子表格]')
+      }
+      else if ((n.getAttribute('data-type') || '') === 'mindmap-block') push('[思维导图：' + (n.getAttribute('title') || '未命名') + ']')
+      else if ((n.getAttribute('data-type') || '') === 'flowchart-block') push('[流程图：' + (n.getAttribute('title') || '未命名') + ']')
       else if (tag === 'br') push('')
       else if (tag === 'hr') push('---')
       else push(txt())

@@ -134,7 +134,7 @@ public class CommentService {
         }
         // 双击/网络重试幂等（外部测试 N34）：同一人同一对象 2 秒内同一内容视为同一条
         java.util.Optional<Comment> dup = claims == null ? java.util.Optional.empty()
-                : repo.findFirstByDocIdAndUserIdAndContentOrderByCreatedAtDesc(targetType, targetId, claims.userId(), content);
+                : repo.findFirstByTargetTypeAndDocIdAndUserIdAndContentOrderByCreatedAtDesc(targetType, targetId, claims.userId(), content);
         if (dup.isPresent() && dup.get().getCreatedAt() != null
                 && dup.get().getCreatedAt().isAfter(java.time.LocalDateTime.now().minusSeconds(2))) {
             return dup.get();

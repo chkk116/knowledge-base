@@ -143,6 +143,30 @@ public class SearchService {
         return out;
     }
 
+    /** 中文长词零命中时的二元组补召回（N3）：
+     *  把关键词切成 2 字窗口逐个检索，命中 ≥2 个窗口的文档才算候选（3 字词放宽到 1 个），
+     *  按窗口命中数降序。只在整串 LIKE 完全没结果时调用，代价是几次轻量查询。 */
+    private List<Document> bigramFallback(String kw) {
+        String k = kw == null ? "" : kw.trim();
+        if (k.length() < 3) return Collections.emptyList();
+        Map<Long, Integer> score = new LinkedHashMap<>();
+        Map<Long, Document> byId = new LinkedHashMap<>();
+        for (int i = 0; i + 2 <= k.length(); i++) {
+            String bg = k.substring(i, i + 2);
+            for (Document d : repo.search(bg)) {
+                byId.putIfAbsent(d.getId(), d);
+                score.merge(d.getId(), 1, Integer::sum);
+            }
+        }
+        int need = k.length() >= 4 ? 2 : 1;
+        return score.entrySet().stream()
+                .filter(e -> e.getValue() >= need)
+                .sorted((a, b) -> b.getValue() - a.getValue())
+                .map(e -> byId.get(e.getKey()))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
     private List<Map<String, Object>> searchByMysql(String q, String category, String author,
                                                     String sort, Integer days, String tags) {
         String kw = (q == null ? "" : q).replace("%", "").replace("_", "").trim();
@@ -167,6 +191,9 @@ public class SearchService {
             }
         } else {
             docs = repo.search(kw);
+            // N3：整串 LIKE 对中文长词经常零命中——「数据库索引」并不是「MySQL 索引」的子串。
+            // 仅在整串零命中时按二元组补召回，不影响原有精确匹配结果。
+            if (docs.isEmpty()) docs = bigramFallback(kw);
         }
 
         final String cat = (category == null || category.isBlank()) ? null : category;

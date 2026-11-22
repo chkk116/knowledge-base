@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { login as apiLogin, me as apiMe } from '../api/auth'
+import { isFullAdminPerms } from '../utils/permCodes'
 
 // 权限码 → 中文名（后台菜单、用户管理、头像下拉统一复用，避免各页面各自维护漂移）
 export const PERM_LABELS = {

@@ -883,7 +883,7 @@ async function copyPubUrl() {
       </main>
 
       <div v-else class="editor empty">
-        <el-empty description="选择左侧文档开始协作，或点击新建" />
+        <el-empty :description="canWrite ? '选择左侧文档开始协作，或点击新建' : '选择左侧文档查看（你对这个空间只有只读权限）'" />
       </div>
     </div>
 

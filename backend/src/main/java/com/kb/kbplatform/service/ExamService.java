@@ -216,6 +216,7 @@ public class ExamService {
     public ExamRecord submit(Long userId, Long recordId, List<AnswerItem> items) {
         ExamRecord rec = recordRepo.findById(recordId).orElseThrow(() -> new IllegalArgumentException("考试记录不存在"));
         if (!rec.getUserId().equals(userId)) throw new ResponseStatusException(FORBIDDEN, "无权提交该考试");
+        fillPaperFields(rec);   // 标题/题数不落库，交卷响应与积分文案都要用（N61）
         // 已经是已提交状态：重复提交（用户狂点/网络重试）直接回放首次结果，不重复判分、不重复发分
         if (rec.getSubmittedAt() != null) return rec;
         // 服务端限时：超过 deadline + 宽限一律拒绝；未交的记录会在下次 start 时按超时结算关闭
@@ -224,7 +225,9 @@ public class ExamService {
         }
         // 原子抢占提交权：两个并发请求只有一个能把 submitted_at 从 NULL 改掉，另一个回放首次结果
         if (recordRepo.claimSubmit(recordId, LocalDateTime.now()) == 0) {
-            return recordRepo.findById(recordId).orElse(rec);
+            ExamRecord again = recordRepo.findById(recordId).orElse(rec);
+            fillPaperFields(again);
+            return again;
         }
 
         List<ExamPaperQuestion> pqs = pqRepo.findByPaperIdOrderBySortOrderAscIdAsc(rec.getPaperId());
@@ -339,10 +342,21 @@ public class ExamService {
         return list;
     }
 
+    /** paperTitle / questionCount 是 @Transient（不落库），单条读取时必须从试卷补回，
+     *  否则成绩详情、交卷响应会返回 paperTitle=null / questionCount=0（N61）。 */
+    private void fillPaperFields(ExamRecord rec) {
+        if (rec == null || rec.getPaperId() == null) return;
+        ExamPaper p = paperRepo.findById(rec.getPaperId()).orElse(null);
+        if (p == null) return;
+        if (rec.getPaperTitle() == null || rec.getPaperTitle().trim().isEmpty()) rec.setPaperTitle(p.getTitle());
+        if (rec.getQuestionCount() <= 0) rec.setQuestionCount(p.getQuestionCount());
+    }
+
     /** 登录：成绩详情（逐题回顾，含正确答案） */
     public Map<String, Object> recordDetail(Long userId, Long recordId) {
         ExamRecord rec = recordRepo.findById(recordId).orElseThrow(() -> new IllegalArgumentException("考试记录不存在"));
         if (!rec.getUserId().equals(userId)) throw new ResponseStatusException(FORBIDDEN, "无权查看该成绩");
+        fillPaperFields(rec);
         List<ExamAnswer> eas = answerRepo.findByRecordId(recordId);
         List<Long> qids = new ArrayList<>();
         for (ExamAnswer ea : eas) qids.add(ea.getQuestionId());

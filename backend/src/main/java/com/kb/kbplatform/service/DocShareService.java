@@ -406,7 +406,14 @@ public class DocShareService {
     public List<DocShare> listMine(Long userId, boolean sysAdmin) {
         List<DocShare> list;
         if (sysAdmin) {
-            list = shareRepo.findAll();
+            // C3：管理员此前走 findAll()，把全站每个账号的个人空间都塞进「我的空间」，
+            // 注销账号不清个人空间 → 卡片越攒越多（实测 248 张）。
+            // 管理员也只能额外看到「团队空间」（便于集中管理），他人的个人空间一律不出现。
+            list = new ArrayList<>(shareRepo.findByOwnerIdOrMemberUserIdOrderByUpdatedAtDesc(userId));
+            Set<Long> seen = list.stream().map(DocShare::getId).collect(Collectors.toSet());
+            for (DocShare s : shareRepo.findAll()) {
+                if ("TEAM".equals(s.getType()) && seen.add(s.getId())) list.add(s);
+            }
         } else {
             ensurePersonalSpace(userId);   // 普通用户保证有专属个人空间
             list = shareRepo.findByOwnerIdOrMemberUserIdOrderByUpdatedAtDesc(userId);

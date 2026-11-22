@@ -46,6 +46,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
 import { listPapers, getMockPaper } from '../api/training'
 import ExamTabs from '../components/ExamTabs.vue'
 
@@ -60,7 +61,21 @@ onMounted(() => {
   getMockPaper().then(r => { mock.value = r.data || r || mock.value }).catch(() => {})
 })
 
-const start = (p) => router.push('/exams/' + p.id + '/take')
+// 开考须知（E1/N68）：此前点「开始考试」直接进考场，没有时长/计次/交卷规则的告知
+const start = async (p) => {
+  const rules = [
+    `共 ${p.questionCount} 题，满分 ${p.totalScore}，及格 ${p.passScore}`,
+    p.durationMin ? `限时 ${p.durationMin} 分钟，进入即开始计时` : '不限时',
+    '交卷后立即出成绩，客观题自动阅卷',
+    '一题未答就离开会自动作废本次考试，不占考试次数',
+  ]
+  try {
+    await ElMessageBox.confirm(rules.join('；') + '。', '考试须知', {
+      type: 'info', confirmButtonText: '开始答题', cancelButtonText: '再看看',
+    })
+  } catch { return }
+  router.push('/exams/' + p.id + '/take')
+}
 const practice = (p) => router.push({ path: '/exams/practice', query: { paperId: p.id } })
 const goMock = () => router.push({ path: '/exams/practice', query: { paperId: mock.value.paperId } })
 </script>

@@ -363,7 +363,8 @@ onBeforeUnmount(() => clearTimeout(userSearchTimer))
         <el-empty v-if="!loading && joinedShares.length === 0" description="还没有加入他人的团队空间" :image-size="60" />
       </div>
 
-      <el-empty v-if="!loading && teamShares.length === 0" description="暂无团队空间，点击右上角新建" />
+      <el-empty v-if="!loading && teamShares.length === 0"
+                :description="!auth.hasPerm('SHARE_CREATE') ? '暂无团队空间，可联系管理员分配创建权限' : (myQuota.canCreate ? '暂无团队空间，点击右上角新建' : '暂无团队空间，当前额度已用尽，可申请扩容')" />
     </div>
 
     <el-dialog v-model="dialog" width="620px" class="create-dialog" :close-on-click-modal="false">
