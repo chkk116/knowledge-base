@@ -98,6 +98,52 @@ function parseName(name) {
 const WRITE_PERMISSIONS = new Set(['OWNER', 'ADMIN', 'WRITE'])
 const READ_PERMISSIONS = new Set([...WRITE_PERMISSIONS, 'READ'])
 
+// 与后端 Perm.WHITELIST 去掉 DEMO_MODE 一一对应：权限码覆盖这一整组才算「完全管理员」。
+// 漂移的风险是**单向**的，别写成「漏更新只是收窄」：
+//   后端删码 → 这里仍要求它 → 该账号退回普通用户（收窄，安全）；
+//   后端加码 → 这里清单偏短 → 这里放行、REST 不放行（放行面变宽，越权）。
+// 所以下面在启动时对一遍后端源码，对不上就关掉「全权限码 = 管理员」这条旁路，宁可不给。
+const ADMIN_PERM_SET = [
+  'USER_MANAGE', 'DOC_REVIEW', 'POST_MANAGE', 'STATS_VIEW', 'BLACKLIST_MANAGE', 'TAXONOMY_MANAGE',
+  'ANNOUNCEMENT_MANAGE', 'COURSE_MANAGE', 'EXAM_MANAGE', 'AI_MANAGE',
+  'SHARE_CREATE', 'SHARE_VIEW', 'SHARE_DELETE', 'SHARE_CAPACITY', 'CORE_MAINTAIN',
+  'SITE_FEATURE_MANAGE', 'SITE_SETTINGS_MANAGE', 'SSO_MANAGE', 'SYSTEM_STATUS_VIEW',
+  'DOC_EXPORT', 'BANNED_WORDS_MANAGE', 'ASSET_MANAGE', 'AVATAR_REVIEW',
+  'AUDIT_VIEW', 'LOGIN_LOG_VIEW', 'ADMIN_VIEW',
+]
+// 只有和后端清单核对通过（或后端源码不在本机、无从核对）时才启用这条旁路
+let ADMIN_PERM_TRUSTED = true
+
+/** 启动自检：读后端 Perm.java 的 WHITELIST，与本文件的清单比对 */
+function verifyAdminPermSet() {
+  const path = require('path').join(__dirname, '..', 'backend', 'src', 'main', 'java',
+    'com', 'kb', 'kbplatform', 'security', 'Perm.java')
+  let src
+  try {
+    src = require('fs').readFileSync(path, 'utf8')
+  } catch {
+    console.log('[relay] 未找到后端 Perm.java（独立部署？），跳过权限码清单自检')
+    return
+  }
+  const block = src.match(/WHITELIST\s*=\s*Set\.of\(([\s\S]*?)\)\s*;/)
+  if (!block) {
+    console.error('[relay][警告] 解析不出 Perm.WHITELIST，关闭「全权限码视为管理员」的旁路')
+    ADMIN_PERM_TRUSTED = false
+    return
+  }
+  const backend = new Set((block[1].match(/"([A-Z_]+)"/g) || []).map((x) => x.replace(/"/g, '')))
+  backend.delete('DEMO_MODE')
+  const missing = [...backend].filter((c) => !ADMIN_PERM_SET.includes(c))   // 后端有、这里没跟上
+  const extra = ADMIN_PERM_SET.filter((c) => !backend.has(c))              // 这里多要了（收窄）
+  if (missing.length || extra.length) {
+    console.error('[relay][警告] 权限码清单与后端不一致：后端新增但本文件缺失 ' + JSON.stringify(missing)
+      + '，本文件多余 ' + JSON.stringify(extra) + '；已临时关闭「全权限码视为管理员」的旁路，'
+      + '请同步 collab-relay/index.js 的 ADMIN_PERM_SET')
+    ADMIN_PERM_TRUSTED = false
+  }
+}
+verifyAdminPermSet()
+
 // 与 REST 的 docPermission 保持一致：真实管理员/空间所有者/文档所有者优先，
 // 文档单独授权优先于空间授权。使用下划线别名，避免 PG 把 ownerId 折叠成 ownerid。
 async function authorizeDocument(documentName, claims) {
@@ -123,21 +169,12 @@ async function authorizeDocument(documentName, claims) {
   if (Number(row.token_version || 0) !== claims.tokenVersion) throw new Error('token revoked')
   const perms = String(row.user_permissions || '')
   // 与 REST 的 isAdmin() 对齐：role=ADMIN，或权限码覆盖管理员全集（顺带认通配 *）。
-  // 此前只认 role 和 *，于是「26 个权限码全勾、系统角色仍是 USER」的账号在后台算管理员、
-  // 到协同这儿却被当普通用户（S-M6）。这份清单与后端 Perm.WHITELIST 去掉 DEMO_MODE 一一对应，
-  // 漏更新只会让这类账号退回普通用户（失败即收窄），不会越权。
-  const ADMIN_PERM_SET = [
-    'USER_MANAGE', 'DOC_REVIEW', 'POST_MANAGE', 'STATS_VIEW', 'BLACKLIST_MANAGE', 'TAXONOMY_MANAGE',
-    'ANNOUNCEMENT_MANAGE', 'COURSE_MANAGE', 'EXAM_MANAGE', 'AI_MANAGE',
-    'SHARE_CREATE', 'SHARE_VIEW', 'SHARE_DELETE', 'SHARE_CAPACITY', 'CORE_MAINTAIN',
-    'SITE_FEATURE_MANAGE', 'SITE_SETTINGS_MANAGE', 'SSO_MANAGE', 'SYSTEM_STATUS_VIEW',
-    'DOC_EXPORT', 'BANNED_WORDS_MANAGE', 'ASSET_MANAGE', 'AVATAR_REVIEW',
-    'AUDIT_VIEW', 'LOGIN_LOG_VIEW', 'ADMIN_VIEW',
-  ]
+  // 此前只认 role 和 *，于是「权限码全勾、系统角色仍是 USER」的账号在后台算管理员、
+  // 到协同这儿却被当普通用户（S-M6）。清单与自检见文件头部的 ADMIN_PERM_SET。
   const permSet = new Set(perms.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean))
   const isDemo = permSet.has('DEMO_MODE')   // 演示号只读，绝不算管理员
-  const isAdminLike = !isDemo && (row.role === 'ADMIN' || permSet.has('*')
-    || ADMIN_PERM_SET.every((code) => permSet.has(code)))
+  const coverageIsAdmin = ADMIN_PERM_TRUSTED && ADMIN_PERM_SET.every((code) => permSet.has(code))
+  const isAdminLike = !isDemo && (row.role === 'ADMIN' || permSet.has('*') || coverageIsAdmin)
   const isSpaceOwner = Number(row.space_owner_id) === claims.userId
   const isDocOwner = Number(row.doc_owner_id) === claims.userId
   const isSpaceMember = Number(row.space_member_id) === claims.userId

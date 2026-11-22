@@ -382,26 +382,41 @@ public class DocShareController {
         }
     }
 
-    /** 老客户端不带 baseUpdatedAt 时返回 null */
+    /** 读取保存时间基线（保存时的乐观锁）。
+     *
+     *  字段缺失 → null（老客户端，跳过校验，行为与之前一致）；
+     *  字段存在但解析不了 → 400，别静默跳过——客户端把时间弄错形状时，乐观锁会悄悄失效，
+     *  而这正是它要防的整篇覆盖。
+     */
     private static java.time.LocalDateTime baseUpdatedAtOf(Map<String, Object> body) {
-        if (body == null) return null;
+        if (body == null || !body.containsKey("baseUpdatedAt")) return null;
         Object v = body.get("baseUpdatedAt");
         if (v == null) return null;
         String s = String.valueOf(v).trim();
         if (s.isEmpty() || "null".equalsIgnoreCase(s)) return null;
-        // 后端返回的是 LocalDateTime，序列化带 T 与 6~7 位小数秒（如 2026-11-22T15:46:11.1395911），
-        // 前端也有传空格分隔的；统一用正则取到秒，避免小数位数不一致导致解析失败、把乐观锁静默关掉。
+        // 后端返回 LocalDateTime，序列化可能带 6~7 位小数秒（2026-11-22T15:46:11.139591 / .1395911），
+        // 前端也可能传空格分隔。小数位必须一起解析：只取到秒再比较会让每次正常保存都误判成冲突。
         java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("^(\\d{4})-(\\d{2})-(\\d{2})[T ](\\d{2}):(\\d{2})(?::(\\d{2}))?")
+                .compile("^(\\d{4})-(\\d{2})-(\\d{2})[T ](\\d{2}):(\\d{2})(?::(\\d{2}))?(?:\\.(\\d{1,9}))?")
                 .matcher(s);
-        if (!m.find()) return null;
+        if (!m.find()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "baseUpdatedAt 格式无法解析（应为 2026-11-22T15:46:11.139591 这类时间）：" + s);
+        }
         try {
+            int nanos = 0;
+            if (m.group(7) != null) {
+                String frac = (m.group(7) + "000000000").substring(0, 9);
+                nanos = Integer.parseInt(frac);
+            }
             return java.time.LocalDateTime.of(
                     Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)),
                     Integer.parseInt(m.group(4)), Integer.parseInt(m.group(5)),
-                    m.group(6) == null ? 0 : Integer.parseInt(m.group(6)));
+                    m.group(6) == null ? 0 : Integer.parseInt(m.group(6)), nanos);
         } catch (Exception e) {
-            return null;
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "baseUpdatedAt 不是合法时间：" + s);
         }
     }
 

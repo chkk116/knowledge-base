@@ -1338,7 +1338,7 @@ public class DocShareService {
         return out;
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    /** 便捷重载：事务注解在下面的 8 参重载上——这里内部调用不会再经代理，标在这儿等于没标。 */
     public SharedDocument updateDoc(Long shareId, Long docId, String title, String content, Long userId, boolean sysAdmin) {
         return updateDoc(shareId, docId, title, content, userId, sysAdmin, null, null);
     }
@@ -1358,12 +1358,17 @@ public class DocShareService {
      * 先存的（N17）。这里补上 baseUpdatedAt：客户端带上「打开时看到的 updated_at」，与库里不一致
      * 说明期间有人保存过，直接 409 让它刷新，而不是把别人的修改整篇抹掉。同样，老客户端不带就跳过。
      */
+    @Transactional(rollbackFor = Exception.class)
     public SharedDocument updateDoc(Long shareId, Long docId, String title, String content,
                                     Long userId, boolean sysAdmin, Long baseRev, java.time.LocalDateTime baseUpdatedAt) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canWriteDoc(shareId, docId, userId, sysAdmin))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "对该文档无写入权限");
-        SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
+        // 带乐观锁的保存要加行锁：比完 updated_at 到真正写入之间还有配额查询与快照插入，
+        // 两个人几乎同时保存会双双通过比较（check-then-act），后写的照样整篇盖掉先写的。
+        SharedDocument d = (baseUpdatedAt != null
+                ? docRepo.findByIdAndShareIdForUpdate(docId, shareId)
+                : docRepo.findByIdAndShareId(docId, shareId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
         // 配额检查（与 createDoc 同规则，按本次增量校验）：此前更新完全绕过配额，可先建小文档再更新成超大体量（2026-10-13 审查 C2）。
         // 存储用量归属文档所有者，故配额按 ownerId 计而非当前编辑者。
@@ -1395,8 +1400,8 @@ public class DocShareService {
         // 闸 1b：保存时间戳校验——真正挡住「A 拿着十分钟前的整篇内容按保存，把 B 刚写的一整段抹掉」。
         // 只比到秒：库里是微秒精度，客户端 JSON 往返的小数位数不一定一致，比到秒足够区分两次保存。
         if (baseUpdatedAt != null && d.getUpdatedAt() != null
-                && !d.getUpdatedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
-                        .equals(baseUpdatedAt.truncatedTo(java.time.temporal.ChronoUnit.SECONDS))) {
+                && !d.getUpdatedAt().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+                        .equals(baseUpdatedAt.truncatedTo(java.time.temporal.ChronoUnit.MILLIS))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "你打开这篇文档之后，已有人在别处保存过（最后保存 "
                             + d.getUpdatedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)

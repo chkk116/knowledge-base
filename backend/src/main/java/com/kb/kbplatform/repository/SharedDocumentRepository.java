@@ -23,6 +23,13 @@ public interface SharedDocumentRepository extends JpaRepository<SharedDocument, 
 
     Optional<SharedDocument> findByIdAndShareId(Long id, Long shareId);
 
+    /** 悲观写锁读一行：保存正文时要「先比 updated_at 再写」，中间不能被人插队，
+     *  否则两端同时保存会双双通过校验（典型 check-then-act），后写的仍整篇覆盖先写的。 */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from SharedDocument d where d.id = :id and d.shareId = :shareId")
+    Optional<SharedDocument> findByIdAndShareIdForUpdate(@org.springframework.data.repository.query.Param("id") Long id,
+                                                         @org.springframework.data.repository.query.Param("shareId") Long shareId);
+
     /** 外部分享：按公开令牌查文档（免登录只读） */
     Optional<SharedDocument> findByShareToken(String shareToken);
 
