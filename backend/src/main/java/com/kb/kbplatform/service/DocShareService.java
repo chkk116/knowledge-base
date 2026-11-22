@@ -1340,7 +1340,7 @@ public class DocShareService {
 
     @Transactional(rollbackFor = Exception.class)
     public SharedDocument updateDoc(Long shareId, Long docId, String title, String content, Long userId, boolean sysAdmin) {
-        return updateDoc(shareId, docId, title, content, userId, sysAdmin, null);
+        return updateDoc(shareId, docId, title, content, userId, sysAdmin, null, null);
     }
 
     /**
@@ -1352,9 +1352,14 @@ public class DocShareService {
      *   2) 骤减拦截：新正文不足现有正文一半（且原文不短）时拒绝，提示先刷新再看，
      *      确需删减走「保存当前版本 + 恢复」而不是直接覆盖。
      * baseRev 为 null 视为老客户端，只走第 2 道。
+     *
+     * 第 1 道原先用 yjsRev 当代次，但它只在「恢复历史版本」时自增（怕自增会让协同房间名变化、
+     * 编辑器整体重建），日常保存根本不变，等于形同虚设——两端各存各的整篇内容，后存的静默盖掉
+     * 先存的（N17）。这里补上 baseUpdatedAt：客户端带上「打开时看到的 updated_at」，与库里不一致
+     * 说明期间有人保存过，直接 409 让它刷新，而不是把别人的修改整篇抹掉。同样，老客户端不带就跳过。
      */
     public SharedDocument updateDoc(Long shareId, Long docId, String title, String content,
-                                    Long userId, boolean sysAdmin, Long baseRev) {
+                                    Long userId, boolean sysAdmin, Long baseRev, java.time.LocalDateTime baseUpdatedAt) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canWriteDoc(shareId, docId, userId, sysAdmin))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "对该文档无写入权限");
@@ -1386,6 +1391,16 @@ public class DocShareService {
         if (baseRev != null && baseRev != d.getYjsRev()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "文档已在别处更新（版本 " + d.getYjsRev() + "），请刷新后再保存");
+        }
+        // 闸 1b：保存时间戳校验——真正挡住「A 拿着十分钟前的整篇内容按保存，把 B 刚写的一整段抹掉」。
+        // 只比到秒：库里是微秒精度，客户端 JSON 往返的小数位数不一定一致，比到秒足够区分两次保存。
+        if (baseUpdatedAt != null && d.getUpdatedAt() != null
+                && !d.getUpdatedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+                        .equals(baseUpdatedAt.truncatedTo(java.time.temporal.ChronoUnit.SECONDS))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "你打开这篇文档之后，已有人在别处保存过（最后保存 "
+                            + d.getUpdatedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+                            + "）。请刷新确认最新内容后再修改，本次保存未写入，避免整篇覆盖别人的改动。");
         }
         // 闸 2：正文骤减拦截——客户端本地未同步完整时，内容会「只剩自己刚写的一段」
         if (content != null && d.getContent() != null) {

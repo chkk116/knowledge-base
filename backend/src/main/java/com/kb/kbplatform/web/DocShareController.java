@@ -360,10 +360,11 @@ public class DocShareController {
     public SharedDocument updateDoc(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id,
                                     @PathVariable Long docId, @RequestBody Map<String, Object> body) {
         SharedDocument before = svc.getDoc(id, docId, resolveUserId(c), isSysAdmin(c));
-        // baseRev 可选：新客户端带上读到的 yjsRev 做乐观锁，老客户端不带则只走「内容骤减」护栏
+        // baseRev / baseUpdatedAt 均可选：新客户端带上打开时读到的代次与保存时间做乐观锁，
+        // 老客户端不带则只走「内容骤减」护栏。
         Long baseRev = baseRevOf(body);
         SharedDocument d = svc.updateDoc(id, docId, str(body.get("title")), str(body.get("content")),
-                resolveUserId(c), isSysAdmin(c), baseRev);
+                resolveUserId(c), isSysAdmin(c), baseRev, baseUpdatedAtOf(body));
         audit.log(c.userId(), c.username(), "UPDATE_SHARE_DOC", "SHARE_DOC", docId, d.getTitle(),
                 "更新空间文档「" + before.getTitle() + "」");
         return d;
@@ -376,6 +377,29 @@ public class DocShareController {
         if (v == null) return null;
         try {
             return Long.valueOf(String.valueOf(v));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 老客户端不带 baseUpdatedAt 时返回 null */
+    private static java.time.LocalDateTime baseUpdatedAtOf(Map<String, Object> body) {
+        if (body == null) return null;
+        Object v = body.get("baseUpdatedAt");
+        if (v == null) return null;
+        String s = String.valueOf(v).trim();
+        if (s.isEmpty() || "null".equalsIgnoreCase(s)) return null;
+        // 后端返回的是 LocalDateTime，序列化带 T 与 6~7 位小数秒（如 2026-11-22T15:46:11.1395911），
+        // 前端也有传空格分隔的；统一用正则取到秒，避免小数位数不一致导致解析失败、把乐观锁静默关掉。
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^(\\d{4})-(\\d{2})-(\\d{2})[T ](\\d{2}):(\\d{2})(?::(\\d{2}))?")
+                .matcher(s);
+        if (!m.find()) return null;
+        try {
+            return java.time.LocalDateTime.of(
+                    Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)),
+                    Integer.parseInt(m.group(4)), Integer.parseInt(m.group(5)),
+                    m.group(6) == null ? 0 : Integer.parseInt(m.group(6)));
         } catch (Exception e) {
             return null;
         }

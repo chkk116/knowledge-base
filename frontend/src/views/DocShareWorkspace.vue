@@ -46,6 +46,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onReadingKey))
 onBeforeUnmount(() => clearTimeout(memberSearchTimer))
 const editorTitle = ref('')
 const saving = ref(false)
+// 编辑器实例重建计数器：恢复版本 / 撞乐观锁后需要「真的重新加载协同内容」，
+// 只改 activeDoc 不会重建组件（:key 里必须带上它）。
+const reloadNonce = ref(0)
 
 const memberDialog = ref(false)
 const allUsers = ref([])
@@ -148,7 +151,6 @@ const selectDoc = async (doc) => {
     ElMessage.error('读取文档失败')
   }
 }
-
 // ---------- 双向链接（正文里的 [[文档名]]） ----------
 const links = ref({ out: [], back: [] })
 const linksLoading = ref(false)
@@ -219,6 +221,9 @@ const diagramKind = computed(() => {
 
 // 图块专属文档点「转为普通文档」后刷新当前文档（content 已变，切回通用编辑器）
 const onDocReload = async () => {
+  // 强制重建编辑器（见 :key 里的 reloadNonce）：只重拉一次文档接口的话，组件不会重建，
+  // 编辑器里还是原来那份 Y.Doc，协同内容根本不会重新加载——「恢复成功但页面没变」就是这么来的。
+  reloadNonce.value += 1
   if (activeDoc.value) await selectDoc(activeDoc.value)
 }
 
@@ -858,8 +863,8 @@ async function copyPubUrl() {
             <el-icon><Expand /></el-icon>
           </button>
         </div>
-        <DocShareEditor ref="editorRef" :key="activeDoc.id + ':' + (activeDoc.yjsRev || 0)" :share-id="shareId" :doc-id="activeDoc.id"
-                        :revision="activeDoc.yjsRev || 0"
+        <DocShareEditor ref="editorRef" :key="activeDoc.id + ':' + (activeDoc.yjsRev || 0) + ':' + reloadNonce" :share-id="shareId" :doc-id="activeDoc.id"
+                        :revision="activeDoc.yjsRev || 0" :saved-at="activeDoc.updatedAt || ''"
                         :can-write="docCanWrite" :legacy-content="activeDoc.content"
                         :diagram="diagramKind" @reload-document="onDocReload" />
 

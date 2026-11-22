@@ -32,6 +32,8 @@ const props = defineProps({
   shareId: { type: Number, required: true },
   docId: { type: Number, required: true },
   revision: { type: Number, default: 0 },
+  // 打开时文档的 updated_at，用于保存时的乐观锁（见 saveSnapshot）。
+  savedAt: { type: String, default: '' },
   canWrite: { type: Boolean, default: false },
   // 旧版 HTML 内容，仅用于首次协同时把历史内容种入 Yjs 文档（一次性迁移）
   legacyContent: { type: String, default: '' },
@@ -240,9 +242,16 @@ const statusText = computed(() => ({
 
 // 保存状态（N50）：原来只有「已连接」，用户分不清「连接着」和「存下来了」
 const lastSavedAt = ref(0)
+// 乐观锁基线（N17）：打开时文档的 updated_at，每次保存成功后用响应里的新值续上。
+// 保存时带回去，后端发现期间被别处保存过就 409，不让我这份「整篇内容」把别人的修改抹掉。
+const baseSavedAt = ref(props.savedAt || '')
+watch(() => props.savedAt, (v) => { if (v) baseSavedAt.value = v })
+// 撞过乐观锁就别再自动快照了：每 6 秒重试一次只会每 6 秒失败一次，还可能把用户没看过的内容盖上去
+const conflict = ref(false)
 const saveText = computed(() => {
   if (!props.canWrite) return ''
   if (saving.value) return '保存中…'
+  if (conflict.value) return '有冲突，未自动保存'
   if (dirty.value) return '有未保存修改'
   if (!lastSavedAt.value) return ''
   const d = new Date(lastSavedAt.value)
@@ -302,21 +311,47 @@ let autoSnapshotTimer = null
 // silent：自动快照不弹提示，否则每几秒跳一次 toast
 async function saveSnapshot(silent = false) {
   if (!props.canWrite || !editor.value) return
+  // 撞过乐观锁：不再自动重试，等用户刷新或明确点保存
+  if (silent && conflict.value) return
   if (!silent) saving.value = true
   try {
-    // 带上打开时的代次：别人刚改过会收到 409，提示刷新，而不是静默整篇覆盖
-    await updateShareDoc(props.shareId, props.docId, {
+    // 带上打开时的代次与保存时间：别人刚改过会收到 409，提示刷新，而不是静默整篇覆盖（N17）
+    const { data } = await updateShareDoc(props.shareId, props.docId, {
       content: await buildSnapshotHtml(editor.value),
       baseRev: props.revision || 0,
+      baseUpdatedAt: baseSavedAt.value || undefined,
     })
+    if (data && data.updatedAt) baseSavedAt.value = data.updatedAt
+    conflict.value = false
     dirty.value = false
     lastSavedAt.value = Date.now()
     if (!silent) ElMessage.success('已保存快照')
   } catch (e) {
-    if (!silent) ElMessage.error(errMsg(e, '保存失败'))
+    if (e?.response?.status === 409) {
+      conflict.value = true
+      // 自动快照也要提示：静默失败等于用户以为存上了（这正是 N17 的一半）
+      ElMessage.warning(errMsg(e, '文档已被他人保存，请刷新后再改'))
+    } else if (!silent) {
+      ElMessage.error(errMsg(e, '保存失败'))
+    }
   } finally {
     if (!silent) saving.value = false
   }
+}
+
+/**
+ * 撞乐观锁后由用户决定刷新：本地这份内容已经存不进去了（存就会覆盖别人的），
+ * 只能丢掉本地改动重新加载。先明确问一句，别让人以为「刷新一下就好」。
+ */
+async function reloadAfterConflict() {
+  try {
+    await ElMessageBox.confirm(
+      '这篇文档已被他人保存过，你本地这份内容无法直接保存（会整篇覆盖对方的修改）。刷新将重新加载最新内容，本地未保存的修改会丢失。',
+      '文档已更新', { type: 'warning', confirmButtonText: '刷新加载最新', cancelButtonText: '先不刷新' })
+  } catch (e) { return }
+  conflict.value = false
+  dirty.value = false
+  emit('reload-document')
 }
 
 /**
@@ -657,7 +692,8 @@ defineExpose({ insertMention })
         <span class="conn" :class="status">
           <span class="dot" />{{ statusText }}
         </span>
-        <span v-if="saveText" class="save-state" :class="{ dirty }">{{ saveText }}</span>
+        <span v-if="saveText" class="save-state" :class="{ dirty, conflict }">{{ saveText }}<a
+          v-if="conflict" class="save-reload" @click="reloadAfterConflict">刷新</a></span>
       </div>
     </div>
 
@@ -784,6 +820,8 @@ defineExpose({ insertMention })
 .conn { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #64748b; white-space: nowrap; }
 .save-state { font-size: 12.5px; color: #94a3b8; white-space: nowrap; }
 .save-state.dirty { color: #d97706; }
+.save-state.conflict { color: #dc2626; }
+.save-reload { margin-left: 6px; color: #2563eb; cursor: pointer; text-decoration: underline; }
 .conn .dot { width: 7px; height: 7px; border-radius: 50%; }
 .conn.connected .dot { background: #10b981; }
 .conn.connecting .dot { background: #f59e0b; }
