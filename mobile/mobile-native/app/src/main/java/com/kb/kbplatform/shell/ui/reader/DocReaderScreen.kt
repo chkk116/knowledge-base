@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -182,10 +183,13 @@ fun DocReaderScreen(
                 val pieces = androidx.compose.runtime.remember(html) {
                     com.kb.kbplatform.shell.ui.diagram.DiagramParser.split(html!!)
                 }
-                val hasDiagram = pieces.any { it is com.kb.kbplatform.shell.ui.diagram.DocPiece.Diagram }
+                val hasDiagram = pieces.any {
+                    it is com.kb.kbplatform.shell.ui.diagram.DocPiece.Diagram ||
+                        it is com.kb.kbplatform.shell.ui.diagram.DocPiece.DiagramShell
+                }
                 when {
-                    // 有流程图/思维导图：原生混排渲染（文本段用 fromHtml，图块用 NativeDiagram 画）
-                    hasDiagram -> NativeDocContent(pieces)
+                    // 有图块（含「没有 data 的空壳」）：原生混排渲染，空壳给占位卡而不是空白 WebView
+                    hasDiagram -> NativeDocContent(pieces, onEdit)
                     needsRichWebView(html!!) -> ReaderWebView(html!!)
                     else -> NativeHtmlText(html!!)
                 }
@@ -222,7 +226,10 @@ fun DocReaderScreen(
  * 这样流程图/思维导图在原生壳里是「真·原生渲染」，不再依赖 WebView。
  */
 @Composable
-private fun NativeDocContent(pieces: List<com.kb.kbplatform.shell.ui.diagram.DocPiece>) {
+private fun NativeDocContent(
+    pieces: List<com.kb.kbplatform.shell.ui.diagram.DocPiece>,
+    onEdit: () -> Unit = {}
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -246,6 +253,9 @@ private fun NativeDocContent(pieces: List<com.kb.kbplatform.shell.ui.diagram.Doc
                         color = MaterialTheme.colorScheme.primary
                     )
                     com.kb.kbplatform.shell.ui.diagram.NativeDiagram(piece.data)
+                }
+                is com.kb.kbplatform.shell.ui.diagram.DocPiece.DiagramShell -> {
+                    DiagramShellCard(piece.kind, piece.title, onEdit)
                 }
             }
         }
@@ -683,6 +693,44 @@ private fun DocLinksBar(
                     ) { Text("↖ " + t.ifBlank { "（无标题）" }, fontSize = 11.5.sp) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 图块占位卡：正文里的图块没有可渲染的数据（Web 端快照还没写入图数据，数据只存在 yjs）时显示，
+ * 避免整块空白。点「在编辑页打开」进 WebView 的协同编辑页（那里是真正的实时图块）。
+ */
+@Composable
+private fun DiagramShellCard(kind: String, title: String, onEdit: () -> Unit) {
+    val label = when {
+        kind.startsWith("flowchart") -> "流程图"
+        kind.startsWith("mindmap") -> "思维导图"
+        kind.startsWith("sheet") -> "电子表格"
+        else -> "图形块"
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Column {
+            Text(
+                label + "「" + title.ifBlank { label } + "」",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.size(4.dp))
+            Text(
+                "原生阅读页只能显示图块的静态快照；这篇文档图块的数据还在协同状态里，" +
+                    "进入编辑页可以看到并直接编辑（实时协同）。",
+                fontSize = 11.5.sp,
+                lineHeight = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = onEdit) { Text("在编辑页打开", fontSize = 12.sp) }
         }
     }
 }

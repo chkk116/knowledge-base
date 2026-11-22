@@ -23,13 +23,18 @@ data class DiagramData(val nodes: List<DNode>, val edges: List<DEdge>)
 sealed class DocPiece {
     data class Html(val html: String) : DocPiece()
     data class Diagram(val data: DiagramData, val title: String) : DocPiece()
+    /**
+     * 图块占位：正文里有 `data-type="…-block"` 但**没有可用 data**（Web 端还没把图数据写进快照，
+     * 或该块是表格/导图这类原生端不绘制的类型）。渲染成「在编辑页打开」的卡片，避免整块空白。
+     */
+    data class DiagramShell(val kind: String, val title: String) : DocPiece()
 }
 
 object DiagramParser {
 
-    /** 只认流程图/思维导图这类 Vue Flow 图块（表格块结构不同，先跳过） */
+    /** 三类图块：流程图/导图是 Vue Flow 结构，表格是工作簿 JSON（原生端只做占位，不解析） */
     private val BLOCK = Regex(
-        "<div[^>]*data-type=\"(flowchart-block|mindmap-block)\"[^>]*>",
+        "<div[^>]*data-type=\"(flowchart-block|mindmap-block|sheet-block)\"[^>]*>",
         RegexOption.IGNORE_CASE
     )
     private val ATTR_DATA = Regex("""data=('([^']*)'|"([^"]*)")""", RegexOption.IGNORE_CASE)
@@ -105,9 +110,17 @@ object DiagramParser {
             val raw = ATTR_DATA.find(openTag)
             val json = raw?.groupValues?.let { if (it[2].isNotEmpty()) it[2] else it[3] }
             val data = parse(json)
-            if (data != null && data.nodes.isNotEmpty()) {
-                val title = Regex("""title=(['"])(.*?)\1""").find(openTag)?.groupValues?.get(2) ?: "流程图"
+            val title = Regex("""title=(['"])(.*?)\1""").find(openTag)?.groupValues?.get(2)
+                ?: "图表"
+            val kind = Regex("""data-type=\"([a-z-]+)\""").find(openTag)?.groupValues?.get(1).orEmpty()
+            if (kind.startsWith("sheet")) {
+                // 表格是工作簿 JSON，原生端不绘制（避免半吊子渲染），统一给占位卡
+                pieces.add(DocPiece.DiagramShell("sheet", title))
+            } else if (data != null && data.nodes.isNotEmpty()) {
                 pieces.add(DocPiece.Diagram(data, title))
+            } else {
+                // 没有 data：Web 端还没保存含图数据的快照（数据只在 yjs 里），给「编辑页打开」卡片
+                pieces.add(DocPiece.DiagramShell(kind, title))
             }
             cursor = closeIdx + "</div>".length
         }
