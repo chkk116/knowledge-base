@@ -814,9 +814,11 @@ function onCaptureClick(e) {
   e.stopPropagation()
   e.preventDefault()
 }
-/** 菜单项显式跳转：不依赖 el-menu 的 router 模式。
- *  实测过「首次点击要点两次」——菜单自带的 router 跳转偶发被这层 pointer/click 逻辑吞掉，
- *  自己再兜一次；同一路径重复 push 是 no-op，不会产生两次导航。 */
+/** 菜单项跳转的唯一入口（el-menu 上**不再**开 router 模式）。
+ *  实测过「首次点击要点两次」——菜单自带的 router 跳转被这层 pointer/click 逻辑吞掉，
+ *  于是自己兜一次；但两边同时跳会在同一次点击里 push 两次：路由守卫是异步的（ensureAuth /
+ *  功能开关），第一次 push 还没落地时 route.path 仍是旧值，去重判断必然失效，第二次 push
+ *  把在途的那次取消掉，表现出来就是「点了没反应」。所以只留这一条路，别把 router 加回去。 */
 function goMenu(path) {
   if (!path) return
   if (route.path !== path) router.push(path)
@@ -993,7 +995,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
       </div>
       </Transition>
 
-      <el-menu v-else :default-active="route.path" router class="menu"
+      <el-menu v-else :default-active="route.path" class="menu"
                :collapse="menuCollapsed" :collapse-transition="false">
         <template v-for="(m, i) in orderedMenus" :key="m.index">
           <el-sub-menu v-if="m.children" :index="m.index" class="drag-item"

@@ -144,9 +144,13 @@ async function authorizeDocument(documentName, claims) {
   // 空间成员是网关（N36）：被移出空间后，残留的文档级授权行不能继续放行。
   // 此前只比对 doc_permission/space_permission，文档级授权可以绕过「已不是空间成员」这件事，
   // 表现为 REST 拒绝、中继却还能连上并写协同状态。
-  if (!isAdminLike && !isSpaceOwner && !isDocOwner && !isSpaceMember) {
+  // 文档所有者同样**不单独放行**：removeMember 只删授权行、不清 kb_shared_document.owner_id，
+  // 被移出空间的文档创建者若只凭 owner_id 就能连，分脑只是换了个载体（REST 403 / 中继 200）。
+  // 文档所有者只在下面的权限档位上仍算 OWNER。
+  if (!isAdminLike && !isSpaceOwner && !isSpaceMember) {
     console.warn('[collab] deny(not space member)', JSON.stringify({
-      shareId, docId, userId: claims.userId, docPerm: row.doc_permission, spacePerm: row.space_permission,
+      shareId, docId, userId: claims.userId, docOwner: row.doc_owner_id,
+      docPerm: row.doc_permission, spacePerm: row.space_permission,
     }))
     throw new Error('forbidden')
   }

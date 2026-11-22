@@ -1512,6 +1512,9 @@ public class DocShareService {
      *  如需保留回滚前的内容，请先显式调用 {@link #snapshotSharedDoc}（前端「保存当前版本」按钮）。 */
     @Transactional(rollbackFor = Exception.class)
     public SharedDocument restoreSharedDocVersion(Long shareId, Long docId, Long vid, Long editorId, boolean sysAdmin) {
+        // 必须在**第一次**读实体之前催中继落库：实体一旦进了持久化上下文，后面再查回来的还是同一个旧实例，
+        // 备份里存的 yjs_state 就永远是几秒前那份（回滚后的「回滚前备份」也就点不动回去了）。
+        relayNotifier.flush(shareId, docId);
         SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
         SharedDocVersion v = sharedDocVerRepo.findById(vid)
@@ -1522,14 +1525,11 @@ public class DocShareService {
         // 回滚前先把「当前内容」留一档，并标记 RESTORE：
         // 既不会出现「回滚后再也找不回刚才的内容」，也不会像早期实现那样把版本列表刷满
         // （前端对该类条目标注「回滚前备份」，不影响正常历史浏览）
-        // 先让中继落库，保证这份备份是真实当前状态而不是几秒前的旧快照
-        relayNotifier.flush(shareId, docId);
-        SharedDocument fresh = docRepo.findByIdAndShareId(docId, shareId).orElse(d);
         SharedDocVersion backup = new SharedDocVersion();
         backup.setSharedDocId(docId);
-        backup.setTitle(fresh.getTitle());
-        backup.setContent(fresh.getContent());
-        backup.setYjsState(fresh.getYjsState());
+        backup.setTitle(d.getTitle());
+        backup.setContent(d.getContent());
+        backup.setYjsState(d.getYjsState());
         backup.setEditorId(editorId);
         backup.setKind("RESTORE");
         backup.setCreatedAt(LocalDateTime.now());

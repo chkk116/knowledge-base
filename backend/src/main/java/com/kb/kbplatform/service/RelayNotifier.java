@@ -100,6 +100,11 @@ public class RelayNotifier {
      * 中继是定时落库的，后端直接读 yjs_state 存快照可能拿到几秒前的旧状态，
      * 版本快照于是「内容是上一版」——回滚后表现为正文列恢复了、协同内容还是旧的。
      * 同步等待，最多 2 秒；中继未启用/不可达返回 false，调用方按「库里的状态就是最新的」继续。
+     *
+     * ⚠️ 调用时机：必须在事务内**首次加载该文档实体之前**调用。实体一旦进了持久化上下文，
+     * 之后再 findById 只会拿到同一个旧实例（flush 成功了也读不到新状态）——要么把调用挪到
+     * 第一次 SELECT 之前，要么 flush 后 EntityManager.refresh。{@code snapshotSharedDoc} 与
+     * {@code restoreSharedDocVersion} 都已按这个顺序写。
      */
     public boolean flush(long shareId, long docId) {
         String body = "{\"shareId\":" + shareId + ",\"docId\":" + docId + "}";
@@ -113,7 +118,14 @@ public class RelayNotifier {
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             HttpResponse<Void> result = http.send(req, HttpResponse.BodyHandlers.discarding());
-            return result.statusCode() >= 200 && result.statusCode() < 300;
+            int sc = result.statusCode();
+            if (sc < 200 || sc >= 300) {
+                // 不能静默：密钥漂移(403) 或中继内部错(500) 会让每次快照都拿到旧状态，
+                // 现象是「偶发备份还是上一版」，日志里却查不到任何痕迹
+                log.warn("协作中继拒绝落库请求（HTTP {}），按数据库中现有协同状态存快照", sc);
+                return false;
+            }
+            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;

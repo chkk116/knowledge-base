@@ -113,11 +113,11 @@ public final class Perm {
         java.util.Set<String> have = new java.util.HashSet<>();
         for (String p : permissions.split(",")) {
             String code = p == null ? "" : p.trim().toUpperCase();
-            if (code.isEmpty()) continue;
-            if ("*".equals(code)) return true;            // 通配符 = 全部权限
-            if (DEMO_MODE.equals(code)) return false;      // 演示号永不提升
-            have.add(code);
+            if (!code.isEmpty()) have.add(code);
         }
+        // 演示标记先判：勾了 DEMO_MODE 的账号即使同时带通配符也不提升（与 TokenClaims.isAdmin 一致）
+        if (have.contains(DEMO_MODE)) return false;
+        if (have.contains("*")) return true;          // 通配符 = 全部权限
         return have.containsAll(ADMIN_PERM_SET);
     }
 }

@@ -168,7 +168,9 @@ public class AiQuestionService {
                     .map(SharedDocument::getId)
                     .toList();
             if (ids.isEmpty()) {
-                warnings.add("该空间没有可用文档，已改为仅按主题出题");
+                // 别写「已改为仅按主题出题」：调用方读到空材料会直接 400，根本没退到主题模式，
+                // 那句话会跟着 400 的文案一起返回，自相矛盾
+                warnings.add("该空间没有可用文档");
                 return;
             }
         }

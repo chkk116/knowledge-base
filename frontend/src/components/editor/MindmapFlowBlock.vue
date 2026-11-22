@@ -156,7 +156,6 @@
               <Handle type="target" :position="Position.Bottom" :id="HANDLE.bottomTarget" class="mm-handle mm-h-bottom" />
               <input
                 v-if="editingId === slotProps.id"
-                ref="editInput"
                 v-model="editText"
                 class="mm-edit"
                 @keydown="onInputKeyDown"
@@ -198,7 +197,6 @@ const {
 } = useVueFlow(flowId)
 
 const mapEl = ref(null)
-const editInput = ref(null)
 const editing = ref(false)
 const selectedId = ref(null)
 const editingId = ref(null)
@@ -978,15 +976,18 @@ watch(
 
 // 只读态键盘保护：焦点在 PM 且 NodeSelection 选中本块时，打字会删块——拦截
 const guardKey = (e) => {
-  if (editing.value) return   // 编辑态由容器拦截逻辑处理
   const ae = document.activeElement
-  // 焦点在导图画布上时，Ctrl+A 会被浏览器当成「全选整页」，把正文与画布一起选蓝（N45）
-  if (mapEl.value && ae && mapEl.value.contains(ae)
-      && (e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'a') {
+  const inMap = !!(mapEl.value && ae && mapEl.value.contains(ae))
+  // 焦点在导图画布（**含编辑态**）上时，Ctrl+A 会被浏览器当成「全选整页」，把正文与画布一起选蓝（N45）。
+  // 这段必须排在 `editing.value` 早退之前：编辑态 onMouseDown 也会把焦点落到画布上，早退掉就漏拦了。
+  // 唯一例外是焦点在节点编辑框里——那时 Ctrl+A 是用户真想全选自己那段文字。
+  const inTextInput = !!(ae && ae.closest && ae.closest('.mm-edit'))
+  if (inMap && !inTextInput && (e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'a') {
     e.preventDefault()
     e.stopImmediatePropagation()
     return
   }
+  if (editing.value) return   // 其余按键在编辑态交给容器处理
   if (!ae || !ae.closest || !ae.closest('.ProseMirror')) return
   try {
     const sel = props.editor.state.selection
