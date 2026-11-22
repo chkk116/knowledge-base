@@ -9,7 +9,7 @@
 //     生成后同样**先问要不要入库**，不擅自写题库。
 
 import { selfExamGenerate, selfExamBatchCreate } from '../api/training'
-import { listMyShares } from '../api/docShare'
+import { listMyShares, listShareDocs } from '../api/docShare'
 
 const TYPE_NAME = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }
 const TYPE_ALIAS = {
@@ -84,14 +84,23 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
     }
   }
 
-  // ---- DOC 模式：没指定空间就用最近可用的一个 ----
+  // ---- DOC 模式：没指定空间就挑一个「真的有文档」的空间 ----
+  // 之前直接取列表第一个：普通用户的第一个空间是注册时自动建的「我的空间」，通常是空的，
+  // 于是出题拿不到任何材料、只能凭主题瞎编（N1）。这里最多探 6 个空间，选第一篇有文档的。
   let shareId = args.shareId ? Number(args.shareId) : null
   if (sourceType === 'DOC' && !shareId) {
     try {
       const { data } = await listMyShares()
-      const first = (data || [])[0]
-      if (!first) return '出题失败：你还没有可用的知识库空间'
-      shareId = first.id
+      const spaces = (data || []).filter((s) => s && s.id)
+      if (!spaces.length) return '出题失败：你还没有可用的知识库空间'
+      shareId = spaces[0].id
+      for (const s of spaces.slice(0, 6)) {
+        try {
+          const r = await listShareDocs(s.id)
+          const docs = r?.data || []
+          if (docs.some((d) => d && !d.inbox)) { shareId = s.id; break }
+        } catch (e) { /* 单个空间读不到就跳过 */ }
+      }
     } catch (e) {
       return '出题失败：读取知识库空间出错'
     }

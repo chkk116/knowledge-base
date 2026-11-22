@@ -108,7 +108,8 @@ async function authorizeDocument(documentName, claims) {
     `SELECT u.enabled, u.token_version, u.role, u.avatar, u.display_name,
             d.owner_id AS doc_owner_id, s.owner_id AS space_owner_id, u.permissions AS user_permissions,
             COALESCE(d.yjs_rev, 0) AS yjs_rev,
-            dp.permission AS doc_permission, sp.permission AS space_permission
+            dp.permission AS doc_permission, sp.permission AS space_permission,
+            sp.user_id AS space_member_id
        FROM kb_shared_document d
        JOIN kb_doc_share s ON s.id = d.share_id
        JOIN kb_user u ON u.id = $1
@@ -123,9 +124,20 @@ async function authorizeDocument(documentName, claims) {
   const perms = String(row.user_permissions || '')
   // 与 REST 的 isAdmin() 同一语义的最小对齐：role=ADMIN，或权限串含通配 *（=全部权限）
   const isAdminLike = row.role === 'ADMIN' || perms.split(',').some((x) => x.trim() === '*')
+  const isSpaceOwner = Number(row.space_owner_id) === claims.userId
+  const isDocOwner = Number(row.doc_owner_id) === claims.userId
+  const isSpaceMember = Number(row.space_member_id) === claims.userId
+  // 空间成员是网关（N36）：被移出空间后，残留的文档级授权行不能继续放行。
+  // 此前只比对 doc_permission/space_permission，文档级授权可以绕过「已不是空间成员」这件事，
+  // 表现为 REST 拒绝、中继却还能连上并写协同状态。
+  if (!isAdminLike && !isSpaceOwner && !isDocOwner && !isSpaceMember) {
+    console.warn('[collab] deny(not space member)', JSON.stringify({
+      shareId, docId, userId: claims.userId, docPerm: row.doc_permission, spacePerm: row.space_permission,
+    }))
+    throw new Error('forbidden')
+  }
   let permission
-  if (isAdminLike || Number(row.space_owner_id) === claims.userId
-      || Number(row.doc_owner_id) === claims.userId) permission = 'OWNER'
+  if (isAdminLike || isSpaceOwner || isDocOwner) permission = 'OWNER'
   else permission = row.doc_permission ?? row.space_permission
   if (!READ_PERMISSIONS.has(permission)) {
     // 拒绝原因写清楚：所有者被拒基本只有一种可能——doc_owner_id 为空（历史数据），
@@ -243,6 +255,23 @@ async function persistAll() {
   if (tasks.length) await Promise.allSettled(tasks)
 }
 
+/**
+ * 立即落库指定文档房间（后端存版本快照前调用）。
+ *
+ * 背景：定时落库有间隔，后端读 kb_shared_document.yjs_state 存快照时可能是几秒前的旧状态，
+ * 版本里于是存的是「上一版协同态」——回滚后就出现「正文列已恢复、协同内容还是旧的」。
+ * 返回是否真的存在在线房间：没有在线连接时数据库本来就是最新的，后端直接快照即可。
+ */
+async function flushDocument(shareId, docId) {
+  const prefix = shareId + ':' + docId
+  let flushed = false
+  for (const [name, doc] of [...loadedDocs]) {
+    if (name !== prefix && !name.startsWith(prefix + ':')) continue
+    try { await persist(name, doc); flushed = true } catch (e) { console.error('[flush]', name, e.message) }
+  }
+  return flushed
+}
+
 const server = Server.configure({
   port: PORT,
   // 监听地址（Hocuspocus 的配置项名是 address，**不是** listen() 的 host；后者会被忽略）。
@@ -279,7 +308,9 @@ const server = Server.configure({
   // 通知只是复检信号，不把 payload.perm 当授权事实（通知乱序/重放不能恢复旧权限）。
   async onRequest({ request, response }) {
     const url = new URL(request.url, 'http://localhost')
-    if (url.pathname !== '/revoke' || request.method !== 'POST') return
+    // /revoke：权限变更后复检；/flush：后端保存版本前，要求把内存里的真实状态先落库
+    if (url.pathname !== '/revoke' && url.pathname !== '/flush') return
+    if (request.method !== 'POST') return
     const reply = (status, result) => {
       response.writeHead(status, { 'Content-Type': 'application/json' })
       response.end(JSON.stringify(result))
@@ -304,8 +335,19 @@ const server = Server.configure({
     let payload
     try { payload = JSON.parse(body) } catch (e) { payload = null }
     const shareId = Number(payload?.shareId)
-    const userId = Number(payload?.userId)
     const docId = payload?.docId == null ? null : Number(payload.docId)
+    if (url.pathname === '/flush') {
+      // 只需要文档身份：把该房间当前内存状态按代次 CAS 落库，供后端随后的版本快照使用
+      if (!Number.isSafeInteger(shareId) || shareId <= 0
+          || !Number.isSafeInteger(docId) || docId <= 0) {
+        reply(400, { error: 'invalid shareId/docId' })
+        throw null
+      }
+      const flushed = await flushDocument(shareId, docId)
+      reply(200, { ok: true, flushed })
+      throw null
+    }
+    const userId = Number(payload?.userId)
     if (![shareId, userId].every(n => Number.isSafeInteger(n) && n > 0)
         || (docId != null && (!Number.isSafeInteger(docId) || docId <= 0))) {
       reply(400, { error: 'invalid shareId/userId/docId' })

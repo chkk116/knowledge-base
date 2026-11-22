@@ -814,6 +814,13 @@ function onCaptureClick(e) {
   e.stopPropagation()
   e.preventDefault()
 }
+/** 菜单项显式跳转：不依赖 el-menu 的 router 模式。
+ *  实测过「首次点击要点两次」——菜单自带的 router 跳转偶发被这层 pointer/click 逻辑吞掉，
+ *  自己再兜一次；同一路径重复 push 是 no-op，不会产生两次导航。 */
+function goMenu(path) {
+  if (!path) return
+  if (route.path !== path) router.push(path)
+}
 function onMixedItemClick(it) {
   if (justDragged.value) return
   router.push(it.index)
@@ -1003,7 +1010,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                           :class="{ 'is-dragging': subDrag.group === m.index && subDrag.from === ci,
                                     'just-dropped': settleKey === 's:' + m.index + ':' + ci }"
                           :style="subStyle(ci)"
-                          @pointerdown.stop="onPressStart('sub', m.index, ci, $event)">
+                          @pointerdown.stop="onPressStart('sub', m.index, ci, $event)"
+                          @click="goMenu(c.index)">
               <MenuIcon :variant="prefs.state.menuIconStyle" :name="c.icon" :size="18" />
               <span>{{ c.title }}</span>
               <el-badge v-if="c.index === '/messages' && dmUnreadCount" :value="dmUnreadCount" :max="99" class="menu-dot" />
@@ -1013,7 +1021,8 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                         :class="{ 'is-dragging': dragFrom === i,
                                   'just-dropped': settleKey === 'p:' + i }"
                         :style="menuStyle(i)"
-                        @pointerdown="onPressStart('primary', '', i, $event)">
+                        @pointerdown="onPressStart('primary', '', i, $event)"
+                        @click="goMenu(m.index)">
             <MenuIcon :variant="prefs.state.menuIconStyle" :name="m.icon" :size="20" />
             <span>{{ m.title }}</span>
             <el-badge v-if="m.index === '/messages' && dmUnreadCount" :value="dmUnreadCount" :max="99" class="menu-dot" />

@@ -94,6 +94,35 @@ public class RelayNotifier {
         });
     }
 
+    /**
+     * 让中继立刻把某文档的当前协同状态落库（保存版本快照前调用）。
+     *
+     * 中继是定时落库的，后端直接读 yjs_state 存快照可能拿到几秒前的旧状态，
+     * 版本快照于是「内容是上一版」——回滚后表现为正文列恢复了、协同内容还是旧的。
+     * 同步等待，最多 2 秒；中继未启用/不可达返回 false，调用方按「库里的状态就是最新的」继续。
+     */
+    public boolean flush(long shareId, long docId) {
+        String body = "{\"shareId\":" + shareId + ",\"docId\":" + docId + "}";
+        String sign = hmac(body);
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(relayUrl + "/flush"))
+                    .timeout(Duration.ofSeconds(2))
+                    .header("Content-Type", "application/json")
+                    .header("X-KB-Relay-Sign", sign)
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<Void> result = http.send(req, HttpResponse.BodyHandlers.discarding());
+            return result.statusCode() >= 200 && result.statusCode() < 300;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            log.warn("协作中继落库请求未送达（{}），按数据库中现有协同状态存快照", e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     private String hmac(String body) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");

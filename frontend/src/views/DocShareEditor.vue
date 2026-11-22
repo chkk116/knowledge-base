@@ -196,7 +196,16 @@ const editor = useEditor({
   editorProps: {
     attributes: { class: 'kb-collab-body' },
   },
-  onUpdate: () => {
+  onUpdate: ({ transaction }) => {
+    // 远端同步进来的改动不算「本地未保存」：否则别人在编辑（或自己只是围观）时，
+    // 离开页面也会被「还有未同步的修改」拦住，刷新/等待都消不掉（N43）。
+    // y-prosemirror 给这类事务打了 y-sync$ 元数据；本地输入不经过它，撤销重做会带 isUndoRedoOperation。
+    const ys = transaction?.getMeta?.('y-sync$')
+    if (ys && ys.isChangeOrigin && !ys.isUndoRedoOperation) {
+      const t = editor.value?.getText() || ''
+      wordCount.value = t.replace(/\s/g, '').length
+      return
+    }
     dirty.value = true
     const text = editor.value?.getText() || ''
     wordCount.value = text.replace(/\s/g, '').length
@@ -228,6 +237,18 @@ const editor = useEditor({
 const statusText = computed(() => ({
   connected: '已连接', connecting: '连接中…', disconnected: '连接已断开',
 }[status.value] || status.value))
+
+// 保存状态（N50）：原来只有「已连接」，用户分不清「连接着」和「存下来了」
+const lastSavedAt = ref(0)
+const saveText = computed(() => {
+  if (!props.canWrite) return ''
+  if (saving.value) return '保存中…'
+  if (dirty.value) return '有未保存修改'
+  if (!lastSavedAt.value) return ''
+  const d = new Date(lastSavedAt.value)
+  const p = (n) => String(n).padStart(2, '0')
+  return '已保存 ' + p(d.getHours()) + ':' + p(d.getMinutes())
+})
 
 // ---------- 工具栏 ----------
 function cmd(name) {
@@ -289,6 +310,7 @@ async function saveSnapshot(silent = false) {
       baseRev: props.revision || 0,
     })
     dirty.value = false
+    lastSavedAt.value = Date.now()
     if (!silent) ElMessage.success('已保存快照')
   } catch (e) {
     if (!silent) ElMessage.error(errMsg(e, '保存失败'))
@@ -635,6 +657,7 @@ defineExpose({ insertMention })
         <span class="conn" :class="status">
           <span class="dot" />{{ statusText }}
         </span>
+        <span v-if="saveText" class="save-state" :class="{ dirty }">{{ saveText }}</span>
       </div>
     </div>
 
@@ -759,6 +782,8 @@ defineExpose({ insertMention })
 .peer-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .peer.more { background: #94a3b8; font-size: 10.5px; }
 .conn { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #64748b; white-space: nowrap; }
+.save-state { font-size: 12.5px; color: #94a3b8; white-space: nowrap; }
+.save-state.dirty { color: #d97706; }
 .conn .dot { width: 7px; height: 7px; border-radius: 50%; }
 .conn.connected .dot { background: #10b981; }
 .conn.connecting .dot { background: #f59e0b; }

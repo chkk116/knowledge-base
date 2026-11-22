@@ -1468,6 +1468,10 @@ public class DocShareService {
     /** 手动保存当前文档状态为一份版本快照（标题 / 正文 / 协同态） */
     @Transactional(rollbackFor = Exception.class)
     public void snapshotSharedDoc(Long shareId, Long docId, Long editorId, boolean sysAdmin) {
+        // 先让中继把内存里的最新协同态落库，再读 yjs_state 存快照。
+        // 中继是定时落库的，直接读会拿到几秒前的旧状态——回滚后才出现「正文列恢复了、协同内容还是旧的」（N23/N56）。
+        // 必须排在 getDoc 之前：一旦实体进了持久化上下文，后面的查询只会返回旧值。
+        relayNotifier.flush(shareId, docId);
         getDoc(shareId, docId, editorId, sysAdmin); // 校验可读
         SharedDocument d = docRepo.findByIdAndShareId(docId, shareId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
@@ -1503,11 +1507,14 @@ public class DocShareService {
         // 回滚前先把「当前内容」留一档，并标记 RESTORE：
         // 既不会出现「回滚后再也找不回刚才的内容」，也不会像早期实现那样把版本列表刷满
         // （前端对该类条目标注「回滚前备份」，不影响正常历史浏览）
+        // 先让中继落库，保证这份备份是真实当前状态而不是几秒前的旧快照
+        relayNotifier.flush(shareId, docId);
+        SharedDocument fresh = docRepo.findByIdAndShareId(docId, shareId).orElse(d);
         SharedDocVersion backup = new SharedDocVersion();
         backup.setSharedDocId(docId);
-        backup.setTitle(d.getTitle());
-        backup.setContent(d.getContent());
-        backup.setYjsState(d.getYjsState());
+        backup.setTitle(fresh.getTitle());
+        backup.setContent(fresh.getContent());
+        backup.setYjsState(fresh.getYjsState());
         backup.setEditorId(editorId);
         backup.setKind("RESTORE");
         backup.setCreatedAt(LocalDateTime.now());
@@ -1515,7 +1522,15 @@ public class DocShareService {
 
         d.setTitle(v.getTitle());
         d.setContent(v.getContent());
-        d.setYjsState(v.getYjsState());   // 写回 Yjs 状态；协同端重连后 onLoadDocument 会加载此状态
+        // 只覆盖有协同快照的版本：老版本（未开协同时期的快照）yjs_state 为空，
+        // 直接写 null 会让协同端加载到空文档、整篇内容凭空消失。宁可正文与协同态不同步，
+        // 也不能把文档清空——文本层有 RESTORE 备份可回退。
+        boolean hasYjs = v.getYjsState() != null && v.getYjsState().length > 0;
+        if (hasYjs) {
+            d.setYjsState(v.getYjsState());
+        } else {
+            log.warn("版本 {} 没有协同快照，仅恢复正文，协同态保持当前内容", vid);
+        }
         // 代次自增（F05）：中继若仍持有旧内存快照，落库时会因代次失配而丢弃并强制重载，
         // 不会在「已提示恢复成功」之后又把历史内容覆盖回旧版本。
         d.setYjsRev(d.getYjsRev() + 1);

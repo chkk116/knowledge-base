@@ -1010,9 +1010,11 @@ html.dark .fci-row input[type="color"] { background: #26283a; border-color: #3b3
   font-weight: 700; color: #64748b; line-height: 1;
 }
 .kb-fc-btn.help.on { background: #e0f2fe; border-color: #7dd3fc; color: #0284c7; }
-/* 使用说明面板（按钮触发，默认收起） */
+/* 使用说明面板（按钮触发，默认收起）。
+   原来也在右上角，关闭用的 × 正好被 210px 宽的属性面板压住，点不到（N48）。
+   改走中上位置：左右两侧分别被图形栏和属性面板占着，中间是空的。 */
 .kb-fc-help {
-  position: absolute; right: 10px; top: 42px; z-index: 8;
+  position: absolute; left: 50%; transform: translateX(-50%); top: 42px; z-index: 8;
   width: 320px; max-width: calc(100% - 20px);
   background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
   box-shadow: 0 8px 22px rgba(15, 23, 42, .12);

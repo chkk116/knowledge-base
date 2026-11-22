@@ -111,7 +111,16 @@ public class AiQuestionService {
         StringBuilder ctx = new StringBuilder();
 
         switch (sourceType) {
-            case "DOC" -> collectDocs(req, userId, sysAdmin, ctx, materials, warnings);
+            case "DOC" -> {
+                collectDocs(req, userId, sysAdmin, ctx, materials, warnings);
+                // 一篇材料都没读到就不要再往下走：否则会拿空资料生成一组「凭常识瞎编」的题，
+                // 前端看着成功、materials 却是空的（N1）。明确报错让用户换空间/补正文。
+                if (materials.isEmpty()) {
+                    String hint = warnings.isEmpty() ? "" : "（" + String.join("；", warnings) + "）";
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "所选空间没有可用正文的文档" + (hint.length() > 160 ? hint.substring(0, 160) + "…）" : hint));
+                }
+            }
             case "WEB" -> collectWeb(urls, ctx, materials, warnings);
             default -> { /* AI：不附资料 */ }
         }

@@ -15,6 +15,16 @@ export async function snapshotDiagramImages(editor) {
   const blocks = [...root.querySelectorAll(DIAGRAM_SEL)]
   const rendered = await Promise.all(blocks.map(async (el, i) => {
     try {
+      // 电子表格块是 canvas 渲染的：html-to-image 克隆 DOM 拿不到画布像素，只会产出空白图，
+      // 于是 content 列（公开链接 / App 阅读 / 导出）里表格是空的（N52）。有 canvas 就直接取像素。
+      const canvas = el.querySelector('canvas')
+      if (canvas && canvas.width > 1 && canvas.height > 1) {
+        try {
+          const url = canvas.toDataURL('image/png')
+          // 纯白/全透明的 canvas 也只是一小段 base64，太短的视为没画出来，退回 DOM 截图
+          if (url && url.length > 2048) return url
+        } catch (e) { /* 画布被污染或尺寸异常，退回 DOM 截图 */ }
+      }
       return await toSvg(el, { backgroundColor: '#ffffff', cacheBust: true })
     } catch (e) {
       // 单块失败不影响其它块，保留原 div；但失败要可诊断

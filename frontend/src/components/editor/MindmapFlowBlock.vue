@@ -730,8 +730,11 @@ function startEdit(id) {
   editingId.value = id
   editText.value = node.data?.label ?? ''
   nextTick(() => {
-    editInput.value?.focus()
-    editInput.value?.select()
+    // 输入框在节点的插槽里，模板 ref 在多节点下拿到的是数组（甚至拿不到），
+    // 用 ref?.focus() 常常静默失败 → 新建节点后直接打字全丢失（N45）。按节点 id 查 DOM 更可靠。
+    const scope = mapEl.value
+    const el = (scope && scope.querySelector('[data-id="' + id + '"] .mm-edit')) || scope?.querySelector('.mm-edit')
+    if (el) { el.focus(); el.select?.() }
   })
 }
 function commitEdit(id) {
@@ -977,6 +980,13 @@ watch(
 const guardKey = (e) => {
   if (editing.value) return   // 编辑态由容器拦截逻辑处理
   const ae = document.activeElement
+  // 焦点在导图画布上时，Ctrl+A 会被浏览器当成「全选整页」，把正文与画布一起选蓝（N45）
+  if (mapEl.value && ae && mapEl.value.contains(ae)
+      && (e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'a') {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    return
+  }
   if (!ae || !ae.closest || !ae.closest('.ProseMirror')) return
   try {
     const sel = props.editor.state.selection

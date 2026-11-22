@@ -144,6 +144,14 @@ public class ExamService {
                 .toList();
         for (ExamRecord old : inProgress) {
             if (!expired(old)) return old;
+            // 答案只在交卷时落库，进行中的记录必然一题未答：直接作废，不要结算成 0 分。
+            // 结算会在「重新开始同一份试卷」时凭空多出一条 0 分未及格记录（N2/N57），
+            // 还白占十次上限里的一次；作废后用户可以正常重考。
+            // 真有作答痕迹（历史版本可能边答边存）才走超时结算，保证不丢已判分的成绩。
+            if (answerRepo.findByRecordId(old.getId()).isEmpty()) {
+                recordRepo.delete(old);
+                continue;
+            }
             settleExpired(old);
         }
         // 考试次数上限（外部审查 2026-10-11）：同一试卷不限次重考可反复刷通过记录/积分，

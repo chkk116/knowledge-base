@@ -108,10 +108,10 @@ const load = async () => {
   await loadShare()
   await Promise.all([loadDocs(), loadMembers(), loadStorage()])
   if (!activeDoc.value) {
-    // 支持 ?doc=<文档id> 深链：从导入页「打开文档」跳进来时，直接定位到那篇文档；
-    // 无深链或文档不存在（已删除/无权限）则回退打开列表第一篇
+    // 支持 ?doc=<文档id> 深链：从导入页「打开文档」跳进来时，直接定位到那篇文档。
+    // 没有深链就停在列表页——此前无条件打开第一篇，用户永远回不到「没打开任何文档」的状态（N51）。
     const want = Number(route.query.doc)
-    const target = (want && docs.value.find(d => d.id === want)) || docs.value[0]
+    const target = want ? docs.value.find(d => d.id === want) : null
     if (target) selectDoc(target)
   }
   loading.value = false
@@ -301,7 +301,8 @@ async function saveAsTemplate(d) {
 
 const createDoc = async (kind = 'doc') => {
   if (kind === 'template') { openTemplate(); return }
-  if (!canWrite.value) return
+  // 只读时不能默默 return：点了没反应会被当成坏按钮（N44）
+  if (!canWrite.value) { ElMessage.warning('你对这个空间只读，无法新建文档'); return }
   const seed = DOC_SEEDS[kind] || DOC_SEEDS.doc
   try {
     const { data } = await createShareDoc(shareId.value, { title: seed.title, content: seed.content })
@@ -785,7 +786,11 @@ async function copyPubUrl() {
                 新建 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
               </el-button>
               <template #dropdown>
-                <el-dropdown-menu>
+                <!-- 菜单挂在 body 上，但 mousedown 仍会冒到 document：表格块（x-data-spreadsheet）
+                     和导图/流程图（Vue Flow）都在 document 上拦 mousedown 保焦点，
+                     会把「点菜单项」这一步吞掉——表现为菜单关掉了却什么都没发生（N44）。
+                     这里止住冒泡，让 Element Plus 的 click 正常触发。 -->
+                <el-dropdown-menu @mousedown.stop @pointerdown.stop>
                   <el-dropdown-item command="doc"><el-icon><Document /></el-icon> 空白文档</el-dropdown-item>
                   <el-dropdown-item command="sheet"><el-icon><Grid /></el-icon> 电子表格</el-dropdown-item>
                   <el-dropdown-item command="mindmap"><el-icon><Share /></el-icon> 思维导图</el-dropdown-item>
