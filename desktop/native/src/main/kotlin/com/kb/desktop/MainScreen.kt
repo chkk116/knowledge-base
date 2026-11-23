@@ -810,6 +810,11 @@ private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
     // 本地数据：图片缓存条数（内存态）与操作结果提示
     var imgCacheCount by remember { mutableStateOf(docImageCacheSize()) }
     var localMsg by remember { mutableStateOf("") }
+    // 应用内更新：下载进度 / 结果提示
+    var downloading by remember { mutableStateOf(false) }
+    var dlProgress by remember { mutableStateOf(0f) }
+    var dlText by remember { mutableStateOf("") }
+    var updateMsg by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(26.dp)) {
         Text("设置", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
@@ -868,11 +873,87 @@ private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
                         }
                         Spacer(Modifier.height(10.dp))
                         if (r.url.isNotBlank()) {
-                            Button(
-                                onClick = { openInBrowser(session.server, r.url) },
-                                shape = RoundedCornerShape(9.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = KbPrimary, contentColor = Color.White),
-                            ) { Text("下载更新", fontSize = 13.sp) }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = {
+                                        if (downloading) return@Button
+                                        downloading = true
+                                        dlProgress = 0f
+                                        dlText = ""
+                                        updateMsg = ""
+                                        scope.launch {
+                                            try {
+                                                val name = "kb-desktop-" + r.versionName + "-setup.exe"
+                                                // url 可能是相对路径（nginx 代理 /kb/app-release/…），补成绝对地址
+                                                val fullUrl = if (r.url.startsWith("http")) r.url else session.server.trimEnd('/') + "/" + r.url.trimStart('/')
+                                                val file = KbUpdater.download(fullUrl, name) { got, total ->
+                                                    if (total > 0) dlProgress = (got.toFloat() / total).coerceIn(0f, 1f)
+                                                    dlText = fmtMb(got) + if (total > 0) " / " + fmtMb(total) else ""
+                                                }
+                                                val sum = r.checksum.trim()
+                                                if (sum.length >= 32) {
+                                                    val actual = KbUpdater.sha256(file)
+                                                    if (!actual.equals(sum, ignoreCase = true)) {
+                                                        runCatching { java.nio.file.Files.delete(file) }
+                                                        updateMsg = "安装包校验失败（SHA-256 不一致），已删除，请重试或手动下载"
+                                                        return@launch
+                                                    }
+                                                }
+                                                updateMsg = "下载完成，正在启动安装程序…应用会自动关闭并在安装后重启"
+                                                if (!KbUpdater.launchApplyScript(file)) {
+                                                    updateMsg = "无法启动安装程序，请手动运行：" + file.toAbsolutePath()
+                                                } else {
+                                                    // 给批处理 1.2s 起跳再退出，安装器接管后再覆盖文件
+                                                    kotlinx.coroutines.delay(1200)
+                                                    kotlin.system.exitProcess(0)
+                                                }
+                                            } catch (e: Exception) {
+                                                updateMsg = "更新失败：" + (e.message ?: "未知错误")
+                                            } finally {
+                                                downloading = false
+                                            }
+                                        }
+                                    },
+                                    enabled = !downloading,
+                                    shape = RoundedCornerShape(9.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = KbPrimary, contentColor = Color.White),
+                                ) { Text(if (downloading) "下载中…" else "下载并安装", fontSize = 13.sp) }
+                                Button(
+                                    onClick = { openInBrowser(session.server, r.url) },
+                                    enabled = !downloading,
+                                    shape = RoundedCornerShape(9.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFF3F4F6),
+                                        contentColor = KbTextMain,
+                                    ),
+                                ) { Text("手动下载", fontSize = 13.sp) }
+                            }
+                            if (downloading) {
+                                Spacer(Modifier.height(8.dp))
+                                androidx.compose.material3.LinearProgressIndicator(
+                                    progress = { dlProgress },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                if (dlText.isNotBlank()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(dlText, fontSize = 11.sp, color = KbTextSub)
+                                }
+                            }
+                            if (updateMsg.isNotBlank()) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    updateMsg,
+                                    fontSize = 12.sp,
+                                    color = if (updateMsg.startsWith("更新失败") || updateMsg.contains("校验失败")) Color(0xFFDC2626)
+                                    else Color(0xFF059669),
+                                )
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "应用内更新：下载后静默覆盖安装并自动重启（安装目录、设置与本地数据不变）",
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                            )
                         } else {
                             Text("安装包尚未上传，请联系管理员", fontSize = 12.sp, color = KbTextSub)
                         }
@@ -1976,4 +2057,10 @@ private fun BrandGlyphMini(tint: Color, modifier: Modifier) {
         drawPath(path, tint, style = Stroke(width = s * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         drawLine(tint, Offset(s * 0.08f, s * 0.98f), Offset(s * 0.94f, s * 0.98f), s * 0.08f, StrokeCap.Round)
     }
+}
+
+/** 字节 → MB 文本（应用内更新下载进度用） */
+private fun fmtMb(bytes: Long): String {
+    val mb = bytes.toDouble() / (1024.0 * 1024.0)
+    return String.format("%.1f MB", mb)
 }

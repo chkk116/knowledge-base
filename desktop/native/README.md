@@ -355,6 +355,29 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
   该值只存在于发版命令/云端配置，仓库内是示例占位；不注入打出的包会连到示例地址
 - 版本号独立于 Web 端（`package.json`/`changelog.js` 是 Web 的，别混）
 
+## 应用内更新（2026-11-22，Updater.kt）
+
+原来「下载更新」只是 `openInBrowser` 跳浏览器。现在设置页「下载并安装」在本应用内完成：
+1. `KbUpdater.download(url, name)` 用 JDK HttpClient 流式下载到 `%LOCALAPPDATA%\kb-desktop\updates`，界面显示进度（MB + 进度条）；
+   相对 `url`（nginx 代理的 `/kb/app-release/…`）会自动补成 `server + url`。
+2. `checksum` 非空时用 `KbUpdater.sha256(file)` 与后端 `app_version_desktop.checksum` 比对，不一致直接删包并提示。
+3. 写一个 `apply-update.cmd`：`timeout 2s`（等主程序释放文件）→ `start /wait <setup> /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`
+   → `start <自身 exe>` → `del %~f0`；用 `cmd /c start /min` 最小化启动。
+4. 应用 `exitProcess(0)`，安装器静默**覆盖**同目录（`AppId` 固定、`PrivilegesRequired=lowest`、`DefaultDirName={localappdata}`），
+   装完由脚本拉起新版，设置/本地数据不动。开发态（`java.exe`）不自动重启，只提示安装包路径。
+保留「手动下载」按钮作为兜底（比如校验失败或环境拦截 cmd）。
+
+## 看板图表（2026-11-22，DashboardCharts.kt）
+
+`/api/admin/stats` 除键值外还带 `trendLabels / docTrend7 / userTrend7 / commentTrend7 / topDocs / topUsers / activities`。
+桌面端新增 `ApiClient.adminStatsJson()`（保留数组与数字）与 `DashboardCharts.kt`（**Compose Canvas 自绘，不引图表库**）：
+- `StatTile`：渐变图标块 + 大数字（文章/用户/评论/浏览 四卡）；
+- `DonutChart`：文档状态环形（已发布/待审核/草稿/已封禁，右侧图例带数值）；
+- `BarChart`：互动总量柱状（评论/点赞/收藏/通知，圆角渐变柱 + 柱顶数值）；
+- `LineChart`：近 7 日趋势折线（文档/用户/评论三线 + 网格 + 图例 + 轴标签用 Compose 排版）；
+- 「热门文档 Top5」「最近动态 Top6」「其余指标」三块卡片。
+文字全部用 Compose 排版（不在 Canvas 里画文本，避免 TextMeasurer 跨版本问题）。
+
 ## 视觉精修（2026-11-22，UiKit.kt）
 
 新建 `UiKit.kt`（桌面轻量组件套，对标 Web 端观感，只做视觉）：

@@ -1349,6 +1349,15 @@ class ApiClient(private val base: String) {
     }
 
     /** GET /api/admin/stats → 看板聚合（键值平铺，前端按需展示） */
+    /**
+     * GET /api/admin/stats → 原始 JSON（看板图表用）。
+     * 与 [adminStats] 的区别：这里保留数组（trendLabels/docTrend7/userTrend7/commentTrend7）与数字类型，
+     * 供环形/柱状/折线图直接消费；[adminStats] 仍保留给「键值列表」式的旧调用方。
+     */
+    suspend fun adminStatsJson(token: String): JsonObject = withContext(Dispatchers.IO) {
+        parse(getAuth("/api/admin/stats", token)) ?: JsonObject(emptyMap())
+    }
+
     suspend fun adminStats(token: String): Map<String, String> = withContext(Dispatchers.IO) {
         val o = parse(getAuth("/api/admin/stats", token)) ?: return@withContext emptyMap()
         val out = LinkedHashMap<String, String>()
