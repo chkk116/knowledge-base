@@ -420,6 +420,9 @@ fun SharesPanel(session: Session) {
             val d = detail
             val editSid = docShareId
             val editDid = docId
+            // 切换文档就退出编辑态：editorUrl 里带着 docId，remember 会把 WebView 整体重建、
+            // 悄悄换成新文档，用户以为还在编辑原来那篇；文档被删（id 归 0）时也不该留着编辑器
+            LaunchedEffect(editSid, editDid) { showEditor = false }
             if (showEditor && editSid != null && editSid > 0 && editDid != null) {
                 ShareWebEditor(
                     session = session,
@@ -456,7 +459,7 @@ fun SharesPanel(session: Session) {
                     onOpenShare = { showShareLink = true },
                     onOpenPerm = { showDocPerm = true },
                     onOpenOrganize = { showOrganize = true },
-                    onOpenEditor = if (d.myPerm.orEmpty().uppercase().let { it == "WRITE" || it == "ADMIN" || it == "OWNER" })
+                    onOpenEditor = if (isEditablePerm(d.myPerm))
                         { { showEditor = true } } else null,
                     onOpenInBrowser = {
                         val sid = docShareId
@@ -1098,6 +1101,11 @@ private fun permLabel(perm: String): String = when (perm.uppercase()) {
     "READ", "VIEW" -> "只读"
     else -> perm.lowercase()
 }
+
+/** 能否改这篇文档（决定是否露出「编辑（协同）」）。与 permLabel 的可编辑口径共用一处，
+ *  免得出现「标签写着可编辑、按钮却不给点」这种自相矛盾（服务端历史值里有 EDIT，前端也要认）。 */
+private fun isEditablePerm(perm: String?): Boolean =
+    perm.orEmpty().uppercase().let { it == "WRITE" || it == "EDIT" || it == "ADMIN" || it == "OWNER" }
 
 private val SHARED_TAG_SEP = Regex("[,，、;；\\s]+")
 
@@ -2377,10 +2385,13 @@ private fun CapacityRequestDialog(
 /**
  * 内嵌协同编辑（真协同）：用系统 WebView2 打开 Web 端共享文档编辑器。
  *
- * 登录态**不靠注入 localStorage**，也不走 /sso 中间页：把令牌拼进目标 URL
- * （`?doc=..&__kb_token=..`），由前端入口 `main.js` 的 `adoptIncomingToken()` 在
- * 路由守卫首次导航之前写进 localStorage，并立刻 `replaceState` 抹掉地址栏参数。
+ * 登录态**不靠注入 localStorage**，也不走 /sso 中间页：把令牌拼进目标地址的 hash
+ * （`#__kb_token=..`），由前端入口 `main.js` 的 `adoptIncomingToken()` 在路由守卫
+ * 首次导航之前写进 localStorage，并立刻 `replaceState` 抹掉 hash。
  * 这样一次导航直达，没有「页面先跑、守卫已跳登录」的竞态。
+ *
+ * 令牌**必须放 hash 不放查询串**：查询串会随 HTML 请求进服务器 access log，也会出现在
+ * 子资源 Referer 里；hash 既不发给服务端、也不进 Referer。
  *
  * 前端版本过旧（不认识该参数）会停在 /login：检测到后自动退回 `/sso?token=` 回调通道。
  */
@@ -2391,12 +2402,23 @@ private fun ShareWebEditor(
     docId: Long,
     onExit: () -> Unit,
 ) {
+    // 没有 WebView2 运行时的话这里会是一块空白面板，连原因都看不出来（文件预览那边已有同款检测）
+    if (!hasWebView2Runtime()) {
+        ShareHint("内嵌编辑需要 WebView2 运行时\n可先点「浏览器打开」在系统浏览器里编辑，或安装 WebView2 后重试", glyph = "⚠")
+        return
+    }
     val server = session.server.trimEnd('/')
     val editorPath = "/doc-shares/$shareId?doc=$docId"
     val token = java.net.URLEncoder.encode(session.token, "UTF-8")
-    val editorUrl = "$server$editorPath&__kb_token=$token"
+    val editorUrl = "$server$editorPath#__kb_token=$token"
     val ssoUrl = "$server/sso?token=$token"
-    val state = remember(editorUrl) { WebViewState(WebContent.Url(editorUrl)) }
+    val state = remember(editorUrl) {
+        WebViewState(WebContent.Url(editorUrl)).apply {
+            // 令牌会被前端写进这个 WebView 的 localStorage：用匿名档案，进程退出即丢，
+            // 不落进与文件预览共用的那份档案（否则退出编辑后仍能从 user-data 目录读出来）
+            webSettings.desktopWebSettings.incognito = true
+        }
+    }
     var triedSso by remember(editorUrl) { mutableStateOf(false) }
 
     // 兜底探测：旧前端不认识 __kb_token → 路由守卫落到 /login。命中即改走 SSO 回调。

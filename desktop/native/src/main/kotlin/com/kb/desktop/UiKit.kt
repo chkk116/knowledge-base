@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -390,7 +392,11 @@ fun KbDialog(
                 Spacer(Modifier.height(10.dp))
                 HorizontalRule()
                 Spacer(Modifier.height(12.dp))
-                Box(Modifier.fillMaxWidth().heightIn(max = 560.dp)) { text?.invoke() }
+                // 限高之外还要能滚：超长表单直接 overflow 会压住下面的按钮，末尾字段永远点不到
+                Box(
+                    Modifier.fillMaxWidth().heightIn(max = 560.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) { text?.invoke() }
                 if (dismissButton != null || confirmButton !== EMPTY_CONTENT) {
                     Spacer(Modifier.height(12.dp))
                     HorizontalRule()
@@ -483,6 +489,9 @@ fun KbPager(
     sizeOptions: List<Int> = listOf(20, 50, 100),
 ) {
     val pages = if (size <= 0) 1 else (((total + size - 1) / size).toInt()).coerceAtLeast(1)
+    // 总条数变少（删了最后一条 / 刷新后结果变短）时调用方未必把 page 夹回来：
+    // 这时页码窗口里没有高亮项，「‹」还会一路点着往外减。渲染与翻页都以夹紧后的值为准。
+    val pageNow = page.coerceIn(0, pages - 1)
     Row(
         modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -496,24 +505,24 @@ fun KbPager(
             }
             Spacer(Modifier.width(6.dp))
         }
-        KbPagerCell("‹", enabled = page > 0) { onPage(page - 1) }
+        KbPagerCell("‹", enabled = pageNow > 0) { onPage(pageNow - 1) }
         Spacer(Modifier.width(4.dp))
         // 页码窗口：当前页居中，最多 5 个，两端用省略号 + 首末页补齐
-        val start = minOf((page - 2).coerceAtLeast(0), (pages - 5).coerceAtLeast(0))
+        val start = minOf((pageNow - 2).coerceAtLeast(0), (pages - 5).coerceAtLeast(0))
         val end = minOf(start + 4, pages - 1)
         if (start > 0) {
             KbPagerCell("1") { onPage(0) }
             if (start > 1) Text("…", fontSize = 11.sp, color = KbTextSub, modifier = Modifier.padding(horizontal = 4.dp))
         }
         for (p in start..end) {
-            KbPagerCell("${p + 1}", active = p == page) { onPage(p) }
+            KbPagerCell("${p + 1}", active = p == pageNow) { onPage(p) }
         }
         if (end < pages - 1) {
             if (end < pages - 2) Text("…", fontSize = 11.sp, color = KbTextSub, modifier = Modifier.padding(horizontal = 4.dp))
             KbPagerCell("$pages") { onPage(pages - 1) }
         }
         Spacer(Modifier.width(4.dp))
-        KbPagerCell("›", enabled = page < pages - 1) { onPage(page + 1) }
+        KbPagerCell("›", enabled = pageNow < pages - 1) { onPage(pageNow + 1) }
     }
 }
 

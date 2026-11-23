@@ -1112,12 +1112,10 @@ private fun CommentRow(
             if (parts.isEmpty()) {
                 Text(c.content, fontSize = 12.5.sp, lineHeight = 19.sp, color = Color(0xFF374151))
             } else {
-                Column {
-                    SelectionContainer {
+                SelectionContainer {
                     Column {
                         for (b in parts) DocBlockView(b, server = server, Modifier.fillMaxWidth())
                     }
-                }
                 }
             }
         }

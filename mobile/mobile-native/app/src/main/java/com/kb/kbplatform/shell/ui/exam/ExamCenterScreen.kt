@@ -37,7 +37,7 @@ import com.kb.kbplatform.shell.data.KbApi
 import com.kb.kbplatform.shell.data.objects
 import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.CenterHint
-import com.kb.kbplatform.shell.ui.common.KbSkeletonList
+import com.kb.kbplatform.shell.ui.common.KbSkeletonPage
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
 import org.json.JSONObject
@@ -79,7 +79,7 @@ fun ExamCenterScreen(openExam: (Long, String) -> Unit, openWeb: (String, String)
         }
 
         if (loading) {
-            KbSkeletonList(count = 6)
+            KbSkeletonPage(count = 6)
         } else if (error.isNotEmpty()) {
             CenterHint(error)
         } else {

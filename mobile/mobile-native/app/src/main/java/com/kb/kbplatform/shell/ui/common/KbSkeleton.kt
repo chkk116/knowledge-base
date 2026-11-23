@@ -11,15 +11,19 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -229,6 +233,27 @@ fun KbSkeletonHome(modifier: Modifier = Modifier, shimmer: Boolean = true) {
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 页面级骨架屏：放进不可滚动的页面 Column 里用（管理台 / 考试中心 / 邮箱列表）。
+ *
+ * 直接写 KbSkeletonList 有两个问题：页面 Column 本身不滚，6 张卡在 640dp 的机器上会被屏幕
+ * 裁掉最后两张；平板宽屏上列表按 widthIn(720) 居中，骨架屏却铺满全宽，替换瞬间会跳一下。
+ * 这里统一 weight + 滚动 + 限宽。
+ */
+@Composable
+fun ColumnScope.KbSkeletonPage(count: Int = 6, maxWidth: androidx.compose.ui.unit.Dp = 720.dp) {
+    Box(
+        Modifier
+            .weight(1f)
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+    ) {
+        Box(Modifier.fillMaxWidth().widthIn(max = maxWidth)) {
+            KbSkeletonList(count = count)
         }
     }
 }

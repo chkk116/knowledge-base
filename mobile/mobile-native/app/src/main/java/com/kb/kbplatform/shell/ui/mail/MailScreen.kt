@@ -39,8 +39,7 @@ import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.KbChip
 import com.kb.kbplatform.shell.ui.common.KbEmpty
 import com.kb.kbplatform.shell.ui.common.KbError
-import com.kb.kbplatform.shell.ui.common.KbLoading
-import com.kb.kbplatform.shell.ui.common.KbSkeletonList
+import com.kb.kbplatform.shell.ui.common.KbSkeletonPage
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
 import com.kb.kbplatform.shell.ui.theme.KbBlue
@@ -236,7 +235,7 @@ fun MailScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(4.dp))
         when {
-            loading -> KbLoading()
+            loading -> KbSkeletonPage(count = 6)
             err.isNotEmpty() -> KbError("邮件加载失败：$err", onRetry = { tick++ })
             items.isEmpty() -> KbEmpty(
                 "📭",
@@ -412,7 +411,8 @@ private fun MailDetail(
             androidx.compose.material3.HorizontalDivider()
             Spacer(Modifier.height(12.dp))
             when {
-                loading -> KbSkeletonList(count = 5)
+                // 正文加载不是列表形状：这里用文字提示，别拿卡片骨架屏（加载完会整块跳变，还会多出一层横向内边距）
+                loading -> Text("正文加载中…", fontSize = 13.sp, color = KbTextDim)
                 err.isNotEmpty() -> Text("正文加载失败：$err", fontSize = 13.sp, color = KbRed)
                 body.isBlank() -> Text("（这封邮件没有可显示的正文）", fontSize = 13.sp, color = KbTextDim)
                 else -> Text(body, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -30,8 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * 看板图表（Compose Canvas 自绘，不引图表库）。
@@ -54,7 +52,7 @@ internal fun StatTile(
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(34.dp).clip(RoundedCornerShape(10.dp))
-                    .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(tint.first, tint.second))),
+                    .background(Brush.linearGradient(listOf(tint.first, tint.second))),
                 contentAlignment = Alignment.Center,
             ) { Text(glyph, fontSize = 15.sp, color = Color.White) }
             Spacer(Modifier.width(10.dp))
@@ -98,11 +96,13 @@ internal fun DonutChart(
                             val sweep = 360f * v / total
                             drawArc(
                                 color = c,
-                                startAngle = start + 1.5f, sweepAngle = (sweep - 3f).coerceAtLeast(1f),
+                                startAngle = start + 1.5f, sweepAngle = (sweep - 3f).coerceAtLeast(0.4f),
                                 useCenter = false,
+                                // Butt 而不是 Round：圆头会让 1/1000 这种极小分段画出远超真实占比的弧长，
+                                // 还会压到相邻分段上，把「待审核/草稿」这类稀有类目画大
                                 topLeft = Offset(inset, inset),
                                 size = Size(size.width - stroke, size.height - stroke),
-                                style = Stroke(width = stroke, cap = StrokeCap.Round),
+                                style = Stroke(width = stroke, cap = StrokeCap.Butt),
                             )
                             start += sweep
                         }
@@ -124,7 +124,7 @@ internal fun DonutChart(
                         }
                     }
                     Text(
-                        "合计 " + segments.sumOf { it.second },
+                        "合计 ${segments.sumOf { it.second }}",
                         fontSize = 10.5.sp,
                         color = KbTextSub,
                     )
@@ -143,6 +143,9 @@ internal fun BarChart(
     modifier: Modifier = Modifier,
 ) {
     val maxV = (items.maxOfOrNull { it.second } ?: 0).coerceAtLeast(1)
+    // 数值文字 + 间距 + 底部标签约占 34dp，柱子只能在这个范围内按比例长；
+    // 直接对整列 130dp 用 fillMaxHeight 会把最高柱顶出容器（标签被裁掉）
+    val barArea = 96.dp
     KbSurface(modifier) {
         Column(Modifier.padding(14.dp)) {
             Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
@@ -164,12 +167,10 @@ internal fun BarChart(
                         Box(
                             Modifier
                                 .width(26.dp)
-                                .fillMaxHeight((v.toFloat() / maxV).coerceIn(0.02f, 1f) * 0.82f)
+                                .height(barArea * (v.toFloat() / maxV).coerceIn(0.02f, 1f))
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
-                                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                                        listOf(tint.first, tint.second)
-                                    )
+                                    Brush.verticalGradient(listOf(tint.first, tint.second))
                                 )
                         )
                         Spacer(Modifier.height(4.dp))
@@ -216,20 +217,21 @@ internal fun LineChart(
                     )
                 }
                 if (labels.isEmpty()) return@Canvas
-                val step = if (labels.size <= 1) w else w / (labels.size - 1)
-                for ((_, data, color) in series) {
+                for ((_, raw, color) in series) {
+                    // 序列来自服务端解析，长度不保证等于轴标签数：多的截掉（否则点会画到画布外），
+                    // 少的按自身点数均分，避免与下方刻度错位
+                    val data = if (raw.size > labels.size) raw.take(labels.size) else raw
                     if (data.isEmpty()) continue
+                    val step = if (data.size <= 1) 0f else w / (data.size - 1)
+                    fun xAt(idx: Int) = if (data.size <= 1) w / 2 else step * idx
+                    fun yAt(v: Int) = padTop + h * (1f - v.toFloat() / maxV)
                     val path = Path()
                     data.forEachIndexed { idx, v ->
-                        val x = if (data.size <= 1) w / 2 else step * idx
-                        val y = padTop + h * (1f - v.toFloat() / maxV)
-                        if (idx == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        if (idx == 0) path.moveTo(xAt(idx), yAt(v)) else path.lineTo(xAt(idx), yAt(v))
                     }
                     drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
                     data.forEachIndexed { idx, v ->
-                        val x = if (data.size <= 1) w / 2 else step * idx
-                        val y = padTop + h * (1f - v.toFloat() / maxV)
-                        drawCircle(color, radius = 2.2.dp.toPx(), center = Offset(x, y))
+                        drawCircle(color, radius = 2.2.dp.toPx(), center = Offset(xAt(idx), yAt(v)))
                     }
                 }
             }
@@ -244,13 +246,3 @@ internal fun LineChart(
         }
     }
 }
-
-/** 小数/大数都好看一点的整数化，供图表内部用 */
-internal fun niceMax(v: Int): Int {
-    if (v <= 0) return 1
-    var step = 1
-    while (step * 10 < v) step *= 10
-    return ((v + step - 1) / step) * step
-}
-
-internal fun ratio(v: Int, total: Int): Float = if (total <= 0) 0f else min(1f, v.toFloat() / total.coerceAtLeast(1)).let { max(it, 0f) }

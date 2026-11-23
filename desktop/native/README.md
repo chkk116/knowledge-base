@@ -332,7 +332,7 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
   阅读已改原生 DocHtml/DocReader），桌面端是 wry 绑定（Tauri 系），Windows 走系统自带 WebView2 运行时，
   不需要分发 CEF；注意桌面端 `loadHtml` 会忽略 baseUrl 参数，相对路径要靠 HTML 里的 `<base>` 标签
 - **内嵌编辑的登录态（2026-11-23）**：不注入 localStorage、也不走 `/sso` 中间页。桌面把令牌拼进目标 URL
-  （`/doc-shares/{sid}?doc={did}&__kb_token=<token>`），前端入口 `main.js` 新增的 `adoptIncomingToken()`
+  （`/doc-shares/{sid}?doc={did}#__kb_token=<token>`，令牌放 hash，不进服务端日志与 Referer），前端入口 `main.js` 新增的 `adoptIncomingToken()`
   在路由守卫首次导航之前写入 `localStorage.kb_token`，并立即 `replaceState` 抹掉地址栏参数 —— 一次导航直达，
   无「页面先跑、守卫已跳登录」的竞态。前端版本过旧（不认识该参数）会停在 `/login`，桌面探测到后自动退回
   `/sso?token=` 回调通道；工具条仍留「重新登录并刷新」手动重来
@@ -374,9 +374,12 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
 
 阅读区顶栏新增「编辑（协同）」（仅文档权限为 WRITE/ADMIN/OWNER 时显示）：右侧栏切换为**系统 WebView2** 里的
 Web 端共享文档编辑器（`ShareWebEditor`），这是真正的实时协同（Yjs + relay + 光标），而只读渲染仍是本地的 `/yjs` 快照。
-- 登录态桥接（2026-11-23 改）：**不再往 localStorage 里硬塞 token**（页面脚本先跑时会被守卫踢到登录页）。
-  改走 Web 端自带的单点回调 `GET /sso?token=<token>`（`SsoCallback.vue` → `applySession` + `fetchMe` + `router.replace('/')`），
-  再每 400ms 轮询 `localStorage.kb_token` 是否已落，出现后导航到 `/doc-shares/{sid}?doc={did}`；6.4s 超时也直接进（工具条有「重新登录并刷新」）。
+- 登录态桥接（2026-11-23 定稿）：**不往 localStorage 里硬塞 token**（页面脚本可能先跑，守卫当场把人踢到登录页），
+  也不靠轮询等它落。桌面把令牌拼进目标 URL（`/doc-shares/{sid}?doc={did}#__kb_token=<token>`，令牌放 hash，不进服务端日志与 Referer），
+  前端入口 `main.js` 的 `adoptIncomingToken()` 在首次导航前写入 `localStorage.kb_token`，随即 `replaceState`
+  抹掉地址栏参数 —— 一次导航直达，令牌不进历史记录/截图/日志。旧前端不认识该参数会停在 `/login`，
+  桌面探测到后自动退回 `/sso?token=` 回调通道（`SsoCallback.vue` → `applySession` + `fetchMe` + `router.replace('/')`）；
+  工具条仍留「重新登录并刷新」手动重来。
 - 工具条：「刷新」（重新导航并重新注入）/「浏览器打开」/「返回只读」；退出编辑会 `detailTick++` 重拉协同正文。
 - 依赖：`io.github.kdroidfilter:composewebview`（Windows WebView2 运行时，免分发 CEF），与文件预览同一套。
 

@@ -4,6 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,9 +21,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -386,23 +386,27 @@ private fun HomePanel(
         notices = runCatching { api.announcements(session.token) }.getOrDefault(emptyList())
         val latest = runCatching { api.docs(session.token, size = 80, sort = "latest").items }.getOrDefault(emptyList())
         recent = latest.take(6)
-        // 近 7 天更新趋势：本地按 updatedAt 分桶，普通成员也能看到（不依赖管理端 /admin/stats）
+        // 近 7 天更新趋势：每篇只解析一次日期再按天分桶。
+        // 原来内层对每篇 × 每天各 parse 一次（7×80 次），把异常当控制流用，活跃库上纯属浪费。
         val fmt = java.time.format.DateTimeFormatter.ofPattern("MM-dd")
         val days = (6 downTo 0).map { java.time.LocalDate.now().minusDays(it.toLong()) }
-        trendLabels = days.map { it.format(fmt) }
-        trendCounts = days.map { d ->
-            latest.count { doc ->
-                runCatching { java.time.LocalDate.parse(doc.updatedAt.take(10)) }.getOrNull() == d
-            }
+        val updatedDays = latest.mapNotNull { doc ->
+            runCatching { java.time.LocalDate.parse(doc.updatedAt.take(10)) }.getOrNull()
         }
-        // 分类分布：前 4 类 + 未分类，颜色沿用首页卡片主色
+        trendLabels = days.map { it.format(fmt) }
+        trendCounts = days.map { d -> updatedDays.count { it == d } }
+        // 分类分布：前 4 类 + 其余折成「其他」。尾部直接丢掉的话，图例与合计只剩一部分分布，
+        // 看着却像完整分类；空数据也不造假分段（DonutChart 自己会画灰色空环）。
         val palette = listOf(KbTileViolet.first, KbTileGreen.first, KbTileBlue.first, KbTileAmber.first)
-        catSegments = latest.groupBy { it.category?.takeIf { c -> c.isNotBlank() } ?: "未分类" }
+        val grouped = latest.groupBy { it.category?.takeIf { c -> c.isNotBlank() } ?: "未分类" }
             .map { (k, v) -> k to v.size }
             .sortedByDescending { it.second }
-            .take(4)
-            .mapIndexed { i, (k, v) -> Triple(k, v, palette[i % palette.size]) }
-            .ifEmpty { listOf(Triple("暂无数据", 1, Color(0xFFE5E7EB))) }
+        val head = grouped.take(4)
+        val tailCount = grouped.drop(4).sumOf { it.second }
+        val segments = if (tailCount > 0) head + ("其他" to tailCount) else head
+        catSegments = segments.mapIndexed { i, (k, v) ->
+            Triple(k, v, palette.getOrElse(i) { Color(0xFF9CA3AF) })
+        }
         loading = false
     }
 
@@ -445,17 +449,18 @@ private fun HomePanel(
         }
         Spacer(Modifier.height(16.dp))
 
-        // 趋势与分类分布：复用看板图表组件，数据来自最近 80 篇，普通成员也能看到
+        // 趋势与分类分布：复用看板图表组件，数据来自「最近更新的 80 篇」——标题如实标注范围，
+        // 否则文档总数过 80 后，读者会把截断后的样本当成全局分布
         if (trendLabels.isNotEmpty()) {
             Row(Modifier.fillMaxWidth()) {
                 LineChart(
-                    title = "近 7 天更新",
+                    title = "近 7 天更新（最近 80 篇）",
                     labels = trendLabels,
                     series = listOf(Triple("更新篇数", trendCounts, KbTileViolet.first)),
                     modifier = Modifier.weight(1.7f),
                 )
                 Spacer(Modifier.width(12.dp))
-                DonutChart(title = "分类分布", segments = catSegments, modifier = Modifier.weight(1f))
+                DonutChart(title = "分类分布（最近 80 篇）", segments = catSegments, modifier = Modifier.weight(1f))
             }
             Spacer(Modifier.height(18.dp))
         }
@@ -820,6 +825,8 @@ private fun NotificationsPanel(
                             )
                         }
                         if (!n.read) {
+                            // 摘要列是 weight(1f)，标签紧贴文字会被当成正文的一部分；两侧都留 6dp
+                            Spacer(Modifier.width(6.dp))
                             KbTag("未读", KbTone.Primary)
                             Spacer(Modifier.width(6.dp))
                         }
@@ -923,22 +930,36 @@ private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
                                                     dlText = fmtMb(got) + if (total > 0) " / " + fmtMb(total) else ""
                                                 }
                                                 val sum = r.checksum.trim()
-                                                if (sum.length >= 32) {
-                                                    val actual = KbUpdater.sha256(file)
-                                                    if (!actual.equals(sum, ignoreCase = true)) {
-                                                        runCatching { java.nio.file.Files.delete(file) }
-                                                        updateMsg = "安装包校验失败（SHA-256 不一致），已删除，请重试或手动下载"
-                                                        return@launch
-                                                    }
+                                                // 校验 fail-closed：服务端没给校验值（或明显不完整）就**不**自动安装。
+                                                // 原先 sum 为空直接跳过校验并照跑安装包，等于给中间人换包留了后门。
+                                                if (sum.length < 32) {
+                                                    runCatching { java.nio.file.Files.delete(file) }
+                                                    updateMsg = "服务端未提供安装包校验值，已停止自动安装；请用「手动下载」并核对官网提供的 SHA-256"
+                                                    return@launch
+                                                }
+                                                // 整个 exe 读一遍算 SHA-256，别占着主线程（setContent 才是主调度器）
+                                                val actual = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                    KbUpdater.sha256(file)
+                                                }
+                                                if (!actual.equals(sum, ignoreCase = true)) {
+                                                    runCatching { java.nio.file.Files.delete(file) }
+                                                    updateMsg = "安装包校验失败（SHA-256 不一致），已删除，请重试或手动下载"
+                                                    return@launch
                                                 }
                                                 updateMsg = "下载完成，正在启动安装程序…应用会自动关闭并在安装后重启"
                                                 if (!KbUpdater.launchApplyScript(file)) {
                                                     updateMsg = "无法启动安装程序，请手动运行：" + file.toAbsolutePath()
                                                 } else {
-                                                    // 给批处理 1.2s 起跳再退出，安装器接管后再覆盖文件
-                                                    kotlinx.coroutines.delay(1200)
-                                                    kotlin.system.exitProcess(0)
+                                                    // 手动退出这一步不能被取消：面板若在这 1.2s 里被切走，协程被取消就不会退出，
+                                                    // 而安装器的 2s 等待一到照样开始覆盖正在运行的文件。NonCancellable 保证走完。
+                                                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                                                        // 给批处理 1.2s 起跳再退出，安装器接管后再覆盖文件
+                                                        kotlinx.coroutines.delay(1200)
+                                                        kotlin.system.exitProcess(0)
+                                                    }
                                                 }
+                                            } catch (ce: kotlinx.coroutines.CancellationException) {
+                                                throw ce   // 取消不是错误，别吞掉写成「更新失败」
                                             } catch (e: Exception) {
                                                 updateMsg = "更新失败：" + (e.message ?: "未知错误")
                                             } finally {
@@ -1928,10 +1949,11 @@ private fun humanSize(bytes: Long?): String {
     val b = bytes ?: return ""
     if (b < 1024) return "$b B"
     val kb = b / 1024.0
-    if (kb < 1024) return String.format("%.0f KB", kb)
+    // Locale.ROOT：默认 locale 会把小数点写成逗号（德语 "12,3 MB"），各处展示口径不一致
+    if (kb < 1024) return String.format(java.util.Locale.ROOT, "%.0f KB", kb)
     val mb = kb / 1024.0
-    if (mb < 1024) return String.format("%.1f MB", mb)
-    return String.format("%.2f GB", mb / 1024.0)
+    if (mb < 1024) return String.format(java.util.Locale.ROOT, "%.1f MB", mb)
+    return String.format(java.util.Locale.ROOT, "%.2f GB", mb / 1024.0)
 }
 
 internal fun openInBrowser(server: String, url: String) {
@@ -1945,7 +1967,8 @@ internal fun openInBrowser(server: String, url: String) {
 private const val WV2_KEY = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
 /** 检测系统 WebView2 运行时（Evergreen，查注册表 pv 值），Windows Server 不一定自带。 */
-private fun hasWebView2Runtime(): Boolean {
+/** WebView2 运行时检测（共享文档内嵌编辑器也用它做前置判断，故 internal） */
+internal fun hasWebView2Runtime(): Boolean {
     val roots = listOf(
         "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\$WV2_KEY",
         "HKLM\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\$WV2_KEY",
@@ -2058,5 +2081,5 @@ private fun BrandGlyphMini(tint: Color, modifier: Modifier) {
 /** 字节 → MB 文本（应用内更新下载进度用） */
 private fun fmtMb(bytes: Long): String {
     val mb = bytes.toDouble() / (1024.0 * 1024.0)
-    return String.format("%.1f MB", mb)
+    return String.format(java.util.Locale.ROOT, "%.1f MB", mb)
 }

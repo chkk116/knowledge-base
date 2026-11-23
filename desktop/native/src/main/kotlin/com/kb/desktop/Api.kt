@@ -991,10 +991,6 @@ class ApiClient(private val base: String) {
         PageBox(items, o.long("totalElements") ?: items.size.toLong(), page, size)
     }
 
-    /** 兼容旧调用：第一页 50 条 */
-    suspend fun adminDocs(token: String, keyword: String = ""): List<AdminDocItem> =
-        adminDocsPage(token, keyword, 0, 50).items
-
     /** POST /api/admin/docs/{id}/block|unblock → 封禁/解封 */
     suspend fun setDocBlocked(token: String, id: Long, blocked: Boolean) {
         withContext(Dispatchers.IO) {
@@ -1244,10 +1240,6 @@ class ApiClient(private val base: String) {
         PageBox(items, total, page, size)
     }
 
-    /** 兼容旧调用：第一页 50 条 */
-    suspend fun adminReports(token: String, status: String? = null): List<ReportItem> =
-        adminReportsPage(token, status, 0, 50).items
-
     /** PUT /api/admin/reports/{id} → 处理举报（status=HANDLED|REJECTED + 备注） */
     suspend fun handleReport(token: String, id: Long, status: String, note: String) {
         withContext(Dispatchers.IO) {
@@ -1318,10 +1310,6 @@ class ApiClient(private val base: String) {
         PageBox(items, o.long("totalElements") ?: items.size.toLong(), page, size)
     }
 
-    /** 兼容旧调用：第一页 50 条 */
-    suspend fun adminUsers(token: String, keyword: String = ""): List<AdminUserItem> =
-        adminUsersPage(token, keyword, 0, 50).items
-
     /** POST /api/admin/users/{id}/toggle → 启用/禁用 */
     suspend fun setUserEnabled(token: String, id: Long, enabled: Boolean) {
         withContext(Dispatchers.IO) {
@@ -1370,10 +1358,6 @@ class ApiClient(private val base: String) {
         }
         PageBox(items, o.long("totalElements") ?: items.size.toLong(), page, size)
     }
-
-    /** 兼容旧调用：第一页 50 条 */
-    suspend fun adminAnnouncements(token: String): List<AdminAnnouncement> =
-        adminAnnouncementsPage(token, 0, 50).items
 
     /** POST /api/admin/announcements → 新建（正文为纯文本，后端按原样存） */
     suspend fun createAnnouncement(token: String, title: String, content: String, pinned: Boolean): Boolean {
@@ -1439,9 +1423,6 @@ class ApiClient(private val base: String) {
         PageBox(items, total, page, size)
     }
 
-    /** 兼容旧调用：第一页 50 条 */
-    suspend fun adminAudit(token: String): List<AuditItem> = adminAuditPage(token, 0, 50).items
-
     /** GET /api/admin/login-logs?page=&size= → 服务端分页 */
     suspend fun adminLoginLogsPage(token: String, page: Int = 0, size: Int = 20): PageBox<LoginLogItem> = withContext(Dispatchers.IO) {
         val (arr, total) = pageParts(runCatching { getAuth("/api/admin/login-logs?page=$page&size=$size", token) }.getOrNull())
@@ -1460,9 +1441,6 @@ class ApiClient(private val base: String) {
         PageBox(items, total, page, size)
     }
 
-    /** 兼容旧调用：第一页 50 条 */
-    suspend fun adminLoginLogs(token: String): List<LoginLogItem> = adminLoginLogsPage(token, 0, 50).items
-
     /**
      * 分页接口统一解析：项目里管理端列表有的返回裸数组（不分页），有的返回 Spring Page。
      * 返回「元素数组 + 总条数」，翻页条要用 total 而不是当页条数。
@@ -1472,7 +1450,11 @@ class ApiClient(private val base: String) {
             ?: return JsonArray(emptyList()) to 0L
         return when (e) {
             is JsonArray -> e to e.size.toLong()
-            is JsonObject -> ((e["content"] as? JsonArray) ?: JsonArray(emptyList())) to (e.long("totalElements") ?: 0L)
+            // 兜底与 *_Page 系列一致：缺 totalElements 时用当页条数，否则会出现「列表有内容、共 0 条」
+            is JsonObject -> {
+                val arr = (e["content"] as? JsonArray) ?: JsonArray(emptyList())
+                arr to (e.long("totalElements") ?: arr.size.toLong())
+            }
             else -> JsonArray(emptyList()) to 0L
         }
     }
