@@ -333,6 +333,14 @@ public class ExamService {
         for (ExamRecord r : list) if (r.getPaperId() != null) pids.add(r.getPaperId());
         Map<Long, ExamPaper> papers = new LinkedHashMap<>();
         for (ExamPaper p : paperRepo.findAllById(pids)) papers.put(p.getId(), p);
+        // 题量也要从组卷表数：ExamPaper.questionCount 也是 @Transient，findAllById 拿到的实例恒为 0，
+        // 用它回填等于没填——「我的成绩」里 5 题的考试一直显示 0 题就是这个原因（N61）。
+        Map<Long, Integer> paperQty = new HashMap<>();
+        if (!pids.isEmpty()) {
+            for (Object[] row : pqRepo.countGroupByPaperIds(pids)) {
+                paperQty.put(((Number) row[0]).longValue(), ((Number) row[1]).intValue());
+            }
+        }
         // pendingCount 同样是 @Transient：一次性批量统计，避免逐条 count
         Map<Long, Integer> pendingMap = new HashMap<>();
         List<Long> rids = new ArrayList<>();
@@ -345,19 +353,20 @@ public class ExamService {
             ExamPaper p = papers.get(r.getPaperId());
             if (p == null) continue;
             if (r.getPaperTitle() == null || r.getPaperTitle().trim().isEmpty()) r.setPaperTitle(p.getTitle());
-            if (r.getQuestionCount() <= 0) r.setQuestionCount(p.getQuestionCount());
+            if (r.getQuestionCount() <= 0) r.setQuestionCount(paperQty.getOrDefault(r.getPaperId(), 0));
         }
         return list;
     }
 
     /** paperTitle / questionCount 是 @Transient（不落库），单条读取时必须从试卷补回，
-     *  否则成绩详情、交卷响应会返回 paperTitle=null / questionCount=0（N61）。 */
+     *  否则成绩详情、交卷响应会返回 paperTitle=null / questionCount=0（N61）。
+     *  题量必须从组卷表数——ExamPaper.questionCount 本身也是 @Transient，复制它只会得到 0。 */
     private void fillPaperFields(ExamRecord rec) {
         if (rec == null || rec.getPaperId() == null) return;
         ExamPaper p = paperRepo.findById(rec.getPaperId()).orElse(null);
         if (p == null) return;
         if (rec.getPaperTitle() == null || rec.getPaperTitle().trim().isEmpty()) rec.setPaperTitle(p.getTitle());
-        if (rec.getQuestionCount() <= 0) rec.setQuestionCount(p.getQuestionCount());
+        if (rec.getQuestionCount() <= 0) rec.setQuestionCount((int) pqRepo.countByPaperId(p.getId()));
     }
 
     /** 登录：成绩详情（逐题回顾，含正确答案） */

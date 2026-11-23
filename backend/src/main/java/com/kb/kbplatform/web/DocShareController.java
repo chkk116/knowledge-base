@@ -363,8 +363,11 @@ public class DocShareController {
         // baseRev / baseUpdatedAt 均可选：新客户端带上打开时读到的代次与保存时间做乐观锁，
         // 老客户端不带则只走「内容骤减」护栏。
         Long baseRev = baseRevOf(body);
+        // fromCollab：这次正文是协同编辑器自己保存的快照（内容本就来自 Yjs），
+        // 不带这个标记的改动一律视为「非协同端改写正文」，由服务层作废旧协同态（N17/N23）。
+        boolean fromCollab = body != null && Boolean.TRUE.equals(body.get("fromCollab"));
         SharedDocument d = svc.updateDoc(id, docId, str(body.get("title")), str(body.get("content")),
-                resolveUserId(c), isSysAdmin(c), baseRev, baseUpdatedAtOf(body));
+                resolveUserId(c), isSysAdmin(c), baseRev, baseUpdatedAtOf(body), fromCollab);
         audit.log(c.userId(), c.username(), "UPDATE_SHARE_DOC", "SHARE_DOC", docId, d.getTitle(),
                 "更新空间文档「" + before.getTitle() + "」");
         return d;

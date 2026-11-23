@@ -320,6 +320,8 @@ async function saveSnapshot(silent = false) {
       content: await buildSnapshotHtml(editor.value),
       baseRev: props.revision || 0,
       baseUpdatedAt: baseSavedAt.value || undefined,
+      // 这份正文就是协同态本身，别让服务端当成「非协同端改写」把协同状态作废（N17/N23）
+      fromCollab: true,
     })
     if (data && data.updatedAt) baseSavedAt.value = data.updatedAt
     conflict.value = false

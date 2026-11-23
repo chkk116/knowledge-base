@@ -17,6 +17,11 @@ public interface ExamPaperQuestionRepository extends JpaRepository<ExamPaperQues
     /** 试卷题量：ExamPaper.questionCount 是 @Transient（不落库），列表页必须用它回填 */
     long countByPaperId(Long paperId);
 
+    /** 批量题量：成绩列表一次算完所有试卷的题数，避免逐条 count 的 N+1（行 = [paperId, count]） */
+    @org.springframework.data.jpa.repository.Query(
+            "select pq.paperId, count(pq) from ExamPaperQuestion pq where pq.paperId in :paperIds group by pq.paperId")
+    List<Object[]> countGroupByPaperIds(@org.springframework.data.repository.query.Param("paperIds") java.util.Collection<Long> paperIds);
+
     /** 题目删除时级联清理组卷关联（2026-10-13 审查 H4）；调用方需在事务内 */
     List<ExamPaperQuestion> findByQuestionId(Long questionId);
     void deleteByQuestionId(Long questionId);

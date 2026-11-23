@@ -1340,7 +1340,14 @@ public class DocShareService {
 
     /** 便捷重载：事务注解在下面的 8 参重载上——这里内部调用不会再经代理，标在这儿等于没标。 */
     public SharedDocument updateDoc(Long shareId, Long docId, String title, String content, Long userId, boolean sysAdmin) {
-        return updateDoc(shareId, docId, title, content, userId, sysAdmin, null, null);
+        return updateDoc(shareId, docId, title, content, userId, sysAdmin, null, null, false);
+    }
+
+    /** 非协同端保存（老客户端 / 移动端编辑器 / AI 追加）：正文是权威，协同态随之作废。
+     *  事务注解在下面的 9 参重载上，这里内部调用不会再经代理。 */
+    public SharedDocument updateDoc(Long shareId, Long docId, String title, String content,
+                                    Long userId, boolean sysAdmin, Long baseRev, java.time.LocalDateTime baseUpdatedAt) {
+        return updateDoc(shareId, docId, title, content, userId, sysAdmin, baseRev, baseUpdatedAt, false);
     }
 
     /**
@@ -1360,7 +1367,8 @@ public class DocShareService {
      */
     @Transactional(rollbackFor = Exception.class)
     public SharedDocument updateDoc(Long shareId, Long docId, String title, String content,
-                                    Long userId, boolean sysAdmin, Long baseRev, java.time.LocalDateTime baseUpdatedAt) {
+                                    Long userId, boolean sysAdmin, Long baseRev, java.time.LocalDateTime baseUpdatedAt,
+                                    boolean fromCollab) {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canWriteDoc(shareId, docId, userId, sysAdmin))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "对该文档无写入权限");
@@ -1427,12 +1435,21 @@ public class DocShareService {
         snap.setEditorId(userId);
         snap.setCreatedAt(LocalDateTime.now());
         sharedDocVerRepo.save(snap);
+        String prevContent = d.getContent();   // 逐字比对要用改写前的正文，先留一份
         if (title != null) d.setTitle(nextTitle);
         if (content != null) d.setContent(nextContent);
+        // 正文被「非协同端」改写（移动端编辑器整篇保存、AI 追加、外部脚本）时，协同态里还是旧内容：
+        // 留着它就是「REST 读到新正文、协同编辑看到旧正文」的永久分叉（N17/N23 就是这个形态）。
+        // 正文是权威——清掉旧协同态并把代次 +1：房间名随代次变化，旧房间落库会因代次不符被拒，
+        // 下次打开编辑器时以正文重新播种。协同端自己的快照保存带 fromCollab=true，不受影响。
+        if (!fromCollab && content != null && !java.util.Objects.equals(prevContent, nextContent)) {
+            d.setYjsState(null);
+            d.setYjsRev(d.getYjsRev() + 1);
+        }
         // 注意：更新不得变更所有者。此前无条件 setOwnerId(userId) 会让仅有编辑权限者夺取所有权，
         // 进而在 deleteDoc/moveDoc（按 owner 判定）中删除或搬走他人文档。owner 仅在创建时设定。
-        // 注意：这里刻意不递增 yjsRev —— 自动快照每几秒触发一次，递增会让父组件按 key 重建编辑器，
-        // 用户会看到闪烁/光标丢失。内容骤减与代次失配已在上面两道闸拦下。
+        // 协同快照（fromCollab）刻意不递增 yjsRev —— 自动快照每几秒触发一次，递增会让父组件按 key
+        // 重建编辑器，用户会看到闪烁/光标丢失；只有正文来自非协同端时才作废协同态（见上）。
         d.setUpdatedAt(LocalDateTime.now());
         SharedDocument saved = docRepo.save(d);
         fillDocOwnerName(saved);

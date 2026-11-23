@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import RichEditor from '../../components/RichEditor.vue'
 import EmojiPanel from '../../components/EmojiPanel.vue'
-import { getDoc, createMyDoc, updateMyDoc, importDoc, getCategoryTree, listTags, listDocVersions, getDocVersion, restoreDocVersion } from '../../api/kb'
+import { getDoc, createMyDoc, updateMyDoc, importDoc, getCategoryTree, allTags, listTags, listDocVersions, getDocVersion, restoreDocVersion } from '../../api/kb'
 import { updateDoc } from '../../api/admin'
 import { uploadFile } from '../../api/file'
 import { useAuthStore } from '../../store/auth'
@@ -52,6 +52,32 @@ const onAudioPicked = async (e) => {
   } catch {
     ElMessage.error('音频上传失败，请重试')
   }
+}
+
+// 标签下拉数据：规范标签表 + 文档里实际用过的标签合并去重。
+// 只读规范标签表时，只要管理员没在「标签体系」里建过标签（线上一直是空的），
+// 不输入关键词的下拉就永远是「无数据」——而文档标题下的逗号串里明明有几十个标签（N38）。
+const loadTagOptions = async () => {
+  const map = new Map()
+  try {
+    for (const t of (await allTags()).data || []) {
+      const name = (t.tag || '').trim()
+      if (name) map.set(name, { id: 'doc-' + name, name, count: Number(t.count) || 0 })
+    }
+  } catch (e) {}
+  try {
+    for (const t of (await listTags()).data || []) {
+      const name = (t.name || '').trim()
+      if (!name) continue
+      const prev = map.get(name)
+      map.set(name, {
+        id: t.id != null ? t.id : 'doc-' + name,
+        name,
+        count: Math.max(prev ? prev.count : 0, Number(t.count) || 0),
+      })
+    }
+  } catch (e) {}
+  tagOptions.value = [...map.values()].sort((a, b) => b.count - a.count)
 }
 
 const form = ref({ title: '', category: '', tags: '', content: '' })
@@ -151,7 +177,7 @@ const onFilePicked = async (e) => {
 
 onMounted(async () => {
   try { categoryTree.value = (await getCategoryTree()).data || [] } catch (e) {}
-  try { tagOptions.value = (await listTags()).data || [] } catch (e) {}
+  await loadTagOptions()
   if (isEdit) {
     try {
       const { data } = await getDoc(id)

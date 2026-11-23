@@ -173,10 +173,17 @@ async function doGen() {
       { topic: doc.title, count: gen.value.count, types: gen.value.types, sourceType: 'DOC', shareId: Number(shareId), docId: Number(docId) },
       { askUser, isDemo: false, session: {}, forcePersonal: true }
     )
-    gen.value.tip = typeof result === 'string' ? result : '已生成'
-    ElMessage.success('生成完成，已存入我的题库')
-    gen.value.open = false
-    await load()
+    const msg = typeof result === 'string' ? result : '已生成'
+    gen.value.tip = msg
+    // 只有真入库才报「已存入」：用户在确认框点「先不入库」、或入库接口只存进去一部分时，
+    // 这里原来一律弹 success，等于把「没存」说成「存好了」（复测报告点名的假成功文案）。
+    if (msg.startsWith('已加入个人题库')) {
+      ElMessage.success(msg.split('\n')[0])
+      gen.value.open = false
+      await load()
+    } else {
+      ElMessage.warning(msg.split('\n')[0])
+    }
   } catch (e) {
     gen.value.tip = e?.response?.data?.error || e.message || '生成失败'
   } finally {
