@@ -40,6 +40,7 @@ import com.kb.kbplatform.shell.ui.common.KbChip
 import com.kb.kbplatform.shell.ui.common.KbEmpty
 import com.kb.kbplatform.shell.ui.common.KbError
 import com.kb.kbplatform.shell.ui.common.KbLoading
+import com.kb.kbplatform.shell.ui.common.KbSkeletonList
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
 import com.kb.kbplatform.shell.ui.theme.KbBlue
@@ -411,7 +412,7 @@ private fun MailDetail(
             androidx.compose.material3.HorizontalDivider()
             Spacer(Modifier.height(12.dp))
             when {
-                loading -> Text("加载中…", fontSize = 13.sp, color = KbTextDim)
+                loading -> KbSkeletonList(count = 5)
                 err.isNotEmpty() -> Text("正文加载失败：$err", fontSize = 13.sp, color = KbRed)
                 body.isBlank() -> Text("（这封邮件没有可显示的正文）", fontSize = 13.sp, color = KbTextDim)
                 else -> Text(body, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)

@@ -1,5 +1,7 @@
 package com.kb.desktop
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -69,7 +71,7 @@ private val ADMIN_TABS = listOf(
 )
 
 @Composable
-fun AdminPanel(session: Session) {
+fun AdminPanel(session: Session, onOpenDoc: (Long) -> Unit = {}) {
     var tab by remember { mutableStateOf("review") }
 
     Row(Modifier.fillMaxSize()) {
@@ -103,23 +105,26 @@ fun AdminPanel(session: Session) {
         }
         Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
         Box(Modifier.weight(1f).fillMaxHeight()) {
-            when (tab) {
-                "review" -> ReviewTab(session)
-                "grading" -> GradingTab(session)
-                "reports" -> ReportsTab(session)
-                "users" -> UsersTab(session)
-                "depts" -> DepartmentsTab(session)
-                "announce" -> AnnouncementsTab(session)
-                "banned" -> BannedWordsTab(session)
-                "taxonomy" -> TaxonomyTab(session)
-                "docs" -> DocManageTab(session)
-                "spaces" -> SpacesTab(session)
-                "recycle" -> RecycleTab(session)
-                "files" -> OrphanFilesTab(session)
-                "stats" -> StatsTab(session)
-                "audit" -> AuditTab(session)
-                "logins" -> LoginLogsTab(session)
-                else -> AdminHint("未知的管理面板：$tab")
+            // tab 切换淡入淡出：避免列表整块瞬移，切换时更容易看出「换页了」
+            Crossfade(targetState = tab, animationSpec = tween(160), label = "admin-tab") { t ->
+                when (t) {
+                    "review" -> ReviewTab(session)
+                    "grading" -> GradingTab(session)
+                    "reports" -> ReportsTab(session)
+                    "users" -> UsersTab(session)
+                    "depts" -> DepartmentsTab(session)
+                    "announce" -> AnnouncementsTab(session)
+                    "banned" -> BannedWordsTab(session)
+                    "taxonomy" -> TaxonomyTab(session)
+                    "docs" -> DocManageTab(session)
+                    "spaces" -> SpacesTab(session)
+                    "recycle" -> RecycleTab(session)
+                    "files" -> OrphanFilesTab(session)
+                    "stats" -> StatsTab(session, onOpenDoc)
+                    "audit" -> AuditTab(session)
+                    "logins" -> LoginLogsTab(session)
+                    else -> AdminHint("未知的管理面板：$t")
+                }
             }
         }
     }

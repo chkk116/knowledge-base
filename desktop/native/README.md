@@ -331,6 +331,11 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
 - 编辑器内嵌：`io.github.kdroidfilter:composewebview:1.0.0-beta-02`（**2026-11-13 起仅编辑视图使用**，
   阅读已改原生 DocHtml/DocReader），桌面端是 wry 绑定（Tauri 系），Windows 走系统自带 WebView2 运行时，
   不需要分发 CEF；注意桌面端 `loadHtml` 会忽略 baseUrl 参数，相对路径要靠 HTML 里的 `<base>` 标签
+- **内嵌编辑的登录态（2026-11-23）**：不注入 localStorage、也不走 `/sso` 中间页。桌面把令牌拼进目标 URL
+  （`/doc-shares/{sid}?doc={did}&__kb_token=<token>`），前端入口 `main.js` 新增的 `adoptIncomingToken()`
+  在路由守卫首次导航之前写入 `localStorage.kb_token`，并立即 `replaceState` 抹掉地址栏参数 —— 一次导航直达，
+  无「页面先跑、守卫已跳登录」的竞态。前端版本过旧（不认识该参数）会停在 `/login`，桌面探测到后自动退回
+  `/sso?token=` 回调通道；工具条仍留「重新登录并刷新」手动重来
 
 ## 近期修复（2026-11-13）
 
@@ -354,6 +359,26 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
 - **正式发版必须注入地址**：`gradle packageInnoSetup -PKB_DESKTOP_SERVER=https://<部署域名>`，
   该值只存在于发版命令/云端配置，仓库内是示例占位；不注入打出的包会连到示例地址
 - 版本号独立于 Web 端（`package.json`/`changelog.js` 是 Web 的，别混）
+
+## 可选文本与交互补齐（2026-11-22）
+
+- **正文可选中复制**：文章阅读页与共享文档阅读区的正文块统一包 `SelectionContainer`
+  （`androidx.compose.foundation.text.selection`），鼠标拖选 + Ctrl+C 即可复制，不再是「一张图」。
+  评论正文同样包了一层。
+- **看板热门文章可点击**：`StatsTab` 新增 `onOpenDoc` 回调，`AdminPanel(session, onOpenDoc)` 透传到主窗口
+  （`jumpDocId = id; selected = DOCS`）。点击热门文章行 → 用 `searchDocs(标题)` 找 id 原地跳文章；
+  找不到精确标题时退回浏览器 `/search?q=标题`。行有 hover 底色。
+- **菜单图标线宽统一**：`MenuGlyph` 的 stroke 从误算的 `1.6f*u*1.6f`（约 2.56px）改为 `1.6f*u`，与 Web 端细线图标一致。
+
+## 共享文档内嵌协同编辑（2026-11-22）
+
+阅读区顶栏新增「编辑（协同）」（仅文档权限为 WRITE/ADMIN/OWNER 时显示）：右侧栏切换为**系统 WebView2** 里的
+Web 端共享文档编辑器（`ShareWebEditor`），这是真正的实时协同（Yjs + relay + 光标），而只读渲染仍是本地的 `/yjs` 快照。
+- 登录态桥接（2026-11-23 改）：**不再往 localStorage 里硬塞 token**（页面脚本先跑时会被守卫踢到登录页）。
+  改走 Web 端自带的单点回调 `GET /sso?token=<token>`（`SsoCallback.vue` → `applySession` + `fetchMe` + `router.replace('/')`），
+  再每 400ms 轮询 `localStorage.kb_token` 是否已落，出现后导航到 `/doc-shares/{sid}?doc={did}`；6.4s 超时也直接进（工具条有「重新登录并刷新」）。
+- 工具条：「刷新」（重新导航并重新注入）/「浏览器打开」/「返回只读」；退出编辑会 `detailTick++` 重拉协同正文。
+- 依赖：`io.github.kdroidfilter:composewebview`（Windows WebView2 运行时，免分发 CEF），与文件预览同一套。
 
 ## 应用内更新（2026-11-22，Updater.kt）
 
@@ -392,3 +417,49 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
   空态/加载态统一为「圆底图标 + 主文案 + 说明」。
 - **管理面板**：15 个页签换成 `KbSelectCard`（hover + 选中竖条），`AdminHeader` 标题升 14sp、副标题 11sp、「刷新」改图标钮。
 
+
+## 管理列表分页与表格样式（2026-11-23）
+
+- `UiKit.kt` 新增三个组件，统一对齐 Web 端 el-table / el-pagination 观感：
+  - `KbTableHead`：浅灰表头（`#F7F8FA`）+ 列权重，替代原来各面板手写的栏头；
+  - `KbTableRow`：白底行 + hover 浅底 + 细分隔线，可整行点击；
+  - `KbPager`：右对齐「共 N 条 · 每页 20/50/100 条」+ 页码窗口（当前页实心主色）+ 上下页。
+- `Api.kt` 新增 `PageBox<T>`（items/total/page/size）与 `pageParts()`：管理端接口既有裸数组又有 Spring Page，
+  统一取 `content` / `totalElements`；users / docs / reports / announcements / audit / login-logs 各加 `*Page(...)`
+  重载，旧方法保留为「第一页 50 条」以兼容其余调用点。
+- 已接服务端分页：**用户、公告、帖子、举报、操作审计、登录日志**；当前页被删空会自动退回最后一页。
+- 本地切片分页：**回收站**（后端返回裸数组）、**违禁词词条**（左侧选库、本地筛选后再切页）、**标签**。
+- 卡片转表格：**审核队列**（驳回理由输入框在第一列展开）、**阅卷**（得分/待阅/提交时间成列）、
+  **空间申请**（创建/扩容两套表头，容量变化单独成列）、**孤儿附件**（路径作副行、大小单列）。
+- 至此 `AdminPanel` 的 15 个 tab 全部统一到「表头 + `KbTableRow` + `KbPager`」这一套；分类树仍保留缩进树
+  （层级关系用表格表达会丢信息），只统一了行高与 hover。
+
+## 对话框统一 KbDialog（2026-11-23）
+
+- `UiKit.kt` 新增 `KbDialog`：与 Material3 `AlertDialog` **参数兼容**（onDismissRequest / title / text /
+  confirmButton / dismissButton），因此存量调用只需把 `AlertDialog(` 换成 `KbDialog(`，逻辑一行不改、外观即统一：
+  白卡 + 14dp 圆角 + 标题栏右侧固定「✕」（Material 只能点遮罩/ESC，桌面用户常找不到出口）+ 内容限高 560dp。
+- 宽度跟随内容（`widthIn(min = 320.dp, max = 520.dp)`）：存量对话框多是 460dp 的固定宽 Column，不会被撑出白边。
+- 已替换 18 处：`SharesPanel.kt` 10（成员/分享链接/文档权限/整理/空间设置/新建空间/扩容申请等）、
+  `MailPanel.kt` 4、`DocReader.kt` 2、`AdminSpacesPanel.kt` 2。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+
+## 首页图表 + 骨架屏 + 面板统一（2026-11-23）
+
+- **首页工作台加图表**：指标卡下方新增「近 7 天更新」折线（复用 `DashboardCharts.LineChart`）与「分类分布」环形
+  （`DonutChart`）。数据来自 `GET /api/docs?size=80&sort=latest`，在客户端按 `updatedAt` 分桶与按 `category` 分组，
+  **普通成员也能看到**（不依赖只对管理员开放的 `/api/admin/stats`），失败则整块隐藏、不影响其他区块。
+- **骨架屏**：`UiKit.KbSkeletonList(rows)`——灰条 + 呼吸动画，替换「加载中…」文字。已替换 26 处：
+  管理端 16（用户/公告/帖子/举报/审计/登录/回收站/违禁词/分类/空间申请等）+ 通知/文件/文档面板 6 + 邮件 2 + 培训 6。
+- **切换淡入**：`AdminPanel` 的 tab 切换包 `Crossfade(tween(160))`，不再整块瞬移。
+- **空态与标签**：通知面板空态改 `KbEmptyState`（图标 + 标题 + 说明），未读标记改 `KbTag`；文件面板空态同步。
+- 仍未动的面板：设置（表单型，列表少）、AI 助手（对话流，行样式不适用）——按「结构与表格不同」原则保留原样。
+
+## 设置页统一 KbSettingGroup（2026-11-23）
+
+- `UiKit.kt` 新增 `KbSettingGroup(title) { … }`（白卡 + 小节标题）与 `KbSettingRow(label, value)`
+  （左标签固定 92dp、右值右对齐，长路径自动换行到右侧，不会顶到标签上）。
+- 设置页三张卡（关于 / 账号 / 本地数据）从手写 `clip + background + border` 改为 `KbSettingGroup`，
+  原来各写一遍的圆角边框不再漂移；「退出登录 / 清空图片缓存 / 打开配置目录」三个浅灰 `Button` 换成 `KbGhostAction`。
+- 「检查更新 / 下载并安装」仍用 Material `Button`：它们的 onClick 里是一整段协程 + 进度回调，
+  搬进 `KbPrimaryAction` 只会增加出错面，且颜色形状已经是项目主色与 9dp 圆角，观感一致。

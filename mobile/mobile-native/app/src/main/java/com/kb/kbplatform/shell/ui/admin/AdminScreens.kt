@@ -57,6 +57,7 @@ import com.kb.kbplatform.shell.ui.common.KbCard
 import com.kb.kbplatform.shell.ui.common.kbItemEnter
 import com.kb.kbplatform.shell.ui.common.kbPress
 import com.kb.kbplatform.shell.ui.common.CenterHint
+import com.kb.kbplatform.shell.ui.common.KbSkeletonList
 import com.kb.kbplatform.shell.ui.common.TopBar
 import com.kb.kbplatform.shell.ui.common.formatDateTime
 import com.kb.kbplatform.shell.ui.theme.KbBlue
@@ -269,7 +270,7 @@ fun AdminUsersScreen(onBack: () -> Unit) {
             )
         }
         if (loading) {
-            CenterHint("加载中…", loading = true)
+            KbSkeletonList(count = 6)
         } else if (error.isNotEmpty()) {
             CenterHint(error)
         } else {
@@ -624,7 +625,7 @@ fun AdminAiScreen(onBack: () -> Unit) {
             )
         }
         when {
-            loading -> CenterHint("加载中…", loading = true)
+            loading -> KbSkeletonList(count = 6)
             error.isNotEmpty() -> CenterHint(error)
             models.isEmpty() -> Column(
                 Modifier
@@ -975,7 +976,7 @@ fun AdminReviewScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 16.dp))
         }
         if (loading) {
-            CenterHint("加载中…", loading = true)
+            KbSkeletonList(count = 6)
         } else if (error.isNotEmpty()) {
             CenterHint(error)
         } else if (docs.isEmpty()) {
@@ -1096,7 +1097,7 @@ fun AdminAnnounceScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
         }
         if (loading) {
-            CenterHint("加载中…", loading = true)
+            KbSkeletonList(count = 6)
         } else if (error.isNotEmpty()) {
             CenterHint(error)
         } else if (list.isEmpty()) {

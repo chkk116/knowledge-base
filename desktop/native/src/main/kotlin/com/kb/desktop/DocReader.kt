@@ -1,4 +1,4 @@
-﻿package com.kb.desktop
+package com.kb.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -334,7 +335,9 @@ fun ArticleView(
                         )
                     }
                     itemsIndexed(blocks) { _, b ->
-                        DocBlockView(b, server, Modifier.fillMaxWidth())
+                        SelectionContainer {
+                            DocBlockView(b, server, Modifier.fillMaxWidth())
+                        }
                     }
                     if (blocks.isEmpty()) {
                         item { Text("正文为空", fontSize = 13.sp, color = DocSub, modifier = Modifier.padding(top = 20.dp)) }
@@ -515,7 +518,7 @@ fun ArticleView(
     // 举报他人评论（原因必填；后端 10 分钟内同一对象只收录一次）
     reportTarget?.let { rc ->
         val reasons = listOf("垃圾广告", "辱骂攻击", "违法违规", "侵权内容", "虚假信息", "其它")
-        AlertDialog(
+        KbDialog(
             onDismissRequest = { reportTarget = null },
             title = { Text("举报评论", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
             text = {
@@ -570,7 +573,7 @@ fun ArticleView(
     // 举报整篇文章（targetType=POST）
     if (reportDoc) {
         val reasons = listOf("垃圾广告", "辱骂攻击", "违法违规", "侵权内容", "虚假信息", "其它")
-        AlertDialog(
+        KbDialog(
             onDismissRequest = { reportDoc = false },
             title = { Text("举报文章", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
             text = {
@@ -1110,7 +1113,11 @@ private fun CommentRow(
                 Text(c.content, fontSize = 12.5.sp, lineHeight = 19.sp, color = Color(0xFF374151))
             } else {
                 Column {
-                    for (b in parts) DocBlockView(b, server = server, Modifier.fillMaxWidth())
+                    SelectionContainer {
+                    Column {
+                        for (b in parts) DocBlockView(b, server = server, Modifier.fillMaxWidth())
+                    }
+                }
                 }
             }
         }

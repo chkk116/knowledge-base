@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
@@ -474,7 +475,7 @@ fun SharesPanel(session: Session) {
     if (showVersions) {
         val sid = docShareId
         val did = docId
-        AlertDialog(
+        KbDialog(
             onDismissRequest = { showVersions = false },
             title = { Text("历史版本", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
             text = {
@@ -907,7 +908,9 @@ private fun ShareReader(
             }
         } else {
             items(blocks.size) { i ->
-                DocBlockView(blocks[i], server = server, Modifier.fillMaxWidth())
+                SelectionContainer {
+                    DocBlockView(blocks[i], server = server, Modifier.fillMaxWidth())
+                }
             }
         }
         // 双链：正文里的 [[标题]] 指向谁、谁又指向本文（空则不占版面）
@@ -1222,7 +1225,7 @@ private fun SpaceMembersDialog(
         }
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = onClose,
         title = { Text("成员 · ${space.name}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
         text = {
@@ -1490,7 +1493,7 @@ private fun ShareLinkDialog(
         }.onFailure { note = "复制失败：${it.message}" }
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = onClose,
         title = { Text("外部分享链接", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
         text = {
@@ -1674,7 +1677,7 @@ private fun DocPermDialog(
         }
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = onClose,
         title = { Text("文档权限 · ${docTitle.ifBlank { "当前文档" }}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
         text = {
@@ -1793,7 +1796,7 @@ private fun DocOrganizeDialog(
         }
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = onClose,
         title = { Text("整理 · ${doc.title.ifBlank { "当前文档" }}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
         text = {
@@ -1873,7 +1876,7 @@ private fun DocOrganizeDialog(
 
     // 移动二次确认（不可撤销的整理动作）
     confirmingTarget?.let { target ->
-        AlertDialog(
+        KbDialog(
             onDismissRequest = { confirmingTarget = null },
             title = { Text("移动到「${target.name.ifBlank { "空间 " + target.id }}」？") },
             text = { Text("移动后本文档会从当前空间消失，历史版本随文档一起走；归属人不变。", fontSize = 12.sp) },
@@ -1951,7 +1954,7 @@ private fun SpaceSettingsDialog(
         }
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = onClose,
         title = { Text("空间设置 · ${space.name.ifBlank { "空间 " + space.id }}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
         text = {
@@ -2018,7 +2021,7 @@ private fun SpaceSettingsDialog(
     )
 
     if (confirmingDelete) {
-        AlertDialog(
+        KbDialog(
             onDismissRequest = { confirmingDelete = false },
             title = { Text("确定删除「${space.name.ifBlank { "空间 " + space.id }}」？") },
             text = {
@@ -2117,7 +2120,7 @@ private fun CreateSpaceDialog(
         }
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = onClose,
         title = { Text("新建团队空间", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
         text = {
@@ -2262,7 +2265,7 @@ private fun CapacityRequestDialog(
         }
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = onClose,
         title = { Text("扩容申请 · ${space.name.ifBlank { "空间 " + space.id }}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
         text = {
@@ -2374,9 +2377,12 @@ private fun CapacityRequestDialog(
 /**
  * 内嵌协同编辑（真协同）：用系统 WebView2 打开 Web 端共享文档编辑器。
  *
- * 登录态桥接：Web 端读 `localStorage.kb_token`，所以先让 WebView 停在同源 `/login`，
- * 注入 token 后再导航到 `/doc-shares/{sid}?doc={did}`；路由守卫见 token 即放行（`router/index.js`）。
- * 协同链路（Yjs + relay）由 Web 端自建，桌面只负责宿主与登录态。
+ * 登录态**不靠注入 localStorage**，也不走 /sso 中间页：把令牌拼进目标 URL
+ * （`?doc=..&__kb_token=..`），由前端入口 `main.js` 的 `adoptIncomingToken()` 在
+ * 路由守卫首次导航之前写进 localStorage，并立刻 `replaceState` 抹掉地址栏参数。
+ * 这样一次导航直达，没有「页面先跑、守卫已跳登录」的竞态。
+ *
+ * 前端版本过旧（不认识该参数）会停在 /login：检测到后自动退回 `/sso?token=` 回调通道。
  */
 @Composable
 private fun ShareWebEditor(
@@ -2386,28 +2392,32 @@ private fun ShareWebEditor(
     onExit: () -> Unit,
 ) {
     val server = session.server.trimEnd('/')
-    val editorUrl = "$server/doc-shares/$shareId?doc=$docId"
-    val state = remember(editorUrl) { WebViewState(WebContent.Url("$server/login")) }
-    var injected by remember(editorUrl) { mutableStateOf(false) }
-    val tokenJs = "\"" + session.token.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    val editorPath = "/doc-shares/$shareId?doc=$docId"
+    val token = java.net.URLEncoder.encode(session.token, "UTF-8")
+    val editorUrl = "$server$editorPath&__kb_token=$token"
+    val ssoUrl = "$server/sso?token=$token"
+    val state = remember(editorUrl) { WebViewState(WebContent.Url(editorUrl)) }
+    var triedSso by remember(editorUrl) { mutableStateOf(false) }
 
-    fun injectAndGo() {
-        if (injected) return
-        injected = true
-        runCatching { state.webSettings.isJavaScriptEnabled = true }
-        state.webView?.evaluateJavaScript(
-            "try{localStorage.setItem('kb_token',$tokenJs);}catch(e){}",
-            null,
-        )
-        state.content = WebContent.Url(editorUrl)
-    }
-
-    LaunchedEffect(state.isLoading) {
-        if (!state.isLoading) injectAndGo()
-    }
+    // 兜底探测：旧前端不认识 __kb_token → 路由守卫落到 /login。命中即改走 SSO 回调。
+    // 只在协程里改 Compose 状态，回调线程只写 AtomicBoolean。
     LaunchedEffect(editorUrl) {
-        kotlinx.coroutines.delay(1200)
-        injectAndGo()
+        runCatching { state.webSettings.isJavaScriptEnabled = true } // 探测与编辑器都依赖 JS
+        val onLogin = java.util.concurrent.atomic.AtomicBoolean(false)
+        repeat(8) { // 约 6.4s
+            kotlinx.coroutines.delay(800)
+            if (triedSso) return@LaunchedEffect
+            onLogin.set(false)
+            state.webView?.evaluateJavaScript(
+                "(function(){try{return location.pathname}catch(e){return ''}})()"
+            ) { p -> if (p.contains("/login")) onLogin.set(true) }
+            kotlinx.coroutines.delay(200)
+            if (onLogin.get()) {
+                triedSso = true
+                state.content = WebContent.Url(ssoUrl)
+                return@LaunchedEffect
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -2419,12 +2429,12 @@ private fun ShareWebEditor(
             Spacer(Modifier.width(6.dp))
             Text("（Web 端编辑器 · 实时协同）", fontSize = 10.5.sp, color = KbTextSub)
             Spacer(Modifier.weight(1f))
-            KbGhostAction("刷新") {
-                injected = false
+            KbGhostAction("重新登录并刷新") {
+                triedSso = false
                 state.content = WebContent.Url(editorUrl)
             }
             Spacer(Modifier.width(6.dp))
-            KbGhostAction("浏览器打开") { openShareInBrowser(server, "/doc-shares/$shareId?doc=$docId") }
+            KbGhostAction("浏览器打开") { openShareInBrowser(server, editorPath) }
             Spacer(Modifier.width(6.dp))
             KbGhostAction("返回只读", onClick = onExit)
         }

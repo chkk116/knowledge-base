@@ -51,6 +51,9 @@ internal fun DocManageTab(session: Session) {
     val scope = rememberCoroutineScope()
     var q by remember { mutableStateOf("") }
     var rows by remember { mutableStateOf<List<AdminDocItem>>(emptyList()) }
+    var total by remember { mutableStateOf(0L) }
+    var page by remember { mutableStateOf(0) }
+    var size by remember { mutableStateOf(20) }
     var loading by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
@@ -58,13 +61,18 @@ internal fun DocManageTab(session: Session) {
     var confirmingId by remember { mutableStateOf<Long?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick, q) {
+    LaunchedEffect(tick, q, page, size) {
         // 输入防抖：每个字符都发请求并把列表替换成「加载中…」，会闪烁且丢滚动位置
         delay(300)
         loading = true
         err = null
         try {
-            rows = api.adminDocs(session.token, q.trim())
+            val box = api.adminDocsPage(session.token, q.trim(), page, size)
+            rows = box.items
+            total = box.total
+            if (rows.isEmpty() && page > 0 && box.total > 0) {
+                page = ((box.total - 1) / size).toInt().coerceAtLeast(0)
+            }
         } catch (e: java.util.concurrent.CancellationException) {
             throw e   // 取消不是失败：q/tick 变化会取消上一次请求，不能弹错误也不能让旧结果落盘
         } catch (e: Exception) {
@@ -78,109 +86,123 @@ internal fun DocManageTab(session: Session) {
     LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("帖子", "${rows.size} 篇（最多 50）", onRefresh = { tick++ })
+        AdminHeader("帖子", "共 $total 篇", onRefresh = { tick++ })
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SearchBox(q, { q = it }, Modifier.weight(1f), "搜索标题 / 正文")
+            SearchBox(q, { q = it; page = 0 }, Modifier.weight(1f), "搜索标题 / 正文")
         }
         Spacer(Modifier.height(6.dp))
-        HorizontalDivider(color = KbBorder)
+        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 1.7f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 rows.isEmpty() -> AdminHint(if (q.isNotBlank()) "没有匹配的帖子" else "还没有帖子")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(rows, key = { it.id }) { d ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        d.title.ifBlank { "（无标题）" },
-                                        fontSize = 13.sp,
-                                        color = if (d.status == "BLOCKED") Color(0xFF9CA3AF) else KbTextMain,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    val label = DOC_STATUS_LABEL[d.status] ?: d.status.ifBlank { "—" }
-                                    val tone = when (d.status) {
-                                        "PUBLISHED" -> Color(0xFF047857) to Color(0xFFD1FAE5)
-                                        "BLOCKED" -> Color(0xFFB91C1C) to Color(0xFFFEE2E2)
-                                        "DELETED" -> Color(0xFF6B7280) to Color(0xFFF3F4F6)
-                                        else -> Color(0xFFB45309) to Color(0xFFFEF3C7)
-                                    }
-                                    AdminChip(label, tone.second, tone.first)
+                        KbTableRow {
+                            Text(
+                                d.title.ifBlank { "（无标题）" },
+                                modifier = Modifier.weight(3f),
+                                fontSize = 13.sp,
+                                color = if (d.status == "BLOCKED") Color(0xFF9CA3AF) else KbTextMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                d.category?.takeIf { it.isNotBlank() } ?: "—",
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                d.ownerName.ifBlank { "—" },
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Box(Modifier.weight(0.9f)) {
+                                val label = DOC_STATUS_LABEL[d.status] ?: d.status.ifBlank { "—" }
+                                val tone = when (d.status) {
+                                    "PUBLISHED" -> KbTone.Success
+                                    "BLOCKED" -> KbTone.Danger
+                                    "DELETED" -> KbTone.Neutral
+                                    else -> KbTone.Warning
                                 }
-                                Spacer(Modifier.height(3.dp))
-                                Text(
-                                    listOfNotNull(
-                                        d.category?.takeIf { it.isNotBlank() },
-                                        d.ownerName.takeIf { it.isNotBlank() },
-                                        fmtAdminTime(d.updatedAt).takeIf { it.isNotBlank() },
-                                    ).joinToString(" · "),
-                                    fontSize = 10.5.sp,
-                                    color = KbTextSub,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                KbTag(label, tone)
                             }
-                            if (d.status != "DELETED") {
-                                AdminButton(if (d.status == "BLOCKED") "解封" else "封禁", enabled = !busy) {
-                                    scope.launch {
-                                        busy = true
-                                        try {
-                                            api.setDocBlocked(session.token, d.id, d.status != "BLOCKED")
-                                            toast = if (d.status == "BLOCKED") "已解封" else "已封禁"
-                                            tick++
-                                        } catch (e: java.util.concurrent.CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            toast = e.message ?: "操作失败"
-                                        } finally { busy = false }
+                            Text(
+                                fmtAdminTime(d.updatedAt),
+                                modifier = Modifier.weight(1.1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Row(Modifier.weight(1.7f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (d.status != "DELETED") {
+                                    AdminButton(if (d.status == "BLOCKED") "解封" else "封禁", enabled = !busy) {
+                                        scope.launch {
+                                            busy = true
+                                            try {
+                                                api.setDocBlocked(session.token, d.id, d.status != "BLOCKED")
+                                                toast = if (d.status == "BLOCKED") "已解封" else "已封禁"
+                                                tick++
+                                            } catch (e: java.util.concurrent.CancellationException) {
+                                                throw e
+                                            } catch (e: Exception) {
+                                                toast = e.message ?: "操作失败"
+                                            } finally { busy = false }
+                                        }
                                     }
                                 }
-                                Spacer(Modifier.width(6.dp))
-                            }
-                            if (confirmingId == d.id) {
-                                AdminButton("确认删除", danger = true, enabled = !busy) {
-                                    scope.launch {
-                                        busy = true
-                                        try {
-                                            api.moveDocToRecycle(session.token, d.id)
-                                            confirmingId = null
-                                            toast = "已移入回收站（可在「回收站」恢复）"
-                                            tick++   // 与封禁路径一致：刷新列表，让服务端第 51 条回填、计数不漂移
-                                        } catch (e: java.util.concurrent.CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            toast = e.message ?: "删除失败"
-                                        } finally { busy = false }
+                                if (confirmingId == d.id) {
+                                    AdminButton("确认删除", danger = true, enabled = !busy) {
+                                        scope.launch {
+                                            busy = true
+                                            try {
+                                                api.moveDocToRecycle(session.token, d.id)
+                                                confirmingId = null
+                                                toast = "已移入回收站（可在「回收站」恢复）"
+                                                tick++   // 与封禁路径一致：刷新列表，让服务端第 51 条回填、计数不漂移
+                                            } catch (e: java.util.concurrent.CancellationException) {
+                                                throw e
+                                            } catch (e: Exception) {
+                                                toast = e.message ?: "删除失败"
+                                            } finally { busy = false }
+                                        }
                                     }
+                                    AdminButton("取消", enabled = !busy) { confirmingId = null }
+                                } else {
+                                    AdminButton("删除", danger = true, enabled = !busy) { confirmingId = d.id }
                                 }
-                                Spacer(Modifier.width(6.dp))
-                                AdminButton("取消", enabled = !busy) { confirmingId = null }
-                            } else {
-                                AdminButton("删除", danger = true, enabled = !busy) { confirmingId = d.id }
                             }
                         }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                 }
             }
         }
+        HorizontalDivider(color = KbBorder)
+        KbPager(
+            total = total,
+            page = page,
+            size = size,
+            onPage = { page = it },
+            onSize = { size = it; page = 0 },
+        )
         Text(
             "删除只移入回收站，可在「回收站」恢复；批量操作与彻底删除请在 Web 端进行",
             fontSize = 10.sp,
             color = KbTextSub,
             maxLines = 2,
             lineHeight = 15.sp,
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
     }
     AdminToast(toast)
@@ -214,70 +236,96 @@ internal fun RecycleTab(session: Session) {
     }
     LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
+    var page by remember { mutableStateOf(0) }
+    var size by remember { mutableStateOf(20) }
+    // 回收站接口返回裸数组（后端不分页）：好在本地切片，恢复一条后页码自动回收
+    val pages = if (rows.isEmpty()) 1 else (rows.size + size - 1) / size
+    LaunchedEffect(rows.size) { if (page > pages - 1) page = (pages - 1).coerceAtLeast(0) }
+    val pageRows = remember(rows, page, size) { rows.drop(page * size).take(size) }
+
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("回收站", "${rows.size} 篇", onRefresh = { tick++ })
+        AdminHeader("回收站", "共 ${rows.size} 篇", onRefresh = { tick++ })
         Text(
             "恢复会按原状态放回列表；彻底删除请在 Web 端操作（不可逆）。",
             fontSize = 10.5.sp,
             color = Color(0xFFB45309),
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
-        HorizontalDivider(color = KbBorder)
+        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 0.9f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 rows.isEmpty() -> AdminHint("回收站是空的")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
-                    items(rows, key = { it.id }) { d ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    d.title.ifBlank { "（无标题）" },
-                                    fontSize = 13.sp,
-                                    color = KbTextMain,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Spacer(Modifier.height(3.dp))
-                                Text(
-                                    listOfNotNull(
-                                        d.category?.takeIf { it.isNotBlank() },
-                                        d.ownerName.takeIf { it.isNotBlank() },
-                                        d.status.takeIf { it.isNotBlank() },
-                                        fmtAdminTime(d.updatedAt).takeIf { it.isNotBlank() },
-                                    ).joinToString(" · "),
-                                    fontSize = 10.5.sp,
-                                    color = KbTextSub,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                    items(pageRows, key = { it.id }) { d ->
+                        KbTableRow {
+                            Text(
+                                d.title.ifBlank { "（无标题）" },
+                                modifier = Modifier.weight(3f),
+                                fontSize = 13.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                d.category?.takeIf { it.isNotBlank() } ?: "—",
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                d.ownerName.ifBlank { "—" },
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Box(Modifier.weight(0.9f)) {
+                                KbTag(DOC_STATUS_LABEL[d.status] ?: d.status.ifBlank { "—" }, KbTone.Neutral)
                             }
-                            AdminButton("恢复", enabled = !busy) {
-                                scope.launch {
-                                    busy = true
-                                    try {
-                                        api.restoreDoc(session.token, d.id)
-                                        rows = rows.filterNot { it.id == d.id }
-                                        toast = "已恢复「${d.title.ifBlank { "无标题" }}」"
-                                    } catch (e: java.util.concurrent.CancellationException) {
-                                        throw e
-                                    } catch (e: Exception) {
-                                        toast = e.message ?: "恢复失败"
-                                    } finally {
-                                        busy = false
+                            Text(
+                                fmtAdminTime(d.updatedAt),
+                                modifier = Modifier.weight(1.1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Box(Modifier.weight(0.9f)) {
+                                AdminButton("恢复", enabled = !busy) {
+                                    scope.launch {
+                                        busy = true
+                                        try {
+                                            api.restoreDoc(session.token, d.id)
+                                            rows = rows.filterNot { it.id == d.id }
+                                            toast = "已恢复「${d.title.ifBlank { "无标题" }}」"
+                                        } catch (e: java.util.concurrent.CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            toast = e.message ?: "恢复失败"
+                                        } finally {
+                                            busy = false
+                                        }
                                     }
                                 }
                             }
                         }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                 }
             }
         }
+        HorizontalDivider(color = KbBorder)
+        KbPager(
+            total = rows.size.toLong(),
+            page = page,
+            size = size,
+            onPage = { page = it },
+            onSize = { size = it; page = 0 },
+        )
     }
     AdminToast(toast)
 }

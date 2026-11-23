@@ -1,8 +1,10 @@
-﻿package com.kb.desktop
+package com.kb.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,8 +76,9 @@ private val STAT_LABELS = mapOf(
 )
 
 @Composable
-internal fun StatsTab(session: Session) {
+internal fun StatsTab(session: Session, onOpenDoc: (Long) -> Unit = {}) {
     val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
     // 看板要图表数据：用原始 JSON（adminStats 会把数组折成「N 项」）
     var raw by remember { mutableStateOf<kotlinx.serialization.json.JsonObject?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -106,7 +109,7 @@ internal fun StatsTab(session: Session) {
         AdminHeader("数据看板", "聚合统计（只读）", onRefresh = { tick++ })
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 raw == null -> AdminHint("没有可展示的统计数据（需要 STATS_VIEW 权限）")
                 else -> LazyColumn(
@@ -225,8 +228,24 @@ internal fun StatsTab(session: Session) {
                                             for ((i, d) in topDocs.take(5).withIndex()) {
                                                 val title = (d["title"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull.orEmpty()
                                                 val views = (d["views"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull ?: "0"
+                                                val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                                val isHover by hover.collectIsHoveredAsState()
                                                 Row(
-                                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .hoverable(hover)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(if (isHover) KbHoverBg else Color.Transparent)
+                                                        .clickable(enabled = title.isNotBlank()) {
+                                                            scope.launch {
+                                                                val hit = runCatching {
+                                                                    api.searchDocs(session.token, title)
+                                                                }.getOrNull()?.firstOrNull { it.title == title }
+                                                                if (hit != null) onOpenDoc(hit.id)
+                                                                else openInBrowser(session.server, "/search?q=" + java.net.URLEncoder.encode(title, "UTF-8"))
+                                                            }
+                                                        }
+                                                        .padding(horizontal = 4.dp, vertical = 4.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                 ) {
                                                     Text(
@@ -314,62 +333,82 @@ private fun emojiFor(title: String): String = when (title) {
 internal fun AuditTab(session: Session) {
     val api = remember(session) { ApiClient(session.server) }
     var rows by remember { mutableStateOf<List<AuditItem>>(emptyList()) }
+    var total by remember { mutableStateOf(0L) }
+    var page by remember { mutableStateOf(0) }
+    var size by remember { mutableStateOf(20) }
     var loading by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(tick, page, size) {
         loading = true
         err = null
-        try { rows = api.adminAudit(session.token) } catch (e: Exception) { err = e.message ?: "加载失败" } finally { loading = false }
+        try {
+            val box = api.adminAuditPage(session.token, page, size)
+            rows = box.items
+            total = box.total
+            if (rows.isEmpty() && page > 0 && box.total > 0) {
+                page = ((box.total - 1) / size).toInt().coerceAtLeast(0)
+            }
+        } catch (e: Exception) { err = e.message ?: "加载失败" } finally { loading = false }
     }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("操作审计", "${rows.size} 条（最近 50）", onRefresh = { tick++ })
+        AdminHeader("操作审计", "共 $total 条", onRefresh = { tick++ })
+        KbTableHead(listOf("动作" to 1.1f, "操作人" to 1.2f, "对象" to 1.8f, "详情 / IP" to 2.2f, "时间" to 1.2f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 rows.isEmpty() -> AdminHint("暂无审计记录")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(rows, key = { it.id }) { r ->
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                AdminChip(r.action.ifBlank { "ACTION" }, Color(0xFFF1F5F9), KbTextSub)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    r.actorName.ifBlank { "—" },
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = KbTextMain,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    r.targetName.ifBlank { r.targetType },
-                                    fontSize = 11.5.sp,
-                                    color = KbTextSub,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(fmtAdminTime(r.createdAt), fontSize = 10.5.sp, color = KbTextSub)
-                            }
-                            if (r.detail.isNotBlank() || r.ip.isNotBlank()) {
-                                Spacer(Modifier.height(3.dp))
-                                Text(
-                                    listOf(r.detail, r.ip).filter { it.isNotBlank() }.joinToString(" · "),
-                                    fontSize = 10.5.sp,
-                                    color = KbTextSub,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                        KbTableRow {
+                            Box(Modifier.weight(1.1f)) { KbTag(r.action.ifBlank { "ACTION" }, KbTone.Neutral) }
+                            Text(
+                                r.actorName.ifBlank { "—" },
+                                modifier = Modifier.weight(1.2f),
+                                fontSize = 12.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                r.targetName.ifBlank { r.targetType },
+                                modifier = Modifier.weight(1.8f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                listOf(r.detail, r.ip).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "—" },
+                                modifier = Modifier.weight(2.2f),
+                                fontSize = 10.5.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                fmtAdminTime(r.createdAt),
+                                modifier = Modifier.weight(1.2f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
                         }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                 }
             }
         }
+        HorizontalDivider(color = KbBorder)
+        KbPager(
+            total = total,
+            page = page,
+            size = size,
+            onPage = { page = it },
+            onSize = { size = it; page = 0 },
+        )
     }
 }
 
@@ -379,48 +418,75 @@ internal fun AuditTab(session: Session) {
 internal fun LoginLogsTab(session: Session) {
     val api = remember(session) { ApiClient(session.server) }
     var rows by remember { mutableStateOf<List<LoginLogItem>>(emptyList()) }
+    var total by remember { mutableStateOf(0L) }
+    var page by remember { mutableStateOf(0) }
+    var size by remember { mutableStateOf(20) }
     var loading by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(tick, page, size) {
         loading = true
         err = null
-        try { rows = api.adminLoginLogs(session.token) } catch (e: Exception) { err = e.message ?: "加载失败" } finally { loading = false }
+        try {
+            val box = api.adminLoginLogsPage(session.token, page, size)
+            rows = box.items
+            total = box.total
+            if (rows.isEmpty() && page > 0 && box.total > 0) {
+                page = ((box.total - 1) / size).toInt().coerceAtLeast(0)
+            }
+        } catch (e: Exception) { err = e.message ?: "加载失败" } finally { loading = false }
     }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("登录日志", "${rows.size} 条（最近 50）", onRefresh = { tick++ })
+        AdminHeader("登录日志", "共 $total 条", onRefresh = { tick++ })
+        KbTableHead(listOf("结果" to 0.8f, "账号" to 1.5f, "IP / 原因" to 2.4f, "时间" to 1.3f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 rows.isEmpty() -> AdminHint("暂无登录记录")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(rows, key = { it.id }) { r ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            AdminChip(if (r.success) "成功" else "失败", if (r.success) Color(0xFFD1FAE5) else Color(0xFFFEE2E2), if (r.success) Color(0xFF047857) else Color(0xFFB91C1C))
-                            Spacer(Modifier.width(8.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(r.username.ifBlank { "（未知账号）" }, fontSize = 12.5.sp, color = KbTextMain, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    listOf(r.ip, r.reason).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "—" },
-                                    fontSize = 10.5.sp,
-                                    color = KbTextSub,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                        KbTableRow {
+                            Box(Modifier.weight(0.8f)) {
+                                KbTag(if (r.success) "成功" else "失败", if (r.success) KbTone.Success else KbTone.Danger)
                             }
-                            Text(fmtAdminTime(r.createdAt), fontSize = 10.5.sp, color = KbTextSub)
+                            Text(
+                                r.username.ifBlank { "（未知账号）" },
+                                modifier = Modifier.weight(1.5f),
+                                fontSize = 12.5.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                listOf(r.ip, r.reason).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "—" },
+                                modifier = Modifier.weight(2.4f),
+                                fontSize = 10.5.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                fmtAdminTime(r.createdAt),
+                                modifier = Modifier.weight(1.3f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
                         }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                 }
             }
         }
+        HorizontalDivider(color = KbBorder)
+        KbPager(
+            total = total,
+            page = page,
+            size = size,
+            onPage = { page = it },
+            onSize = { size = it; page = 0 },
+        )
     }
 }

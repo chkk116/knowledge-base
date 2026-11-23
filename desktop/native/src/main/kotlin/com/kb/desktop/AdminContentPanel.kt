@@ -58,6 +58,9 @@ internal fun AnnouncementsTab(session: Session) {
     val api = remember(session) { ApiClient(session.server) }
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<AdminAnnouncement>>(emptyList()) }
+    var total by remember { mutableStateOf(0L) }
+    var page by remember { mutableStateOf(0) }
+    var size by remember { mutableStateOf(20) }
     var loading by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
@@ -68,11 +71,16 @@ internal fun AnnouncementsTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(tick, page, size) {
         loading = true
         err = null
         try {
-            items = api.adminAnnouncements(session.token)
+            val box = api.adminAnnouncementsPage(session.token, page, size)
+            items = box.items
+            total = box.total
+            if (items.isEmpty() && page > 0 && box.total > 0) {
+                page = ((box.total - 1) / size).toInt().coerceAtLeast(0)
+            }
         } catch (e: Exception) {
             err = e.message ?: "加载失败"
         } finally {
@@ -82,7 +90,7 @@ internal fun AnnouncementsTab(session: Session) {
     LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("公告", "${items.size} 条", onRefresh = { tick++ })
+        AdminHeader("公告", "共 $total 条", onRefresh = { tick++ })
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp)) {
             AdminButton(if (creating) "收起新建" else "新建公告", enabled = true) { creating = !creating }
         }
@@ -141,37 +149,24 @@ internal fun AnnouncementsTab(session: Session) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        HorizontalDivider(color = KbBorder)
+        KbTableHead(listOf("公告" to 3f, "置顶" to 0.8f, "状态" to 0.8f, "时间" to 1.2f, "操作" to 1.8f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 items.isEmpty() -> AdminHint("还没有公告")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(items, key = { it.id }) { a ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (a.pinned) {
-                                        AdminChip("置顶", Color(0xFFFEF3C7), Color(0xFFB45309))
-                                        Spacer(Modifier.width(6.dp))
-                                    }
-                                    Text(
-                                        a.title.ifBlank { "（无标题）" },
-                                        fontSize = 13.sp,
-                                        color = if (a.enabled) KbTextMain else Color(0xFF9CA3AF),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    if (!a.enabled) {
-                                        Spacer(Modifier.width(6.dp))
-                                        AdminChip("已停用", Color(0xFFF3F4F6), KbTextSub)
-                                    }
-                                }
-                                Spacer(Modifier.height(3.dp))
+                        KbTableRow {
+                            Column(Modifier.weight(3f)) {
+                                Text(
+                                    a.title.ifBlank { "（无标题）" },
+                                    fontSize = 13.sp,
+                                    color = if (a.enabled) KbTextMain else Color(0xFF9CA3AF),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(2.dp))
                                 Text(
                                     a.content.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim(),
                                     fontSize = 10.5.sp,
@@ -180,7 +175,19 @@ internal fun AnnouncementsTab(session: Session) {
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.weight(0.8f)) { if (a.pinned) KbTag("置顶", KbTone.Warning) }
+                            Box(Modifier.weight(0.8f)) {
+                                KbTag(if (a.enabled) "启用" else "已停用", if (a.enabled) KbTone.Success else KbTone.Neutral)
+                            }
+                            Text(
+                                fmtAdminTime(a.createdAt),
+                                modifier = Modifier.weight(1.2f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Row(Modifier.weight(1.8f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 AdminButton(if (a.pinned) "取消置顶" else "置顶", enabled = !busy) {
                                     scope.launch {
                                         try { api.toggleAnnouncementPin(session.token, a.id); tick++ } catch (e: Exception) { toast = e.message ?: "失败" }
@@ -193,11 +200,18 @@ internal fun AnnouncementsTab(session: Session) {
                                 }
                             }
                         }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                 }
             }
         }
+        HorizontalDivider(color = KbBorder)
+        KbPager(
+            total = total,
+            page = page,
+            size = size,
+            onPage = { page = it },
+            onSize = { size = it; page = 0 },
+        )
     }
     AdminToast(toast)
 }
@@ -293,7 +307,7 @@ internal fun BannedWordsTab(session: Session) {
             HorizontalDivider(color = KbBorder)
             Box(Modifier.weight(1f)) {
                 when {
-                    loading -> AdminHint("加载中…")
+                    loading -> KbSkeletonList()
                     err != null -> AdminError(err ?: "", { tick++ })
                     libs.isEmpty() -> AdminHint("还没有词库")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
@@ -392,43 +406,55 @@ internal fun BannedWordsTab(session: Session) {
                     }
                 }
             }
+            // 词条一次取一页 100 条并在本地筛选，这里再切页显示，避免长列表滚不完
+            var page by remember(shown) { mutableStateOf(0) }
+            val pageSize = 40
+            val pageWords = remember(shown, page) { shown.drop(page * pageSize).take(pageSize) }
             Spacer(Modifier.height(6.dp))
-            HorizontalDivider(color = KbBorder)
+            KbTableHead(listOf("词条" to 4f, "操作" to 1f))
             Box(Modifier.weight(1f)) {
                 when {
                     libId == null -> AdminHint("先在左侧选择词库")
                     shown.isEmpty() -> AdminHint(if (q.isNotBlank()) "没有匹配的词条" else "这个词库还没有词条")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
-                        items(shown, key = { it.id }) { w ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(w.word, fontSize = 12.5.sp, color = KbTextMain, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (confirming == w.id) {
-                                    AdminButton("确认删除", danger = true, enabled = !busy) {
-                                        scope.launch {
-                                            busy = true
-                                            try {
-                                                api.deleteBannedWord(session.token, w.id)
-                                                confirming = null
-                                                toast = "已删除"
-                                                tick++
-                                            } catch (e: Exception) {
-                                                toast = e.message ?: "删除失败"
-                                            } finally { busy = false }
+                        items(pageWords, key = { it.id }) { w ->
+                            KbTableRow(vertical = 6) {
+                                Text(
+                                    w.word,
+                                    fontSize = 12.5.sp,
+                                    color = KbTextMain,
+                                    modifier = Modifier.weight(4f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (confirming == w.id) {
+                                        AdminButton("确认删除", danger = true, enabled = !busy) {
+                                            scope.launch {
+                                                busy = true
+                                                try {
+                                                    api.deleteBannedWord(session.token, w.id)
+                                                    confirming = null
+                                                    toast = "已删除"
+                                                    tick++
+                                                } catch (e: Exception) {
+                                                    toast = e.message ?: "删除失败"
+                                                } finally { busy = false }
+                                            }
                                         }
+                                        AdminButton("取消", enabled = !busy) { confirming = null }
+                                    } else {
+                                        AdminButton("删除", danger = true, enabled = !busy) { confirming = w.id }
                                     }
-                                    Spacer(Modifier.width(6.dp))
-                                    AdminButton("取消", enabled = !busy) { confirming = null }
-                                } else {
-                                    AdminButton("删除", danger = true, enabled = !busy) { confirming = w.id }
                                 }
                             }
-                            HorizontalDivider(color = Color(0xFFF1F5F9))
                         }
                     }
                 }
+            }
+            if (shown.isNotEmpty()) {
+                HorizontalDivider(color = KbBorder)
+                KbPager(total = shown.size.toLong(), page = page, size = pageSize, onPage = { page = it })
             }
         }
     }
@@ -457,26 +483,23 @@ internal fun OrphanFilesTab(session: Session) {
     LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("孤儿附件", "${files.size} 个（最多 100）", onRefresh = { tick++ })
+        AdminHeader("孤儿附件", "共 ${files.size} 个", onRefresh = { tick++ })
         Text(
             "只列出正文与头像都未引用的上传文件；删除不可恢复，逐个二次确认。",
             fontSize = 10.5.sp,
             color = Color(0xFFB45309),
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
-        HorizontalDivider(color = KbBorder)
+        KbTableHead(listOf("文件" to 4f, "大小" to 1f, "操作" to 1.2f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 files.isEmpty() -> AdminHint("没有孤儿附件")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(files, key = { it.url }) { f ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
+                        KbTableRow {
+                            Column(Modifier.weight(4f)) {
                                 Text(
                                     f.url.substringAfterLast('/'),
                                     fontSize = 12.5.sp,
@@ -486,34 +509,41 @@ internal fun OrphanFilesTab(session: Session) {
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    listOf(f.url, fmtAdminSize(f.size)).filter { it.isNotBlank() }.joinToString(" · "),
+                                    f.url,
                                     fontSize = 10.sp,
                                     color = KbTextSub,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            if (confirming == f.url) {
-                                AdminButton("确认删除", danger = true, enabled = !busy) {
-                                    scope.launch {
-                                        busy = true
-                                        try {
-                                            api.deleteOrphanFile(session.token, f.url)
-                                            files = files.filterNot { it.url == f.url }
-                                            confirming = null
-                                            toast = "已删除"
-                                        } catch (e: Exception) {
-                                            toast = e.message ?: "删除失败"
-                                        } finally { busy = false }
+                            Text(
+                                fmtAdminSize(f.size),
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
+                            Row(Modifier.weight(1.2f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (confirming == f.url) {
+                                    AdminButton("确认删除", danger = true, enabled = !busy) {
+                                        scope.launch {
+                                            busy = true
+                                            try {
+                                                api.deleteOrphanFile(session.token, f.url)
+                                                files = files.filterNot { it.url == f.url }
+                                                confirming = null
+                                                toast = "已删除"
+                                            } catch (e: Exception) {
+                                                toast = e.message ?: "删除失败"
+                                            } finally { busy = false }
+                                        }
                                     }
+                                    AdminButton("取消", enabled = !busy) { confirming = null }
+                                } else {
+                                    AdminButton("删除", danger = true, enabled = !busy) { confirming = f.url }
                                 }
-                                Spacer(Modifier.width(6.dp))
-                                AdminButton("取消", enabled = !busy) { confirming = null }
-                            } else {
-                                AdminButton("删除", danger = true, enabled = !busy) { confirming = f.url }
                             }
                         }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                 }
             }

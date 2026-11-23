@@ -1,5 +1,10 @@
 package com.kb.desktop
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,11 +14,15 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,8 +43,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 
 /**
  * 桌面端轻量 UI 套件（对标 Web 端的 Element Plus 观感）。
@@ -276,5 +287,261 @@ fun KbColumnHeader(title: String, subtitle: String = "", actions: @Composable ()
             }
         }
         actions()
+    }
+}
+
+// ---------- 设置页分组（对标 Web 端设置卡片：白卡 + 小节标题 + 键值行） ----------
+
+/** 设置分组：白卡 + 小节标题 + 内容；设置页、关于页统一用它，避免每个页面自己画边框 */
+@Composable
+fun KbSettingGroup(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    KbSurface(modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+            Spacer(Modifier.height(10.dp))
+            content()
+        }
+    }
+}
+
+/** 设置项：左侧标签固定宽、右侧值右对齐（长值自动换行到右侧列，不会顶到标签上） */
+@Composable
+fun KbSettingRow(label: String, value: String, labelWidth: Int = 92) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 12.5.sp, color = KbTextSub, modifier = Modifier.width(labelWidth.dp))
+        Text(
+            value,
+            modifier = Modifier.weight(1f),
+            fontSize = 12.5.sp,
+            color = KbTextMain,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+        )
+    }
+}
+
+// ---------- 骨架屏（列表加载态，替代「加载中…」文字） ----------
+
+/**
+ * 列表骨架屏：灰条 + 呼吸动画。只表达「形状与位置」，不假装有数据。
+ * 用在加载态，切到真实列表时视觉位置一致，不会整页跳一下。
+ */
+@Composable
+fun KbSkeletonList(rows: Int = 6, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "kb-skeleton")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "kb-skeleton-alpha",
+    )
+    val bar = Color(0xFFE9ECF2).copy(alpha = alpha)
+    val barSoft = Color(0xFFF1F3F7).copy(alpha = alpha)
+    Column(modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 6.dp)) {
+        repeat(rows) { i ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(bar))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Box(
+                        Modifier.fillMaxWidth(0.45f + 0.12f * (i % 3))
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(bar)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Box(Modifier.fillMaxWidth(0.28f).height(8.dp).clip(RoundedCornerShape(4.dp)).background(barSoft))
+                }
+                Spacer(Modifier.width(16.dp))
+                Box(Modifier.width(52.dp).height(22.dp).clip(RoundedCornerShape(6.dp)).background(barSoft))
+            }
+        }
+    }
+}
+
+// ---------- 对话框（对标 Web 端 el-dialog：白底圆角 + 标题栏 + 右上关闭） ----------
+
+/**
+ * 应用内统一的对话框外壳。
+ *
+ * 与 Material3 `AlertDialog` **参数兼容**（onDismissRequest / title / text / confirmButton / dismissButton），
+ * 所以存量调用只需把 `AlertDialog(` 换成 `KbDialog(` —— 视觉换成项目色板，逻辑一行不改。
+ *
+ * 差异点：标题栏右侧固定一个「×」（Material 只在点遮罩/ESC 关闭，桌面用户常找不到出口）；
+ * 内容区限高 560dp 可滚动，避免长表单把对话框撑出屏幕。
+ */
+@Composable
+fun KbDialog(
+    onDismissRequest: () -> Unit,
+    confirmButton: @Composable () -> Unit = EMPTY_CONTENT,
+    dismissButton: (@Composable () -> Unit)? = null,
+    title: (@Composable () -> Unit)? = null,
+    text: (@Composable () -> Unit)? = null,
+    width: Dp = 520.dp,
+) {
+    Dialog(onDismissRequest = onDismissRequest) {
+        KbSurface(shape = RoundedCornerShape(14.dp)) {
+            // 宽度跟随内容（存量对话框多是 460dp 的固定宽 Column），最少 320 以免窄成一列
+            Column(Modifier.widthIn(min = 320.dp, max = width).padding(horizontal = 20.dp, vertical = 16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { title?.invoke() }
+                    Spacer(Modifier.width(8.dp))
+                    KbMiniIconButton("✕", "关闭") { onDismissRequest() }
+                }
+                Spacer(Modifier.height(10.dp))
+                HorizontalRule()
+                Spacer(Modifier.height(12.dp))
+                Box(Modifier.fillMaxWidth().heightIn(max = 560.dp)) { text?.invoke() }
+                if (dismissButton != null || confirmButton !== EMPTY_CONTENT) {
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalRule()
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        dismissButton?.invoke()
+                        Spacer(Modifier.width(8.dp))
+                        confirmButton()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val EMPTY_CONTENT: @Composable () -> Unit = {}
+
+/** 表头：cells = 列名 to 相对权重 */
+@Composable
+fun KbTableHead(cells: List<Pair<String, Float>>, horizontal: Int = 18) {
+    Row(
+        Modifier.fillMaxWidth().background(KbTableHeadBg).padding(horizontal = horizontal.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for ((label, weight) in cells) {
+            Text(
+                label,
+                modifier = Modifier.weight(weight),
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = KbTextSub,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+    HorizontalRule()
+}
+
+/** 表格行：hover 有底，可点行整行响应 */
+@Composable
+fun KbTableRow(
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    horizontal: Int = 18,
+    vertical: Int = 8,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Row(
+        modifier
+            .fillMaxWidth()
+            .hoverable(interaction)
+            .background(if (selected) KbSelectedBg else if (hovered) KbHoverBg else Color.Transparent)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = horizontal.dp, vertical = vertical.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+    HorizontalRule()
+}
+
+@Composable
+private fun HorizontalRule() {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFF1F5F9)))
+}
+
+val KbTableHeadBg = Color(0xFFF7F8FA)
+
+// ---------- 分页（对标 Web 端 el-pagination：右对齐、当前页实心主色） ----------
+
+/**
+ * 服务端分页条。page 为 0 基（与后端一致），显示为 1 基。
+ * size 可空：传 null 则不显示「每页 N 条」。
+ */
+@Composable
+fun KbPager(
+    total: Long,
+    page: Int,
+    size: Int,
+    modifier: Modifier = Modifier,
+    onPage: (Int) -> Unit,
+    onSize: ((Int) -> Unit)? = null,
+    sizeOptions: List<Int> = listOf(20, 50, 100),
+) {
+    val pages = if (size <= 0) 1 else (((total + size - 1) / size).toInt()).coerceAtLeast(1)
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("共 $total 条", fontSize = 11.sp, color = KbTextSub)
+        Spacer(Modifier.weight(1f))
+        if (onSize != null) {
+            KbPagerCell("每页 $size 条") {
+                val i = sizeOptions.indexOf(size)
+                onSize(sizeOptions[(if (i < 0) 0 else i + 1) % sizeOptions.size])
+            }
+            Spacer(Modifier.width(6.dp))
+        }
+        KbPagerCell("‹", enabled = page > 0) { onPage(page - 1) }
+        Spacer(Modifier.width(4.dp))
+        // 页码窗口：当前页居中，最多 5 个，两端用省略号 + 首末页补齐
+        val start = minOf((page - 2).coerceAtLeast(0), (pages - 5).coerceAtLeast(0))
+        val end = minOf(start + 4, pages - 1)
+        if (start > 0) {
+            KbPagerCell("1") { onPage(0) }
+            if (start > 1) Text("…", fontSize = 11.sp, color = KbTextSub, modifier = Modifier.padding(horizontal = 4.dp))
+        }
+        for (p in start..end) {
+            KbPagerCell("${p + 1}", active = p == page) { onPage(p) }
+        }
+        if (end < pages - 1) {
+            if (end < pages - 2) Text("…", fontSize = 11.sp, color = KbTextSub, modifier = Modifier.padding(horizontal = 4.dp))
+            KbPagerCell("$pages") { onPage(pages - 1) }
+        }
+        Spacer(Modifier.width(4.dp))
+        KbPagerCell("›", enabled = page < pages - 1) { onPage(page + 1) }
+    }
+}
+
+@Composable
+private fun KbPagerCell(label: String, active: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        Modifier
+            .size(width = if (label.length > 2) 62.dp else 26.dp, height = 26.dp)
+            .hoverable(interaction)
+            .clip(shape)
+            .background(if (active) KbAccent else if (hovered && enabled) KbHoverBg else Color.Transparent)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            fontSize = 11.sp,
+            fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+            color = when {
+                active -> Color.White
+                !enabled -> Color(0xFFC7CBD4)
+                hovered -> KbAccent
+                else -> KbTextMain
+            },
+            maxLines = 1,
+        )
     }
 }

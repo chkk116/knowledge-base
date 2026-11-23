@@ -24,6 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -168,7 +171,7 @@ fun CoursesPanel(session: Session) {
                 HorizontalDivider(color = KbBorder)
                 Box(Modifier.weight(1f)) {
                     when {
-                        listLoading -> LearnHint("加载中…")
+                        listLoading -> KbSkeletonList(rows = 6)
                         listErr != null -> LearnError(listErr ?: "", onRetry = { listTick++ })
                         courses.isEmpty() -> LearnHint("还没有课程\n可在 Web 端创建课程")
                         else -> LazyColumn(Modifier.fillMaxSize()) {
@@ -210,7 +213,7 @@ fun CoursesPanel(session: Session) {
                     val chs = detail?.chapters.orEmpty()
                     when {
                         courseId == null -> LearnHint("先在左侧选择课程")
-                        detailLoading -> LearnHint("加载中…")
+                        detailLoading -> KbSkeletonList(rows = 6)
                         detailErr != null -> LearnError(detailErr ?: "", onRetry = { detailTick++ })
                         chs.isEmpty() -> LearnHint("这门课程还没有章节")
                         else -> LazyColumn(Modifier.fillMaxSize()) {
@@ -234,8 +237,8 @@ fun CoursesPanel(session: Session) {
                 when {
                     courseId == null -> LearnHint("选择课程与章节后在这里阅读")
                     chapterId == null -> LearnHint("在中间列表选择章节")
-                    detailLoading -> LearnHint("加载中…")
-                    ch == null -> LearnHint("加载中…")
+                    detailLoading -> KbSkeletonList(rows = 6)
+                    ch == null -> KbSkeletonList(rows = 6)
                     else -> CourseChapterReader(
                         chapter = ch,
                         finished = ch.id in finished,
@@ -265,11 +268,21 @@ fun CoursesPanel(session: Session) {
 
 @Composable
 private fun CourseRow(c: CourseItem, sel: Boolean, onClick: () -> Unit) {
+    // 课程行补 hover：主从布局的左栏如果只有选中态，鼠标扫过毫无反馈
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
     Column(
         Modifier
             .fillMaxWidth()
+            .hoverable(interaction)
             .clickable(onClick = onClick)
-            .background(if (sel) KbSidebarSelected else Color.Transparent)
+            .background(
+                when {
+                    sel -> KbSidebarSelected
+                    hovered -> KbHoverBg
+                    else -> Color.Transparent
+                }
+            )
             .padding(horizontal = 12.dp, vertical = 9.dp),
     ) {
         Text(
@@ -444,7 +457,7 @@ fun ExamsPanel(session: Session) {
             HorizontalDivider(color = KbBorder)
             Box(Modifier.weight(1f)) {
                 when {
-                    loading -> LearnHint("加载中…")
+                    loading -> KbSkeletonList(rows = 6)
                     err != null -> LearnError(err ?: "", onRetry = { tick++ })
                     papers.isEmpty() -> LearnHint("暂无已发布的试卷")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
@@ -460,7 +473,7 @@ fun ExamsPanel(session: Session) {
             val p = paper
             when {
                 paperId == null -> LearnHint("选择一份试卷查看信息")
-                loading -> LearnHint("加载中…")
+                loading -> KbSkeletonList(rows = 6)
                 p == null -> LearnHint("试卷不存在")
                 else -> ExamDetail(
                     paper = p,

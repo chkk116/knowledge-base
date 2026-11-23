@@ -1,4 +1,4 @@
-﻿package com.kb.desktop
+package com.kb.desktop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -18,6 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -131,7 +134,7 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                             MenuKind.EXAMS -> ExamsPanel(session)
                             MenuKind.FILES -> FilesPanel(session)
                             MenuKind.MAIL -> MailPanel(session)
-                            MenuKind.ADMIN -> AdminPanel(session)
+                            MenuKind.ADMIN -> AdminPanel(session, onOpenDoc = { id -> jumpDocId = id; selected = MenuKind.DOCS })
                             MenuKind.SETTINGS -> SettingsPanel(session, onLogout = onLogout)
                             MenuKind.NOTIFICATIONS -> NotificationsPanel(
                                 session = session,
@@ -372,13 +375,34 @@ private fun HomePanel(
     var recent by remember { mutableStateOf<List<DocSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var refresh by remember { mutableStateOf(0) }
+    var trendLabels by remember { mutableStateOf<List<String>>(emptyList()) }
+    var trendCounts by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var catSegments by remember { mutableStateOf<List<Triple<String, Int, Color>>>(emptyList()) }
 
     // 首页各块独立降级：某一块取不到不拖垮整页（概览/公告失败就是空，不弹错）
     LaunchedEffect(refresh) {
         loading = true
         ov = runCatching { api.overview(session.token) }.getOrNull()
         notices = runCatching { api.announcements(session.token) }.getOrDefault(emptyList())
-        recent = runCatching { api.docs(session.token, size = 6, sort = "latest").items }.getOrDefault(emptyList())
+        val latest = runCatching { api.docs(session.token, size = 80, sort = "latest").items }.getOrDefault(emptyList())
+        recent = latest.take(6)
+        // 近 7 天更新趋势：本地按 updatedAt 分桶，普通成员也能看到（不依赖管理端 /admin/stats）
+        val fmt = java.time.format.DateTimeFormatter.ofPattern("MM-dd")
+        val days = (6 downTo 0).map { java.time.LocalDate.now().minusDays(it.toLong()) }
+        trendLabels = days.map { it.format(fmt) }
+        trendCounts = days.map { d ->
+            latest.count { doc ->
+                runCatching { java.time.LocalDate.parse(doc.updatedAt.take(10)) }.getOrNull() == d
+            }
+        }
+        // 分类分布：前 4 类 + 未分类，颜色沿用首页卡片主色
+        val palette = listOf(KbTileViolet.first, KbTileGreen.first, KbTileBlue.first, KbTileAmber.first)
+        catSegments = latest.groupBy { it.category?.takeIf { c -> c.isNotBlank() } ?: "未分类" }
+            .map { (k, v) -> k to v.size }
+            .sortedByDescending { it.second }
+            .take(4)
+            .mapIndexed { i, (k, v) -> Triple(k, v, palette[i % palette.size]) }
+            .ifEmpty { listOf(Triple("暂无数据", 1, Color(0xFFE5E7EB))) }
         loading = false
     }
 
@@ -419,7 +443,22 @@ private fun HomePanel(
                 StatCard("待审核", pending, KbTileAmber, Modifier.weight(1f))
             }
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(16.dp))
+
+        // 趋势与分类分布：复用看板图表组件，数据来自最近 80 篇，普通成员也能看到
+        if (trendLabels.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth()) {
+                LineChart(
+                    title = "近 7 天更新",
+                    labels = trendLabels,
+                    series = listOf(Triple("更新篇数", trendCounts, KbTileViolet.first)),
+                    modifier = Modifier.weight(1.7f),
+                )
+                Spacer(Modifier.width(12.dp))
+                DonutChart(title = "分类分布", segments = catSegments, modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(18.dp))
+        }
 
         // 公告：只显示置顶优先的前两条，避免首页被公告挤满
         if (notices.isNotEmpty()) {
@@ -727,11 +766,12 @@ private fun NotificationsPanel(
         }
         Spacer(Modifier.height(12.dp))
         when {
-            loading && items.isEmpty() -> Text("加载中…", fontSize = 12.5.sp, color = KbTextSub)
+            loading && items.isEmpty() -> KbSkeletonList(rows = 5)
             err != null -> Text(err ?: "", fontSize = 12.5.sp, color = Color(0xFFDC2626))
-            items.isEmpty() -> Text(
-                "暂无通知：有人评论、回复或 @ 你时会出现在这里",
-                fontSize = 12.5.sp, color = KbTextSub,
+            items.isEmpty() -> KbEmptyState(
+                glyph = "◎",
+                title = "暂无通知",
+                desc = "有人评论、回复或 @ 你时会出现在这里",
             )
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items.size) { i ->
@@ -780,7 +820,8 @@ private fun NotificationsPanel(
                             )
                         }
                         if (!n.read) {
-                            Text("未读", fontSize = 10.5.sp, color = Color(0xFF2563EB))
+                            KbTag("未读", KbTone.Primary)
+                            Spacer(Modifier.width(6.dp))
                         }
                         TextButton(
                             onClick = {
@@ -819,18 +860,9 @@ private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(26.dp)) {
         Text("设置", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
         Spacer(Modifier.height(16.dp))
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.White)
-                .border(1.dp, KbBorder, RoundedCornerShape(12.dp))
-                .padding(20.dp),
-        ) {
-            Text("关于", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
-            Spacer(Modifier.height(12.dp))
-            SettingRow("当前版本", "${AppInfo.versionName}（${AppInfo.versionCode}）")
-            SettingRow("更新通道", AppInfo.channel)
+        KbSettingGroup("关于") {
+            KbSettingRow("当前版本", "${AppInfo.versionName}（${AppInfo.versionCode}）")
+            KbSettingRow("更新通道", AppInfo.channel)
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = {
@@ -965,43 +997,17 @@ private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
         }
 
         Spacer(Modifier.height(16.dp))
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.White)
-                .border(1.dp, KbBorder, RoundedCornerShape(12.dp))
-                .padding(20.dp),
-        ) {
-            Text("账号", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+        KbSettingGroup("账号") {
+            KbSettingRow("服务器", session.server)
+            KbSettingRow("登录账号", session.username)
             Spacer(Modifier.height(12.dp))
-            SettingRow("服务器", session.server)
-            SettingRow("登录账号", session.username)
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { onLogout() },
-                    shape = RoundedCornerShape(9.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFF3F4F6), contentColor = KbTextMain,
-                    ),
-                ) { Text("退出登录", fontSize = 13.sp) }
-            }
+            KbGhostAction("退出登录") { onLogout() }
         }
 
         Spacer(Modifier.height(16.dp))
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.White)
-                .border(1.dp, KbBorder, RoundedCornerShape(12.dp))
-                .padding(20.dp),
-        ) {
-            Text("本地数据", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
-            Spacer(Modifier.height(12.dp))
-            SettingRow("正文图片缓存", "$imgCacheCount 张（内存，重启清空）")
-            SettingRow("配置目录", ConfigStore.dirPath().ifBlank { "（未创建）" })
+        KbSettingGroup("本地数据") {
+            KbSettingRow("正文图片缓存", "$imgCacheCount 张（内存，重启清空）")
+            KbSettingRow("配置目录", ConfigStore.dirPath().ifBlank { "（未创建）" })
             Spacer(Modifier.height(4.dp))
             Text(
                 "只清本机缓存与配置，不动服务器上的任何内容；token 不落盘，退出登录即失效。",
@@ -1009,31 +1015,18 @@ private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
             )
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = {
-                        val n = clearDocImageCache()
-                        imgCacheCount = docImageCacheSize()
-                        localMsg = "已清空 $n 张图片缓存"
-                    },
-                    shape = RoundedCornerShape(9.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFF3F4F6), contentColor = KbTextMain,
-                    ),
-                ) { Text("清空图片缓存", fontSize = 13.sp) }
-
-                Button(
-                    onClick = {
-                        val dir = ConfigStore.dirPath()
-                        if (dir.isNotBlank()) {
-                            runCatching { java.awt.Desktop.getDesktop().open(java.io.File(dir)) }
-                                .onFailure { localMsg = "打开目录失败：${it.message}" }
-                        } else localMsg = "配置目录尚未创建"
-                    },
-                    shape = RoundedCornerShape(9.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFF3F4F6), contentColor = KbTextMain,
-                    ),
-                ) { Text("打开配置目录", fontSize = 13.sp) }
+                KbGhostAction("清空图片缓存") {
+                    val n = clearDocImageCache()
+                    imgCacheCount = docImageCacheSize()
+                    localMsg = "已清空 $n 张图片缓存"
+                }
+                KbGhostAction("打开配置目录") {
+                    val dir = ConfigStore.dirPath()
+                    if (dir.isNotBlank()) {
+                        runCatching { java.awt.Desktop.getDesktop().open(java.io.File(dir)) }
+                            .onFailure { localMsg = "打开目录失败：${it.message}" }
+                    } else localMsg = "配置目录尚未创建"
+                }
             }
             Spacer(Modifier.height(8.dp))
             TextButton(
@@ -1049,14 +1042,6 @@ private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
                 Text(localMsg, fontSize = 12.sp, color = Color(0xFF059669))
             }
         }
-    }
-}
-
-@Composable
-private fun SettingRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 12.5.sp, color = KbTextSub, modifier = Modifier.width(84.dp))
-        Text(value, fontSize = 12.5.sp, color = KbTextMain)
     }
 }
 
@@ -1283,7 +1268,7 @@ private fun DocsPanel(
                 else mineItems.filter { it.title.contains(q.trim(), ignoreCase = true) }
                 val shown = if (q.trim().isNotEmpty()) results else docs
                 when {
-                    inMine && mineLoading -> PanelHint("加载中…")
+                    inMine && mineLoading -> KbSkeletonList(rows = 5)
                     inMine && mineErr != null -> Column(
                         Modifier.fillMaxSize().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1333,7 +1318,7 @@ private fun DocsPanel(
                             )
                         }
                     }
-                    inSub && subLoading -> PanelHint("加载中…")
+                    inSub && subLoading -> KbSkeletonList(rows = 5)
                     inSub && subErr != null -> Column(
                         Modifier.fillMaxSize().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1356,7 +1341,7 @@ private fun DocsPanel(
                             }
                         }
                     }
-                    loading && q.trim().isEmpty() -> PanelHint("加载中…")
+                    loading && q.trim().isEmpty() -> KbSkeletonList(rows = 5)
                     error != null && shown.isEmpty() -> Column(
                         Modifier.fillMaxSize().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1434,7 +1419,7 @@ private fun DocsPanel(
                             TextButton(onClick = { detailTick++ }) { Text("重试", fontSize = 12.sp) }
                         }
                     }
-                    detailLoading -> PanelHint("加载中…")
+                    detailLoading -> KbSkeletonList(rows = 5)
                     d != null -> ArticleView(
                         api = api,
                         token = session.token,
@@ -1449,7 +1434,7 @@ private fun DocsPanel(
                         },
                         onEdit = { editing = true; editTarget = d.id },
                     )
-                    else -> PanelHint("加载中…")
+                    else -> KbSkeletonList(rows = 5)
                 }
             }
         }
@@ -1773,7 +1758,7 @@ private fun FilesPanel(session: Session) {
             Column(Modifier.width(320.dp).fillMaxHeight()) {
         Box(Modifier.weight(1f)) {
             when {
-                loading -> PanelHint("加载中…")
+                loading -> KbSkeletonList(rows = 5)
                 error != null -> Column(
                     Modifier.fillMaxSize().padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1783,7 +1768,7 @@ private fun FilesPanel(session: Session) {
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = { refresh++ }) { Text("重试", fontSize = 12.sp) }
                 }
-                files.isEmpty() -> PanelHint("暂无文件")
+                files.isEmpty() -> KbEmptyState(glyph = "\u25A4", title = "暂无文件", desc = "上传的附件会出现在这里")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(files, key = { it.id }) { f ->
                         FileRow(
@@ -1839,11 +1824,21 @@ private fun FileRow(
     onCopy: () -> Unit = {},
     onDelete: () -> Unit = {},
 ) {
+    // 左栏文件行补 hover：原来只有选中态，鼠标扫过没有任何反馈，列表显得「死」
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
     Row(
         Modifier
             .fillMaxWidth()
+            .hoverable(interaction)
             .clickable(onClick = onSelect)
-            .background(if (selected) KbSidebarSelected else Color.Transparent)
+            .background(
+                when {
+                    selected -> KbSidebarSelected
+                    hovered -> KbHoverBg
+                    else -> Color.Transparent
+                }
+            )
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1973,7 +1968,8 @@ private fun hasWebView2Runtime(): Boolean {
 fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
     Canvas(modifier) {
         val u = size.width / 24f
-        val stroke = Stroke(width = 1.6f * u * 1.6f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        // 24 网格上的统一线宽（约 1.6px），端点/拐角圆角——与 Web 端细线图标一致
+        val stroke = Stroke(width = 1.6f * u, cap = StrokeCap.Round, join = StrokeJoin.Round)
         val p = Path()
         fun line(x1: Float, y1: Float, x2: Float, y2: Float) =
             drawLine(tint, Offset(x1 * u, y1 * u), Offset(x2 * u, y2 * u), stroke.width, StrokeCap.Round)

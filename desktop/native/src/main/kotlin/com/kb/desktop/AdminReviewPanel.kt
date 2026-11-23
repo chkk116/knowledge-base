@@ -116,63 +116,75 @@ internal fun ReviewTab(session: Session) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("审核队列", "${docs.size} 篇待审核", onRefresh = { tick++ })
+        AdminHeader("审核队列", "共 ${docs.size} 篇待审核", onRefresh = { tick++ })
+        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "更新时间" to 1.1f, "操作" to 1.8f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 docs.isEmpty() -> AdminHint("没有待审核的文章")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(docs, key = { it.id }) { d ->
-                        Column(
-                            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
-                        ) {
+                        KbTableRow(vertical = 10) {
+                            Column(Modifier.weight(3f)) {
+                                Text(
+                                    d.title.ifBlank { "（无标题）" },
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = KbTextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (rejecting == d.id) {
+                                    Spacer(Modifier.height(6.dp))
+                                    OutlinedTextField(
+                                        value = reason,
+                                        onValueChange = { reason = it },
+                                        placeholder = { Text("驳回理由（作者可见）", fontSize = 11.5.sp, color = KbTextSub) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = KbPrimary,
+                                            unfocusedBorderColor = KbBorder,
+                                        ),
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                                        AdminButton("确认驳回", danger = true, enabled = !busy) { reject(d.id) }
+                                        AdminButton("取消", enabled = !busy) { rejecting = null; reason = "" }
+                                    }
+                                }
+                            }
                             Text(
-                                d.title.ifBlank { "（无标题）" },
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = KbTextMain,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                listOfNotNull(
-                                    d.category?.takeIf { it.isNotBlank() },
-                                    d.ownerName.takeIf { it.isNotBlank() },
-                                    fmtAdminTime(d.updatedAt).takeIf { it.isNotBlank() },
-                                ).joinToString(" · "),
-                                fontSize = 10.5.sp,
+                                d.category?.takeIf { it.isNotBlank() } ?: "—",
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
                                 color = KbTextSub,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Spacer(Modifier.height(6.dp))
-                            if (rejecting == d.id) {
-                                OutlinedTextField(
-                                    value = reason,
-                                    onValueChange = { reason = it },
-                                    placeholder = { Text("驳回理由（作者可见）", fontSize = 11.5.sp, color = KbTextSub) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = KbPrimary,
-                                        unfocusedBorderColor = KbBorder,
-                                    ),
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                                    AdminButton("确认驳回", danger = true, enabled = !busy) { reject(d.id) }
-                                    AdminButton("取消", enabled = !busy) { rejecting = null; reason = "" }
-                                }
-                            } else {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                d.ownerName.ifBlank { "—" },
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                fmtAdminTime(d.updatedAt),
+                                modifier = Modifier.weight(1.1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Row(Modifier.weight(1.8f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (rejecting != d.id) {
                                     AdminButton("通过", enabled = !busy) { approve(d.id) }
                                     AdminButton("驳回", danger = true, enabled = !busy) { rejecting = d.id; reason = "" }
                                 }
                             }
-                            Spacer(Modifier.height(8.dp))
-                            HorizontalDivider(color = Color(0xFFF1F5F9))
                         }
                     }
                 }
@@ -254,37 +266,54 @@ internal fun GradingTab(session: Session) {
     Column(Modifier.fillMaxSize()) {
         val d = detail
         if (d == null) {
-            AdminHeader("阅卷", "${rows.size} 场待阅", onRefresh = { tick++ })
+            AdminHeader("阅卷", "共 ${rows.size} 场待阅", onRefresh = { tick++ })
+            KbTableHead(listOf("考生" to 1.2f, "试卷" to 2f, "得分" to 0.8f, "待阅" to 0.8f, "提交时间" to 1.1f, "操作" to 0.9f))
             Box(Modifier.weight(1f)) {
                 when {
-                    loading -> AdminHint("加载中…")
+                    loading -> KbSkeletonList()
                     err != null -> AdminError(err ?: "", { tick++ })
                     rows.isEmpty() -> AdminHint("没有待阅卷的考试")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
                         items(rows, key = { it.recordId }) { r ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        "${r.user.ifBlank { "—" }} · ${r.paperTitle.ifBlank { "试卷" }}",
-                                        fontSize = 13.sp,
-                                        color = KbTextMain,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Spacer(Modifier.height(3.dp))
-                                    Text(
-                                        listOf("当前 ${r.score} 分", "${r.pendingCount} 题待阅", fmtAdminTime(r.submittedAt))
-                                            .filter { it.isNotBlank() }.joinToString(" · "),
-                                        fontSize = 10.5.sp,
-                                        color = KbTextSub,
-                                    )
+                            KbTableRow {
+                                Text(
+                                    r.user.ifBlank { "—" },
+                                    modifier = Modifier.weight(1.2f),
+                                    fontSize = 12.5.sp,
+                                    color = KbTextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    r.paperTitle.ifBlank { "试卷" },
+                                    modifier = Modifier.weight(2f),
+                                    fontSize = 11.sp,
+                                    color = KbTextSub,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "${r.score}",
+                                    modifier = Modifier.weight(0.8f),
+                                    fontSize = 12.sp,
+                                    color = KbTextMain,
+                                    maxLines = 1,
+                                )
+                                Box(Modifier.weight(0.8f)) {
+                                    KbTag("${r.pendingCount}", if (r.pendingCount > 0) KbTone.Warning else KbTone.Success)
                                 }
-                                AdminButton("阅卷", enabled = !detailLoading) { open(r.recordId) }
+                                Text(
+                                    fmtAdminTime(r.submittedAt),
+                                    modifier = Modifier.weight(1.1f),
+                                    fontSize = 11.sp,
+                                    color = KbTextSub,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Box(Modifier.weight(0.9f)) {
+                                    AdminButton("阅卷", enabled = !detailLoading) { open(r.recordId) }
+                                }
                             }
-                            HorizontalDivider(color = Color(0xFFF1F5F9))
                         }
                     }
                 }
@@ -374,6 +403,9 @@ internal fun ReportsTab(session: Session) {
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
     var rows by remember { mutableStateOf<List<ReportItem>>(emptyList()) }
+    var total by remember { mutableStateOf(0L) }
+    var page by remember { mutableStateOf(0) }
+    var size by remember { mutableStateOf(20) }
     var loading by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
@@ -382,10 +414,17 @@ internal fun ReportsTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(status, tick) {
+    LaunchedEffect(status, tick, page, size) {
         loading = true
         err = null
-        try { rows = api.adminReports(session.token, status) } catch (e: Exception) { err = e.message ?: "加载失败" } finally { loading = false }
+        try {
+            val box = api.adminReportsPage(session.token, status, page, size)
+            rows = box.items
+            total = box.total
+            if (rows.isEmpty() && page > 0 && box.total > 0) {
+                page = ((box.total - 1) / size).toInt().coerceAtLeast(0)
+            }
+        } catch (e: Exception) { err = e.message ?: "加载失败" } finally { loading = false }
     }
     LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
@@ -408,53 +447,46 @@ internal fun ReportsTab(session: Session) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("举报 / 反馈", "${rows.size} 条", onRefresh = { tick++ })
+        AdminHeader("举报 / 反馈", "共 $total 条", onRefresh = { tick++ })
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            ReportChip("全部", status == null) { status = null }
-            ReportChip("待处理", status == "PENDING") { status = "PENDING" }
-            ReportChip("已处理", status == "HANDLED") { status = "HANDLED" }
-            ReportChip("已驳回", status == "REJECTED") { status = "REJECTED" }
+            ReportChip("全部", status == null) { status = null; page = 0 }
+            ReportChip("待处理", status == "PENDING") { status = "PENDING"; page = 0 }
+            ReportChip("已处理", status == "HANDLED") { status = "HANDLED"; page = 0 }
+            ReportChip("已驳回", status == "REJECTED") { status = "REJECTED"; page = 0 }
         }
         Spacer(Modifier.height(6.dp))
-        HorizontalDivider(color = KbBorder)
+        KbTableHead(listOf("举报内容" to 3f, "状态" to 0.9f, "时间" to 1.2f, "操作" to 1f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 rows.isEmpty() -> AdminHint("没有举报记录")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(rows, key = { it.id }) { r ->
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                AdminChip(
-                                    when (r.status) {
-                                        "PENDING" -> "待处理"
-                                        "HANDLED" -> "已处理"
-                                        "REJECTED" -> "已驳回"
-                                        else -> r.status.ifBlank { "—" }
-                                    },
-                                    if (r.status == "PENDING") Color(0xFFFEF3C7) else Color(0xFFF1F5F9),
-                                    if (r.status == "PENDING") Color(0xFFB45309) else KbTextSub,
+                        KbTableRow(vertical = 9) {
+                            Column(Modifier.weight(3f)) {
+                                Text(
+                                    r.reason.ifBlank { "（无原因）" },
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = KbTextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
-                                Spacer(Modifier.width(8.dp))
-                                Text(r.reason.ifBlank { "（无原因）" }, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, color = KbTextMain, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                Text(fmtAdminTime(r.createdAt), fontSize = 10.5.sp, color = KbTextSub)
-                            }
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                listOf(r.targetType, r.targetId?.let { "#$it" } ?: "").filter { it.isNotBlank() }.joinToString(" ") +
-                                    if (r.detail.isNotBlank()) " · ${r.detail}" else "",
-                                fontSize = 10.5.sp,
-                                color = KbTextSub,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (r.status == "PENDING") {
-                                Spacer(Modifier.height(6.dp))
-                                if (handling == r.id) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    listOf(r.targetType, r.targetId?.let { "#$it" } ?: "").filter { it.isNotBlank() }.joinToString(" ") +
+                                        if (r.detail.isNotBlank()) " · ${r.detail}" else "",
+                                    fontSize = 10.5.sp,
+                                    color = KbTextSub,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (r.status == "PENDING" && handling == r.id) {
+                                    Spacer(Modifier.height(6.dp))
                                     OutlinedTextField(
                                         value = note,
                                         onValueChange = { note = it },
@@ -469,16 +501,49 @@ internal fun ReportsTab(session: Session) {
                                         AdminButton("驳回举报", danger = true, enabled = !busy) { handle(r.id, "REJECTED") }
                                         AdminButton("取消", enabled = !busy) { handling = null; note = "" }
                                     }
-                                } else {
+                                }
+                            }
+                            Box(Modifier.weight(0.9f)) {
+                                KbTag(
+                                    when (r.status) {
+                                        "PENDING" -> "待处理"
+                                        "HANDLED" -> "已处理"
+                                        "REJECTED" -> "已驳回"
+                                        else -> r.status.ifBlank { "—" }
+                                    },
+                                    when (r.status) {
+                                        "PENDING" -> KbTone.Warning
+                                        "HANDLED" -> KbTone.Success
+                                        "REJECTED" -> KbTone.Neutral
+                                        else -> KbTone.Neutral
+                                    },
+                                )
+                            }
+                            Text(
+                                fmtAdminTime(r.createdAt),
+                                modifier = Modifier.weight(1.2f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
+                            Box(Modifier.weight(1f)) {
+                                if (r.status == "PENDING" && handling != r.id) {
                                     AdminButton("处理", enabled = !busy) { handling = r.id; note = "" }
                                 }
                             }
                         }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                 }
             }
         }
+        HorizontalDivider(color = KbBorder)
+        KbPager(
+            total = total,
+            page = page,
+            size = size,
+            onPage = { page = it },
+            onSize = { size = it; page = 0 },
+        )
     }
     AdminToast(toast)
 }

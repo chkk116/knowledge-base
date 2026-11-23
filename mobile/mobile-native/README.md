@@ -138,3 +138,13 @@ gradlew.bat assembleDebug
   用法：`python tools/probe_api.py [base_url] [user] [pass]`
 - `FixAiModel.java`：修复 `kb_ai_model` 旧数据 NULL primitive 列导致 AI 全线 400 的问题
   （`contextWindow`/`vision` 为 NULL 的历史行；本地库已修，云库如遇到同样报错执行同款 SQL）
+
+## 列表加载态统一骨架屏（2026-11-23）
+
+- 复用既有 `ui/common/KbSkeleton.kt`（`KbSkeletonList` / `KbSkeletonHome` / `KbSkeletonLine`），
+  把列表页仍在用的 `CenterHint("加载中…", loading = true)` 换成骨架屏：
+  管理台 4 处（用户/待审文章/公告/…）、考试中心 1 处、邮箱列表 1 处。
+- 创作类页面（AI 对话、验证码、正文阅读）仍保留 `KbLoading` 的圆形进度：那里没有「列表形状」可预设，
+  骨架屏反而会误导。
+- 顺手修掉一处历史乱码文案（「没有待审核的文章 ??」→ 去问号）。
+- 验证：`:app:compileDebugKotlin` BUILD SUCCESSFUL（本机无真机，未做装机验证）。

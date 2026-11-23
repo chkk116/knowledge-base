@@ -476,6 +476,11 @@ data class AdminDocItem(
     val views: Int,
 )
 
+/** 管理：服务端分页结果（Spring Page 的 content/totalElements 子集，page 为 0 基） */
+data class PageBox<T>(val items: List<T>, val total: Long, val page: Int, val size: Int) {
+    val pages: Int get() = if (size <= 0) 1 else (((total + size - 1) / size).toInt()).coerceAtLeast(1)
+}
+
 /** 管理：用户列表项（不含密码，公开字段） */
 data class AdminUserItem(
     val id: Long,
@@ -958,13 +963,18 @@ class ApiClient(private val base: String) {
         withContext(Dispatchers.IO) { authReq("DELETE", "/api/docs/$id", token) }
     }
 
-    /** 管理：帖子列表（全部状态，POST_MANAGE） */
-    suspend fun adminDocs(token: String, keyword: String = ""): List<AdminDocItem> = withContext(Dispatchers.IO) {
+    /** 管理：帖子列表（全部状态，POST_MANAGE），服务端分页 */
+    suspend fun adminDocsPage(
+        token: String,
+        keyword: String = "",
+        page: Int = 0,
+        size: Int = 20,
+    ): PageBox<AdminDocItem> = withContext(Dispatchers.IO) {
         val kw = java.net.URLEncoder.encode(keyword, "UTF-8")
-        val o = parse(getAuth("/api/admin/docs?page=0&size=50&keyword=$kw", token))
-            ?: return@withContext emptyList()
-        val arr = (o["content"] as? JsonArray) ?: return@withContext emptyList()
-        arr.mapNotNull { item ->
+        val o = parse(getAuth("/api/admin/docs?page=$page&size=$size&keyword=$kw", token))
+            ?: return@withContext PageBox(emptyList(), 0, page, size)
+        val arr = (o["content"] as? JsonArray) ?: JsonArray(emptyList())
+        val items = arr.mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             val id = j.long("id") ?: return@mapNotNull null
             AdminDocItem(
@@ -978,7 +988,12 @@ class ApiClient(private val base: String) {
                 views = j.int("views") ?: 0,
             )
         }
+        PageBox(items, o.long("totalElements") ?: items.size.toLong(), page, size)
     }
+
+    /** 兼容旧调用：第一页 50 条 */
+    suspend fun adminDocs(token: String, keyword: String = ""): List<AdminDocItem> =
+        adminDocsPage(token, keyword, 0, 50).items
 
     /** POST /api/admin/docs/{id}/block|unblock → 封禁/解封 */
     suspend fun setDocBlocked(token: String, id: Long, blocked: Boolean) {
@@ -1205,10 +1220,15 @@ class ApiClient(private val base: String) {
     }
 
     /** GET /api/admin/reports?status= → 举报列表（Page，取第一页 50 条） */
-    suspend fun adminReports(token: String, status: String? = null): List<ReportItem> = withContext(Dispatchers.IO) {
+    suspend fun adminReportsPage(
+        token: String,
+        status: String? = null,
+        page: Int = 0,
+        size: Int = 20,
+    ): PageBox<ReportItem> = withContext(Dispatchers.IO) {
         val q = if (status.isNullOrBlank()) "" else "&status=$status"
-        val arr = pageArray(runCatching { getAuth("/api/admin/reports?page=0&size=50$q", token) }.getOrNull())
-        arr.mapNotNull { item ->
+        val (arr, total) = pageParts(runCatching { getAuth("/api/admin/reports?page=$page&size=$size$q", token) }.getOrNull())
+        val items = arr.mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             val id = j.long("id") ?: return@mapNotNull null
             ReportItem(
@@ -1221,7 +1241,12 @@ class ApiClient(private val base: String) {
                 createdAt = j.str("createdAt").orEmpty(),
             )
         }
+        PageBox(items, total, page, size)
     }
+
+    /** 兼容旧调用：第一页 50 条 */
+    suspend fun adminReports(token: String, status: String? = null): List<ReportItem> =
+        adminReportsPage(token, status, 0, 50).items
 
     /** PUT /api/admin/reports/{id} → 处理举报（status=HANDLED|REJECTED + 备注） */
     suspend fun handleReport(token: String, id: Long, status: String, note: String) {
@@ -1266,12 +1291,18 @@ class ApiClient(private val base: String) {
     }
 
     /** GET /api/admin/users?keyword= → Page<User>，桌面端只取第一页（50 条） */
-    suspend fun adminUsers(token: String, keyword: String = ""): List<AdminUserItem> = withContext(Dispatchers.IO) {
+    /** GET /api/admin/users?page=&size=&keyword= → 服务端分页（Spring Page） */
+    suspend fun adminUsersPage(
+        token: String,
+        keyword: String = "",
+        page: Int = 0,
+        size: Int = 20,
+    ): PageBox<AdminUserItem> = withContext(Dispatchers.IO) {
         val kw = java.net.URLEncoder.encode(keyword, "UTF-8")
-        val o = parse(getAuth("/api/admin/users?page=0&size=50&keyword=$kw", token))
-            ?: return@withContext emptyList()
-        val arr = (o["content"] as? JsonArray) ?: return@withContext emptyList()
-        arr.mapNotNull { item ->
+        val o = parse(getAuth("/api/admin/users?page=$page&size=$size&keyword=$kw", token))
+            ?: return@withContext PageBox(emptyList(), 0, page, size)
+        val arr = (o["content"] as? JsonArray) ?: JsonArray(emptyList())
+        val items = arr.mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             val id = j.long("id") ?: return@mapNotNull null
             AdminUserItem(
@@ -1284,7 +1315,12 @@ class ApiClient(private val base: String) {
                 createdAt = j.str("createdAt").orEmpty(),
             )
         }
+        PageBox(items, o.long("totalElements") ?: items.size.toLong(), page, size)
     }
+
+    /** 兼容旧调用：第一页 50 条 */
+    suspend fun adminUsers(token: String, keyword: String = ""): List<AdminUserItem> =
+        adminUsersPage(token, keyword, 0, 50).items
 
     /** POST /api/admin/users/{id}/toggle → 启用/禁用 */
     suspend fun setUserEnabled(token: String, id: Long, enabled: Boolean) {
@@ -1311,9 +1347,16 @@ class ApiClient(private val base: String) {
     }
 
     /** GET /api/admin/announcements → Page<Map>，桌面端取第一页（50 条） */
-    suspend fun adminAnnouncements(token: String): List<AdminAnnouncement> = withContext(Dispatchers.IO) {
-        val arr = pageArray(runCatching { getAuth("/api/admin/announcements?page=0&size=50", token) }.getOrNull())
-        arr.mapNotNull { item ->
+    /** GET /api/admin/announcements?page=&size= → 服务端分页 */
+    suspend fun adminAnnouncementsPage(
+        token: String,
+        page: Int = 0,
+        size: Int = 20,
+    ): PageBox<AdminAnnouncement> = withContext(Dispatchers.IO) {
+        val o = parse(runCatching { getAuth("/api/admin/announcements?page=$page&size=$size", token) }.getOrNull())
+            ?: return@withContext PageBox(emptyList(), 0, page, size)
+        val arr = (o["content"] as? JsonArray) ?: JsonArray(emptyList())
+        val items = arr.mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             val id = j.long("id") ?: return@mapNotNull null
             AdminAnnouncement(
@@ -1325,7 +1368,12 @@ class ApiClient(private val base: String) {
                 createdAt = j.str("createdAt").orEmpty(),
             )
         }
+        PageBox(items, o.long("totalElements") ?: items.size.toLong(), page, size)
     }
+
+    /** 兼容旧调用：第一页 50 条 */
+    suspend fun adminAnnouncements(token: String): List<AdminAnnouncement> =
+        adminAnnouncementsPage(token, 0, 50).items
 
     /** POST /api/admin/announcements → 新建（正文为纯文本，后端按原样存） */
     suspend fun createAnnouncement(token: String, title: String, content: String, pinned: Boolean): Boolean {
@@ -1372,9 +1420,9 @@ class ApiClient(private val base: String) {
     }
 
     /** GET /api/admin/audit → Page<Map>（支持数组或 Page 两种形态） */
-    suspend fun adminAudit(token: String): List<AuditItem> = withContext(Dispatchers.IO) {
-        val arr = pageArray(runCatching { getAuth("/api/admin/audit?page=0&size=50", token) }.getOrNull())
-        arr.mapNotNull { item ->
+    suspend fun adminAuditPage(token: String, page: Int = 0, size: Int = 20): PageBox<AuditItem> = withContext(Dispatchers.IO) {
+        val (arr, total) = pageParts(runCatching { getAuth("/api/admin/audit?page=$page&size=$size", token) }.getOrNull())
+        val items = arr.mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             val id = j.long("id") ?: return@mapNotNull null
             AuditItem(
@@ -1388,12 +1436,16 @@ class ApiClient(private val base: String) {
                 createdAt = j.str("createdAt").orEmpty(),
             )
         }
+        PageBox(items, total, page, size)
     }
 
-    /** GET /api/admin/login-logs → Page<Map> */
-    suspend fun adminLoginLogs(token: String): List<LoginLogItem> = withContext(Dispatchers.IO) {
-        val arr = pageArray(runCatching { getAuth("/api/admin/login-logs?page=0&size=50", token) }.getOrNull())
-        arr.mapNotNull { item ->
+    /** 兼容旧调用：第一页 50 条 */
+    suspend fun adminAudit(token: String): List<AuditItem> = adminAuditPage(token, 0, 50).items
+
+    /** GET /api/admin/login-logs?page=&size= → 服务端分页 */
+    suspend fun adminLoginLogsPage(token: String, page: Int = 0, size: Int = 20): PageBox<LoginLogItem> = withContext(Dispatchers.IO) {
+        val (arr, total) = pageParts(runCatching { getAuth("/api/admin/login-logs?page=$page&size=$size", token) }.getOrNull())
+        val items = arr.mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             val id = j.long("id") ?: return@mapNotNull null
             LoginLogItem(
@@ -1404,6 +1456,24 @@ class ApiClient(private val base: String) {
                 reason = j.str("reason").orEmpty(),
                 createdAt = j.str("createdAt").orEmpty(),
             )
+        }
+        PageBox(items, total, page, size)
+    }
+
+    /** 兼容旧调用：第一页 50 条 */
+    suspend fun adminLoginLogs(token: String): List<LoginLogItem> = adminLoginLogsPage(token, 0, 50).items
+
+    /**
+     * 分页接口统一解析：项目里管理端列表有的返回裸数组（不分页），有的返回 Spring Page。
+     * 返回「元素数组 + 总条数」，翻页条要用 total 而不是当页条数。
+     */
+    private fun pageParts(text: String?): Pair<JsonArray, Long> {
+        val e = runCatching { Json.parseToJsonElement(text ?: "") }.getOrNull()
+            ?: return JsonArray(emptyList()) to 0L
+        return when (e) {
+            is JsonArray -> e to e.size.toLong()
+            is JsonObject -> ((e["content"] as? JsonArray) ?: JsonArray(emptyList())) to (e.long("totalElements") ?: 0L)
+            else -> JsonArray(emptyList()) to 0L
         }
     }
 

@@ -58,18 +58,27 @@ internal fun UsersTab(session: Session) {
     val api = remember(session) { ApiClient(session.server) }
     val scope = rememberCoroutineScope()
     var q by remember { mutableStateOf("") }
+    var page by remember { mutableStateOf(0) }
+    var size by remember { mutableStateOf(20) }
     var users by remember { mutableStateOf<List<AdminUserItem>>(emptyList()) }
+    var total by remember { mutableStateOf(0L) }
     var loading by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick, q) {
+    LaunchedEffect(tick, q, page, size) {
         loading = true
         err = null
         try {
-            users = api.adminUsers(session.token, q.trim())
+            val box = api.adminUsersPage(session.token, q.trim(), page, size)
+            users = box.items
+            total = box.total
+            // 当前页被删空（或搜索后总量变小）时自动退回最后一页，避免空列表假象
+            if (users.isEmpty() && page > 0 && box.total > 0) {
+                page = ((box.total - 1) / size).toInt().coerceAtLeast(0)
+            }
         } catch (e: Exception) {
             err = e.message ?: "加载失败"
         } finally {
@@ -79,24 +88,21 @@ internal fun UsersTab(session: Session) {
     LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("用户", "${users.size} 人（最多显示 50）", onRefresh = { tick++ })
+        AdminHeader("用户", "共 $total 人", onRefresh = { tick++ })
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            SearchBox(q, { q = it }, Modifier.weight(1f))
+            SearchBox(q, { q = it; page = 0 }, Modifier.weight(1f))
         }
         Spacer(Modifier.height(6.dp))
-        HorizontalDivider(color = KbBorder)
+        KbTableHead(listOf("用户" to 3f, "角色" to 1f, "积分" to 0.9f, "注册时间" to 1.5f, "操作" to 0.9f))
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 users.isEmpty() -> AdminHint("没有匹配的用户")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(users, key = { it.id }) { u ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
+                        KbTableRow {
+                            Column(Modifier.weight(3f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         u.displayName.ifBlank { u.username },
@@ -105,49 +111,75 @@ internal fun UsersTab(session: Session) {
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    if (u.role.equals("ADMIN", true)) {
-                                        Spacer(Modifier.width(6.dp))
-                                        AdminChip("管理员", Color(0xFFEEF2FF), KbPrimary)
-                                    }
                                     if (!u.enabled) {
                                         Spacer(Modifier.width(6.dp))
-                                        AdminChip("已停用", Color(0xFFFEE2E2), Color(0xFFB91C1C))
+                                        KbTag("已停用", KbTone.Danger)
                                     }
                                 }
-                                Spacer(Modifier.height(3.dp))
+                                Spacer(Modifier.height(2.dp))
                                 Text(
-                                    listOf(u.username, "${u.points} 积分", fmtAdminTime(u.createdAt)).filter { it.isNotBlank() }.joinToString(" · "),
+                                    u.username,
                                     fontSize = 10.5.sp,
                                     color = KbTextSub,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            AdminButton(if (u.enabled) "停用" else "启用", danger = u.enabled, enabled = !busy) {
-                                scope.launch {
-                                    busy = true
-                                    try {
-                                        api.setUserEnabled(session.token, u.id, !u.enabled)
-                                        users = users.map { if (it.id == u.id) it.copy(enabled = !u.enabled) else it }
-                                        toast = if (u.enabled) "已停用 ${u.username}" else "已启用 ${u.username}"
-                                    } catch (e: Exception) {
-                                        toast = e.message ?: "操作失败"
-                                    } finally {
-                                        busy = false
+                            Box(Modifier.weight(1f)) {
+                                KbTag(
+                                    if (u.role.equals("ADMIN", true)) "管理员" else "用户",
+                                    if (u.role.equals("ADMIN", true)) KbTone.Primary else KbTone.Neutral,
+                                )
+                            }
+                            Text(
+                                "${u.points}",
+                                modifier = Modifier.weight(0.9f),
+                                fontSize = 12.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                            )
+                            Text(
+                                fmtAdminTime(u.createdAt),
+                                modifier = Modifier.weight(1.5f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Box(Modifier.weight(0.9f), contentAlignment = Alignment.CenterStart) {
+                                AdminButton(if (u.enabled) "停用" else "启用", danger = u.enabled, enabled = !busy) {
+                                    scope.launch {
+                                        busy = true
+                                        try {
+                                            api.setUserEnabled(session.token, u.id, !u.enabled)
+                                            users = users.map { if (it.id == u.id) it.copy(enabled = !u.enabled) else it }
+                                            toast = if (u.enabled) "已停用 ${u.username}" else "已启用 ${u.username}"
+                                        } catch (e: Exception) {
+                                            toast = e.message ?: "操作失败"
+                                        } finally {
+                                            busy = false
+                                        }
                                     }
                                 }
                             }
                         }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                 }
             }
         }
+        HorizontalDivider(color = KbBorder)
+        KbPager(
+            total = total,
+            page = page,
+            size = size,
+            onPage = { page = it },
+            onSize = { size = it; page = 0 },
+        )
         Text(
             "改角色 / 重置密码 / 调积分请在 Web 端「用户管理」操作",
             fontSize = 10.sp,
             color = KbTextSub,
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
     }
     AdminToast(toast)
@@ -196,7 +228,7 @@ internal fun DepartmentsTab(session: Session) {
         AdminHeader("部门", "${depts.size} 个（只读）", onRefresh = { tick++ })
         Box(Modifier.weight(1f)) {
             when {
-                loading -> AdminHint("加载中…")
+                loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
                 depts.isEmpty() -> AdminHint("还没有部门\n新建 / 编辑请回 Web 端")
                 else -> LazyColumn(Modifier.fillMaxSize()) {

@@ -212,7 +212,7 @@ internal fun MailPanel(session: Session) {
             }
             HorizontalDivider(color = KbBorder)
             when {
-                loading -> HintCenter("加载中…")
+                loading -> KbSkeletonList(rows = 6)
                 err.isNotEmpty() -> CenterNotice("邮件加载失败：$err", onRetry = { refresh++ })
                 mails.isEmpty() -> HintCenter(
                     when {
@@ -320,7 +320,7 @@ internal fun MailPanel(session: Session) {
                     HorizontalDivider(color = KbBorder)
                     Spacer(Modifier.height(12.dp))
                     when {
-                        detailLoading -> Text("加载中…", fontSize = 12.sp, color = KbTextSub)
+                        detailLoading -> KbSkeletonList(rows = 4)
                         detail == null -> Text("正文加载失败（可再点一次列表）", fontSize = 12.sp, color = KbTileRose.second)
                         else -> {
                             val d = detail!!
@@ -390,7 +390,7 @@ internal fun MailPanel(session: Session) {
 
     if (confirmingDelete && sel != null) {
         val target = sel!!
-        AlertDialog(
+        KbDialog(
             onDismissRequest = { confirmingDelete = false },
             title = { Text("删除这封邮件？") },
             text = { Text("本地记录会删除，并尽力在服务器上也删除（不可恢复）。") },
@@ -531,7 +531,7 @@ private fun MailBindDialog(session: Session, onDismiss: () -> Unit, onBound: () 
         providers = runCatching { api.mailProviders(session.token) }.getOrDefault(emptyList())
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("绑定邮箱（授权码）") },
         text = {
@@ -612,7 +612,7 @@ private fun MailComposeDialog(
         return if (m.startsWith("请求失败(404)") || m.startsWith("请求失败(405)")) "$m（服务端邮箱发信接口可能尚未升级）" else m
     }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(if (inReplyTo == null) "写邮件" else "回复邮件") },
         text = {
@@ -739,7 +739,7 @@ private fun MailSignatureDialog(
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf("") }
 
-    AlertDialog(
+    KbDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("邮箱签名 · ${account.email}") },
         text = {

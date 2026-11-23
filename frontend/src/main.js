@@ -108,6 +108,43 @@ if (savedTheme === 'dark' || (savedTheme === null && prefersDark)) {
   document.documentElement.classList.add('dark')
 }
 
+/* ---- 原生壳 / 桌面 WebView 的登录态接收端（与 main-mobile.js 同因、同做法） ----
+ * 两个来源，全局变量优先：
+ *  1) window.__KB_NATIVE_TOKEN —— 壳在 HTML 文档请求阶段注入 <head>（App 端 WebScreen.kt）
+ *  2) ?__kb_token=<token>     —— 桌面端把「令牌 + 目标页」拼进同一个 URL，一次导航直达
+ *     （桌面 WebView 的 evaluateJavaScript 要等页面加载完才能执行，那时路由守卫早把用户
+ *      弹到登录页；塞完再 reload 又会丢 window 变量，所以只能走 URL 通道）
+ * 必须在本文件后续任何 useAuthStore() / router 首次导航之前落盘：store/auth.js 的
+ * defineStore 是同步读 localStorage.kb_token 的，晚一步就带着空令牌渲染并跳登录页。
+ * 落盘后立即抹掉全局变量与地址栏参数（replaceState），避免令牌落进历史记录 / 截图 / 日志。
+ * 不在壳里打开时 __KB_NATIVE_TOKEN 是 undefined 且 URL 无该参数 —— 完全不碰 localStorage。
+ */
+;(function adoptIncomingToken() {
+  let incoming
+  try { incoming = window.__KB_NATIVE_TOKEN } catch (e) { incoming = undefined }
+  let fromUrl = ''
+  try {
+    fromUrl = new URL(location.href).searchParams.get('__kb_token') || ''
+  } catch (e) { /* 隐私模式 / 非法 URL：交给登录页 */ }
+  const incomingToken = incoming === undefined ? '' : incoming
+  const token = incomingToken || fromUrl
+  try {
+    if (token) localStorage.setItem('kb_token', String(token))
+    else if (incoming === null) {           // 壳已登出：清干净，避免残留旧会话
+      localStorage.removeItem('kb_token')
+      localStorage.removeItem('kb_user_cache')
+    }
+  } catch (e) { /* localStorage 不可写（无痕模式），交给后续手动登录 */ }
+  try { delete window.__KB_NATIVE_TOKEN } catch (e) { window.__KB_NATIVE_TOKEN = undefined }
+  if (fromUrl) {
+    try {
+      const u = new URL(location.href)
+      u.searchParams.delete('__kb_token')
+      history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || ''))
+    } catch (e) { /* 忽略：参数没清掉也只影响地址栏显示 */ }
+  }
+})()
+
 const app = createApp(App)
 
 // 按需注册 Element Plus 组件（模板里直接写 <el-xxx> 靠全局注册解析）

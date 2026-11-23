@@ -105,8 +105,9 @@ internal fun SpacesTab(session: Session) {
         }
         androidx.compose.material3.HorizontalDivider(color = KbBorder)
 
+        val count = if (kind == "create") creates.size else capacities.size
         when {
-            loading -> CenterText("加载中…")
+            loading -> KbSkeletonList()
             err != null -> Column(
                 Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -115,50 +116,114 @@ internal fun SpacesTab(session: Session) {
                 Text("加载失败：${err}", fontSize = 12.sp, color = KbTextSub)
                 TextButton(onClick = { tick++ }) { Text("重试", fontSize = 12.sp) }
             }
-            kind == "create" && creates.isEmpty() -> CenterText("没有待审批的创建申请")
-            kind == "capacity" && capacities.isEmpty() -> CenterText("没有待审批的扩容申请")
-            kind == "create" -> LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(creates, key = { it.id }) { r ->
-                    RequestCard(
-                        title = "「${r.requestedName.ifBlank { "未命名空间" }}」· ${r.applicantName.ifBlank { "?" }}",
-                        lines = listOfNotNull(
-                            r.requestedDescription.takeIf { it.isNotBlank() }?.let { "描述：$it" },
-                            r.requestedMembers.takeIf { it.isNotBlank() }?.let { "成员：$it" },
-                            r.reason.takeIf { it.isNotBlank() }?.let { "理由：$it" },
-                            r.createdAt.replace('T', ' ').take(16),
-                        ),
-                        onApprove = { confirmTarget = "create" to r.id },
-                        onReject = { rejectTarget = "create" to r.id },
-                    )
+            count == 0 -> CenterText(if (kind == "create") "没有待审批的创建申请" else "没有待审批的扩容申请")
+            kind == "create" -> {
+                KbTableHead(listOf("申请空间" to 3f, "描述 / 成员 / 理由" to 3.4f, "时间" to 1.1f, "操作" to 1.5f))
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(creates, key = { it.id }) { r ->
+                        KbTableRow(vertical = 9) {
+                            Column(Modifier.weight(3f)) {
+                                Text(
+                                    "「${r.requestedName.ifBlank { "未命名空间" }}」",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = KbTextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    r.applicantName.ifBlank { "—" },
+                                    fontSize = 10.5.sp,
+                                    color = KbTextSub,
+                                    maxLines = 1,
+                                )
+                            }
+                            Text(
+                                listOfNotNull(
+                                    r.requestedDescription.takeIf { it.isNotBlank() }?.let { "描述:$it" },
+                                    r.requestedMembers.takeIf { it.isNotBlank() }?.let { "成员:$it" },
+                                    r.reason.takeIf { it.isNotBlank() }?.let { "理由:$it" },
+                                ).joinToString(" · ").ifBlank { "—" },
+                                modifier = Modifier.weight(3.4f),
+                                fontSize = 10.5.sp,
+                                color = KbTextSub,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                fmtAdminTime(r.createdAt),
+                                modifier = Modifier.weight(1.1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
+                            Row(Modifier.weight(1.5f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AdminButton("通过") { confirmTarget = "create" to r.id }
+                                AdminButton("驳回", danger = true) { rejectTarget = "create" to r.id }
+                            }
+                        }
+                    }
                 }
             }
-            else -> LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(capacities, key = { it.id }) { r ->
-                    RequestCard(
-                        title = "「${r.shareName.ifBlank { "空间 ${r.shareId}" }}」· ${r.applicantName.ifBlank { "?" }}",
-                        lines = listOfNotNull(
-                            "容量：${formatBytes(r.currentCapacity)} → ${formatBytes(r.requestedCapacity)}",
-                            r.reason.takeIf { it.isNotBlank() }?.let { "理由：$it" },
-                            r.createdAt.replace('T', ' ').take(16),
-                        ),
-                        onApprove = { confirmTarget = "capacity" to r.id },
-                        onReject = { rejectTarget = "capacity" to r.id },
-                    )
+            else -> {
+                KbTableHead(listOf("空间 / 申请人" to 2.6f, "容量变化" to 2f, "理由" to 2.2f, "时间" to 1.1f, "操作" to 1.5f))
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(capacities, key = { it.id }) { r ->
+                        KbTableRow(vertical = 9) {
+                            Column(Modifier.weight(2.6f)) {
+                                Text(
+                                    "「${r.shareName.ifBlank { "空间 ${r.shareId}" }}」",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = KbTextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    r.applicantName.ifBlank { "—" },
+                                    fontSize = 10.5.sp,
+                                    color = KbTextSub,
+                                    maxLines = 1,
+                                )
+                            }
+                            Text(
+                                "${formatBytes(r.currentCapacity)} → ${formatBytes(r.requestedCapacity)}",
+                                modifier = Modifier.weight(2f),
+                                fontSize = 11.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                r.reason.ifBlank { "—" },
+                                modifier = Modifier.weight(2.2f),
+                                fontSize = 10.5.sp,
+                                color = KbTextSub,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                fmtAdminTime(r.createdAt),
+                                modifier = Modifier.weight(1.1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
+                            Row(Modifier.weight(1.5f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AdminButton("通过") { confirmTarget = "capacity" to r.id }
+                                AdminButton("驳回", danger = true) { rejectTarget = "capacity" to r.id }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
     confirmTarget?.let { (k, id) ->
-        AlertDialog(
+        KbDialog(
             onDismissRequest = { confirmTarget = null },
             title = { Text(if (k == "create") "通过创建申请？" else "通过扩容申请？") },
             text = {
@@ -229,7 +294,7 @@ private fun RequestCard(
 @Composable
 private fun RejectDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     var reason by remember { mutableStateOf("") }
-    AlertDialog(
+    KbDialog(
         onDismissRequest = onDismiss,
         title = { Text("驳回申请") },
         text = {

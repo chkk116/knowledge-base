@@ -205,7 +205,7 @@ internal fun TaxonomyTab(session: Session) {
             HorizontalDivider(color = KbBorder)
             Box(Modifier.weight(1f)) {
                 when {
-                    loading -> AdminHint("加载中…")
+                    loading -> KbSkeletonList()
                     err != null -> AdminError(err ?: "", { tick++ })
                     rows.isEmpty() -> AdminHint("还没有分类")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
@@ -243,7 +243,7 @@ internal fun TaxonomyTab(session: Session) {
 
         // 右：标签
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            AdminHeader("标签", "${shownTags.size} / ${tags.size}", onRefresh = { tick++ })
+            AdminHeader("标签", "共 ${tags.size} 个", onRefresh = { tick++ })
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -266,36 +266,53 @@ internal fun TaxonomyTab(session: Session) {
                     run({ api.createTag(session.token, n) }, "已添加标签")
                 }
             }
+            // 标签可能上百条：本地切片分页，与后端列表保持同一套分页条
+            var page by remember(shownTags) { mutableStateOf(0) }
+            val pageSize = 40
+            val pageTags = remember(shownTags, page) { shownTags.drop(page * pageSize).take(pageSize) }
             Spacer(Modifier.height(6.dp))
-            HorizontalDivider(color = KbBorder)
+            KbTableHead(listOf("标签" to 4f, "篇数" to 1f, "操作" to 1.2f))
             Box(Modifier.weight(1f)) {
                 when {
-                    loading -> AdminHint("加载中…")
+                    loading -> KbSkeletonList()
                     shownTags.isEmpty() -> AdminHint(if (q.isNotBlank()) "没有匹配的标签" else "还没有标签")
                     else -> LazyColumn(Modifier.fillMaxSize()) {
-                        items(shownTags, key = { it.id }) { t ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(t.name, fontSize = 12.5.sp, color = KbTextMain, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${t.count} 篇", fontSize = 10.5.sp, color = KbTextSub)
-                                Spacer(Modifier.width(10.dp))
-                                if (confirmingTag == t.id) {
-                                    AdminButton("确认删除", danger = true, enabled = !busy) {
-                                        run({ api.deleteTag(session.token, t.id) }, "已删除标签")
-                                        confirmingTag = null
+                        items(pageTags, key = { it.id }) { t ->
+                            KbTableRow(vertical = 6) {
+                                Text(
+                                    t.name,
+                                    fontSize = 12.5.sp,
+                                    color = KbTextMain,
+                                    modifier = Modifier.weight(4f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "${t.count}",
+                                    fontSize = 11.sp,
+                                    color = KbTextSub,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                )
+                                Row(Modifier.weight(1.2f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (confirmingTag == t.id) {
+                                        AdminButton("确认删除", danger = true, enabled = !busy) {
+                                            run({ api.deleteTag(session.token, t.id) }, "已删除标签")
+                                            confirmingTag = null
+                                        }
+                                        AdminButton("取消", enabled = !busy) { confirmingTag = null }
+                                    } else {
+                                        AdminButton("删除", danger = true, enabled = !busy) { confirmingTag = t.id }
                                     }
-                                    Spacer(Modifier.width(6.dp))
-                                    AdminButton("取消", enabled = !busy) { confirmingTag = null }
-                                } else {
-                                    AdminButton("删除", danger = true, enabled = !busy) { confirmingTag = t.id }
                                 }
                             }
-                            HorizontalDivider(color = Color(0xFFF1F5F9))
                         }
                     }
                 }
+            }
+            if (shownTags.isNotEmpty()) {
+                HorizontalDivider(color = KbBorder)
+                KbPager(total = shownTags.size.toLong(), page = page, size = pageSize, onPage = { page = it })
             }
             Text(
                 "标签只影响筛选与统计，不会改动文章正文里的原始标签文本",
