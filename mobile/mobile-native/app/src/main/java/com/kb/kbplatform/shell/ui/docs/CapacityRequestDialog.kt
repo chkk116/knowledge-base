@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -138,7 +137,9 @@ fun CapacityRequestDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         else -> LazyColumn(Modifier.fillMaxWidth()) {
-                            items(rows, key = { it.optLong("id", it.hashCode().toLong()) }) { r ->
+                            // 没有 id 的历史行没有稳定 key：JSONObject.hashCode() 是身份哈希，
+                            // 多行同时缺省会撞 key 直接崩列表。这类行不进 keyed 列表。
+                            items(rows.filter { it.has("id") && !it.isNull("id") }, key = { it.optLong("id") }) { r ->
                                 val status = r.optString("status").uppercase()
                                 val label = when (status) {
                                     "APPROVED" -> "已通过"
@@ -176,12 +177,23 @@ fun CapacityRequestDialog(
                 TextButton(
                     enabled = !busy,
                     onClick = {
-                        val custom = customGb.trim().toDoubleOrNull()
+                        val customText = customGb.trim()
+                        val custom = if (customText.isEmpty()) null else customText.toDoubleOrNull()
+                        if (customText.isNotEmpty() && (custom == null || custom <= 0)) {
+                            note = "自定义容量需要是大于 0 的数字（GB）"
+                            return@TextButton
+                        }
                         val bytes = when {
-                            custom != null && custom > 0 -> gbToBytes(custom)
+                            custom != null -> gbToBytes(custom)
                             unlimited -> 0L
                             else -> gbToBytes(targetGb.toDouble())
                         }
+                        // 0 表示不限；其余必须不小于已用，否则管理员批了也立刻超限
+                        if (bytes > 0 && bytes <= used) {
+                            note = "目标容量（${fmtCapBytes(bytes)}）需要大于当前已用（${fmtCapBytes(used)}）"
+                            return@TextButton
+                        }
+                        note = ""
                         busy = true
                         cs.launch {
                             try {

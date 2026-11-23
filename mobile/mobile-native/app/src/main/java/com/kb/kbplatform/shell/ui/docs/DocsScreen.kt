@@ -110,11 +110,19 @@ fun DocsScreen(
             } else {
                 docs = KbApi.shareDocs(sp.optLong("id", 0)).objects()
                 docsLoaded.value[sp.optLong("id", 0)] = docs
-                spaceStorage = runCatching { KbApi.spaceStorage(sp.optLong("id", 0)) }.getOrNull()
+                spaceStorage = try {
+                    KbApi.spaceStorage(sp.optLong("id", 0))
+                } catch (e: java.util.concurrent.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null   // 存储用量失败不影响文档列表
+                }
             }
             offline = false
             // 在线成功：刷新离线缓存（空间 + 已加载过的文档列表）
             OfflineCache.save(ctx, spaces, docsLoaded.value.toMap())
+        } catch (e: java.util.concurrent.CancellationException) {
+            throw e   // 切空间/刷新导致的取消要走结构化并发，别掉进下面的离线兜底
         } catch (e: Exception) {
             // 断网兜底：读离线缓存展示列表（标题/时间可看）
             val snap = OfflineCache.load(ctx)

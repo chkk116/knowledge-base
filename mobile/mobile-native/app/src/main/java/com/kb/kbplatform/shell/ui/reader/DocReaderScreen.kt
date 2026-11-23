@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2026 北寻·浅光
  * 本源代码基于 AGPL-3.0 许可证开源，详见仓库根目录 LICENSE 文件。
  */
@@ -94,6 +94,9 @@ fun DocReaderScreen(
     LaunchedEffect(shareId, docId, refreshKey) {
         if (refreshKey > 0) refreshing = true else loading = true
         error = ""
+        // 刷新时先清掉上一次的双链：这次只拿到正文、双链接口失败时不能还挂着旧数据（约束见下方注释）
+        linkOut = emptyList()
+        linkBack = emptyList()
         try {
             val d: JSONObject = KbApi.getShareDoc(shareId, docId)
             val t = d.optString("title").ifBlank { titleHint }
@@ -105,14 +108,22 @@ fun DocReaderScreen(
             OfflineCache.saveDocContent(ctx, shareId, docId, t, c)
             HistoryStore.record(ctx, shareId, docId, t)   // 浏览历史（对标套壳 history store）
             // 双链（可选）：拿不到就保持空，不显示该区域
-            runCatching { KbApi.docLinks(shareId, docId) }.getOrNull()?.let { lk ->
-                fun arr(key: String): List<JSONObject> {
-                    val a = lk.optJSONArray(key) ?: return emptyList()
-                    return (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+            try {
+                KbApi.docLinks(shareId, docId)?.let { lk ->
+                    fun arr(key: String): List<JSONObject> {
+                        val a = lk.optJSONArray(key) ?: return emptyList()
+                        return (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+                    }
+                    linkOut = arr("out")
+                    linkBack = arr("back")
                 }
-                linkOut = arr("out")
-                linkBack = arr("back")
+            } catch (e: java.util.concurrent.CancellationException) {
+                throw e   // 页面离开 / refreshKey 变化时让协程正常取消，别当成「双链拿不到」
+            } catch (e: Exception) {
+                // 双链失败不打断阅读
             }
+        } catch (e: java.util.concurrent.CancellationException) {
+            throw e   // 结构化并发：取消不能被当成网络失败，否则会去读离线缓存覆盖新数据
         } catch (e: Exception) {
             // 网络失败 → 落离线缓存
             val cached = OfflineCache.loadDocContent(ctx, shareId, docId)
@@ -646,7 +657,7 @@ private fun DocLinksBar(
     ) {
         if (out.isNotEmpty()) {
             Text(
-                "本文引用 " + out.size + " 篇",
+                "本文引用 ${out.size} 篇",
                 fontSize = 10.5.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -665,7 +676,7 @@ private fun DocLinksBar(
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                     ) {
                         Text(
-                            (if (resolved) "↗ " else "◌ ") + t.ifBlank { "（无标题）" },
+                            "${if (resolved) "↗" else "◌"} ${t.ifBlank { "（无标题）" }}",
                             fontSize = 11.5.sp
                         )
                     }
@@ -674,7 +685,7 @@ private fun DocLinksBar(
         }
         if (back.isNotEmpty()) {
             Text(
-                "被 " + back.size + " 篇引用",
+                "被 ${back.size} 篇引用",
                 fontSize = 10.5.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -690,7 +701,7 @@ private fun DocLinksBar(
                         enabled = sid > 0 && did > 0,
                         onClick = { onOpen(sid, did, t) },
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                    ) { Text("↖ " + t.ifBlank { "（无标题）" }, fontSize = 11.5.sp) }
+                    ) { Text("↖ ${t.ifBlank { "（无标题）" }}", fontSize = 11.5.sp) }
                 }
             }
         }

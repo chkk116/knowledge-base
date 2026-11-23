@@ -1,4 +1,4 @@
-﻿package com.kb.desktop
+package com.kb.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +26,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -73,10 +75,12 @@ fun KbSurface(
 ) {
     Box(
         modifier
+            // 阴影先画、再裁切卡片内容：反过来会把阴影盖在背景和边框上面，
+            // 且 clip=false 会让阴影渗进密集列表的相邻卡片
+            .shadow(1.dp, shape, clip = true)
             .clip(shape)
             .background(KbCardBg)
             .border(1.dp, borderColor, shape)
-            .shadow(1.dp, shape, clip = false)
     ) { content() }
 }
 
@@ -212,7 +216,9 @@ fun KbMiniIconButton(label: String, hint: String, onClick: () -> Unit) {
             .hoverable(interaction)
             .clip(CircleShape)
             .background(if (hovered) KbAccentSoft else Color.Transparent)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            // 调用处传进来的「刷新 / 新建团队空间」提示不能丢：图标钮要有无障碍标签
+            .semantics { contentDescription = hint },
         contentAlignment = Alignment.Center,
     ) {
         Text(

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2026 北寻·浅光
  * 本源代码基于 AGPL-3.0 许可证开源，详见仓库根目录 LICENSE 文件。
  */
@@ -421,10 +421,6 @@ object KbApi {
             )
         }
 
-    /**
-     * POST /doc-shares/create-requests {requestedName, requestedDescription, requestedMembers, reason}
-     * → 团队空间创建申请（管理员审批通过后自动建空间）。
-     */
     // ---------- 空间扩容申请 ----------
 
     /** GET …/{sid}/capacity-requests → 该空间全部申请（倒序，含已处理与驳回理由） */
@@ -444,6 +440,10 @@ object KbApi {
             )
         }
 
+    /**
+     * POST /doc-shares/create-requests {requestedName, requestedDescription, reason}
+     * → 团队空间创建申请（管理员审批通过后自动建空间）。与直接创建一样需要 SHARE_CREATE。
+     */
     suspend fun submitShareCreateRequest(name: String, description: String, reason: String): JSONObject =
         withContext(Dispatchers.IO) {
             ApiClient.post(

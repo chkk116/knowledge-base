@@ -3,9 +3,7 @@ package com.kb.kbplatform.shell.ui.docs
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -112,7 +110,9 @@ fun CreateSpaceDialog(onClose: () -> Unit, onCreated: () -> Unit, onRequested: (
                             } catch (e: Exception) {
                                 val msg = e.message ?: (if (needRequest) "提交申请失败" else "创建失败")
                                 note = msg
-                                if (msg.contains("上限") || msg.contains("权限")) needRequest = true
+                                // 只有「已达数量上限」才切到申请流程：申请接口同样要 SHARE_CREATE，
+                                // 权限不足时切过去只会再吃一次一模一样的 403，白绕一圈。
+                                if (msg.contains("已达上限")) needRequest = true
                             } finally {
                                 busy = false
                             }

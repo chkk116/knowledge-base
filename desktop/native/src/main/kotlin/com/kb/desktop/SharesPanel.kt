@@ -1,4 +1,4 @@
-﻿package com.kb.desktop
+package com.kb.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -136,7 +136,13 @@ fun SharesPanel(session: Session) {
             spaceStorage = null
             return@LaunchedEffect
         }
-        spaceStorage = runCatching { api.spaceStorage(session.token, sid) }.getOrNull()
+        spaceStorage = try {
+            api.spaceStorage(session.token, sid)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e   // 切空间时正常取消，别当成失败
+        } catch (e: Exception) {
+            null
+        }
     }
 
     LaunchedEffect(spaceId, docsTick) {
@@ -173,7 +179,13 @@ fun SharesPanel(session: Session) {
         try {
             detail = api.shareDocDetail(session.token, sid, did)
             // 双链：本文 [[标题]] 引用了谁 / 谁引用了本文（可选信息，失败不打断阅读）
-            links = runCatching { api.shareDocLinks(session.token, sid, did) }.getOrNull()
+            links = try {
+                api.shareDocLinks(session.token, sid, did)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null   // 双链失败不打断阅读
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -268,7 +280,7 @@ fun SharesPanel(session: Session) {
             HorizontalDivider(color = KbBorder)
             Box(Modifier.weight(1f)) {
                 when {
-                    spacesLoading -> ShareHint("加载中…")
+                    spacesLoading -> ShareHint("加载中…", glyph = "⏳")
                     spacesErr != null -> ShareError(spacesErr ?: "", onRetry = { spacesTick++ })
                     spaces.isEmpty() -> ShareHint("还没有协作空间\n可在 Web 端创建或接受邀请")
                     else -> LazyColumn(
@@ -308,7 +320,11 @@ fun SharesPanel(session: Session) {
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        if (shownDocs.isNotEmpty()) "${shownDocs.size} 篇文档" else "选择左侧空间",
+                        when {
+                            shownDocs.isNotEmpty() -> "${shownDocs.size} 篇文档"
+                            spaceId == null || spaceId == ALL_SPACES -> "选择左侧空间"
+                            else -> "暂无文档"   // 已选空间但加载中/搜索无结果，不再显示误导性的「选择左侧空间」
+                        },
                         fontSize = 10.5.sp,
                         color = KbTextSub,
                         maxLines = 1,
@@ -316,8 +332,6 @@ fun SharesPanel(session: Session) {
                 }
                 if (spaceId != null && spaceId != ALL_SPACES) {
                     KbMiniIconButton("◎", "成员") { showMembers = true }
-                }
-                if (spaceId != null && spaceId != ALL_SPACES) {
                     KbMiniIconButton("⚙", "空间设置") { showSpaceSettings = true }
                 }
                 if (spaceId != null) {
@@ -365,7 +379,7 @@ fun SharesPanel(session: Session) {
             Box(Modifier.weight(1f)) {
                 when {
                     spaceId == null -> ShareHint("先在左侧选择一个空间")
-                    docsLoading -> ShareHint("加载中…")
+                    docsLoading -> ShareHint("加载中…", glyph = "⏳")
                     docsErr != null -> ShareError(docsErr ?: "", onRetry = { docsTick++ })
                     docs.isEmpty() -> ShareHint(
                         if (spaceId == ALL_SPACES) "所有空间里都还没有文档\n可在 Web 端新建或导入"
@@ -401,9 +415,9 @@ fun SharesPanel(session: Session) {
             when {
                 spaceId == null -> ShareHint("选择空间与文档后在这里阅读")
                 docId == null -> ShareHint("在中间列表选择一篇文档")
-                detailLoading -> ShareHint("加载中…")
+                detailLoading -> ShareHint("加载中…", glyph = "⏳")
                 detailErr != null -> ShareError(detailErr ?: "", onRetry = { detailTick++ })
-                d == null -> ShareHint("加载中…")
+                d == null -> ShareHint("加载中…", glyph = "⏳")
                 else -> ShareReader(
                     doc = d,
                     spaceName = space?.name.orEmpty(),
@@ -695,6 +709,12 @@ private fun ShareDocRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!spaceLabel.isNullOrBlank()) {
                     KbTag(spaceLabel, KbTone.Primary, maxWidth = 92)
+                    Spacer(Modifier.width(4.dp))
+                }
+                // 多人共用的空间里标题可能重名，作者是列表里唯一能区分的线索，别为了简洁丢掉
+                if (d.ownerName.isNotBlank()) {
+                    Text(d.ownerName, fontSize = 10.sp, color = KbTextSub, maxLines = 1,
+                        modifier = Modifier.widthIn(max = 64.dp))
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
@@ -989,7 +1009,7 @@ private fun ShareChip(text: String, bg: Color, fg: Color) {
 }
 
 @Composable
-private fun ShareHint(text: String) {
+private fun ShareHint(text: String, glyph: String? = null) {
     // 加载中 / 空态统一：圆底图标 + 主文案（多行文案用 \n 拆成标题+说明）
     val parts = text.split("\n")
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -998,7 +1018,8 @@ private fun ShareHint(text: String) {
                 Modifier.size(40.dp).clip(CircleShape).background(KbAccentSoft),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(if (text.contains("加载")) "⏳" else "📂", fontSize = 17.sp)
+                // 别从文案里猜图标：以后把「加载中…」改成「加载失败」就会静默变回文件夹
+                Text(glyph ?: "📂", fontSize = 17.sp)
             }
             Spacer(Modifier.height(8.dp))
             Text(
@@ -1063,7 +1084,8 @@ private fun fmtShareSize(bytes: Long): String = when {
     bytes <= 0 -> ""
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-    else -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+    bytes < 1024L * 1024L * 1024L -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+    else -> String.format("%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0)
 }
 
 /** "2026-11-13T12:34:56" → "2026-11-13 12:34"（缺省显示 —） */
@@ -1195,7 +1217,7 @@ private fun SpaceMembersDialog(
                 HorizontalDivider(color = KbBorder)
                 Box(Modifier.heightIn(max = 300.dp)) {
                     when {
-                        loading -> ShareHint("加载中…")
+                        loading -> ShareHint("加载中…", glyph = "⏳")
                         err != null -> ShareError(err ?: "", onRetry = { tick++ })
                         else -> LazyColumn(Modifier.fillMaxWidth()) {
                             // 所有者行（不可改/不可移除）
@@ -1459,7 +1481,7 @@ private fun ShareLinkDialog(
                 }
                 Spacer(Modifier.height(8.dp))
                 when {
-                    loading -> ShareHint("加载中…")
+                    loading -> ShareHint("加载中…", glyph = "⏳")
                     err != null -> ShareError(err ?: "", onRetry = { tick++ })
                     else -> {
                         if (url.isNotBlank()) {
@@ -1645,7 +1667,7 @@ private fun DocPermDialog(
                 HorizontalDivider(color = KbBorder)
                 Box(Modifier.heightIn(max = 340.dp)) {
                     when {
-                        loading -> ShareHint("加载中…")
+                        loading -> ShareHint("加载中…", glyph = "⏳")
                         err != null -> ShareError(err ?: "", onRetry = { tick++ })
                         members.isEmpty() -> ShareHint("这个空间还没有其他成员\n先在「成员」里邀请")
                         else -> LazyColumn(Modifier.fillMaxWidth()) {
@@ -1877,6 +1899,7 @@ private fun SpaceSettingsDialog(
     var name by remember(space.id) { mutableStateOf(space.name) }
     var desc by remember(space.id) { mutableStateOf(space.description) }
     var note by remember { mutableStateOf("") }
+    var noteIsError by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
     val canEdit = space.myPermission.uppercase().let { it == "OWNER" || it == "ADMIN" }
@@ -1885,6 +1908,7 @@ private fun SpaceSettingsDialog(
     fun save() {
         if (name.trim().isEmpty()) {
             note = "空间名称不能为空"
+            noteIsError = true
             return
         }
         busy = true
@@ -1892,9 +1916,11 @@ private fun SpaceSettingsDialog(
             try {
                 api.updateShareSpace(session.token, space.id, name.trim(), desc.trim())
                 note = "已保存"
+                noteIsError = false
                 onSaved()
             } catch (e: Exception) {
                 note = e.message ?: "保存失败"
+                noteIsError = true
             } finally {
                 busy = false
             }
@@ -1912,7 +1938,7 @@ private fun SpaceSettingsDialog(
                     color = KbTextSub,
                 )
                 if (note.isNotEmpty()) {
-                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(top = 4.dp))
+                    Text(note, fontSize = 11.5.sp, color = if (noteIsError) ShareErrRed else Color(0xFF047857), modifier = Modifier.padding(top = 4.dp))
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("名称", fontSize = 11.sp, color = KbTextSub)
@@ -2040,7 +2066,9 @@ private fun CreateSpaceDialog(
             } catch (e: Exception) {
                 val msg = e.message ?: "创建失败"
                 note = msg
-                if (msg.contains("上限") || msg.contains("权限")) needRequest = true
+                // 只有「已达上限」才切到申请流程：申请接口同样要 SHARE_CREATE，
+                // 权限不足时切过去只会吃到同一个 403（而且按钮不会再切回来）
+                if (msg.contains("已达上限")) needRequest = true
             } finally {
                 busy = false
             }
@@ -2159,6 +2187,7 @@ private fun CapacityRequestDialog(
     var loading by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
+    var noteIsError by remember { mutableStateOf(false) }
     var tick by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     // 目标容量：预设 + 自定义（GB）；0 = 不限
@@ -2181,21 +2210,28 @@ private fun CapacityRequestDialog(
     }
 
     fun submit() {
-        val custom = customGb.trim().toDoubleOrNull()
-        val bytes = when {
-            custom != null && custom > 0 -> (custom * 1024L * 1024L * 1024L).toLong()
-            else -> targetGb.toLong() * 1024L * 1024L * 1024L
+        val customText = customGb.trim()
+        val custom = if (customText.isEmpty()) null else customText.toDoubleOrNull()
+        if (customText.isNotEmpty() && (custom == null || custom < 0)) {
+            note = "自定义容量需要是不小于 0 的数字（GB，0 表示不限）"
+            noteIsError = true
+            return
         }
+        // 留空才用预设；填了 0 就是不限（后端只拒绝负数）
+        val bytes = if (custom != null) (custom * 1024L * 1024L * 1024L).toLong()
+                    else targetGb.toLong() * 1024L * 1024L * 1024L
         busy = true
         scope.launch {
             try {
                 api.requestShareCapacity(session.token, space.id, bytes, reason.trim())
                 note = "已提交扩容申请，等待管理员审批"
+                noteIsError = false
                 reason = ""
                 tick++
                 onSubmitted()
             } catch (e: Exception) {
                 note = e.message ?: "提交失败"
+                noteIsError = true
             } finally {
                 busy = false
             }
@@ -2208,14 +2244,18 @@ private fun CapacityRequestDialog(
         text = {
             Column(Modifier.width(500.dp)) {
                 val cap = storage?.capacity
+                // if/else 必须括起来：Kotlin 里 + 与 if 组合时 else 会贪婪吞掉后面的后缀，
+                // 原来「有上限」时「· 已用」整段根本不显示，正好在用户决定申多少容量时误导。
                 Text(
-                    "当前上限：" + if (cap != null && cap > 0) fmtShareSize(cap) else "不限" +
+                    "当前上限：" + (if (cap != null && cap > 0) fmtShareSize(cap) else "不限") +
                         " · 已用：" + (storage?.let { fmtShareSize(it.used).ifBlank { "0 B" } } ?: "—"),
                     fontSize = 11.5.sp,
                     color = KbTextSub,
                 )
                 if (note.isNotEmpty()) {
-                    Text(note, fontSize = 11.5.sp, color = ShareErrRed, modifier = Modifier.padding(top = 4.dp))
+                    Text(note, fontSize = 11.5.sp,
+                        color = if (noteIsError) ShareErrRed else Color(0xFF047857),
+                        modifier = Modifier.padding(top = 4.dp))
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("申请目标容量", fontSize = 11.sp, color = KbTextSub)
@@ -2253,7 +2293,7 @@ private fun CapacityRequestDialog(
                 Text("这个空间的申请记录", fontSize = 11.sp, color = KbTextSub)
                 Box(Modifier.heightIn(max = 200.dp)) {
                     when {
-                        loading -> ShareHint("加载中…")
+                        loading -> ShareHint("加载中…", glyph = "⏳")
                         err != null -> ShareError(err ?: "", onRetry = { tick++ })
                         list.isEmpty() -> ShareHint("还没有提交过扩容申请")
                         else -> LazyColumn(Modifier.fillMaxWidth()) {
