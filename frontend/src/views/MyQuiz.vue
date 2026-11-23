@@ -130,7 +130,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { selfExamStats, selfExamQuestions, selfExamDeleteQuestion, selfExamBatchCreate } from '../api/training'
 import { parseQuestions } from '../utils/quizParser'
 import { listAllShareDocs } from '../api/docShare'
-import { agentCreateQuestions } from '../utils/questionGen'
+import { agentCreateQuestions, isStoredMsg } from '../utils/questionGen'
 import ExamTabs from '../components/ExamTabs.vue'
 
 const TYPE_CN = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', SUBJECTIVE: '主观' }
@@ -177,13 +177,15 @@ async function doGen() {
     gen.value.tip = msg
     // 只有真入库才报「已存入」：用户在确认框点「先不入库」、或入库接口只存进去一部分时，
     // 这里原来一律弹 success，等于把「没存」说成「存好了」（复测报告点名的假成功文案）。
-    if (msg.startsWith('已加入个人题库')) {
+    if (isStoredMsg(msg)) {
       ElMessage.success(msg.split('\n')[0])
       gen.value.open = false
-      await load()
     } else {
       ElMessage.warning(msg.split('\n')[0])
     }
+    // 部分入库（「入库未成功：提交 X 道，实际落库 Y 道」）也有题真的落了库，
+    // 列表与统计要一起刷新，否则用户切到「题库」看到的还是旧数字，以为一道都没存。
+    if (isStoredMsg(msg) || /实际落库\s*[1-9]/.test(msg)) await load()
   } catch (e) {
     gen.value.tip = e?.response?.data?.error || e.message || '生成失败'
   } finally {

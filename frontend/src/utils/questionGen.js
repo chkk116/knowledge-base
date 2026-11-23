@@ -14,6 +14,12 @@ import { listMyShares, listShareDocs } from '../api/docShare'
 // DOC 模式自动挑空间时最多探测几个（每个一次列表请求，太多会拖慢出题）
 const MAX_SPACE_PROBES = 6
 
+// 「已入库」文案前缀：本模块返回的是给人看的一句话，视图侧要靠它判断到底存没存。
+// 判定与文案共用这一份常量——各写一份字面量时，改一句话就会静默退化成
+// 「真入库却弹警告、对话框不关、列表不刷新」。
+export const STORED_PREFIX = '已加入个人题库'
+export const isStoredMsg = (msg) => String(msg || '').startsWith(STORED_PREFIX)
+
 const TYPE_NAME = { SINGLE: '单选', MULTI: '多选', JUDGE: '判断', FILL: '填空', ESSAY: '简答' }
 const TYPE_ALIAS = {
   单选: 'SINGLE', 单选题: 'SINGLE', single: 'SINGLE',
@@ -182,7 +188,7 @@ export async function agentCreateQuestions(args = {}, { askUser, isDemo, session
     if (saved.length !== items.length) {
       return `入库未成功：提交 ${items.length} 道，实际落库 ${saved.length} 道。请到「我的测验 → 题库」确认后重试。${warn}`
     }
-    return `已加入个人题库 ${saved.length} 道（${basis}）。可在「我的测验 → 题库」查看。${warn}\n\n${preview}`
+    return `${STORED_PREFIX} ${saved.length} 道（${basis}）。可在「我的测验 → 题库」查看。${warn}\n\n${preview}`
   } catch (e) {
     return '题目已生成但入库失败：' + (e?.response?.data?.error || e?.message || '未知错误')
   }

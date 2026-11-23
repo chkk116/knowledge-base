@@ -12,6 +12,7 @@ import { uploadFile } from '../../api/file'
 import { useAuthStore } from '../../store/auth'
 import { useUnsavedGuard } from '../../composables/useUnsavedGuard'
 import { splitTags } from '../../utils/text'
+import { mergeTagOptions } from '../../utils/tagOptions'
 import { errMsg } from '../../utils/errMsg'
 
 const route = useRoute()
@@ -57,27 +58,13 @@ const onAudioPicked = async (e) => {
 // 标签下拉数据：规范标签表 + 文档里实际用过的标签合并去重。
 // 只读规范标签表时，只要管理员没在「标签体系」里建过标签（线上一直是空的），
 // 不输入关键词的下拉就永远是「无数据」——而文档标题下的逗号串里明明有几十个标签（N38）。
+// 两个来源互不依赖，并发取；任一失败都按空集处理（合并逻辑见 utils/tagOptions）。
 const loadTagOptions = async () => {
-  const map = new Map()
-  try {
-    for (const t of (await allTags()).data || []) {
-      const name = (t.tag || '').trim()
-      if (name) map.set(name, { id: 'doc-' + name, name, count: Number(t.count) || 0 })
-    }
-  } catch (e) {}
-  try {
-    for (const t of (await listTags()).data || []) {
-      const name = (t.name || '').trim()
-      if (!name) continue
-      const prev = map.get(name)
-      map.set(name, {
-        id: t.id != null ? t.id : 'doc-' + name,
-        name,
-        count: Math.max(prev ? prev.count : 0, Number(t.count) || 0),
-      })
-    }
-  } catch (e) {}
-  tagOptions.value = [...map.values()].sort((a, b) => b.count - a.count)
+  const [docRes, canonRes] = await Promise.allSettled([allTags(), listTags()])
+  tagOptions.value = mergeTagOptions(
+    docRes.status === 'fulfilled' ? docRes.value.data || [] : [],
+    canonRes.status === 'fulfilled' ? canonRes.value.data || [] : [],
+  )
 }
 
 const form = ref({ title: '', category: '', tags: '', content: '' })
@@ -176,8 +163,9 @@ const onFilePicked = async (e) => {
 }
 
 onMounted(async () => {
+  // 标签与分类、正文互不依赖：标签那路先发出去，别排在正文加载前面白等两个往返
+  const tagsTask = loadTagOptions()
   try { categoryTree.value = (await getCategoryTree()).data || [] } catch (e) {}
-  await loadTagOptions()
   if (isEdit) {
     try {
       const { data } = await getDoc(id)
@@ -208,6 +196,7 @@ onMounted(async () => {
   ready.value = true
   syncBaseline()
   window.addEventListener('keydown', onKeydown)
+  await tagsTask   // 标签是下拉数据，晚到也行；这里只等它落完再结束 mounted，避免悬挂的请求
 })
 
 const onKeydown = (e) => { if (e.key === 'Escape' && fullscreen.value) fullscreen.value = false }
