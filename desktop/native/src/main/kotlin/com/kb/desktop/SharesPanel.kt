@@ -43,6 +43,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.kdroidfilter.webview.web.WebContent
+import io.github.kdroidfilter.webview.web.WebView
+import io.github.kdroidfilter.webview.web.WebViewState
 import java.awt.Desktop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,6 +89,8 @@ fun SharesPanel(session: Session) {
     var showCreateSpace by remember { mutableStateOf(false) }
     // 扩容申请（空间管理员提，系统管理员在后台批）
     var showCapacity by remember { mutableStateOf(false) }
+    // 内嵌 WebView 协同编辑（真协同）
+    var showEditor by remember { mutableStateOf(false) }
     // 历史版本：既用于手动回滚，也作为「拿不到 /yjs 又没快照」时的兜底正文来源
     var versions by remember { mutableStateOf<List<ApiClient.ShareVersionItem>>(emptyList()) }
     var versionsLoading by remember { mutableStateOf(false) }
@@ -409,10 +414,22 @@ fun SharesPanel(session: Session) {
         }
         Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
 
-        // ---- 右：只读阅读 ----
+        // ---- 右：只读阅读 / 内嵌协同编辑 ----
         Box(Modifier.weight(1f).fillMaxHeight()) {
             val d = detail
-            when {
+            val editSid = docShareId
+            val editDid = docId
+            if (showEditor && editSid != null && editSid > 0 && editDid != null) {
+                ShareWebEditor(
+                    session = session,
+                    shareId = editSid,
+                    docId = editDid,
+                    onExit = {
+                        showEditor = false
+                        detailTick++
+                    },
+                )
+            } else when {
                 spaceId == null -> ShareHint("选择空间与文档后在这里阅读")
                 docId == null -> ShareHint("在中间列表选择一篇文档")
                 detailLoading -> ShareHint("加载中…", glyph = "⏳")
@@ -438,6 +455,8 @@ fun SharesPanel(session: Session) {
                     onOpenShare = { showShareLink = true },
                     onOpenPerm = { showDocPerm = true },
                     onOpenOrganize = { showOrganize = true },
+                    onOpenEditor = if (d.myPerm.orEmpty().uppercase().let { it == "WRITE" || it == "ADMIN" || it == "OWNER" })
+                        { { showEditor = true } } else null,
                     onOpenInBrowser = {
                         val sid = docShareId
                         if (sid == null || sid <= 0) {
@@ -780,6 +799,7 @@ private fun ShareReader(
     onOpenShare: () -> Unit = {},
     onOpenPerm: () -> Unit = {},
     onOpenOrganize: () -> Unit = {},
+    onOpenEditor: (() -> Unit)? = null,
     onOpenInBrowser: () -> Unit,
 ) {
     val blocks = remember(doc.id, html) { DocHtml.parse(html) }
@@ -802,6 +822,10 @@ private fun ShareReader(
                     val perm = doc.myPerm
                     if (!perm.isNullOrBlank()) {
                         Text(permLabel(perm), fontSize = 10.5.sp, color = Color(0xFF94A3B8))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    if (onOpenEditor != null) {
+                        KbGhostAction("编辑（协同）", onClick = onOpenEditor)
                         Spacer(Modifier.width(6.dp))
                     }
                     KbGhostAction("分享", onClick = onOpenShare)
@@ -2345,4 +2369,66 @@ private fun CapacityRequestDialog(
             }
         },
     )
+}
+
+/**
+ * 内嵌协同编辑（真协同）：用系统 WebView2 打开 Web 端共享文档编辑器。
+ *
+ * 登录态桥接：Web 端读 `localStorage.kb_token`，所以先让 WebView 停在同源 `/login`，
+ * 注入 token 后再导航到 `/doc-shares/{sid}?doc={did}`；路由守卫见 token 即放行（`router/index.js`）。
+ * 协同链路（Yjs + relay）由 Web 端自建，桌面只负责宿主与登录态。
+ */
+@Composable
+private fun ShareWebEditor(
+    session: Session,
+    shareId: Long,
+    docId: Long,
+    onExit: () -> Unit,
+) {
+    val server = session.server.trimEnd('/')
+    val editorUrl = "$server/doc-shares/$shareId?doc=$docId"
+    val state = remember(editorUrl) { WebViewState(WebContent.Url("$server/login")) }
+    var injected by remember(editorUrl) { mutableStateOf(false) }
+    val tokenJs = "\"" + session.token.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+    fun injectAndGo() {
+        if (injected) return
+        injected = true
+        runCatching { state.webSettings.isJavaScriptEnabled = true }
+        state.webView?.evaluateJavaScript(
+            "try{localStorage.setItem('kb_token',$tokenJs);}catch(e){}",
+            null,
+        )
+        state.content = WebContent.Url(editorUrl)
+    }
+
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading) injectAndGo()
+    }
+    LaunchedEffect(editorUrl) {
+        kotlinx.coroutines.delay(1200)
+        injectAndGo()
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("协同编辑", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+            Spacer(Modifier.width(6.dp))
+            Text("（Web 端编辑器 · 实时协同）", fontSize = 10.5.sp, color = KbTextSub)
+            Spacer(Modifier.weight(1f))
+            KbGhostAction("刷新") {
+                injected = false
+                state.content = WebContent.Url(editorUrl)
+            }
+            Spacer(Modifier.width(6.dp))
+            KbGhostAction("浏览器打开") { openShareInBrowser(server, "/doc-shares/$shareId?doc=$docId") }
+            Spacer(Modifier.width(6.dp))
+            KbGhostAction("返回只读", onClick = onExit)
+        }
+        HorizontalDivider(color = KbBorder)
+        WebView(state, Modifier.fillMaxSize())
+    }
 }
