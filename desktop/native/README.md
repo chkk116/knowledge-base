@@ -354,3 +354,18 @@ C:\chkk\tools\gradle-8.14.3\bin\gradle.bat packageExe            # 兜底：jpac
 - **正式发版必须注入地址**：`gradle packageInnoSetup -PKB_DESKTOP_SERVER=https://<部署域名>`，
   该值只存在于发版命令/云端配置，仓库内是示例占位；不注入打出的包会连到示例地址
 - 版本号独立于 Web 端（`package.json`/`changelog.js` 是 Web 的，别混）
+
+## 视觉精修（2026-11-22，UiKit.kt）
+
+新建 `UiKit.kt`（桌面轻量组件套，对标 Web 端观感，只做视觉）：
+- `KbSurface` 白卡（圆角 12 + 细边 + 轻阴影）、`KbSelectCard`（hover 浅底 / 选中浅主色 + 左侧 3dp 竖条）、
+  `KbGlyphTile` 渐变图标块、`KbTag(text, tone)`（Primary/Success/Warning/Danger/Neutral）、
+  `KbPrimaryAction` / `KbGhostAction`（有边框 + hover）、`KbMiniIconButton`（圆形图标钮，hover 主色浅底）、
+  `KbEmptyState`、`KbColumnHeader`。
+已套用：
+- **共享空间**：左栏空间/「全部文档」与中栏文档项全部卡片化（hover + 选中竖条 + 圆形色块 + 成员数/篇数副标题）；
+  栏头改为 `KbColumnHeader` + 图标钮（＋ / ↻ / ◎ / ⚙）；阅读区操作钮换成有边框的 ghost 按钮；
+  元信息标签改用 `KbTag`（协同实时=绿、快照=中性、版本兜底=橙，空间名=主色）；三栏列表加 6dp 内边距 + 2dp 间距；
+  空态/加载态统一为「圆底图标 + 主文案 + 说明」。
+- **管理面板**：15 个页签换成 `KbSelectCard`（hover + 选中竖条），`AdminHeader` 标题升 14sp、副标题 11sp、「刷新」改图标钮。
+

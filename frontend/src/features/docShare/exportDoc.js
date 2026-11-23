@@ -36,22 +36,52 @@ export async function snapshotDiagramImages(editor) {
   return map
 }
 
+/**
+ * 按文档顺序收集图块节点的 data JSON（与 DOM 里 [data-type] 的顺序一致）。
+ * 快照必须同时带「数据」和「视觉」：
+ *   - data 给 App / 桌面等原生端解析（它们读不到 yjs，只能读 content）；
+ *   - img 是给人看的静态快照（公开链接 / 导出 / 非协同阅读页）。
+ * 只留 img 会让原生端永远空白（N55 的 surface 症状），只留 div 会让公开页空白。
+ */
+function collectDiagramData(ed) {
+  const out = []
+  try {
+    ed.state.doc.descendants((node) => {
+      const n = node.type && node.type.name
+      if (n === 'flowchartBlock' || n === 'mindmapBlock' || n === 'sheetBlock') {
+        const d = node.attrs && node.attrs.data
+        out.push(typeof d === 'string' ? d : '')
+      }
+    })
+  } catch (e) {
+    console.warn('收集图块数据失败：', e)
+  }
+  return out
+}
+
 export async function buildSnapshotHtml(editor) {
   const ed = editor
   if (!ed) return ''
   const images = await snapshotDiagramImages(ed)
   const html = ed.getHTML()
-  if (!images.size) return html
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const targets = [...doc.querySelectorAll(DIAGRAM_SEL)]
+  const dataList = collectDiagramData(ed)
   targets.forEach((el, i) => {
+    // 1) 数据载体：JSON 挂回 div 的 data（用 DOM setAttribute，让浏览器负责转义；
+    //    手写单引号属性容易被 JSON 里的引号/单引号坑）。div 本身是空壳，不占位。
+    const json = dataList[i] || ''
+    if (json) el.setAttribute('data', json)
+    // 2) 编辑锁不进快照：locked 里带 uid/ts，会把「某人正在编辑」写死进历史版本
+    el.removeAttribute('locked')
+    // 3) 视觉快照：img 追加在 div 之后（不要 replaceWith，否则数据随 div 一起没）
     const src = images.get(i)
     if (!src) return
     const img = doc.createElement('img')
     img.setAttribute('src', src)
     img.setAttribute('alt', el.getAttribute('title') || '图表')
     img.setAttribute('class', 'kb-diagram-snapshot')
-    el.replaceWith(img)
+    el.parentNode.insertBefore(img, el.nextSibling)
   })
   return doc.body.innerHTML
 }

@@ -82,20 +82,22 @@ fun AdminPanel(session: Session) {
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             )
             HorizontalDivider(color = KbBorder)
-            Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.padding(horizontal = 6.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 for ((key, label) in ADMIN_TABS) {
-                    Text(
-                        label,
-                        fontSize = 12.sp,
-                        color = if (tab == key) KbPrimary else KbTextSub,
-                        fontWeight = if (tab == key) FontWeight.SemiBold else FontWeight.Normal,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(if (tab == key) KbSidebarSelected else Color.Transparent)
-                            .clickable { tab = key }
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                    )
+                    val sel = tab == key
+                    KbSelectCard(
+                        selected = sel,
+                        onClick = { tab = key },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 7.dp),
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 12.sp,
+                            color = if (sel) KbAccent else KbTextMain,
+                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }
@@ -132,13 +134,14 @@ internal fun AdminHeader(title: String, subtitle: String, onRefresh: () -> Unit)
         Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
-        Spacer(Modifier.width(8.dp))
-        Text(subtitle, fontSize = 10.5.sp, color = KbTextSub)
-        Spacer(Modifier.weight(1f))
-        TextButton(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 6.dp)) {
-            Text("刷新", fontSize = 11.sp)
+        Column {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+            if (subtitle.isNotBlank()) {
+                Text(subtitle, fontSize = 11.sp, color = KbTextSub, maxLines = 1)
+            }
         }
+        Spacer(Modifier.weight(1f))
+        KbMiniIconButton("↻", "刷新") { onRefresh() }
     }
     HorizontalDivider(color = KbBorder)
 }

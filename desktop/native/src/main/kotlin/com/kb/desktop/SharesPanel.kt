@@ -260,18 +260,10 @@ fun SharesPanel(session: Session) {
     Row(Modifier.fillMaxSize()) {
         // ---- 左：我的协作空间 ----
         Column(Modifier.width(150.dp).fillMaxHeight().background(ShareRailBg)) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("协作空间", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { showCreateSpace = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                    Text("＋", fontSize = 12.sp)
-                }
-                TextButton(onClick = { spacesTick++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                    Text("刷新", fontSize = 11.sp)
-                }
+            KbColumnHeader("协作空间", "我的空间") {
+                KbMiniIconButton("＋", "新建团队空间") { showCreateSpace = true }
+                Spacer(Modifier.width(2.dp))
+                KbMiniIconButton("↻", "刷新") { spacesTick++ }
             }
             HorizontalDivider(color = KbBorder)
             Box(Modifier.weight(1f)) {
@@ -279,7 +271,11 @@ fun SharesPanel(session: Session) {
                     spacesLoading -> ShareHint("加载中…")
                     spacesErr != null -> ShareError(spacesErr ?: "", onRetry = { spacesTick++ })
                     spaces.isEmpty() -> ShareHint("还没有协作空间\n可在 Web 端创建或接受邀请")
-                    else -> LazyColumn(Modifier.fillMaxSize()) {
+                    else -> LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
                         // 跨空间视图：一次列出所有空间里我可见的文档（后端 /docs/all，带截断护栏）
                         item {
                             AllDocsRow(
@@ -302,33 +298,30 @@ fun SharesPanel(session: Session) {
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    if (spaceId == ALL_SPACES) "全部文档" else (space?.name?.ifBlank { "文档" } ?: "文档"),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = KbTextMain,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (shownDocs.isNotEmpty()) {
-                    Spacer(Modifier.width(6.dp))
-                    Text("${shownDocs.size} 篇", fontSize = 10.5.sp, color = KbTextSub)
-                }
-                Spacer(Modifier.weight(1f))
-                if (spaceId != null && spaceId != ALL_SPACES) {
-                    TextButton(onClick = { showMembers = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("成员", fontSize = 11.sp)
-                    }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (spaceId == ALL_SPACES) "全部文档" else (space?.name?.ifBlank { "文档" } ?: "文档"),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = KbTextMain,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (shownDocs.isNotEmpty()) "${shownDocs.size} 篇文档" else "选择左侧空间",
+                        fontSize = 10.5.sp,
+                        color = KbTextSub,
+                        maxLines = 1,
+                    )
                 }
                 if (spaceId != null && spaceId != ALL_SPACES) {
-                    TextButton(onClick = { showSpaceSettings = true }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("设置", fontSize = 11.sp)
-                    }
+                    KbMiniIconButton("◎", "成员") { showMembers = true }
+                }
+                if (spaceId != null && spaceId != ALL_SPACES) {
+                    KbMiniIconButton("⚙", "空间设置") { showSpaceSettings = true }
                 }
                 if (spaceId != null) {
-                    TextButton(onClick = { docsTick++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("刷新", fontSize = 11.sp)
-                    }
+                    KbMiniIconButton("↻", "刷新文档") { docsTick++ }
                 }
             }
             // 空间用量（团队空间常有上限，超出前给个直观数字）
@@ -379,7 +372,11 @@ fun SharesPanel(session: Session) {
                         else "这个空间还没有文档\n可在 Web 端新建或导入"
                     )
                     shownDocs.isEmpty() -> ShareHint("没有匹配的文档")
-                    else -> LazyColumn(Modifier.fillMaxSize()) {
+                    else -> LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
                         items(shownDocs, key = { it.id }) { d ->
                             // 跨空间视图里空间名要从文档自带的 shareId 反查，点选时同步真实 shareId
                             val spaceLabel = spaces.firstOrNull { it.id == d.shareId }?.name
@@ -641,35 +638,32 @@ fun SharesPanel(session: Session) {
 
 @Composable
 private fun SpaceRow(s: AgentSpace, sel: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .background(if (sel) Color(0xFFE8EEFB) else Color.Transparent)
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(22.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(KbIconGradient(KbTileTeal.first, KbTileTeal.second)),
-            contentAlignment = Alignment.Center,
-        ) {
-            MenuGlyph(MenuKind.SHARES, Color.White, Modifier.size(13.dp))
-        }
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                s.name.ifBlank { "未命名空间" },
-                fontSize = 12.5.sp,
-                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-                color = KbTextMain,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (s.type.isNotBlank()) {
-                Text(spaceTypeLabel(s.type), fontSize = 10.sp, color = KbTextSub)
+    val gradient = listOf(KbTileTeal, KbTileViolet, KbTileBlue, KbTileGreen, KbTileAmber)[
+        ((s.id % 5).toInt()).coerceAtLeast(0)
+    ]
+    KbSelectCard(selected = sel, onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            KbGlyphTile(s.name.ifBlank { "空" }, gradient, size = 24, corner = 7)
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    s.name.ifBlank { "未命名空间" },
+                    fontSize = 12.5.sp,
+                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
+                    color = KbTextMain,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val sub = listOfNotNull(
+                    spaceTypeLabel(s.type).takeIf { s.type.isNotBlank() },
+                    if (s.memberCount > 0) s.memberCount.toString() + " 人" else null,
+                ).joinToString(" · ")
+                if (sub.isNotBlank()) {
+                    Text(sub, fontSize = 10.5.sp, color = KbTextSub, maxLines = 1)
+                }
+            }
+            if (sel) {
+                Box(Modifier.size(5.dp).clip(CircleShape).background(KbAccent))
             }
         }
     }
@@ -682,70 +676,71 @@ private fun ShareDocRow(
     spaceLabel: String? = null,
     onClick: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .background(if (sel) KbSidebarSelected else Color.Transparent)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+    KbSelectCard(
+        selected = sel,
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
     ) {
-        Text(
-            d.title.ifBlank { "（无标题）" },
-            fontSize = 12.5.sp,
-            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-            color = KbTextMain,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(3.dp))
-        Text(
-            listOfNotNull(
-                // 跨空间视图里补上所属空间，否则同名文档分不清
-                spaceLabel?.takeIf { it.isNotBlank() },
-                d.ownerName.takeIf { it.isNotBlank() },
-                fmtSharedTime(d.updatedAt).takeIf { it.isNotBlank() },
-                fmtShareSize(d.size).takeIf { it.isNotBlank() },
-            ).joinToString(" · "),
-            fontSize = 10.5.sp,
-            color = KbTextSub,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(Modifier.fillMaxWidth()) {
+            Text(
+                d.title.ifBlank { "（无标题）" },
+                fontSize = 12.5.sp,
+                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
+                color = KbTextMain,
+                maxLines = 2,
+                lineHeight = 17.sp,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!spaceLabel.isNullOrBlank()) {
+                    KbTag(spaceLabel, KbTone.Primary, maxWidth = 92)
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    fmtSharedTime(d.updatedAt).ifBlank { "—" },
+                    fontSize = 10.sp,
+                    color = KbTextSub,
+                    maxLines = 1,
+                )
+                val size = fmtShareSize(d.size)
+                if (size.isNotBlank()) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("· $size", fontSize = 10.sp, color = KbTextSub, maxLines = 1)
+                }
+            }
+        }
     }
 }
 
 /** 左侧「全部文档」入口：跨空间聚合视图，条数与当前空间列表同源 */
 @Composable
 private fun AllDocsRow(sel: Boolean, count: Int, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .background(if (sel) Color(0xFFE8EEFB) else Color.Transparent)
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(22.dp).background(Color(0xFFE6F0FF), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("全", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
-        }
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                "全部文档",
-                fontSize = 12.5.sp,
-                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-                color = KbTextMain,
-                maxLines = 1,
-            )
-            Text(
-                if (sel && count > 0) "$count 篇（跨空间）" else "跨空间检索",
-                fontSize = 10.5.sp,
-                color = KbTextSub,
-                maxLines = 1,
-            )
+    KbSelectCard(selected = sel, onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(24.dp).clip(RoundedCornerShape(7.dp)).background(KbAccentSoft),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("全", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = KbAccent)
+            }
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "全部文档",
+                    fontSize = 12.5.sp,
+                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
+                    color = KbTextMain,
+                    maxLines = 1,
+                )
+                Text(
+                    if (sel && count > 0) "$count 篇 · 跨空间" else "跨空间检索",
+                    fontSize = 10.5.sp,
+                    color = KbTextSub,
+                    maxLines = 1,
+                )
+            }
+            if (sel) Box(Modifier.size(5.dp).clip(CircleShape).background(KbAccent))
         }
     }
 }
@@ -789,21 +784,11 @@ private fun ShareReader(
                         Text(permLabel(perm), fontSize = 10.5.sp, color = Color(0xFF94A3B8))
                         Spacer(Modifier.width(6.dp))
                     }
-                    TextButton(onClick = onOpenShare, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text("分享", fontSize = 11.5.sp)
-                    }
-                    TextButton(onClick = onOpenPerm, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text("权限", fontSize = 11.5.sp)
-                    }
-                    TextButton(onClick = onOpenOrganize, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text("整理", fontSize = 11.5.sp)
-                    }
-                    TextButton(onClick = onOpenVersions, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text("版本", fontSize = 11.5.sp)
-                    }
-                    TextButton(onClick = onOpenInBrowser, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text("在 Web 端打开", fontSize = 11.5.sp)
-                    }
+                    KbGhostAction("分享", onClick = onOpenShare)
+                    KbGhostAction("权限", onClick = onOpenPerm)
+                    KbGhostAction("整理", onClick = onOpenOrganize)
+                    KbGhostAction("版本", onClick = onOpenVersions)
+                    KbGhostAction("在 Web 端打开", onClick = onOpenInBrowser)
                 }
                 Spacer(Modifier.height(6.dp))
                 // 元信息分两行：标签单独一行（数量不定），作者/时间单独一行（可省略）
@@ -814,15 +799,15 @@ private fun ShareReader(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             if (spaceName.isNotBlank()) {
-                                ShareChip(spaceName, Color(0xFFE0F2FE), Color(0xFF0369A1))
+                                KbTag(spaceName, KbTone.Primary)
                             }
                             // 正文来源：协同实时（relay 5s 内落库）/ 保存快照
-                            if (live) ShareChip("协同实时", Color(0xFFD1FAE5), Color(0xFF047857))
-                            else ShareChip("快照", Color(0xFFF3F4F6), Color(0xFF6B7280))
+                            if (live) KbTag("协同实时", KbTone.Success)
+                            else KbTag("快照", KbTone.Neutral)
                             // 兜底正文来自历史版本时标出来源，别让人误以为是当前内容
-                            if (versionNote.isNotBlank()) ShareChip(versionNote, Color(0xFFFFF7E6), Color(0xFFAD6800))
+                            if (versionNote.isNotBlank()) KbTag(versionNote, KbTone.Warning)
                             for (t in splitSharedTags(doc.tags).take(3)) {
-                                ShareChip(t, Color(0xFFF3F4F6), Color(0xFF4B5563))
+                                KbTag(t, KbTone.Neutral)
                             }
                         }
                         Spacer(Modifier.height(4.dp))
@@ -1005,8 +990,35 @@ private fun ShareChip(text: String, bg: Color, fg: Color) {
 
 @Composable
 private fun ShareHint(text: String) {
+    // 加载中 / 空态统一：圆底图标 + 主文案（多行文案用 \n 拆成标题+说明）
+    val parts = text.split("\n")
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, fontSize = 12.sp, color = KbTextSub, textAlign = TextAlign.Center, lineHeight = 19.sp)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(KbAccentSoft),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (text.contains("加载")) "⏳" else "📂", fontSize = 17.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                parts.firstOrNull().orEmpty(),
+                fontSize = 12.5.sp,
+                color = KbTextMain,
+                textAlign = TextAlign.Center,
+                lineHeight = 19.sp,
+            )
+            if (parts.size > 1) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    parts.drop(1).joinToString("\n"),
+                    fontSize = 11.sp,
+                    color = KbTextSub,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 17.sp,
+                )
+            }
+        }
     }
 }
 
