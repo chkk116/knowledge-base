@@ -649,6 +649,9 @@ public class DocShareService {
 
     // ---------- 共享文档 CRUD ----------
 
+    /** 只读事务：下面为了省流量把托管实体的 content 置空，没有只读标记的话，
+     *  事务结束时脏检查会把 NULL 刷回数据库——正文就这么被列表接口悄悄清掉（线上文档 32）。 */
+    @Transactional(readOnly = true)
     public List<SharedDocument> listDocs(Long shareId, Long userId, boolean sysAdmin) {
         get(shareId, userId, sysAdmin); // 校验可读（空间级）
         List<SharedDocument> list = docRepo.findByShareIdOrderByUpdatedAtDesc(shareId);
@@ -1300,7 +1303,9 @@ public class DocShareService {
 
     // ---------- 待整理箱（2026-10-15） ----------
 
-    /** 我的待整理项：跨空间、按更新时间倒序，不含大字段 */
+    /** 我的待整理项：跨空间、按更新时间倒序，不含大字段。
+     *  同 listDocs：置空 content 的实体不能再被脏检查刷库，必须显式只读。 */
+    @Transactional(readOnly = true)
     public List<SharedDocument> listInbox(Long userId) {
         List<SharedDocument> list = docRepo.findByOwnerIdAndInboxTrueOrderByUpdatedAtDesc(userId);
         for (SharedDocument d : list) {
@@ -1558,7 +1563,14 @@ public class DocShareService {
         sharedDocVerRepo.save(backup);
 
         d.setTitle(v.getTitle());
-        d.setContent(v.getContent());
+        // 版本里的正文可能为空（未开协同时期的快照只存了协同态，或者旧数据缺正文）：
+        // 这时宁可不写，也不能把当前正文清成 NULL —— 线上文档 32 就这么被清空过，
+        // 之后谁看都是空白，只有版本历史里还留着原文。
+        if (v.getContent() != null) {
+            d.setContent(v.getContent());
+        } else {
+            log.warn("版本 {} 没有正文，仅恢复标题与协同态，正文保持当前内容", vid);
+        }
         // 只覆盖有协同快照的版本：老版本（未开协同时期的快照）yjs_state 为空，
         // 直接写 null 会让协同端加载到空文档、整篇内容凭空消失。宁可正文与协同态不同步，
         // 也不能把文档清空——文本层有 RESTORE 备份可回退。
