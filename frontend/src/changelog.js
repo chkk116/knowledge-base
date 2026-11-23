@@ -10,6 +10,25 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.55-native',
+    date: '2026-11-23',
+    title: '骨架屏与登录态',
+    items: [
+      '移动端补页面级骨架屏；内嵌编辑器登录态改走 URL hash 令牌',
+    ],
+  },
+
+  {
+    version: '1.3.72',
+    date: '2026-11-23',
+    title: '登录态与骨架屏',
+    items: [
+      '内嵌编辑器令牌改放 URL hash（不进 access log/Referer），落盘后即刻抹除',
+      '管理台与移动端补骨架屏，修复看板与列表实测问题',
+    ],
+  },
+
+  {
     version: '1.3.54-native',
     date: '2026-11-23',
     title: '修复与数据看板',
