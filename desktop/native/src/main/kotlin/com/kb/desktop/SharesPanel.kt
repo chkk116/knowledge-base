@@ -2417,6 +2417,11 @@ private fun ShareWebEditor(
             // 令牌会被前端写进这个 WebView 的 localStorage：用匿名档案，进程退出即丢，
             // 不落进与文件预览共用的那份档案（否则退出编辑后仍能从 user-data 目录读出来）
             webSettings.desktopWebSettings.incognito = true
+            // 主通道：页面脚本执行前注入 token（与「文档编辑视图」同一手法，WebView2 下已验证）。
+            // 不依赖前端是否支持 URL 参数——生产上前端若还是旧 bundle，hash 通道会失效，
+            // 但 initScript 仍能保证路由守卫首次导航时就已有会话。
+            webSettings.desktopWebSettings.initScript =
+                "try{localStorage.setItem('kb_token','${session.token}')}catch(e){}"
         }
     }
     var triedSso by remember(editorUrl) { mutableStateOf(false) }

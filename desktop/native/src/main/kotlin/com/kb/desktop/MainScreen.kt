@@ -74,7 +74,13 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
     LaunchedEffect(session) {
         val api = ApiClient(session.server)
         while (true) {
-            notiUnread = runCatching { api.unreadNotifications(session.token) }.getOrDefault(notiUnread)
+            val prev = notiUnread
+            val now = runCatching { api.unreadNotifications(session.token) }.getOrDefault(prev)
+            notiUnread = now
+            // 未读数变多且主窗口不在前台：发一条系统通知（前台有角标，再弹就是打扰）
+            if (now > prev && !KbNotify.windowActive()) {
+                KbNotify.notify("知识库 · 新消息", "你有 $now 条未读通知")
+            }
             delay(60_000)
         }
     }
@@ -774,7 +780,7 @@ private fun NotificationsPanel(
             loading && items.isEmpty() -> KbSkeletonList(rows = 5)
             err != null -> Text(err ?: "", fontSize = 12.5.sp, color = Color(0xFFDC2626))
             items.isEmpty() -> KbEmptyState(
-                glyph = "◎",
+                glyph = "\uD83D\uDD14",
                 title = "暂无通知",
                 desc = "有人评论、回复或 @ 你时会出现在这里",
             )
@@ -1143,13 +1149,36 @@ private fun DocsPanel(
         }
     }
 
+    // 服务端分页（每页 30）：列表底部「加载更多」把剩余文章翻出来，
+    // 否则文档超过一页后，用户看不到第 31 篇之后的内容，也没有任何提示
+    var page by remember { mutableStateOf(0) }
+    var loadingMore by remember { mutableStateOf(false) }
+    fun loadMore() {
+        if (loadingMore || q.trim().isNotEmpty() || docs.size >= total) return
+        loadingMore = true
+        scope.launch {
+            try {
+                val next = page + 1
+                val p = api.docs(session.token, page = next, sort = sort)
+                docs = docs + p.items
+                total = p.total
+                page = next
+            } catch (e: Exception) {
+                error = e.message ?: "加载更多失败"
+            } finally {
+                loadingMore = false
+            }
+        }
+    }
+
     LaunchedEffect(refresh, sort) {
         loading = true
         error = null
+        page = 0
         try {
-            val page = api.docs(session.token, sort = sort)
-            docs = page.items
-            total = page.total
+            val first = api.docs(session.token, sort = sort)
+            docs = first.items
+            total = first.total
         } catch (e: Exception) {
             error = e.message ?: "加载失败"
         } finally {
@@ -1376,6 +1405,14 @@ private fun DocsPanel(
                     else -> LazyColumn(Modifier.fillMaxSize()) {
                         items(shown, key = { it.id }) { d ->
                             DocRow(d, sel = selected?.id == d.id) { selected = d }
+                        }
+                        if (q.trim().isEmpty() && docs.size < total) {
+                            item {
+                                Box(Modifier.fillMaxWidth().padding(10.dp), contentAlignment = Alignment.Center) {
+                                    if (loadingMore) Text("加载中…", fontSize = 11.sp, color = KbTextSub)
+                                    else KbGhostAction("加载更多（还有 ${total - docs.size} 篇）") { loadMore() }
+                                }
+                            }
                         }
                     }
                 }
@@ -1789,7 +1826,7 @@ private fun FilesPanel(session: Session) {
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = { refresh++ }) { Text("重试", fontSize = 12.sp) }
                 }
-                files.isEmpty() -> KbEmptyState(glyph = "\u25A4", title = "暂无文件", desc = "上传的附件会出现在这里")
+                files.isEmpty() -> KbEmptyState(glyph = "\uD83D\uDCC1", title = "暂无文件", desc = "上传的附件会出现在这里")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(files, key = { it.id }) { f ->
                         FileRow(

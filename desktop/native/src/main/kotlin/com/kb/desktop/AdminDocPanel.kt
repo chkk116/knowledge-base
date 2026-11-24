@@ -221,6 +221,7 @@ internal fun RecycleTab(session: Session) {
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
+    var purging by remember { mutableStateOf<Long?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tick) {
@@ -246,12 +247,12 @@ internal fun RecycleTab(session: Session) {
     Column(Modifier.fillMaxSize()) {
         AdminHeader("回收站", "共 ${rows.size} 篇", onRefresh = { tick++ })
         Text(
-            "恢复会按原状态放回列表；彻底删除请在 Web 端操作（不可逆）。",
+            "恢复会按原状态放回列表；彻底删除不可恢复，需二次确认。",
             fontSize = 10.5.sp,
             color = Color(0xFFB45309),
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
-        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 0.9f))
+        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 1.8f))
         Box(Modifier.weight(1f)) {
             when {
                 loading -> KbSkeletonList()
@@ -295,7 +296,7 @@ internal fun RecycleTab(session: Session) {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Box(Modifier.weight(0.9f)) {
+                            Row(Modifier.weight(1.8f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 AdminButton("恢复", enabled = !busy) {
                                     scope.launch {
                                         busy = true
@@ -311,6 +312,28 @@ internal fun RecycleTab(session: Session) {
                                             busy = false
                                         }
                                     }
+                                }
+                                if (purging == d.id) {
+                                    AdminButton("确认彻底删除", danger = true, enabled = !busy) {
+                                        scope.launch {
+                                            busy = true
+                                            try {
+                                                api.purgeDoc(session.token, d.id)
+                                                rows = rows.filterNot { it.id == d.id }
+                                                purging = null
+                                                toast = "已彻底删除（不可恢复）"
+                                            } catch (e: java.util.concurrent.CancellationException) {
+                                                throw e
+                                            } catch (e: Exception) {
+                                                toast = e.message ?: "彻底删除失败"
+                                            } finally {
+                                                busy = false
+                                            }
+                                        }
+                                    }
+                                    AdminButton("取消", enabled = !busy) { purging = null }
+                                } else {
+                                    AdminButton("彻底删除", danger = true, enabled = !busy) { purging = d.id }
                                 }
                             }
                         }

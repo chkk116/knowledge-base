@@ -466,3 +466,31 @@ Web 端共享文档编辑器（`ShareWebEditor`），这是真正的实时协同
   原来各写一遍的圆角边框不再漂移；「退出登录 / 清空图片缓存 / 打开配置目录」三个浅灰 `Button` 换成 `KbGhostAction`。
 - 「检查更新 / 下载并安装」仍用 Material `Button`：它们的 onClick 里是一整段协程 + 进度回调，
   搬进 `KbPrimaryAction` 只会增加出错面，且颜色形状已经是项目主色与 9dp 圆角，观感一致。
+
+## 本地适配：单实例锁 + 系统通知（2026-11-24）
+
+- **`Instance.kt` 单实例锁**：启动时在 `%APPDATA%\kb-desktop\.instance.lock` 上做 OS 级 `FileLock`。
+  为什么必须做：`%APPDATA%\kb-desktop` **同时是 WebView2 的 user-data 目录**（Cache / Local Storage 都在里面），
+  第二个进程会和第一个并发写同一份档案（表现为「编辑页登录态时有时无」），还会各自读改写 `config.json`
+  （表现为「设置自己变回去」）。双开时第二个进程弹原生提示「知识库已经在运行」并退出。
+  锁在进程崩溃时由系统自动释放，不会留下假死锁；目录不可写时放行（宁可双开也不让用户打不开）。
+- **`Notify.kt` 系统通知**：AWT `SystemTray + TrayIcon.displayMessage`（Windows 10/11 进通知中心）。
+  触发条件：未读数**变多**且主窗口**不在前台**（在前台有侧栏角标，再弹就是打扰）；同标题 20 秒去重
+  （60s 轮询会连续返回同一个数字）。系统不支持托盘时静默降级，不影响主流程。
+- 验证：`compileKotlin` BUILD SUCCESSFUL；`KB_SMOKE=1 run` EXIT=0；锁文件已生成并写入 pid。
+
+## 补回三处「必须开浏览器」的管理功能（2026-11-24）
+
+后端接口早已就绪，缺口在客户端 UI。本轮补三处：
+
+- **用户管理 `UserActionDialog`**（`AdminPeoplePanel.kt`）：行内「管理」按钮 → 改角色 / 调积分 / 重置密码。
+  - 改角色 `PUT /api/admin/users/{id}` 只传 `{"role":…}`；`AdminService.updateUser` 对 null 字段跳过，
+    不会清掉昵称/邮箱（这是只传单字段安全的前提，已在注释里写明）。
+  - 调积分 `POST /{id}/points {delta,reason}`：可正可负，后端写一条 ADJUST 明细并进审计。
+  - 重置密码 `POST /{id}/reset-password`：返回后端生成的随机明文密码，**只回显一次**，界面标注「立即转告用户」。
+  - 三项都不弹二次确认：可撤销 / 会写审计，多一层确认反而拖慢日常运维。
+- **回收站彻底删除**（`AdminDocPanel.kt`）：`DELETE /api/admin/docs/{id}/purge`，行内二次确认（「彻底删除」→「确认彻底删除」/「取消」）。
+- **课程章节正文编辑**（`LearnPanel.kt`）：章节页「编辑正文」→ 多行编辑器 → `PUT /api/admin/courses/chapters/{id} {"content":…}`；
+  保存后刷新详情。非管理员会拿到后端 403 文案（前端不另做权限判断）。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+- 未做：**部门管理**（增删改 + 成员分配）——涉及树形编辑与成员选择，单列一轮。

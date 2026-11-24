@@ -67,6 +67,8 @@ internal fun UsersTab(session: Session) {
     var tick by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
+    // 「管理」对话框的目标用户（改角色 / 调积分 / 重置密码）
+    var acting by remember { mutableStateOf<AdminUserItem?>(null) }
 
     LaunchedEffect(tick, q, page, size) {
         loading = true
@@ -93,7 +95,7 @@ internal fun UsersTab(session: Session) {
             SearchBox(q, { q = it; page = 0 }, Modifier.weight(1f))
         }
         Spacer(Modifier.height(6.dp))
-        KbTableHead(listOf("用户" to 3f, "角色" to 1f, "积分" to 0.9f, "注册时间" to 1.5f, "操作" to 0.9f))
+        KbTableHead(listOf("用户" to 3f, "角色" to 1f, "积分" to 0.9f, "注册时间" to 1.5f, "操作" to 1.7f))
         Box(Modifier.weight(1f)) {
             when {
                 loading -> KbSkeletonList()
@@ -146,7 +148,8 @@ internal fun UsersTab(session: Session) {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Box(Modifier.weight(0.9f), contentAlignment = Alignment.CenterStart) {
+                            Row(Modifier.weight(1.7f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AdminButton("管理", enabled = !busy) { acting = u }
                                 AdminButton(if (u.enabled) "停用" else "启用", danger = u.enabled, enabled = !busy) {
                                     scope.launch {
                                         busy = true
@@ -182,7 +185,157 @@ internal fun UsersTab(session: Session) {
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
     }
+    acting?.let { u ->
+        UserActionDialog(
+            session = session,
+            user = u,
+            onClose = { acting = null },
+            onChanged = { tick++ },
+        )
+    }
     AdminToast(toast)
+}
+
+/**
+ * 用户管理对话框：改角色 / 调积分 / 重置密码。
+ *
+ * 这三件事以前必须开 Web —— 后端接口早已就绪（PUT /users/{id}、POST /points、POST /reset-password），
+ * 只是桌面端没做 UI。按「点一下即生效」设计，不弹二次确认：都可撤销，且后端都会写审计日志。
+ */
+@Composable
+private fun UserActionDialog(
+    session: Session,
+    user: AdminUserItem,
+    onClose: () -> Unit,
+    onChanged: () -> Unit,
+) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var role by remember { mutableStateOf(user.role.uppercase().ifBlank { "USER" }) }
+    var delta by remember { mutableStateOf("") }
+    var reason by remember { mutableStateOf("管理员调整") }
+    var note by remember { mutableStateOf("") }
+    var newPwd by remember { mutableStateOf("") }
+
+    KbDialog(
+        onDismissRequest = onClose,
+        title = {
+            Text(
+                "管理 · ${user.displayName.ifBlank { user.username }}",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Column(Modifier.width(420.dp)) {
+                Text(
+                    "${user.username} · 当前 ${user.points} 积分 · ${if (user.enabled) "正常" else "已停用"}",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = AdminErrRed, modifier = Modifier.padding(top = 4.dp))
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Text("角色（点一下即生效，会写审计日志）", fontSize = 11.5.sp, color = KbTextSub)
+                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (r in listOf("USER", "ADMIN")) {
+                        val selected = role == r
+                        AdminButton(
+                            (if (r == "ADMIN") "管理员" else "普通用户") + if (selected) " ✓" else "",
+                            enabled = !busy && !selected,
+                        ) {
+                            busy = true
+                            scope.launch {
+                                try {
+                                    api.setUserRole(session.token, user.id, r)
+                                    role = r
+                                    note = "已改为「${if (r == "ADMIN") "管理员" else "普通用户"}」"
+                                    onChanged()
+                                } catch (e: Exception) {
+                                    note = e.message ?: "改角色失败"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Text("调整积分（可填负数扣分）", fontSize = 11.5.sp, color = KbTextSub)
+                Row(
+                    Modifier.padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    OutlinedTextField(
+                        value = delta,
+                        onValueChange = { delta = it.filter { ch -> ch.isDigit() || ch == '-' } },
+                        modifier = Modifier.width(100.dp),
+                        singleLine = true,
+                        placeholder = { Text("±积分", fontSize = 11.5.sp, color = KbTextSub) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = KbPrimary, unfocusedBorderColor = KbBorder),
+                    )
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        placeholder = { Text("原因（写入积分明细）", fontSize = 11.5.sp, color = KbTextSub) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = KbPrimary, unfocusedBorderColor = KbBorder),
+                    )
+                    AdminButton("提交", enabled = !busy && (delta.toIntOrNull() ?: 0) != 0) {
+                        val d = delta.toIntOrNull() ?: return@AdminButton
+                        busy = true
+                        scope.launch {
+                            try {
+                                api.adjustUserPoints(session.token, user.id, d, reason.trim().ifBlank { "管理员调整" })
+                                note = "已${if (d > 0) "加" else "扣"} ${kotlin.math.abs(d)} 积分"
+                                delta = ""
+                                onChanged()
+                            } catch (e: Exception) {
+                                note = e.message ?: "调整失败"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Text("重置密码", fontSize = 11.5.sp, color = KbTextSub)
+                Spacer(Modifier.height(6.dp))
+                if (newPwd.isEmpty()) {
+                    AdminButton("生成新密码", danger = true, enabled = !busy) {
+                        busy = true
+                        scope.launch {
+                            try {
+                                val pwd = api.resetUserPassword(session.token, user.id)
+                                if (pwd.isBlank()) note = "后端未返回新密码" else newPwd = pwd
+                            } catch (e: Exception) {
+                                note = e.message ?: "重置失败"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                } else {
+                    Text(newPwd, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                    Text(
+                        "只显示这一次，请立即转告用户并让其自行修改",
+                        fontSize = 10.5.sp,
+                        color = Color(0xFFB45309),
+                    )
+                }
+            }
+        },
+        dismissButton = { AdminButton("关闭") { onClose() } },
+    )
 }
 
 // ---------------- 部门（只读树） ----------------

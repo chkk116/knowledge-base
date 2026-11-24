@@ -19,8 +19,26 @@ import kotlinx.coroutines.delay
 import java.awt.Dimension
 import kotlin.system.exitProcess
 
+fun main() {
+    // 单实例：第二个进程会和第一个抢 WebView2 数据目录与 config.json，直接退出。
+    // 静默退出会让用户以为"双击没反应"，所以给一个原生提示框（无桌面会话时忽略失败）。
+    if (!SingleInstance.acquire()) {
+        System.err.println("[kb] 已有实例在运行，本次启动退出")
+        runCatching {
+            javax.swing.JOptionPane.showMessageDialog(
+                null,
+                "知识库已经在运行，请切换到已打开的窗口。",
+                "知识库",
+                javax.swing.JOptionPane.INFORMATION_MESSAGE,
+            )
+        }
+        exitProcess(0)
+    }
+    runApp()
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
-fun main() = application {
+private fun runApp() = application {
     // 冒烟模式：KB_SMOKE=1 时启动 5 秒后自动退出（供构建/运行验证，不弹窗等人点）
     val smoke = System.getenv("KB_SMOKE") == "1"
 

@@ -61,10 +61,11 @@ import java.io.File
 /**
  * WebView 承载页：原生壳里运行移动 Web 页面（/m/ 路径族）。
  *
- * 令牌桥接（与 frontend/src/main-mobile.js 的 bootstrap 配对）：
- *  1. 拦截 /m/ 的 HTML 文档请求，由 OkHttp 取回响应体
- *  2. 在 <head> 后注入 `window.__KB_NATIVE_TOKEN = "<token>"`
- *  3. main-mobile.js 入口最先执行：发现该变量即写入 localStorage.kb_token —— 无竞态
+ * 令牌桥接（不依赖前端是否实现接收端，宿主侧直接落 localStorage）：
+ *  1. 拦截**站内** HTML 文档请求（`/m/` 移动页与 `EmbedScreen` 加载的 `/admin/**` PC 表单都算），
+ *     由 OkHttp 取回响应体
+ *  2. 在 <head> 后注入 `<script>`：挂 `window.__KB_NATIVE_TOKEN` 并**立刻** `localStorage.setItem('kb_token', …)`
+ *  3. 前端 `main-mobile.js` / `main.js` 若将来补了接收端，变量那条路照常可用；没补也不影响登录
  *
  * P1 桥接补全：
  *  - 文件选择：onShowFileChooser → 系统选择器 / 相册；
@@ -359,9 +360,13 @@ private fun interceptHtml(base: String, request: WebResourceRequest): WebResourc
     val url = request.url
     val target = url.toString()
     if (!request.method.equals("GET", true)) return null
-    // 必须限定在 /m 与 /m/ 路径族：startsWith("$base/m") 会把 /metrics、/mobile 也算进来（审查 r14）
-    val mobilePrefix = "$base/m/"
-    if (!target.startsWith(mobilePrefix) && target != "$base/m") return null
+    // 站内 HTML 文档一律接管，不能再只限 /m/：
+    // EmbedScreen 里「数据看板 / 页脚 / 功能开关 / 外观 / 水印 / 登录页二维码」故意加载的是
+    // **PC 路由**（/admin/stats 等，桌面页自带响应式断点）。只拦 /m/ 的话这些页面拿不到令牌，
+    // 路由守卫会把用户弹回登录页——整块嵌入功能不可用。
+    // 仍限定在本站 origin，外部页面一律不代理（避免把任意站点内容塞进 WebView）。
+    val origin = base.trimEnd('/')
+    if (target != origin && !target.startsWith("$origin/")) return null
     // 只拦文档请求（Accept 含 text/html），静态资源与 XHR 放行
     val accept = request.requestHeaders?.get("Accept") ?: return null
     if (!accept.contains("text/html")) return null
@@ -381,9 +386,15 @@ private fun interceptHtml(base: String, request: WebResourceRequest): WebResourc
             val js = if (token != null) {
                 // 除引号/反斜杠外还要挡 </script>：否则令牌里出现该串会提前闭合注入的 script 块（审查 r14）
                 val safe = token.replace("\\", "\\\\").replace("\"", "\\\"").replace("</", "<\\/")
-                "<script>window.__KB_NATIVE_TOKEN=\"$safe\";</script>"
+                // 直接落 localStorage，而不是只挂 window 变量等前端来读：
+                // 前端 main-mobile.js 当前**没有** __KB_NATIVE_TOKEN 的接收端，只挂变量等于没注入，
+                // WebView 页面会停在登录页。写盘之后仍挂变量，前端将来补了接收端也照常工作。
+                "<script>window.__KB_NATIVE_TOKEN=\"$safe\";" +
+                    "try{localStorage.setItem('kb_token',window.__KB_NATIVE_TOKEN)}catch(e){}</script>"
             } else {
-                "<script>window.__KB_NATIVE_TOKEN=null;</script>"
+                // 已登出：连 localStorage 一起清，避免 WebView 里残留旧会话与用户缓存
+                "<script>window.__KB_NATIVE_TOKEN=null;" +
+                    "try{localStorage.removeItem('kb_token');localStorage.removeItem('kb_user_cache')}catch(e){}</script>"
             }
             // 手工拼接而不是 replaceFirst 的替换串：替换串里的 $ 和 \ 会被当成组引用解析，
             // 令牌一旦含这类字符就会被悄悄改坏（注入失败但页面不报错）

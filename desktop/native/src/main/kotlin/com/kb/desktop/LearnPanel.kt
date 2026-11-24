@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.hoverable
@@ -247,6 +249,8 @@ fun CoursesPanel(session: Session) {
                         onReset = { mark(false) },
                         server = session.server,
                         onOpenWeb = { openLearnInBrowser(session.server, "/courses/${courseId}") },
+                        onSave = { html -> api.updateCourseChapter(session.token, ch.id, html) },
+                        onSaved = { detailTick++ },
                     )
                 }
             }
@@ -353,7 +357,74 @@ private fun CourseChapterReader(
     onReset: () -> Unit,
     server: String,
     onOpenWeb: () -> Unit,
+    onSave: suspend (String) -> Unit,
+    onSaved: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    var editing by remember(chapter.id) { mutableStateOf(false) }
+    var draft by remember(chapter.id) { mutableStateOf(chapter.content) }
+    var saving by remember { mutableStateOf(false) }
+    var editNote by remember { mutableStateOf("") }
+
+    if (editing) {
+        // 章节正文编辑：管理员直接在桌面改，不必再开 Web（后端 PUT /admin/courses/chapters/{id}）
+        Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 16.dp)) {
+            Text(
+                "编辑章节正文 · ${chapter.title.ifBlank { "未命名章节" }}",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = KbTextMain,
+            )
+            Text(
+                "与 Web 端同格式（简单 HTML）；其余字段不动",
+                fontSize = 10.5.sp,
+                color = KbTextSub,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            if (editNote.isNotEmpty()) {
+                Text(editNote, fontSize = 11.sp, color = Color(0xFFB45309), modifier = Modifier.padding(top = 4.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = KbPrimary,
+                    unfocusedBorderColor = KbBorder,
+                ),
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LearnButton(if (saving) "保存中…" else "保存", primary = true) {
+                    if (saving) return@LearnButton
+                    saving = true
+                    editNote = ""
+                    scope.launch {
+                        try {
+                            onSave(draft)
+                            editing = false
+                            onSaved()
+                        } catch (e: Exception) {
+                            editNote = e.message ?: "保存失败（需要「课程管理」权限）"
+                        } finally {
+                            saving = false
+                        }
+                    }
+                }
+                LearnButton("取消", primary = false) {
+                    if (!saving) {
+                        draft = chapter.content
+                        editing = false
+                        editNote = ""
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val blocks = remember(chapter.id, chapter.content) { DocHtml.parse(chapter.content) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -373,6 +444,12 @@ private fun CourseChapterReader(
                     )
                     TextButton(onClick = onOpenWeb, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("在 Web 端打开", fontSize = 11.5.sp)
+                    }
+                    TextButton(
+                        onClick = { draft = chapter.content; editNote = ""; editing = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) {
+                        Text("编辑正文", fontSize = 11.5.sp)
                     }
                 }
                 Spacer(Modifier.height(10.dp))

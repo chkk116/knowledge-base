@@ -1003,6 +1003,11 @@ class ApiClient(private val base: String) {
         withContext(Dispatchers.IO) { authReq("DELETE", "/api/admin/docs/$id", token) }
     }
 
+    /** DELETE /api/admin/docs/{id}/purge → 彻底删除（不可恢复，仅回收站里用） */
+    suspend fun purgeDoc(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/admin/docs/$id/purge", token) }
+    }
+
     /** PUT /api/admin/categories/{id} → 调整同级顺序 / 换父级（只传需改的字段） */
     suspend fun updateCategoryOrder(token: String, id: Long, parentId: Long?, sortOrder: Int) {
         val pid = if (parentId == null) "null" else parentId.toString()
@@ -1315,6 +1320,32 @@ class ApiClient(private val base: String) {
         withContext(Dispatchers.IO) {
             authReq("POST", "/api/admin/users/$id/toggle", token, """{"enabled":$enabled}""")
         }
+    }
+
+    /**
+     * PUT /api/admin/users/{id} {role} → 改角色。
+     * 后端 UpdateReq 对 null 字段跳过（AdminService.updateUser），所以只传 role 不会清掉昵称/邮箱。
+     */
+    suspend fun setUserRole(token: String, id: Long, role: String) {
+        withContext(Dispatchers.IO) {
+            authReq("PUT", "/api/admin/users/$id", token, """{"role":${jsonStr(role)}}""")
+        }
+    }
+
+    /** POST /api/admin/users/{id}/points {delta,reason} → 调积分（可正可负，后端写一条 ADJUST 明细） */
+    suspend fun adjustUserPoints(token: String, id: Long, delta: Int, reason: String) {
+        withContext(Dispatchers.IO) {
+            authReq(
+                "POST", "/api/admin/users/$id/points", token,
+                """{"delta":$delta,"reason":${jsonStr(reason)}}""",
+            )
+        }
+    }
+
+    /** POST /api/admin/users/{id}/reset-password → 返回后端生成的随机明文密码（只回显这一次） */
+    suspend fun resetUserPassword(token: String, id: Long): String = withContext(Dispatchers.IO) {
+        val o = parse(authReq("POST", "/api/admin/users/$id/reset-password", token))
+        o?.str("newPassword").orEmpty()
     }
 
     /** GET /api/admin/departments → 扁平列表（parentId 组树由前端做） */
@@ -2579,6 +2610,16 @@ class ApiClient(private val base: String) {
                 "POST",
                 "/api/courses/$courseId/chapters/$chapterId/" + if (finished) "finish" else "reset",
                 token,
+            )
+        }
+    }
+
+    /** PUT /api/admin/courses/chapters/{id} {content} → 管理员改章节正文（后端按字段跳空，其余字段不动） */
+    suspend fun updateCourseChapter(token: String, chapterId: Long, content: String) {
+        withContext(Dispatchers.IO) {
+            authReq(
+                "PUT", "/api/admin/courses/chapters/$chapterId", token,
+                """{"content":${jsonStr(content)}}""",
             )
         }
     }
