@@ -10,6 +10,15 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.58-native',
+    date: '2026-11-24',
+    title: '个人页增强',
+    items: [
+      '移动端个人页功能补齐',
+    ],
+  },
+
+  {
     version: '1.3.57-native',
     date: '2026-11-24',
     title: 'App 登录优化',
