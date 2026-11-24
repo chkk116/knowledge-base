@@ -2420,8 +2420,10 @@ private fun ShareWebEditor(
             // 主通道：页面脚本执行前注入 token（与「文档编辑视图」同一手法，WebView2 下已验证）。
             // 不依赖前端是否支持 URL 参数——生产上前端若还是旧 bundle，hash 通道会失效，
             // 但 initScript 仍能保证路由守卫首次导航时就已有会话。
+            // 令牌必须过 jsStr：直接插值的话，令牌里出现单引号/反斜杠/换行就会拼坏整段脚本，
+            // 结果是 localStorage 没写进去、路由守卫把人踢回登录页，而且完全不报错。
             webSettings.desktopWebSettings.initScript =
-                "try{localStorage.setItem('kb_token','${session.token}')}catch(e){}"
+                "try{localStorage.setItem('kb_token',${jsStr(session.token)})}catch(e){}"
         }
     }
     var triedSso by remember(editorUrl) { mutableStateOf(false) }

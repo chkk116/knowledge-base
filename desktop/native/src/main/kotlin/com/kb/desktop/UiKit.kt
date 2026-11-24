@@ -554,3 +554,8 @@ private fun KbPagerCell(label: String, active: Boolean = false, enabled: Boolean
         )
     }
 }
+
+/** JS 字符串字面量转义（token 注入 initScript / 内嵌页脚本用）：
+ *  单引号包裹，转义反斜杠、单引号与换行，避免令牌里的字符拼坏注入的脚本。 */
+internal fun jsStr(s: String): String =
+    "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\r", "\\r").replace("\n", "\\n") + "'"

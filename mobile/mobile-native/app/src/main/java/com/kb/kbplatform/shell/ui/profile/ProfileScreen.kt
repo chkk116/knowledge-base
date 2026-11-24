@@ -260,10 +260,9 @@ fun ProfileScreen(
             MenuItem(Icons.Filled.Edit, "我的摘录", "阅读时划选的笔记") { openRoute("notes") },
             // 网页剪藏：粘贴链接 → 服务端抓正文预览 → 存为文档（此前只有路由没有入口）
             MenuItem(Icons.Filled.Add, "网页剪藏", "粘贴链接存为文档") { openRoute("clip") },
-            // 资产扫码：需要资产管理权限才显示
-            if (TokenStore.hasPerm("ASSET_MANAGE")) {
-                MenuItem(Icons.Filled.Search, "资产扫码", "扫标签二维码查资产") { openRoute("asset-scan") }
-            } else null,
+            // 资产扫码：不做权限门。首页「扫一扫」本来就对所有登录用户开放，后端也只按权限
+            // 决定是否返回扩展字段，个别入口单独设闸只会让同一功能在两个地方行为不一致。
+            MenuItem(Icons.Filled.Search, "资产扫码", "扫标签二维码查资产") { openRoute("asset-scan") },
             // 邮箱：绑定授权码后收件箱原生可读（后端 /api/mail/*）
             MenuItem(Icons.Filled.Email, "邮箱", "收件箱 / 阅读 / 授权码绑定") { openRoute("mail") }
         )

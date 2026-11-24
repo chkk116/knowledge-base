@@ -363,8 +363,10 @@ private fun CourseChapterReader(
     val scope = rememberCoroutineScope()
     var editing by remember(chapter.id) { mutableStateOf(false) }
     var draft by remember(chapter.id) { mutableStateOf(chapter.content) }
-    var saving by remember { mutableStateOf(false) }
-    var editNote by remember { mutableStateOf("") }
+    // 按章节 id 记忆：中途切到别的章节时，旧章节的「保存中…」与错误提示不会串到新章节上
+    // （在途请求写回的是已被丢弃的那份状态，无副作用）
+    var saving by remember(chapter.id) { mutableStateOf(false) }
+    var editNote by remember(chapter.id) { mutableStateOf("") }
 
     if (editing) {
         // 章节正文编辑：管理员直接在桌面改，不必再开 Web（后端 PUT /admin/courses/chapters/{id}）
@@ -406,6 +408,10 @@ private fun CourseChapterReader(
                             onSave(draft)
                             editing = false
                             onSaved()
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            // 离开页面/切课程会取消这个 scope：取消不是失败，继续向上抛，
+                            // 否则会被当成「保存失败」写到已经销毁的状态里
+                            throw e
                         } catch (e: Exception) {
                             editNote = e.message ?: "保存失败（需要「课程管理」权限）"
                         } finally {

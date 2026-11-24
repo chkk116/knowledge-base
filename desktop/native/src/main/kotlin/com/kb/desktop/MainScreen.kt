@@ -76,14 +76,18 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
     var notiUnread by remember { mutableStateOf(0) }
     LaunchedEffect(session) {
         val api = ApiClient(session.server)
+        // 首次采样只记账不通知：初值 0 会让「启动时就存在的未读」看起来像刚变多，
+        // 窗口又恰好不在前台时就会为几条旧消息弹系统通知（N: 首轮误报）
+        var prevUnread: Int? = null
         while (true) {
-            val prev = notiUnread
-            val now = runCatching { api.unreadNotifications(session.token) }.getOrDefault(prev)
+            val prev = prevUnread ?: notiUnread
+            val now = runCatching { api.unreadNotifications(session.token) }.getOrNull() ?: prev
             notiUnread = now
             // 未读数变多且主窗口不在前台：发一条系统通知（前台有角标，再弹就是打扰）
-            if (now > prev && !KbNotify.windowActive()) {
+            if (prevUnread != null && now > prev && !KbNotify.windowActive()) {
                 KbNotify.notify("知识库 · 新消息", "你有 $now 条未读通知")
             }
+            prevUnread = now
             delay(60_000)
         }
     }
@@ -1171,20 +1175,33 @@ private fun DocsPanel(
     // 否则文档超过一页后，用户看不到第 31 篇之后的内容，也没有任何提示
     var page by remember { mutableStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
+    var moreError by remember { mutableStateOf<String?>(null) }
+    // 列表代次：刷新/换排序会 +1，让在途的「加载更多」结果作废。
+    // 否则旧一页会追加到刚刷新的列表后面——重复条目会让 items(key = id) 直接崩，
+    // 排序不同时还会把两种顺序混在一起。
+    var listGen by remember { mutableStateOf(0) }
     fun loadMore() {
         if (loadingMore || q.trim().isNotEmpty() || docs.size >= total) return
+        val gen = listGen
         loadingMore = true
+        moreError = null
         scope.launch {
             try {
                 val next = page + 1
                 val p = api.docs(session.token, page = next, sort = sort)
-                docs = docs + p.items
+                if (gen != listGen) return@launch
+                // 去重兜底：即使服务端在两次请求间插入/删除了文章，也不会出现重复 key
+                docs = (docs + p.items).distinctBy { it.id }
                 total = p.total
                 page = next
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                error = e.message ?: "加载更多失败"
+                // 列表非空时 error 分支不渲染，失败就成了「点了没反应」；单独给一条可见提示
+                if (gen == listGen) moreError = e.message ?: "加载更多失败"
+                if (gen == listGen && docs.isEmpty()) error = moreError
             } finally {
-                loadingMore = false
+                if (gen == listGen) loadingMore = false
             }
         }
     }
@@ -1192,6 +1209,9 @@ private fun DocsPanel(
     LaunchedEffect(refresh, sort) {
         loading = true
         error = null
+        listGen++            // 作废在途的加载更多
+        loadingMore = false
+        moreError = null
         page = 0
         try {
             val first = api.docs(session.token, sort = sort)
@@ -1427,8 +1447,13 @@ private fun DocsPanel(
                         if (q.trim().isEmpty() && docs.size < total) {
                             item {
                                 Box(Modifier.fillMaxWidth().padding(10.dp), contentAlignment = Alignment.Center) {
-                                    if (loadingMore) Text("加载中…", fontSize = 11.sp, color = KbTextSub)
-                                    else KbGhostAction("加载更多（还有 ${total - docs.size} 篇）") { loadMore() }
+                                    when {
+                                        loadingMore -> Text("加载中…", fontSize = 11.sp, color = KbTextSub)
+                                        moreError != null -> TextButton(onClick = { loadMore() }) {
+                                            Text(moreError + "（点此重试）", fontSize = 11.5.sp, color = Color(0xFFDC2626))
+                                        }
+                                        else -> KbGhostAction("加载更多（还有 ${total - docs.size} 篇）") { loadMore() }
+                                    }
                                 }
                             }
                         }
@@ -1993,10 +2018,6 @@ private fun FilePreview(session: Session, f: FileItem) {
     }
 }
 
-/** JS 字符串字面量转义（token 注入 initScript 用）。 */
-private fun jsStr(s: String): String =
-    "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\r", "\\r").replace("\n", "\\n") + "'"
-
 /** "2026-08-14T12:34:56" → "2026-08-14 12:34" */
 private fun fmtTime(raw: String): String = raw.replace("T", " ").take(16)
 
@@ -2516,7 +2537,7 @@ private fun PointsPanel(session: Session) {
                     items(logs, key = { it.id }) { l ->
                         KbTableRow {
                             Box(Modifier.weight(1f)) {
-                                KbTag(pointTypeLabel(l.type), if (l.delta >= 0) KbTone.Success else KbTone.Danger)
+                                KbTag(pointTypeLabel(l.type), if (l.delta > 0) KbTone.Success else if (l.delta < 0) KbTone.Danger else KbTone.Neutral)
                             }
                             Text(
                                 l.reason.ifBlank { "—" },
@@ -2530,7 +2551,7 @@ private fun PointsPanel(session: Session) {
                                 (if (l.delta > 0) "+" else "") + l.delta,
                                 modifier = Modifier.weight(0.9f),
                                 fontSize = 12.sp,
-                                color = if (l.delta >= 0) Color(0xFF047857) else Color(0xFFB91C1C),
+                                color = if (l.delta > 0) Color(0xFF047857) else if (l.delta < 0) Color(0xFFB91C1C) else KbTextSub,
                                 maxLines = 1,
                             )
                             Text(
@@ -2563,7 +2584,7 @@ private fun pointTypeLabel(t: String): String = when (t.uppercase()) {
     "CHECKIN" -> "签到"
     "EXAM" -> "考试"
     "COURSE" -> "课程"
-    else -> t.ifBlank { "积分" }
+    else -> "其他"   // 新增类型不该把后端枚举（STREAK/BONUS…）直接显示给用户
 }
 /** 私信：左会话列表 + 右消息流（dm 接口；当前会话 30s 轮询） */
 @Composable
@@ -2606,7 +2627,15 @@ private fun DmPanel(session: Session) {
         }
         while (true) {
             kotlinx.coroutines.delay(30_000)
-            val fresh = runCatching { api.dmMessages(session.token, p, null, 30) }.getOrNull() ?: continue
+            // 一次网络抖动不该把整段会话清成「还没有消息」：拿不到就跳过这一轮，保留已显示的内容。
+            // 也不能用 runCatching 兜底——它会把 CancellationException 一起吞掉，离开页面后循环还活着。
+            val fresh = try {
+                api.dmMessages(session.token, p, null, 30)
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                continue
+            }
             if (fresh.size != msgs.size || fresh.lastOrNull()?.id != msgs.lastOrNull()?.id) msgs = fresh
         }
     }
@@ -2619,10 +2648,16 @@ private fun DmPanel(session: Session) {
         scope.launch {
             try {
                 api.dmSend(session.token, p, text)
-                draft = ""
-                note = null
-                msgs = api.dmMessages(session.token, p, null, 30)
+                // 请求在途时用户可能已经切到别的会话：这时不能把旧会话的消息写进当前列表，
+                // 更不能清掉他在新会话里已经打了一半的草稿（只有仍在同一会话才更新界面）
+                if (peer == p) {
+                    draft = ""
+                    note = null
+                    msgs = api.dmMessages(session.token, p, null, 30)
+                }
                 tick++
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
             } catch (e: Exception) {
                 note = e.message ?: "发送失败"
             } finally {
@@ -2768,6 +2803,9 @@ private fun CardsPanel(session: Session) {
     var idx by remember { mutableStateOf(0) }
     var flipped by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    // 评分失败只出一条提示条：把 err 留给出「整页加载失败」，否则一次网络抖动就会把
+    // 当前这张卡、翻转状态、进度全丢掉，复习会话被迫中断。
+    var note by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tick) {
         loading = true
@@ -2797,10 +2835,13 @@ private fun CardsPanel(session: Session) {
                     idx += 1
                     flipped = false
                 } else {
+                    note = null
                     tick += 1
                 }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
             } catch (e: Exception) {
-                err = e.message ?: "评分失败"
+                note = e.message ?: "评分失败"
             } finally {
                 busy = false
             }
@@ -2822,6 +2863,10 @@ private fun CardsPanel(session: Session) {
             TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                 Text("刷新", fontSize = 12.sp)
             }
+        }
+        note?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, fontSize = 11.5.sp, color = Color(0xFFB45309))
         }
         Spacer(Modifier.height(14.dp))
         when {

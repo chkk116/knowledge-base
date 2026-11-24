@@ -809,8 +809,9 @@ class ApiClient(private val base: String) {
     )
 
     suspend fun dmConversations(token: String): List<DmConv> = withContext(Dispatchers.IO) {
-        val e = runCatching { Json.parseToJsonElement(getAuth("/api/dm/conversations", token)) }.getOrNull()
-            ?: return@withContext emptyList()
+        // 不吞异常：调用方有「会话加载失败」分支，吞掉之后网络故障会显示成「没有会话」。
+        // 解析失败也照实抛，交给同一套错误处理。
+        val e = Json.parseToJsonElement(getAuth("/api/dm/conversations", token))
         (e as? JsonArray).orEmpty().mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             DmConv(
@@ -827,9 +828,7 @@ class ApiClient(private val base: String) {
     suspend fun dmMessages(token: String, peerId: Long, beforeId: Long? = null, size: Int = 30): List<DmMsg> =
         withContext(Dispatchers.IO) {
             val before = if (beforeId == null) "" else "&beforeId=$beforeId"
-            val e = runCatching {
-                Json.parseToJsonElement(getAuth("/api/dm/messages?peerId=$peerId&size=$size$before", token))
-            }.getOrNull() ?: return@withContext emptyList()
+            val e = Json.parseToJsonElement(getAuth("/api/dm/messages?peerId=$peerId&size=$size$before", token))
             (e as? JsonArray).orEmpty().mapNotNull { item ->
                 val j = item as? JsonObject ?: return@mapNotNull null
                 DmMsg(
@@ -907,8 +906,7 @@ class ApiClient(private val base: String) {
     )
 
     suspend fun pointsLog(token: String): List<PointLogRow> = withContext(Dispatchers.IO) {
-        val e = runCatching { Json.parseToJsonElement(getAuth("/api/points/log", token)) }.getOrNull()
-            ?: return@withContext emptyList()
+        val e = Json.parseToJsonElement(getAuth("/api/points/log", token))
         (e as? JsonArray).orEmpty().mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
             PointLogRow(
@@ -940,11 +938,16 @@ class ApiClient(private val base: String) {
 
     /** GET /api/badges → { badges:[…], earned, total, wornBadges } */
     suspend fun badgeWall(token: String): BadgeWall = withContext(Dispatchers.IO) {
-        val o = parse(getAuth("/api/badges", token)) ?: return@withContext BadgeWall(emptyList(), 0, 0)
+        val o = parse(getAuth("/api/badges", token))
+            ?: throw IllegalStateException("徽章数据格式异常，请稍后重试")
         val rows = (o["badges"] as? JsonArray).orEmpty().mapNotNull { item ->
             val j = item as? JsonObject ?: return@mapNotNull null
+            // 没有 id 的行直接丢掉：LazyColumn 用 id 当 key，缺字段会让所有行都变成 ""，
+            // 一渲染就是 duplicate key 崩溃（其它面板也是这么处理的）
+            val badgeId = j.str("id").orEmpty()
+            if (badgeId.isBlank()) return@mapNotNull null
             BadgeRow(
-                id = j.str("id").orEmpty(),
+                id = badgeId,
                 name = j.str("name").orEmpty(),
                 desc = j.str("desc").orEmpty(),
                 icon = j.str("icon").orEmpty(),
