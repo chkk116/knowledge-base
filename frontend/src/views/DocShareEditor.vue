@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onBeforeUnmount, watch, onMounted } from 'vue'
+import { ref, computed, onBeforeUnmount, watch, onMounted, nextTick } from 'vue'
 import { useUnsavedGuard } from '../composables/useUnsavedGuard'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
@@ -169,6 +169,9 @@ function seedIfEmpty() {
   if (editor.value.isEmpty && props.legacyContent && props.legacyContent.trim()) {
     // 把旧版 HTML / 新建种子一次性注入协同文档，随后由中继落库为 yjs_state
     editor.value.commands.setContent(props.legacyContent)
+    // 播种后立刻补一版快照（不等 6 秒定时）：两个人几乎同时首次打开同一篇从未协同过的文档时，
+    // 都会看到「本地为空」而各播一次，两边合并就出现重复段落。落库越快，这个窗口越小（N17）
+    nextTick(() => saveSnapshot(true))
   }
 }
 

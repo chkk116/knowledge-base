@@ -147,6 +147,7 @@ window.addEventListener('unhandledrejection', (e) => {
 })
 
 app.use(createPinia()).use(mobileRouter).mount('#app')
+document.getElementById('boot-loading')?.remove()
 
 /**
  * 路由分包预取：空闲时预加载常用二级页的 chunk，消除首次切页的白屏/卡顿。

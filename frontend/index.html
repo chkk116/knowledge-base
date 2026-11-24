@@ -25,6 +25,25 @@
 </head>
 <body>
   <div id="app"></div>
+  <!-- 首屏占位：路由守卫要先核验登录态、页面 chunk 也要下载，这段时间原来是纯白屏（邀请页/慢网尤其明显）。
+       纯 HTML/CSS，不依赖任何 JS 与框架；main.js 挂载完成后自行移除。 -->
+  <div id="boot-loading" role="status" aria-live="polite">
+    <div class="boot-spinner"></div>
+    <div class="boot-text">加载中…</div>
+  </div>
+  <style>
+    #boot-loading { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 12px;
+      align-items: center; justify-content: center; background: #f7f8fb; color: #6b7280;
+      font: 13px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      z-index: 9999; }
+    .boot-spinner { width: 26px; height: 26px; border-radius: 50%;
+      border: 2.5px solid #e5e7eb; border-top-color: #6366f1; animation: boot-spin .9s linear infinite; }
+    @keyframes boot-spin { to { transform: rotate(360deg); } }
+    @media (prefers-color-scheme: dark) {
+      #boot-loading { background: #14161f; color: #9aa3b2; }
+      .boot-spinner { border-color: #2b2f3d; border-top-color: #818cf8; }
+    }
+  </style>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

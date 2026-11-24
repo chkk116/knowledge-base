@@ -192,6 +192,7 @@ async function onFile(e) {
     return
   }
   uploading.value = true
+  ElMessage.info('正在上传头像…')
   try { localPreview.value = URL.createObjectURL(file) } catch { /* 老浏览器不支持就地预览也无妨 */ }
   try {
     const { data } = await uploadFile(file)
@@ -420,13 +421,12 @@ async function doExport() {
         <div class="cover-blur" :style="coverBlurStyle"></div>
         <img class="cover-fit" :src="profileBg" alt="" />
       </div>
-      <div class="cover-avatar">
+      <!-- 整个头像都可点：之前只有右下角那枚小角标绑了事件，点大头像没反应（N64） -->
+      <div class="cover-avatar" title="更换头像" role="button" tabindex="0"
+           @click="pickAvatar" @keydown.enter="pickAvatar">
         <img v-if="preview" :src="preview" alt="" />
-        <span v-else>{{ initial }}</span>
-        <span class="cam" title="更换头像" role="button" tabindex="0"
-              @click="pickAvatar" @keydown.enter="pickAvatar">
-          <span>{{ uploading ? '⏳' : '📷' }}</span>
-        </span>
+        <span v-else class="av-initial">{{ initial }}</span>
+        <span class="cam" aria-hidden="true">{{ uploading ? '⏳' : '📷' }}</span>
         <input ref="fileInput" type="file" accept="image/*" hidden @change="onFile" />
       </div>
     </div>
@@ -816,16 +816,19 @@ async function doExport() {
   width: 96px; height: 96px; border-radius: 50%;
   background: #fff; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.18);
 }
-.cover-avatar img, .cover-avatar span {
+/* 只作用于头像本体：早先写成 `.cover-avatar span`，把相机角标也撑成 96px 满圆覆盖整张头像，
+   角标既看不见、点击也落在角标上（N64） */
+.cover-avatar > img, .cover-avatar > .av-initial {
   width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
   display: flex; align-items: center; justify-content: center;
   font-size: 36px; font-weight: 700; color: #6366f1; background: #eef2ff;
 }
+.cover-avatar { cursor: pointer; }
 .cam {
   position: absolute; right: -2px; bottom: 2px; width: 28px; height: 28px;
-  border-radius: 50%; background: #6366f1; color: #fff; cursor: pointer;
+  border-radius: 50%; background: #6366f1; color: #fff; z-index: 2;
   display: flex; align-items: center; justify-content: center; font-size: 14px;
-  border: 2px solid #fff;
+  border: 2px solid #fff; pointer-events: none;   /* 点击交给外层整个头像，避免两处重复绑定 */
 }
 .body { display: grid; grid-template-columns: 280px 1fr; gap: 18px; margin-top: 58px; }
 .side {

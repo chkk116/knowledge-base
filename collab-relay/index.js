@@ -268,6 +268,9 @@ async function persistCurrent(docName, doc) {
   const revision = documentRevisions.get(doc)
   const state = Y.encodeStateAsUpdate(doc)
   // 代次与归属必须在同一条 UPDATE 内判断；先 SELECT 再无条件 UPDATE 有竞态窗口。
+  // 这里只写 yjs_state：updated_at 交给编辑器保存快照时推进。中继定时落库是无差别的
+  // （空闲房间也会每几秒写一次），如果在这里改 updated_at，编辑器手里的 baseUpdatedAt
+  // 基线会立刻过期，下一次保存就 409。
   const result = await db.query(
     'UPDATE kb_shared_document SET yjs_state = $1 WHERE id = $2 AND share_id = $3 AND COALESCE(yjs_rev, 0) = $4',
     [state, docId, shareId, revision]

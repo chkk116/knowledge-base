@@ -262,3 +262,5 @@ window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + (
 })()
 
 app.use(createPinia()).use(router).mount('#app')
+// 首屏占位（index.html 里的纯 HTML 版）退场：挂载完成后再移除，避免闪一下就没了内容
+document.getElementById('boot-loading')?.remove()
