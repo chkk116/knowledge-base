@@ -202,6 +202,14 @@ function loadTabs() {
 function saveTabs() {
   try { sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs.value.filter((t) => !t.pinned))) } catch { /* ignore */ }
 }
+// 换账号/登出时清空标签栏：标签只按访问顺序累积在 sessionStorage，退出登录不清，
+// 下一个人登进来会看到上一个人的标签（N77）。按用户 id 变化判断，同一账号重登不影响。
+watch(() => auth.user?.id ?? null, (id, prev) => {
+  if (prev !== undefined && id !== prev) {
+    tabs.value = [{ ...HOME_TAB }]
+    try { sessionStorage.removeItem(TABS_KEY) } catch { /* ignore */ }
+  }
+})
 function addTab(r) {
   if (barePage.value || !r?.path || r.path === '/') return
   if (tabs.value.some((t) => t.path === r.path)) return

@@ -25,6 +25,8 @@ import java.util.LinkedHashMap;
 @Service
 public class AuthService {
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AuthService.class);
+
     // 积分规则
     public static final int LOGIN_POINTS = 5;          // 每日登录
     public static final int PUBLISH_POINTS = 20;       // 每发布一篇
@@ -361,19 +363,23 @@ public class AuthService {
             u.setDisplayName(HtmlSanitizer.toText(displayName).trim());
         }
         if (avatar != null) {
-            // 仅允许 http(s) 链接、data:image 或本地上传路径 /uploads/ 头像，杜绝 javascript: 等危险协议
-            if (avatar.isBlank() || avatar.startsWith("http://")
-                    || avatar.startsWith("https://") || avatar.startsWith("data:image/")
-                    || avatar.startsWith("/uploads/")) {
-                if (avatar.isBlank()) {
+            String av = avatar.trim();
+            // 仅允许 http(s) 链接、data:image 或站内相对路径（本地上传 /uploads/、对象存储代理 /cos/、
+            // 内置表情 /emojis/），杜绝 javascript: 等危险协议。
+            // 注意别漏 /cos/：对象存储开着时上传返回的就是这个前缀，漏了会把用户头像当成非法值清空。
+            boolean accept = av.isEmpty() || av.startsWith("http://") || av.startsWith("https://")
+                    || av.startsWith("data:image/") || av.startsWith("/uploads/")
+                    || av.startsWith("/cos/") || av.startsWith("/emojis/");
+            if (accept) {
+                if (av.isEmpty()) {
                     // 重置为默认头像无需审核：直接生效并清掉待审
                     u.setAvatar("");
                     u.setAvatarPending(null);
                     u.setAvatarStatus("APPROVED");
                 } else {
                     // 头像审核流（方案 A）：新头像进待审区，通过前展示区继续用旧头像
-                    boolean isNewPending = !avatar.equals(u.getAvatarPending());
-                    u.setAvatarPending(avatar);
+                    boolean isNewPending = !av.equals(u.getAvatarPending());
+                    u.setAvatarPending(av);
                     u.setAvatarStatus("PENDING");
                     // 仅在「新的待审头像」时通知一次，同一张图反复点保存不刷屏
                     if (isNewPending) {
@@ -384,7 +390,10 @@ public class AuthService {
                     }
                 }
             } else {
-                u.setAvatar("");
+                // 不受支持的地址：只忽略这一项，**不清空**当前头像。
+                // 原来这里是 u.setAvatar("")，一旦上传返回的地址不在白名单里（例如相对路径 /cos/…），
+                // 用户点头保存就静默把头像弄丢了，还没有任何提示。
+                LOG.warn("拒绝不受支持的头像地址，保留原头像：user={} avatar={}", username, av.length() > 120 ? av.substring(0, 120) + "…" : av);
             }
         }
         if (email != null) {
