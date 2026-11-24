@@ -54,14 +54,17 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.foundation.layout.heightIn
 import com.kb.kbplatform.shell.data.objects
@@ -73,6 +76,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -251,12 +255,27 @@ fun ProfileScreen(
             MenuItem(Icons.Filled.Star, "我的收藏", "收藏过的文档") { openRoute("favorites") },
             MenuItem(Icons.Filled.History, "浏览历史", "最近看过的文档") { openRoute("history") },
             MenuItem(Icons.Filled.Description, "全部文档", "跨空间聚合") { openRoute("all-docs") },
+            // 订阅与摘录：路由早就有（subscriptions / notes），但个人中心一直没有入口，等于死页面
+            MenuItem(Icons.Filled.Notifications, "我的订阅", "订阅过的作者与专题") { openRoute("subscriptions") },
+            MenuItem(Icons.Filled.Edit, "我的摘录", "阅读时划选的笔记") { openRoute("notes") },
+            // 网页剪藏：粘贴链接 → 服务端抓正文预览 → 存为文档（此前只有路由没有入口）
+            MenuItem(Icons.Filled.Add, "网页剪藏", "粘贴链接存为文档") { openRoute("clip") },
+            // 资产扫码：需要资产管理权限才显示
+            if (TokenStore.hasPerm("ASSET_MANAGE")) {
+                MenuItem(Icons.Filled.Search, "资产扫码", "扫标签二维码查资产") { openRoute("asset-scan") }
+            } else null,
             // 邮箱：绑定授权码后收件箱原生可读（后端 /api/mail/*）
             MenuItem(Icons.Filled.Email, "邮箱", "收件箱 / 阅读 / 授权码绑定") { openRoute("mail") }
         )
         val growthItems = listOfNotNull(
             MenuItem(Icons.Filled.WorkspacePremium, "徽章成就", "成长记录") { openRoute("badges") },
             MenuItem(Icons.Filled.Insights, "我的数据", "阅读与创作统计") { openRoute("stats") },
+            // 同理：积分明细 / 排行榜 / 练习 三个路由此前没有入口
+            MenuItem(Icons.Filled.Star, "积分明细", "获得与消耗记录") { openRoute("points") },
+            MenuItem(Icons.Filled.List, "排行榜", "积分榜前 20") { openRoute("ranking") },
+            MenuItem(Icons.Filled.PlayArrow, "刷题练习", "按题库随机练习") { openRoute("practice") },
+            // 回收站：软删的文章要能找回，但此前只有路由、没有入口
+            MenuItem(Icons.Filled.Delete, "回收站", "删除的文章可恢复") { openRoute("recycle") },
             MenuItem(Icons.Filled.Explore, "发现文章", "浏览站内文章") { openRoute("discover") }
         )
         val adminItems = listOfNotNull(

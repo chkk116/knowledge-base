@@ -515,3 +515,34 @@ Web 端共享文档编辑器（`ShareWebEditor`），这是真正的实时协同
   前三名用 `KbTag` 警告色标注。
 - 两页都用 `KbTableHead / KbTableRow / KbSkeletonList / KbEmptyState`，与管理端视觉一致。
 - 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+
+## 新增「徽章」「积分」两个页面（2026-11-24）
+
+- **徽章**（`BadgesPanel`）：`GET /api/badges` → 卡片墙（图标瓦片 + 名称 + 描述 + 进度条 + `current / threshold`）；
+  已获得用主色软底，未获得灰色；已佩戴显示 `KbTag("佩戴中")`。顶部「已获得 x / y」。
+- **积分**（`PointsPanel`）：`GET /api/points/log` → 表格（类型 / 原因 / 变动 / 余额 / 时间）；
+  变动正数绿色、负数红色，类型映射成中文（ADJUST→调整、DOC_PUBLISH→发文…）。顶部显示当前余额。
+- 两个新菜单项各配了自绘图标：徽章=圆章+下摆，积分=硬币。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+- 侧栏现共 15 项：首页/文章/共享空间/培训/考试/收藏/排行榜/徽章/积分/AI 问答/我的文件/邮箱/通知/管理/设置。
+
+## 新增「私信」页面（2026-11-24）
+
+- 左侧会话列表（`GET /api/dm/conversations`：昵称 / 最后一条 / 未读红标 / 「我：」前缀），选中项用 `KbSelectCard` 高亮。
+- 右侧消息流（`GET /api/dm/messages?peerId=&size=30`）：自己右对齐主色气泡、对方左对齐浅灰；
+  当前会话 **30s 轮询**（只比条数与最后 id，没变化不重绘）。
+- 底部输入框 + 发送（`POST /api/dm/messages {toId, content}`），发送后立即重拉并刷新会话列表。
+- 未做：附件、撤回、归档、举报 —— 后端有接口，但桌面端私信是「够用」定位，先不做。
+- 侧栏 16 项；`MenuGlyph` 为私信画了双气泡图标。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+
+## 新增「复习卡片」页面（2026-11-24）
+
+- 数据：`GET /api/flashcards/due`（待复习）、`GET /api/flashcards/summary`（total/due/learned/new）、
+  `POST /api/flashcards/{id}/review {grade}`（grade = again / hard / good / easy）。
+- 交互：大卡片居中，**点卡片翻面**（正面↔背面，显示来源出处）；翻面后出现四档评分：
+  忘了 / 有点难 / 记住了 / 很简单（忘了用危险色）。评完自动下一张，本批刷完自动重载统计。
+- 排期由后端 SM-2 决定（again 10 分钟后再到期、good 按 ease 递增），桌面端只负责评分，不本地算间隔。
+- 空态：「今天没有要复习的卡片」——新增卡片在手机端 / Web 端（桌面不做建卡表单）。
+- 侧栏 17 项；`MenuGlyph` 为卡片画了两张叠放的正交卡片。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。

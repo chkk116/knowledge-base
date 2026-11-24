@@ -148,3 +148,27 @@ gradlew.bat assembleDebug
   骨架屏反而会误导。
 - 顺手修掉一处历史乱码文案（「没有待审核的文章 ??」→ 去问号）。
 - 验证：`:app:compileDebugKotlin` BUILD SUCCESSFUL（本机无真机，未做装机验证）。
+
+## 补 6 个「有路由、没入口」的页面入口（2026-11-24）
+
+- 现象：`AppRoot.kt` 注册了 51 个路由，但部分页面在界面上找不到任何入口，等于死页面。
+- 已补（个人中心 → 我的内容 / 成长与数据）：
+  - 我的订阅 → `subscriptions`
+  - 我的摘录 → `notes`
+  - 积分明细 → `points`
+  - 排行榜 → `ranking`
+  - 刷题练习 → `practice`
+  - 回收站 → `recycle`（删除的文章要能找回）
+- 排查方法：路由清单（`composable("…")`）与入口引用（`openRoute("…")` / `navigate("…")`）做差集。
+  **注意假阳性**：`Quick("拍照建文档", …, "capture")`、`onOpen("admin/users")` 这类把路由名作为**参数**传的，
+  正则只查 openRoute/navigate 会漏，需要再按裸字符串匹配复核。
+- 未补：`inbox`（与邮箱页重复）、`asset-scan`/`clip`（未知入口，待确认）、各 `admin/**`（由管理台入口页 `onOpen(...)` 进入）。
+- 验证：`:app:compileDebugKotlin` BUILD SUCCESSFUL（无真机）。
+
+## 追加两个入口：网页剪藏 / 资产扫码（2026-11-24）
+
+- **网页剪藏**（`clip` → `ClipScreen`）：粘贴链接 → `POST /clip/preview` 抓正文预览 → 存为文档。进「我的内容」组。
+- **资产扫码**（`asset-scan` → `AssetScanScreen`）：CameraX 扫码识别资产编号（兼容 `/m/asset#code=xxx` 站内链接与旧纯编号），
+  进「我的内容」组，但**仅当 `TokenStore.hasPerm("ASSET_MANAGE")`** 才显示——没权限的人看到入口点进去只会拿到 403。
+- 验证：`:app:compileDebugKotlin` BUILD SUCCESSFUL。
+- 至此 App 端 51 个路由里，除 `inbox`（与邮箱页重复）外都有可达入口。

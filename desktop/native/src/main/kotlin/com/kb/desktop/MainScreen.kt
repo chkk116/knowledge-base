@@ -17,6 +17,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,7 +58,7 @@ import java.net.URI
 
 enum class MenuKind(val label: String) {
     HOME("首页"), DOCS("文章"), SHARES("共享空间"), COURSES("培训"), EXAMS("考试"),
-    FAVORITES("收藏"), RANKING("排行榜"),
+    FAVORITES("收藏"), RANKING("排行榜"), BADGES("徽章"), POINTS("积分"), DM("私信"), CARDS("复习卡片"),
     CHAT("AI 问答"), FILES("我的文件"), MAIL("邮箱"), NOTIFICATIONS("通知"), ADMIN("管理"), SETTINGS("设置")
 }
 
@@ -144,6 +146,10 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                                 selected = MenuKind.DOCS
                             }
                             MenuKind.RANKING -> RankingPanel(session)
+                            MenuKind.BADGES -> BadgesPanel(session)
+                            MenuKind.POINTS -> PointsPanel(session)
+                            MenuKind.DM -> DmPanel(session)
+                            MenuKind.CARDS -> CardsPanel(session)
                             MenuKind.FILES -> FilesPanel(session)
                             MenuKind.MAIL -> MailPanel(session)
                             MenuKind.ADMIN -> AdminPanel(session, onOpenDoc = { id -> jumpDocId = id; selected = MenuKind.DOCS })
@@ -260,6 +266,10 @@ private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, badge: Int = 0
         MenuKind.EXAMS -> KbTileRose
         MenuKind.FAVORITES -> KbTileAmber
         MenuKind.RANKING -> KbTileViolet
+        MenuKind.BADGES -> KbTileGreen
+        MenuKind.POINTS -> KbTileBlue
+        MenuKind.DM -> KbTileTeal
+        MenuKind.CARDS -> KbTileAmber
         MenuKind.CHAT -> KbTileGreen
         MenuKind.FILES -> KbTileAmber
         MenuKind.MAIL -> KbTileTeal
@@ -2083,6 +2093,29 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
                 p.moveTo(12f, 19f); p.lineTo(12f, 8f)
                 p.moveTo(17f, 19f); p.lineTo(17f, 11f)
             }
+            MenuKind.BADGES -> {
+                // 圆章 + 两条下摆
+                drawCircle(tint, radius = 5.5f * u, center = Offset(12f * u, 10.5f * u), style = stroke)
+                line(9f, 15f, 7.5f, 20.5f); line(15f, 15f, 16.5f, 20.5f)
+            }
+            MenuKind.POINTS -> {
+                // 硬币：外圆 + 中间横线
+                drawCircle(tint, radius = 8f * u, center = Offset(12f * u, 12f * u), style = stroke)
+                line(8.5f, 12f, 15.5f, 12f)
+            }
+            MenuKind.DM -> {
+                // 两个人对话：两个错开的气泡
+                p.moveTo(3.5f, 6f); p.lineTo(14f, 6f); p.lineTo(14f, 13.5f); p.lineTo(9f, 13.5f)
+                p.lineTo(6.5f, 16.5f); p.lineTo(6.5f, 13.5f); p.lineTo(3.5f, 13.5f); p.close()
+                p.moveTo(10f, 10f); p.lineTo(20.5f, 10f); p.lineTo(20.5f, 17.5f); p.lineTo(17.5f, 17.5f)
+                p.lineTo(17.5f, 20.5f); p.lineTo(15f, 17.5f); p.lineTo(10f, 17.5f); p.close()
+            }
+            MenuKind.CARDS -> {
+                // 两张叠放的卡片
+                p.moveTo(6f, 4.5f); p.lineTo(16f, 4.5f); p.lineTo(16f, 15f); p.lineTo(6f, 15f); p.close()
+                p.moveTo(9f, 9f); p.lineTo(19f, 9f); p.lineTo(19f, 19.5f); p.lineTo(9f, 19.5f); p.close()
+                line(12f, 13f, 16f, 13f); line(12f, 16f, 16f, 16f)
+            }
             MenuKind.COURSES -> {
                 // 打开的书（培训）
                 p.moveTo(12f, 6.5f); p.lineTo(12f, 19f)
@@ -2316,6 +2349,541 @@ private fun RankingPanel(session: Session) {
                                 maxLines = 1,
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+/** 徽章墙：GET /api/badges（全部定义 + 获得状态 + 进度） */
+@Composable
+private fun BadgesPanel(session: Session) {
+    val api = remember(session) { ApiClient(session.server) }
+    var wall by remember { mutableStateOf<ApiClient.BadgeWall?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            wall = api.badgeWall(session.token)
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("徽章", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+            wall?.let {
+                Spacer(Modifier.width(10.dp))
+                Text("已获得 ${it.earned} / ${it.total}", fontSize = 11.5.sp, color = KbTextSub)
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("刷新", fontSize = 12.sp)
+            }
+        }
+        Box(Modifier.weight(1f)) {
+            val w = wall
+            when {
+                loading -> KbSkeletonList(rows = 6)
+                err != null -> KbEmptyState(glyph = "!", title = "加载失败", desc = err ?: "")
+                w == null || w.badges.isEmpty() -> KbEmptyState(glyph = "\u25CF", title = "还没有徽章定义")
+                else -> LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(w.badges, key = { it.id }) { b ->
+                        KbSurface(Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (b.earned) KbAccentSoft else Color(0xFFF3F4F6)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(b.icon.ifBlank { "\u2605" }, fontSize = 18.sp)
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            b.name.ifBlank { "未命名徽章" },
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (b.earned) KbTextMain else KbTextSub,
+                                        )
+                                        if (b.worn) {
+                                            Spacer(Modifier.width(6.dp))
+                                            KbTag("佩戴中", KbTone.Primary)
+                                        }
+                                    }
+                                    if (b.desc.isNotBlank()) {
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            b.desc,
+                                            fontSize = 10.5.sp,
+                                            color = KbTextSub,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth(0.62f)
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(Color(0xFFEEF0F4)),
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth((b.progress.coerceIn(0, 100)) / 100f)
+                                                .fillMaxHeight()
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(if (b.earned) KbTileGreen.first else KbAccent),
+                                        )
+                                    }
+                                    Text(
+                                        "${b.current} / ${b.threshold}",
+                                        fontSize = 10.sp,
+                                        color = KbTextSub,
+                                        modifier = Modifier.padding(top = 2.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 积分明细：GET /api/points/log（最近 50 条） */
+@Composable
+private fun PointsPanel(session: Session) {
+    val api = remember(session) { ApiClient(session.server) }
+    var logs by remember { mutableStateOf<List<ApiClient.PointLogRow>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            logs = api.pointsLog(session.token)
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("积分", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+            logs.firstOrNull()?.let {
+                Spacer(Modifier.width(10.dp))
+                Text("当前余额 ${it.balance} · 最近 ${logs.size} 条", fontSize = 11.5.sp, color = KbTextSub)
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("刷新", fontSize = 12.sp)
+            }
+        }
+        KbTableHead(listOf("类型" to 1f, "原因" to 3f, "变动" to 0.9f, "余额" to 0.9f, "时间" to 1.3f))
+        Box(Modifier.weight(1f)) {
+            when {
+                loading -> KbSkeletonList(rows = 6)
+                err != null -> KbEmptyState(glyph = "!", title = "加载失败", desc = err ?: "")
+                logs.isEmpty() -> KbEmptyState(glyph = "\u25CF", title = "还没有积分记录")
+                else -> LazyColumn(Modifier.fillMaxSize()) {
+                    items(logs, key = { it.id }) { l ->
+                        KbTableRow {
+                            Box(Modifier.weight(1f)) {
+                                KbTag(pointTypeLabel(l.type), if (l.delta >= 0) KbTone.Success else KbTone.Danger)
+                            }
+                            Text(
+                                l.reason.ifBlank { "—" },
+                                modifier = Modifier.weight(3f),
+                                fontSize = 11.5.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                (if (l.delta > 0) "+" else "") + l.delta,
+                                modifier = Modifier.weight(0.9f),
+                                fontSize = 12.sp,
+                                color = if (l.delta >= 0) Color(0xFF047857) else Color(0xFFB91C1C),
+                                maxLines = 1,
+                            )
+                            Text(
+                                "${l.balance}",
+                                modifier = Modifier.weight(0.9f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
+                            Text(
+                                fmtTime(l.createdAt),
+                                modifier = Modifier.weight(1.3f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun pointTypeLabel(t: String): String = when (t.uppercase()) {
+    "ADJUST" -> "调整"
+    "DOC_PUBLISH" -> "发文"
+    "COMMENT" -> "评论"
+    "LIKE" -> "点赞"
+    "CHECKIN" -> "签到"
+    "EXAM" -> "考试"
+    "COURSE" -> "课程"
+    else -> t.ifBlank { "积分" }
+}
+/** 私信：左会话列表 + 右消息流（dm 接口；当前会话 30s 轮询） */
+@Composable
+private fun DmPanel(session: Session) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var convs by remember { mutableStateOf<List<ApiClient.DmConv>>(emptyList()) }
+    var convLoading by remember { mutableStateOf(true) }
+    var convErr by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+    var peer by remember { mutableStateOf<Long?>(null) }
+    var msgs by remember { mutableStateOf<List<ApiClient.DmMsg>>(emptyList()) }
+    var msgLoading by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(tick) {
+        convLoading = true
+        convErr = null
+        try {
+            convs = api.dmConversations(session.token)
+        } catch (e: Exception) {
+            convErr = e.message ?: "会话加载失败"
+        } finally {
+            convLoading = false
+        }
+    }
+
+    LaunchedEffect(peer) {
+        val p = peer ?: return@LaunchedEffect
+        msgLoading = true
+        msgs = emptyList()
+        try {
+            msgs = api.dmMessages(session.token, p, null, 30)
+        } catch (e: Exception) {
+            note = e.message ?: "消息加载失败"
+        } finally {
+            msgLoading = false
+        }
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            val fresh = runCatching { api.dmMessages(session.token, p, null, 30) }.getOrNull() ?: continue
+            if (fresh.size != msgs.size || fresh.lastOrNull()?.id != msgs.lastOrNull()?.id) msgs = fresh
+        }
+    }
+
+    fun send() {
+        val p = peer ?: return
+        val text = draft.trim()
+        if (text.isEmpty() || sending) return
+        sending = true
+        scope.launch {
+            try {
+                api.dmSend(session.token, p, text)
+                draft = ""
+                note = null
+                msgs = api.dmMessages(session.token, p, null, 30)
+                tick++
+            } catch (e: Exception) {
+                note = e.message ?: "发送失败"
+            } finally {
+                sending = false
+            }
+        }
+    }
+
+    Row(Modifier.fillMaxSize()) {
+        Column(Modifier.width(260.dp).fillMaxHeight().background(KbRailBg)) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("私信", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("刷新", fontSize = 11.sp)
+                }
+            }
+            Box(Modifier.weight(1f)) {
+                when {
+                    convLoading -> KbSkeletonList(rows = 5)
+                    convErr != null -> PanelHint(convErr ?: "")
+                    convs.isEmpty() -> PanelHint("还没有私信会话")
+                    else -> LazyColumn(Modifier.fillMaxSize()) {
+                        items(convs, key = { it.peerId }) { c ->
+                            val sel = c.peerId == peer
+                            KbSelectCard(
+                                selected = sel,
+                                onClick = { peer = c.peerId; note = null },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            ) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            c.name.ifBlank { "用户 ${c.peerId}" },
+                                            fontSize = 12.5.sp,
+                                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = KbTextMain,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        if (c.unread > 0) KbTag("${c.unread}", KbTone.Danger)
+                                    }
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        (if (c.lastFromMe) "我：" else "") + c.lastMessage,
+                                        fontSize = 10.5.sp,
+                                        color = KbTextSub,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Box(Modifier.width(1.dp).fillMaxHeight().background(KbBorder))
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            val p = peer
+            if (p == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("在左侧选择会话", fontSize = 13.sp, color = KbTextSub)
+                }
+                return@Column
+            }
+            val name = convs.firstOrNull { it.peerId == p }?.name.orEmpty()
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(name.ifBlank { "用户 $p" }, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                Spacer(Modifier.weight(1f))
+                note?.let { Text(it, fontSize = 10.5.sp, color = Color(0xFFDC2626)) }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(KbBorder))
+            Box(Modifier.weight(1f)) {
+                when {
+                    msgLoading -> KbSkeletonList(rows = 5)
+                    msgs.isEmpty() -> PanelHint("还没有消息，打个招呼吧")
+                    else -> LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(msgs, key = { it.id }) { m ->
+                            val mine = m.fromId != p
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+                            ) {
+                                Column(
+                                    Modifier
+                                        .widthIn(max = 420.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (mine) KbAccentSoft else KbHoverBg)
+                                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                                ) {
+                                    Text(m.content.ifBlank { "（非文本消息）" }, fontSize = 12.5.sp, color = KbTextMain, lineHeight = 19.sp)
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(fmtTime(m.createdAt), fontSize = 9.5.sp, color = KbTextSub)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(KbBorder))
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.weight(1f),
+                    minLines = 1,
+                    maxLines = 4,
+                    placeholder = { Text("发消息…", fontSize = 12.sp, color = KbTextSub) },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = KbPrimary, unfocusedBorderColor = KbBorder),
+                )
+                Spacer(Modifier.width(8.dp))
+                KbPrimaryAction(if (sending) "发送中…" else "发送", enabled = !sending && draft.isNotBlank()) { send() }
+            }
+        }
+    }
+}
+/** 复习卡片：待复习列表 + 翻面 + 四档评分（again / hard / good / easy） */
+@Composable
+private fun CardsPanel(session: Session) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var due by remember { mutableStateOf<List<ApiClient.CardItem>>(emptyList()) }
+    var summary by remember { mutableStateOf<ApiClient.CardSummary?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+    var idx by remember { mutableStateOf(0) }
+    var flipped by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            due = api.flashcardsDue(session.token)
+            summary = api.flashcardSummary(session.token)
+            idx = 0
+            flipped = false
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    fun grade(g: String) {
+        val card = due.getOrNull(idx) ?: return
+        if (busy) return
+        busy = true
+        scope.launch {
+            try {
+                api.reviewFlashcard(session.token, card.id, g)
+                summary = runCatching { api.flashcardSummary(session.token) }.getOrNull() ?: summary
+                // again 的卡片后端 10 分钟后才再到期；本轮直接往后走，避免同一张卡原地重复
+                if (idx + 1 < due.size) {
+                    idx += 1
+                    flipped = false
+                } else {
+                    tick += 1
+                }
+            } catch (e: Exception) {
+                err = e.message ?: "评分失败"
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 18.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("复习卡片", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+            summary?.let {
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "待复习 ${it.due} · 已学 ${it.learned} / 共 ${it.total}",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("刷新", fontSize = 12.sp)
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        when {
+            loading -> KbSkeletonList(rows = 5)
+            err != null -> KbEmptyState(glyph = "!", title = "加载失败", desc = err ?: "")
+            due.isEmpty() -> KbEmptyState(
+                glyph = "\u2713",
+                title = "今天没有要复习的卡片",
+                desc = "卡片会按间隔自动排期；新增卡片在手机端或 Web 端",
+            )
+            else -> {
+                val card = due[idx.coerceIn(0, due.size - 1)]
+                Text("第 ${idx + 1} / ${due.size} 张", fontSize = 11.sp, color = KbTextSub)
+                Spacer(Modifier.height(8.dp))
+                KbSurface(Modifier.fillMaxWidth().weight(1f)) {
+                    Box(
+                        Modifier.fillMaxSize().clickable { flipped = !flipped }.padding(26.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(if (flipped) "背面" else "正面", fontSize = 10.5.sp, color = KbTextSub)
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                (if (flipped) card.back else card.front).ifBlank { "（空）" },
+                                fontSize = 16.sp,
+                                lineHeight = 26.sp,
+                                color = KbTextMain,
+                            )
+                            if (card.source.isNotBlank()) {
+                                Spacer(Modifier.height(14.dp))
+                                Text(
+                                    card.source,
+                                    fontSize = 10.5.sp,
+                                    color = KbTextSub,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Text(if (flipped) "点卡片翻回正面" else "点卡片翻到背面", fontSize = 10.5.sp, color = KbTextSub)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                if (flipped) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        for (opt in listOf(
+                            "again" to "忘了",
+                            "hard" to "有点难",
+                            "good" to "记住了",
+                            "easy" to "很简单",
+                        )) {
+                            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                AdminButton(opt.second, danger = opt.first == "again", enabled = !busy) {
+                                    grade(opt.first)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        KbPrimaryAction("翻到背面", enabled = !busy) { flipped = true }
                     }
                 }
             }

@@ -788,7 +788,175 @@ class ApiClient(private val base: String) {
         withContext(Dispatchers.IO) { authReq("DELETE", "/api/favorites/$docId", token) }
     }
 
-    /** 积分排行榜一行 */
+    /** 私信会话（GET /api/dm/conversations） */
+    data class DmConv(
+        val peerId: Long,
+        val name: String,
+        val lastMessage: String,
+        val lastFromMe: Boolean,
+        val lastAt: String,
+        val unread: Int,
+    )
+
+    /** 私信消息（GET /api/dm/messages，按时间正序返回） */
+    data class DmMsg(
+        val id: Long,
+        val fromId: Long,
+        val kind: String,
+        val content: String,
+        val createdAt: String,
+        val read: Boolean,
+    )
+
+    suspend fun dmConversations(token: String): List<DmConv> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/dm/conversations", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            DmConv(
+                peerId = j.long("peerId") ?: return@mapNotNull null,
+                name = j.str("name").orEmpty(),
+                lastMessage = j.str("lastMessage").orEmpty(),
+                lastFromMe = j.bool("lastFromMe") ?: false,
+                lastAt = j.str("lastAt").orEmpty(),
+                unread = j.int("unread") ?: 0,
+            )
+        }
+    }
+
+    suspend fun dmMessages(token: String, peerId: Long, beforeId: Long? = null, size: Int = 30): List<DmMsg> =
+        withContext(Dispatchers.IO) {
+            val before = if (beforeId == null) "" else "&beforeId=$beforeId"
+            val e = runCatching {
+                Json.parseToJsonElement(getAuth("/api/dm/messages?peerId=$peerId&size=$size$before", token))
+            }.getOrNull() ?: return@withContext emptyList()
+            (e as? JsonArray).orEmpty().mapNotNull { item ->
+                val j = item as? JsonObject ?: return@mapNotNull null
+                DmMsg(
+                    id = j.long("id") ?: return@mapNotNull null,
+                    fromId = j.long("fromId") ?: 0L,
+                    kind = j.str("kind").orEmpty(),
+                    content = j.str("content").orEmpty(),
+                    createdAt = j.str("createdAt").orEmpty(),
+                    read = j.bool("read") ?: false,
+                )
+            }
+        }
+
+    /** POST /api/dm/messages {toId, content} → 发送私信 */
+    suspend fun dmSend(token: String, toId: Long, content: String) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/dm/messages", token, """{"toId":$toId,"content":${jsonStr(content)}}""")
+        }
+    }
+
+    /** 复习卡片（GET /api/flashcards/due） */
+    data class CardItem(
+        val id: Long,
+        val front: String,
+        val back: String,
+        val source: String,
+        val intervalDays: Int,
+        val dueAt: String,
+    )
+
+    /** 卡片统计（GET /api/flashcards/summary） */
+    data class CardSummary(val total: Int, val due: Int, val learned: Int, val newCount: Int)
+
+    suspend fun flashcardsDue(token: String): List<CardItem> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/flashcards/due", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            CardItem(
+                id = j.long("id") ?: return@mapNotNull null,
+                front = j.str("front").orEmpty(),
+                back = j.str("back").orEmpty(),
+                source = j.str("source").orEmpty(),
+                intervalDays = j.int("intervalDays") ?: 0,
+                dueAt = j.str("dueAt").orEmpty(),
+            )
+        }
+    }
+
+    suspend fun flashcardSummary(token: String): CardSummary = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/flashcards/summary", token)) ?: return@withContext CardSummary(0, 0, 0, 0)
+        CardSummary(
+            total = o.int("total") ?: 0,
+            due = o.int("due") ?: 0,
+            learned = o.int("learned") ?: 0,
+            newCount = o.int("new") ?: 0,
+        )
+    }
+
+    /** POST /api/flashcards/{id}/review {grade} → grade: again / hard / good / easy */
+    suspend fun reviewFlashcard(token: String, id: Long, grade: String) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/flashcards/$id/review", token, """{"grade":${jsonStr(grade)}}""")
+        }
+    }
+
+    /** GET /api/points/log → 我的积分明细（最近 50 条，按时间倒序） */
+    data class PointLogRow(
+        val id: Long,
+        val delta: Int,
+        val type: String,
+        val reason: String,
+        val balance: Int,
+        val createdAt: String,
+    )
+
+    suspend fun pointsLog(token: String): List<PointLogRow> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/points/log", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            PointLogRow(
+                id = j.long("id") ?: return@mapNotNull null,
+                delta = j.int("delta") ?: 0,
+                type = j.str("type").orEmpty(),
+                reason = j.str("reason").orEmpty(),
+                balance = j.int("balance") ?: 0,
+                createdAt = j.str("createdAt").orEmpty(),
+            )
+        }
+    }
+
+    /** 徽章墙一行 */
+    data class BadgeRow(
+        val id: String,
+        val name: String,
+        val desc: String,
+        val icon: String,
+        val earned: Boolean,
+        val current: Long,
+        val threshold: Long,
+        val progress: Int,
+        val worn: Boolean,
+    )
+
+    /** 徽章墙：全部定义 + 获得状态 + 进度 */
+    data class BadgeWall(val badges: List<BadgeRow>, val earned: Int, val total: Int)
+
+    /** GET /api/badges → { badges:[…], earned, total, wornBadges } */
+    suspend fun badgeWall(token: String): BadgeWall = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/badges", token)) ?: return@withContext BadgeWall(emptyList(), 0, 0)
+        val rows = (o["badges"] as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            BadgeRow(
+                id = j.str("id").orEmpty(),
+                name = j.str("name").orEmpty(),
+                desc = j.str("desc").orEmpty(),
+                icon = j.str("icon").orEmpty(),
+                earned = j.bool("earned") ?: false,
+                current = j.long("current") ?: 0,
+                threshold = j.long("threshold") ?: 0,
+                progress = j.int("progress") ?: 0,
+                worn = j.bool("worn") ?: false,
+            )
+        }
+        BadgeWall(rows, o.int("earned") ?: 0, o.int("total") ?: rows.size)
+    }
     data class RankRow(val rank: Int, val username: String, val displayName: String, val points: Long)
 
     /** 排行榜：前 20 名 + 当前用户名次 */
