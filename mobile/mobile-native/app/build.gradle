@@ -20,8 +20,8 @@ android {
         // 原生壳 versionName 用独立的 1.3.x-native（不与 Web/Capacitor 共用），升级弹层按它匹配 changelog。
         // versionCode 规则：起步 10305（=1.03.05），此后每次发版递增，只保证单调递增且高于历史所有 code；
         // 不再与 versionName 严格一一对应。frontend/build-inject-sw.cjs 每次构建会校验上述约束。
-        versionCode 10344
-        versionName '1.3.56-native'
+        versionCode 10345
+        versionName '1.3.57-native'
 
         // 只打真机 ABI：ML Kit 的 OCR 原生库单个 6~11MB，四套全打会有 39MB，
         // 其中 x86/x86_64 只有模拟器用得到（纯浪费 22MB）。arm64 覆盖现在的手机，

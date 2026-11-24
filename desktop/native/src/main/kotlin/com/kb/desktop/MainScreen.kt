@@ -56,6 +56,7 @@ import java.net.URI
 
 enum class MenuKind(val label: String) {
     HOME("首页"), DOCS("文章"), SHARES("共享空间"), COURSES("培训"), EXAMS("考试"),
+    FAVORITES("收藏"), RANKING("排行榜"),
     CHAT("AI 问答"), FILES("我的文件"), MAIL("邮箱"), NOTIFICATIONS("通知"), ADMIN("管理"), SETTINGS("设置")
 }
 
@@ -138,6 +139,11 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
                             MenuKind.SHARES -> SharesPanel(session)
                             MenuKind.COURSES -> CoursesPanel(session)
                             MenuKind.EXAMS -> ExamsPanel(session)
+                            MenuKind.FAVORITES -> FavoritesPanel(session) { id ->
+                                jumpDocId = id
+                                selected = MenuKind.DOCS
+                            }
+                            MenuKind.RANKING -> RankingPanel(session)
                             MenuKind.FILES -> FilesPanel(session)
                             MenuKind.MAIL -> MailPanel(session)
                             MenuKind.ADMIN -> AdminPanel(session, onOpenDoc = { id -> jumpDocId = id; selected = MenuKind.DOCS })
@@ -252,6 +258,8 @@ private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, badge: Int = 0
         MenuKind.SHARES -> KbTileTeal
         MenuKind.COURSES -> KbTileGreen
         MenuKind.EXAMS -> KbTileRose
+        MenuKind.FAVORITES -> KbTileAmber
+        MenuKind.RANKING -> KbTileViolet
         MenuKind.CHAT -> KbTileGreen
         MenuKind.FILES -> KbTileAmber
         MenuKind.MAIL -> KbTileTeal
@@ -2064,6 +2072,17 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
                 p.moveTo(6f, 3.5f); p.lineTo(18f, 3.5f); p.lineTo(18f, 20.5f); p.lineTo(6f, 20.5f); p.close()
                 line(9f, 12f, 11f, 14.5f); line(11f, 14.5f, 15.5f, 9f)
             }
+            MenuKind.FAVORITES -> {
+                // 书签：上沿平、下沿尖角
+                p.moveTo(7f, 4f); p.lineTo(17f, 4f); p.lineTo(17f, 20f); p.lineTo(12f, 16f); p.lineTo(7f, 20f); p.close()
+            }
+            MenuKind.RANKING -> {
+                // 三根高低柱 + 底线
+                line(5f, 19.5f, 19f, 19.5f)
+                p.moveTo(7f, 19f); p.lineTo(7f, 13f)
+                p.moveTo(12f, 19f); p.lineTo(12f, 8f)
+                p.moveTo(17f, 19f); p.lineTo(17f, 11f)
+            }
             MenuKind.COURSES -> {
                 // 打开的书（培训）
                 p.moveTo(12f, 6.5f); p.lineTo(12f, 19f)
@@ -2119,4 +2138,187 @@ private fun BrandGlyphMini(tint: Color, modifier: Modifier) {
 private fun fmtMb(bytes: Long): String {
     val mb = bytes.toDouble() / (1024.0 * 1024.0)
     return String.format(java.util.Locale.ROOT, "%.1f MB", mb)
+}
+
+/** 我的收藏：GET /api/favorites/mine，行内可打开或取消收藏 */
+@Composable
+private fun FavoritesPanel(session: Session, onOpenDoc: (Long) -> Unit) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var rows by remember { mutableStateOf<List<DocSummary>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+    var busyId by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            rows = api.favoriteDocs(session.token)
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("收藏", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+            Spacer(Modifier.width(8.dp))
+            Text("共 ${rows.size} 篇", fontSize = 11.5.sp, color = KbTextSub)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("刷新", fontSize = 12.sp)
+            }
+        }
+        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "更新时间" to 1.3f, "操作" to 1.3f))
+        Box(Modifier.weight(1f)) {
+            when {
+                loading -> KbSkeletonList(rows = 6)
+                err != null -> KbEmptyState(glyph = "!", title = "加载失败", desc = err ?: "")
+                rows.isEmpty() -> KbEmptyState(
+                    glyph = "\u2605",
+                    title = "还没有收藏",
+                    desc = "在文章页点「收藏」后会出现在这里",
+                )
+                else -> LazyColumn(Modifier.fillMaxSize()) {
+                    items(rows, key = { it.id }) { d ->
+                        KbTableRow {
+                            Text(
+                                d.title.ifBlank { "（无标题）" },
+                                modifier = Modifier.weight(3f),
+                                fontSize = 13.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                d.category?.takeIf { it.isNotBlank() } ?: "—",
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
+                            Text(
+                                d.ownerName.ifBlank { "—" },
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                fmtTime(d.updatedAt),
+                                modifier = Modifier.weight(1.3f),
+                                fontSize = 11.sp,
+                                color = KbTextSub,
+                                maxLines = 1,
+                            )
+                            Row(Modifier.weight(1.3f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AdminButton("打开") { onOpenDoc(d.id) }
+                                AdminButton("取消收藏", danger = true, enabled = busyId != d.id) {
+                                    busyId = d.id
+                                    scope.launch {
+                                        try {
+                                            api.unfavoriteDoc(session.token, d.id)
+                                            rows = rows.filterNot { it.id == d.id }
+                                        } catch (e: Exception) {
+                                            err = e.message ?: "取消收藏失败"
+                                        } finally {
+                                            busyId = null
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 积分排行榜：GET /api/points/ranking（前 20 名 + 当前用户名次） */
+@Composable
+private fun RankingPanel(session: Session) {
+    val api = remember(session) { ApiClient(session.server) }
+    var data by remember { mutableStateOf<ApiClient.RankingData?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(tick) {
+        loading = true
+        err = null
+        try {
+            data = api.pointsRanking(session.token)
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("排行榜", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = KbTextMain)
+            val d = data
+            if (d != null) {
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "我的名次 #${d.myRank} · ${d.myPoints} 积分 · 共 ${d.total} 人",
+                    fontSize = 11.5.sp,
+                    color = KbTextSub,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("刷新", fontSize = 12.sp)
+            }
+        }
+        KbTableHead(listOf("名次" to 0.8f, "用户" to 3f, "积分" to 1f))
+        Box(Modifier.weight(1f)) {
+            val d = data
+            when {
+                loading -> KbSkeletonList(rows = 6)
+                err != null -> KbEmptyState(glyph = "!", title = "加载失败", desc = err ?: "")
+                d == null || d.top.isEmpty() -> KbEmptyState(glyph = "\u25B2", title = "暂无排行数据")
+                else -> LazyColumn(Modifier.fillMaxSize()) {
+                    items(d.top, key = { it.username }) { r ->
+                        KbTableRow {
+                            Box(Modifier.weight(0.8f)) {
+                                KbTag(
+                                    "#${r.rank}",
+                                    if (r.rank <= 3) KbTone.Warning else KbTone.Neutral,
+                                )
+                            }
+                            Text(
+                                r.displayName.ifBlank { r.username },
+                                modifier = Modifier.weight(3f),
+                                fontSize = 12.5.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "${r.points}",
+                                modifier = Modifier.weight(1f),
+                                fontSize = 12.sp,
+                                color = KbTextMain,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

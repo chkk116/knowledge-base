@@ -1,4 +1,4 @@
-﻿package com.kb.desktop
+package com.kb.desktop
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -764,6 +764,57 @@ class ApiClient(private val base: String) {
         (e as? JsonArray).orEmpty().mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.toSet()
     }
 
+    /** GET /api/favorites/mine → 我收藏的已发布文档（按收藏时间倒序；字段按需取，缺省不报错） */
+    suspend fun favoriteDocs(token: String): List<DocSummary> = withContext(Dispatchers.IO) {
+        val e = runCatching { Json.parseToJsonElement(getAuth("/api/favorites/mine", token)) }.getOrNull()
+            ?: return@withContext emptyList()
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            DocSummary(
+                id = id,
+                title = j.str("title").orEmpty(),
+                ownerName = j.str("ownerName").orEmpty(),
+                updatedAt = j.str("updatedAt").orEmpty(),
+                views = j.int("views") ?: 0,
+                category = j.str("category"),
+                snippet = j.str("snippet"),
+            )
+        }
+    }
+
+    /** DELETE /api/favorites/{docId} → 取消收藏（幂等） */
+    suspend fun unfavoriteDoc(token: String, docId: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/favorites/$docId", token) }
+    }
+
+    /** 积分排行榜一行 */
+    data class RankRow(val rank: Int, val username: String, val displayName: String, val points: Long)
+
+    /** 排行榜：前 20 名 + 当前用户名次 */
+    data class RankingData(val top: List<RankRow>, val myRank: Int, val myPoints: Long, val total: Long)
+
+    /** GET /api/points/ranking → { top:[{rank,username,displayName,points}], me:{rank,points}, total } */
+    suspend fun pointsRanking(token: String): RankingData = withContext(Dispatchers.IO) {
+        val o = parse(getAuth("/api/points/ranking", token)) ?: return@withContext RankingData(emptyList(), 0, 0, 0)
+        val top = (o["top"] as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            RankRow(
+                rank = j.int("rank") ?: 0,
+                username = j.str("username").orEmpty(),
+                displayName = j.str("displayName").orEmpty(),
+                points = j.long("points") ?: 0,
+            )
+        }
+        val me = o["me"] as? JsonObject
+        RankingData(
+            top = top,
+            myRank = me?.int("rank") ?: 0,
+            myPoints = me?.long("points") ?: 0,
+            total = o.long("total") ?: 0,
+        )
+    }
+
     // ---- 评论（列表公开；发表/点赞/删除需登录）----
 
     /** GET /api/docs/{id}/comments → 评论列表（content 为 HTML） */
@@ -1365,7 +1416,76 @@ class ApiClient(private val base: String) {
         }
     }
 
-    /** GET /api/admin/announcements → Page<Map>，桌面端取第一页（50 条） */
+    /** 部门写操作共用体：只传需要改的字段（后端 OrgService.DeptReq 对 null 跳过） */
+    private fun deptBody(
+        name: String? = null,
+        code: String? = null,
+        parentId: Long? = null,
+        sortOrder: Int? = null,
+        description: String? = null,
+        status: String? = null,
+    ): String {
+        val sb = StringBuilder("{")
+        fun put(k: String, v: String?) {
+            if (v == null) return
+            if (sb.length > 1) sb.append(',')
+            sb.append('"').append(k).append("\":").append(v)
+        }
+        put("name", name?.let { jsonStr(it) })
+        put("code", code?.let { jsonStr(it) })
+        put("parentId", parentId?.toString())
+        put("sortOrder", sortOrder?.toString())
+        put("description", description?.let { jsonStr(it) })
+        put("status", status?.let { jsonStr(it) })
+        sb.append('}')
+        return sb.toString()
+    }
+
+    /** POST /api/admin/departments → 新建部门 */
+    suspend fun createDepartment(
+        token: String,
+        name: String,
+        code: String?,
+        parentId: Long?,
+        sortOrder: Int?,
+        description: String?,
+    ) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/departments", token, deptBody(name, code, parentId, sortOrder, description))
+        }
+    }
+
+    /** PUT /api/admin/departments/{id} → 修改部门（只传改动字段） */
+    suspend fun updateDepartment(
+        token: String,
+        id: Long,
+        name: String?,
+        code: String?,
+        parentId: Long?,
+        sortOrder: Int?,
+        description: String?,
+        status: String?,
+    ) {
+        withContext(Dispatchers.IO) {
+            authReq("PUT", "/api/admin/departments/$id", token, deptBody(name, code, parentId, sortOrder, description, status))
+        }
+    }
+
+    /** DELETE /api/admin/departments/{id} → 删除（有子部门或仍有成员时后端会拒，文案原样透出） */
+    suspend fun deleteDepartment(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/admin/departments/$id", token) }
+    }
+
+    /** POST /api/admin/departments/{id}/members {userIds} → 把用户加入部门 */
+    suspend fun addDeptMembers(token: String, deptId: Long, userIds: List<Long>) {
+        withContext(Dispatchers.IO) {
+            authReq(
+                "POST", "/api/admin/departments/$deptId/members", token,
+                """{"userIds":[${userIds.joinToString(",")}]}""",
+            )
+        }
+    }
+
     /** GET /api/admin/announcements?page=&size= → 服务端分页 */
     suspend fun adminAnnouncementsPage(
         token: String,

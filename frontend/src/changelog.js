@@ -10,6 +10,25 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.57-native',
+    date: '2026-11-24',
+    title: 'App 登录优化',
+    items: [
+      'App 内登录流程优化',
+    ],
+  },
+
+  {
+    version: '1.3.74',
+    date: '2026-11-24',
+    title: '登录与内嵌页',
+    items: [
+      '原生壳内登录流程优化',
+      '内嵌 Web 页的登录态注入覆盖更多页面',
+    ],
+  },
+
+  {
     version: '1.3.56-native',
     date: '2026-11-24',
     title: '骨架屏与登录体验',

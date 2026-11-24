@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -343,10 +344,18 @@ private fun UserActionDialog(
 @Composable
 internal fun DepartmentsTab(session: Session) {
     val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
     var depts by remember { mutableStateOf<List<DeptItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
+    var editOpen by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<DeptItem?>(null) }
+    var memberTarget by remember { mutableStateOf<DeptItem?>(null) }
+    var confirmDelete by remember { mutableStateOf<Long?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var toast by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
     LaunchedEffect(tick) {
         loading = true
@@ -378,17 +387,20 @@ internal fun DepartmentsTab(session: Session) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        AdminHeader("部门", "${depts.size} 个（只读）", onRefresh = { tick++ })
+        AdminHeader("部门", "共 ${depts.size} 个", onRefresh = { tick++ })
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
+            AdminButton("新建部门", enabled = !busy) { editTarget = null; editOpen = true }
+        }
         Box(Modifier.weight(1f)) {
             when {
                 loading -> KbSkeletonList()
                 err != null -> AdminError(err ?: "", { tick++ })
-                depts.isEmpty() -> AdminHint("还没有部门\n新建 / 编辑请回 Web 端")
+                depts.isEmpty() -> AdminHint("还没有部门\n点上方「新建部门」添加根部门")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(rows.size) { i ->
                         val (d, depth) = rows[i]
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 18.dp + 18.dp * depth, end = 18.dp, top = 7.dp, bottom = 7.dp),
+                            Modifier.fillMaxWidth().padding(start = 18.dp + 18.dp * depth, end = 12.dp, top = 7.dp, bottom = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(
@@ -404,11 +416,37 @@ internal fun DepartmentsTab(session: Session) {
                                 color = KbTextMain,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
                             val code = d.code
                             if (!code.isNullOrBlank()) {
                                 Spacer(Modifier.width(8.dp))
                                 Text(code, fontSize = 10.5.sp, color = KbTextSub)
+                            }
+                            Spacer(Modifier.weight(1f))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AdminButton("编辑", enabled = !busy) { editTarget = d; editOpen = true }
+                                AdminButton("成员", enabled = !busy) { memberTarget = d }
+                                if (confirmDelete == d.id) {
+                                    AdminButton("确认删除", danger = true, enabled = !busy) {
+                                        busy = true
+                                        scope.launch {
+                                            try {
+                                                api.deleteDepartment(session.token, d.id)
+                                                confirmDelete = null
+                                                toast = "已删除「${d.name}」"
+                                                tick++
+                                            } catch (e: Exception) {
+                                                toast = e.message ?: "删除失败"
+                                            } finally {
+                                                busy = false
+                                            }
+                                        }
+                                    }
+                                    AdminButton("取消", enabled = !busy) { confirmDelete = null }
+                                } else {
+                                    AdminButton("删除", danger = true, enabled = !busy) { confirmDelete = d.id }
+                                }
                             }
                         }
                     }
@@ -416,10 +454,224 @@ internal fun DepartmentsTab(session: Session) {
             }
         }
         Text(
-            "部门增删改与成员分配请回 Web 端「部门管理」",
+            "层级调整（挂到哪个上级下）请在 Web 端拖拽；这里做增删改与成员加入。",
             fontSize = 10.sp,
             color = KbTextSub,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
         )
     }
+    if (editOpen) {
+        DeptEditDialog(
+            session = session,
+            target = editTarget,
+            onClose = { editOpen = false },
+            onSaved = { msg -> toast = msg; editOpen = false; tick++ },
+        )
+    }
+    memberTarget?.let { d ->
+        DeptMemberDialog(
+            session = session,
+            dept = d,
+            onClose = { memberTarget = null },
+            onSaved = { msg -> toast = msg; memberTarget = null; tick++ },
+        )
+    }
+    AdminToast(toast)
+}
+
+/**
+ * 新建 / 编辑部门。
+ *
+ * 只做名称、编码、排序：层级调整（挂到哪个上级下）仍走 Web 端拖拽——树形父级选择控件
+ * 在这里要下拉 + 防成环校验，收益不抵复杂度；后端 move 接口也要求 parentId+sortOrder 同时给。
+ */
+@Composable
+private fun DeptEditDialog(
+    session: Session,
+    target: DeptItem?,
+    onClose: () -> Unit,
+    onSaved: (String) -> Unit,
+) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf(target?.name.orEmpty()) }
+    var code by remember { mutableStateOf(target?.code.orEmpty()) }
+    var sort by remember { mutableStateOf((target?.sortOrder ?: 0).toString()) }
+    var busy by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf("") }
+    val creating = target == null
+
+    KbDialog(
+        onDismissRequest = onClose,
+        title = {
+            Text(
+                if (creating) "新建部门（根部门）" else "编辑部门 · ${target.name}",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Column(Modifier.width(400.dp)) {
+                Text(
+                    if (creating) "新建出来的是根部门；要挂到某个上级下请在 Web 端拖拽"
+                    else "只改名称 / 编码 / 排序；层级调整请在 Web 端拖拽",
+                    fontSize = 11.sp,
+                    color = KbTextSub,
+                )
+                if (note.isNotEmpty()) {
+                    Text(note, fontSize = 11.5.sp, color = AdminErrRed, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("部门名称", fontSize = 11.5.sp) },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = KbPrimary, unfocusedBorderColor = KbBorder),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = code,
+                        onValueChange = { code = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        label = { Text("编码（可空）", fontSize = 11.5.sp) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = KbPrimary, unfocusedBorderColor = KbBorder),
+                    )
+                    OutlinedTextField(
+                        value = sort,
+                        onValueChange = { sort = it.filter { ch -> ch.isDigit() || ch == '-' } },
+                        modifier = Modifier.width(110.dp),
+                        singleLine = true,
+                        label = { Text("排序", fontSize = 11.5.sp) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = KbPrimary, unfocusedBorderColor = KbBorder),
+                    )
+                }
+            }
+        },
+        dismissButton = { AdminButton("取消", enabled = !busy) { onClose() } },
+        confirmButton = {
+            AdminButton(if (busy) "保存中…" else "保存", enabled = !busy && name.isNotBlank()) {
+                busy = true
+                note = ""
+                scope.launch {
+                    try {
+                        val order = sort.toIntOrNull()
+                        val codeOrNull = code.trim().ifBlank { if (creating) null else "" }
+                        if (creating || target == null) {
+                            api.createDepartment(session.token, name.trim(), codeOrNull, null, order, null)
+                            onSaved("已新建「${name.trim()}」")
+                        } else {
+                            api.updateDepartment(session.token, target.id, name.trim(), codeOrNull, null, order, null, null)
+                            onSaved("已保存「${name.trim()}」")
+                        }
+                    } catch (e: Exception) {
+                        note = e.message ?: "保存失败"
+                    } finally {
+                        busy = false
+                    }
+                }
+            }
+        },
+    )
+}
+
+/**
+ * 把用户加入部门。
+ *
+ * 只做「加入」不做「移除」：后端没有按部门查成员的 GET 接口（只有 POST/DELETE members），
+ * 无法列出当前成员给用户挑，做半套反而误导。移除在 Web 端「部门管理」里。
+ */
+@Composable
+private fun DeptMemberDialog(
+    session: Session,
+    dept: DeptItem,
+    onClose: () -> Unit,
+    onSaved: (String) -> Unit,
+) {
+    val api = remember(session) { ApiClient(session.server) }
+    val scope = rememberCoroutineScope()
+    var q by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(true) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var users by remember { mutableStateOf<List<AdminUserItem>>(emptyList()) }
+    var busy by remember { mutableStateOf(false) }
+    var added by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(q) {
+        loading = true
+        err = null
+        kotlinx.coroutines.delay(300)
+        try {
+            users = api.adminUsersPage(session.token, q.trim(), 0, 20).items
+        } catch (e: Exception) {
+            err = e.message ?: "加载失败"
+        } finally {
+            loading = false
+        }
+    }
+
+    KbDialog(
+        onDismissRequest = onClose,
+        title = { Text("加入成员 · ${dept.name}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(Modifier.width(440.dp)) {
+                Text(
+                    "点用户即加入该部门；移除成员请在 Web 端操作。",
+                    fontSize = 11.sp,
+                    color = KbTextSub,
+                )
+                Spacer(Modifier.height(8.dp))
+                SearchBox(q, { q = it }, Modifier.fillMaxWidth(), "搜索用户名 / 昵称")
+                if (err != null) {
+                    Text(err ?: "", fontSize = 11.5.sp, color = AdminErrRed, modifier = Modifier.padding(top = 6.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.heightIn(max = 320.dp)) {
+                    when {
+                        loading -> KbSkeletonList(rows = 4)
+                        users.isEmpty() -> AdminHint("没有匹配的用户")
+                        else -> LazyColumn(Modifier.fillMaxWidth()) {
+                            items(users, key = { it.id }) { u ->
+                                KbTableRow {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            u.displayName.ifBlank { u.username },
+                                            fontSize = 12.5.sp,
+                                            color = KbTextMain,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(u.username, fontSize = 10.5.sp, color = KbTextSub, maxLines = 1)
+                                    }
+                                    AdminButton(
+                                        if (added == u.id) "已加入" else "加入",
+                                        enabled = !busy && added != u.id,
+                                    ) {
+                                        busy = true
+                                        scope.launch {
+                                            try {
+                                                api.addDeptMembers(session.token, dept.id, listOf(u.id))
+                                                added = u.id
+                                            } catch (e: Exception) {
+                                                err = e.message ?: "加入失败"
+                                            } finally {
+                                                busy = false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        dismissButton = { AdminButton("完成") { onSaved("成员已更新") } },
+    )
 }

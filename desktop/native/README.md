@@ -494,3 +494,24 @@ Web 端共享文档编辑器（`ShareWebEditor`），这是真正的实时协同
   保存后刷新详情。非管理员会拿到后端 403 文案（前端不另做权限判断）。
 - 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
 - 未做：**部门管理**（增删改 + 成员分配）——涉及树形编辑与成员选择，单列一轮。
+
+## 部门管理（2026-11-24）
+
+- `DepartmentsTab`：树形列表每行加「编辑 / 成员 / 删除（二次确认）」；顶部「新建部门」。
+- `DeptEditDialog`：名称 / 编码 / 排序；新建出来的是**根部门**。层级调整仍走 Web 端拖拽——
+  树形父级下拉 + 防成环校验的复杂度不抵收益，后端 `move` 也要求 parentId 与 sortOrder 同时给。
+- `DeptMemberDialog`：搜索用户 → 点一下即 `POST /admin/departments/{id}/members {userIds}`。
+  **只做加入不做移除**：后端没有按部门查成员的 GET（只有 POST/DELETE），列不出当前成员让用户挑，
+  做半套反而误导；移除仍回 Web 端。
+- 删除失败时后端文案（「存在子部门/仍有成员」）原样透出到 toast，不做二次包装。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+
+## 新增「收藏」「排行榜」两个页面（2026-11-24）
+
+- 侧栏在「考试」之后新增两项，菜单由 `MenuKind.entries` 驱动，加枚举即出现（图标 `MenuGlyph` 同步补了书签与柱状图）。
+- **收藏**（`FavoritesPanel`）：`GET /api/favorites/mine` 列表 + 行内「打开 / 取消收藏」（`DELETE /api/favorites/{docId}`，幂等）。
+  点「打开」跳到文章面板并定位到该篇（复用 `jumpDocId` 通道）。
+- **排行榜**（`RankingPanel`）：`GET /api/points/ranking`，前 20 名 + 顶部「我的名次 #n · x 积分 · 共 y 人」；
+  前三名用 `KbTag` 警告色标注。
+- 两页都用 `KbTableHead / KbTableRow / KbSkeletonList / KbEmptyState`，与管理端视觉一致。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
