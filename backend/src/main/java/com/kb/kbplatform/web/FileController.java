@@ -182,7 +182,7 @@ public class FileController {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", true);
         // 被正文引用时按设计只解除登记；否则如实告知对象是否删掉，便于调用方判断链接还能不能用
-        out.put("objectDeleted", referenced ? false : objectDeleted);
+        out.put("objectDeleted", objectDeleted);
         return out;
     }
 }

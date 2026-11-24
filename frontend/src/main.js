@@ -262,5 +262,6 @@ window.addEventListener('unhandledrejection', (e) => reportError('Promise: ' + (
 })()
 
 app.use(createPinia()).use(router).mount('#app')
-// 首屏占位（index.html 里的纯 HTML 版）退场：挂载完成后再移除，避免闪一下就没了内容
-document.getElementById('boot-loading')?.remove()
+// 首屏占位要等「首次导航完成」再撤：mount() 是同步返回的，这时路由守卫的登录态核验（弱网最长 6s）
+// 与首屏 chunk 下载都还没结束，提前撤掉等于又露出一段白屏。isReady 在导航 settle 后 resolve。
+router.isReady().catch(() => {}).finally(() => document.getElementById('boot-loading')?.remove())

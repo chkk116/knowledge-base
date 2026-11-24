@@ -16,9 +16,23 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=3" />
   <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png?v=3" />
   <title>知识库</title>
+  <link rel="stylesheet" href="/boot-loading.css" />
 </head>
 <body class="kb-mobile-body">
   <div id="app"></div>
+  <!-- 首屏占位：路由守卫核验登录态 + 首屏 chunk 下载期间原本是纯白屏（邀请页/慢网最明显）。
+       纯 HTML/CSS + 一段 15 秒超时兜底（入口脚本没加载出来时至少给个刷新入口）。 -->
+  <div id="boot-loading" role="status" aria-live="polite">
+    <div class="boot-spinner"></div>
+    <div class="boot-text">加载中…</div>
+    <div class="boot-fail">加载时间有点久，可能是网络不稳。<br /><a onclick="location.reload()">点此刷新</a></div>
+  </div>
+  <script>
+    setTimeout(function () {
+      var el = document.getElementById('boot-loading')
+      if (el) el.classList.add('is-timeout')
+    }, 15000)
+  </script>
   <script type="module" src="/src/main-mobile.js"></script>
 </body>
 </html>

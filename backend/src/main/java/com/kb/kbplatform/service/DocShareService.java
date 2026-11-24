@@ -634,16 +634,19 @@ public class DocShareService {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
         if (s.getOwnerId().equals(targetUserId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能移除所有者");
-        boolean wasMember = permRepo.findByShareIdAndUserId(shareId, targetUserId).isPresent();
-        permRepo.deleteByShareIdAndUserId(shareId, targetUserId);
+        // 用「删除影响行数」判断是否真的移除了成员：先查再删的话，两个并发请求都读到存在，
+        // 会各自回退一格名额（多退）。
+        long removed = permRepo.deleteByShareIdAndUserId(shareId, targetUserId);
         // 名额回退：usedCount 原本只在「加入」时 +1，成员被移除后不回落，
-        // 于是空间只剩 1 人、邀请卡却显示 2/5，再拉人时还会提前撞上限（N79）
-        if (wasMember) {
-            var actives = inviteRepo.findByShareIdAndRevokedFalse(shareId);
-            for (var inv : actives) {
-                if (inv.getUsedCount() > 0) inv.setUsedCount(inv.getUsedCount() - 1);
+        // 于是空间只剩 1 人、邀请卡却显示 2/5，再拉人时还会提前撞上限（N79）。
+        // 用原子条件递减（与加入时的 consume 对称），不在这里「读出来 -1 再 saveAll」——
+        // 那样会把并发 consume 刚加的 1 覆盖掉。
+        // 已知近似：没记录成员是从哪条邀请进来的，直接由管理员加进来的人也会退一格；
+        // 代价只是某条邀请多出一个可用名额，比「名额永远不回落」可接受。
+        if (removed > 0) {
+            for (var inv : inviteRepo.findByShareIdAndRevokedFalse(shareId)) {
+                inviteRepo.release(inv.getId());
             }
-            if (!actives.isEmpty()) inviteRepo.saveAll(actives);
         }
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);

@@ -20,7 +20,8 @@ public interface DocSharePermissionRepository extends JpaRepository<DocSharePerm
     /** 批量取多个空间的权限行（列表页去 N+1 用） */
     java.util.List<DocSharePermission> findByShareIdIn(java.util.Collection<Long> shareIds);
 
-    void deleteByShareIdAndUserId(Long shareId, Long userId);
+    /** 返回受影响行数：调用方据此判断「这次真的移除了成员」，避免先查再删的竞态 */
+    long deleteByShareIdAndUserId(Long shareId, Long userId);
     void deleteByUserId(Long userId);   // 自助注销：授权随账号失效（username 快照随条目消失）
 
     long countByShareIdAndPermission(Long shareId, String permission);

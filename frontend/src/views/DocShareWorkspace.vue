@@ -85,12 +85,14 @@ const docCanWrite = computed(() => {
   return p === 'OWNER' || p === 'ADMIN' || p === 'WRITE'
 })
 
+const shareFailed = ref(false)   // 空间信息拉取失败：别再拿 "没有权限" 的文案糊弄
 const loadShare = async () => {
   try {
     const { data } = await getShare(shareId.value)
     share.value = data
     shareType.value = data.type || 'TEAM'
   } catch (e) {
+    shareFailed.value = true
     ElMessage.error(errMsg(e, '加载空间失败'))
     router.push('/doc-shares')
   }
@@ -896,9 +898,11 @@ async function copyPubUrl() {
       <div v-else class="editor empty">
         <!-- 空间还没加载完时先别说权限结论：原来 canWrite 初始为 false，会先闪一句「只有只读权限」，
              加载完又变回「开始协作」，看着像权限前后矛盾（N65） -->
-        <el-empty :description="loading || !share
-          ? '正在加载空间…'
-          : (canWrite ? '选择左侧文档开始协作，或点击新建' : '选择左侧文档查看（你对这个空间只有只读权限）')" />
+        <el-empty :description="shareFailed
+          ? '空间信息加载失败，请返回列表重试'
+          : (loading || !share
+            ? '正在加载空间…'
+            : (canWrite ? '选择左侧文档开始协作，或点击新建' : '选择左侧文档查看（你对这个空间只有只读权限）'))" />
       </div>
     </div>
 

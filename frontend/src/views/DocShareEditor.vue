@@ -170,7 +170,9 @@ function seedIfEmpty() {
     // 把旧版 HTML / 新建种子一次性注入协同文档，随后由中继落库为 yjs_state
     editor.value.commands.setContent(props.legacyContent)
     // 播种后立刻补一版快照（不等 6 秒定时）：两个人几乎同时首次打开同一篇从未协同过的文档时，
-    // 都会看到「本地为空」而各播一次，两边合并就出现重复段落。落库越快，这个窗口越小（N17）
+    // 都会看到「本地为空」而各播一次，两边合并就出现重复段落。落库越快，这个窗口越小（N17）。
+    // 放在 nextTick 里是因为 buildSnapshotHtml 要遍历 DOM 取图块（导图/表格）节点，
+    // setContent 之后这一帧才渲染出对应的 NodeView。
     nextTick(() => saveSnapshot(true))
   }
 }

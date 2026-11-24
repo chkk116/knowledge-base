@@ -147,7 +147,9 @@ window.addEventListener('unhandledrejection', (e) => {
 })
 
 app.use(createPinia()).use(mobileRouter).mount('#app')
-document.getElementById('boot-loading')?.remove()
+// 占位要等「首次导航完成」再撤：mount() 是同步返回的，这时路由守卫的登录态核验（弱网最长 6s）
+// 与首屏 chunk 下载都还没结束，提前撤掉等于又露出一段白屏。isReady 在导航 settle 后 resolve。
+mobileRouter.isReady().catch(() => {}).finally(() => document.getElementById('boot-loading')?.remove())
 
 /**
  * 路由分包预取：空闲时预加载常用二级页的 chunk，消除首次切页的白屏/卡顿。

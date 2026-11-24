@@ -203,12 +203,31 @@ function saveTabs() {
   try { sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs.value.filter((t) => !t.pinned))) } catch { /* ignore */ }
 }
 // 换账号/登出时清空标签栏：标签只按访问顺序累积在 sessionStorage，退出登录不清，
-// 下一个人登进来会看到上一个人的标签（N77）。按用户 id 变化判断，同一账号重登不影响。
-watch(() => auth.user?.id ?? null, (id, prev) => {
-  if (prev !== undefined && id !== prev) {
-    tabs.value = [{ ...HOME_TAB }]
-    try { sessionStorage.removeItem(TABS_KEY) } catch { /* ignore */ }
-  }
+// 下一个人登进来会看到上一个人的标签（N77）。
+// 不能只看「id 变了就清」：刷新页面时 store 初始化 user 为 null，fetchMe 回来后是 null→id，
+// 那样每次刷新都会把刚恢复的标签清掉，与「刷新不丢」矛盾。所以另外记一个归属 id：
+// 只有「登出」或「归属 id 与当前账号不一致」才清，刷新时两者一致、原样保留。
+const TABS_OWNER_KEY = 'kb_tabs_owner'
+function tabsOwner() {
+  try { return sessionStorage.getItem(TABS_OWNER_KEY) || '' } catch { return '' }
+}
+function setTabsOwner(id) {
+  try {
+    if (id == null) sessionStorage.removeItem(TABS_OWNER_KEY)
+    else sessionStorage.setItem(TABS_OWNER_KEY, String(id))
+  } catch { /* ignore */ }
+}
+function resetTabs() {
+  tabs.value = [{ ...HOME_TAB }]
+  try { sessionStorage.removeItem(TABS_KEY) } catch { /* ignore */ }
+}
+watch(() => auth.user?.id ?? null, (id) => {
+  // 登出时**故意保留**归属 id：这样下一个人登录进来，owner !== 当前 id 就能判出「换号」并清空；
+  // 同一账号重登则保留原标签。
+  if (id == null) return
+  const owner = tabsOwner()
+  if (owner && owner !== String(id)) resetTabs()   // 换号：清掉上一个人的标签
+  setTabsOwner(id)
 })
 function addTab(r) {
   if (barePage.value || !r?.path || r.path === '/') return

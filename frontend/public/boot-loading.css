@@ -1,0 +1,23 @@
+/* 首屏加载占位（index.html / mobile.html 共用）。
+   纯 CSS，不依赖任何构建产物：路由守卫核验登录态、首屏 chunk 下载这段时间原本是纯白。 */
+#boot-loading {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; flex-direction: column; gap: 12px;
+  align-items: center; justify-content: center;
+  background: #f7f8fb; color: #6b7280;
+  font: 13px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+#boot-loading .boot-spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2.5px solid #e5e7eb; border-top-color: #6366f1;
+  animation: boot-spin .9s linear infinite;
+}
+#boot-loading .boot-fail { display: none; text-align: center; }
+#boot-loading.is-timeout .boot-spinner { display: none; }
+#boot-loading.is-timeout .boot-fail { display: block; }
+#boot-loading .boot-fail a { color: #6366f1; cursor: pointer; text-decoration: underline; }
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+@media (prefers-color-scheme: dark) {
+  #boot-loading { background: #14161f; color: #9aa3b2; }
+  #boot-loading .boot-spinner { border-color: #2b2f3d; border-top-color: #818cf8; }
+}
