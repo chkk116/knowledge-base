@@ -62,7 +62,7 @@ import java.io.File
  * WebView 承载页：原生壳里运行移动 Web 页面（/m/ 路径族）。
  *
  * 令牌桥接（不依赖前端是否实现接收端，宿主侧直接落 localStorage）：
- *  1. 拦截**站内** HTML 文档请求（`/m/` 移动页与 `EmbedScreen` 加载的 `/admin/**` PC 表单都算），
+ *  1. 拦截**站内** HTML 文档请求（`/m/` 移动页与 `EmbedScreen` 加载的 `/admin/` 路径 PC 表单都算），
  *     由 OkHttp 取回响应体
  *  2. 在 <head> 后注入 `<script>`：挂 `window.__KB_NATIVE_TOKEN` 并**立刻** `localStorage.setItem('kb_token', …)`
  *  3. 前端 `main-mobile.js` / `main.js` 若将来补了接收端，变量那条路照常可用；没补也不影响登录
