@@ -457,6 +457,7 @@ npm run pack        # 先复用前端构建到 desktop/web，再出安装包 + �
 - **卡片化界面**：共享空间三栏与管理页页签统一为白卡 + 选中竖条 + 圆形色块 + 状态标签，元信息与空态 layout 对齐 Web 端
 - **单实例 + 系统通知**：重复启动不会再开第二个窗口（两个进程会抢同一份 WebView2 用户档案与配置文件，表现为「登录态时有时无」「设置自己变回去」）；新消息/审核结果在窗口不在前台时走系统通知，同标题 20 秒去重
 - **管理功能补齐**：用户管理可直接改角色/调积分/重置密码，学习面板看课程与进度，不必再为这些操作开浏览器
+- **桌面私信**：会话列表 + 消息流（30 秒轮询），可直接在客户端回消息，不必切回网页
 - **界面不展示服务器地址**：侧栏、页面头、设置「关于」、登录页均不显示域名；地址只从 `%APPDATA%\kb-desktop\config.json` 或 `KB_DESKTOP_SERVER` 环境变量读取，token 不落盘
 - 版本独立于 Web 端：`AppInfo.versionCode/versionName`，更新通道 `desktop`（`GET /api/public/app-version?channel=desktop`）
 - 构建：`gradle createDistributable` 出开发态自包含目录；`gradle packageInnoSetup` 出单文件安装包（详见 `desktop/native/README.md`）
