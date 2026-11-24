@@ -31,6 +31,8 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @RequestMapping("/api/files")
 public class FileController {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(FileController.class);
+
     private final FileService svc;
     private final UploadedFileRepository fileRepo;
     private final DocumentRepository docRepo;
@@ -165,14 +167,22 @@ public class FileController {
         boolean referenced = f.getUrl() != null
                 && (docRepo.countContentLike("%" + f.getUrl() + "%") > 0
                     || sharedDocRepo.countContentLike("%" + f.getUrl() + "%") > 0);
+        boolean objectDeleted = false;
         if (!referenced) {
             try {
                 svc.deleteByUrl(f.getUrl());
-            } catch (Exception ignore) {
-                // 物理删除失败不影响登记解除（磁盘文件后续由管理员孤儿清理兜底）
+                objectDeleted = true;
+            } catch (Exception e) {
+                // 物理删除失败不影响登记解除，但必须留下痕迹：此前 catch 里什么都不做，
+                // 「记录没了、文件还能公开访问」这种问题只能靠外部测试发现（N71）
+                log.warn("删除物理文件失败，记录已解除登记：id={} url={} err={}", id, f.getUrl(), e.getMessage());
             }
         }
         fileRepo.delete(f);
-        return Map.of("ok", true);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", true);
+        // 被正文引用时按设计只解除登记；否则如实告知对象是否删掉，便于调用方判断链接还能不能用
+        out.put("objectDeleted", referenced ? false : objectDeleted);
+        return out;
     }
 }

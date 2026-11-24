@@ -539,7 +539,8 @@ const kick = async (row) => {
   try {
     await removeMember(shareId.value, row.userId)
     ElMessage.success('已移除')
-    await loadMembers()
+    // 成员表与上方的邀请名额一起刷：名额按当前成员数回退了，只刷表格的话卡片还停在旧数字（N79）
+    await Promise.all([loadMembers(), loadInvite()])
   } catch (e) {
     ElMessage.error('移除失败')
   }

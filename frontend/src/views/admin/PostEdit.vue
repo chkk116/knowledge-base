@@ -203,7 +203,9 @@ const onKeydown = (e) => { if (e.key === 'Escape' && fullscreen.value) fullscree
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  if (ready.value && (form.value.title || form.value.content)) writeDraft()
+  // 只在真改过时留草稿：原来只要标题/正文非空就写，光是打开看一眼再离开，
+  // 下次进来就会提示「检测到未提交的本地草稿」，用户以为有东西没存（N72）
+  if (ready.value && dirty.value && (form.value.title || form.value.content)) writeDraft()
 })
 
 // status: 'DRAFT' 存草稿 / 'PENDING_REVIEW' 提交审核 / null 仅保存（已发布帖编辑）
@@ -219,6 +221,18 @@ const save = async (status) => {
   if (!form.value.content.trim()) {
     ElMessage.warning('请填写正文')
     return
+  }
+  // 发布前确认（N73）：点一下就提交并跳转，误触等于直接把文章对外公开。
+  // 只拦「发布」这一种（status 为空且不是编辑已发布文章），存草稿/提交审核保持一步到位。
+  const isPublish = status == null && !(isEdit && currentStatus.value === 'PUBLISHED')
+  if (isPublish) {
+    try {
+      await ElMessageBox.confirm(
+        '发布后这篇文章立即对所有访客可见，不进审核队列。确定发布？',
+        '确认发布',
+        { type: 'warning', confirmButtonText: '发布', cancelButtonText: '再检查一下' },
+      )
+    } catch { return }
   }
   loading.value = true
   try {

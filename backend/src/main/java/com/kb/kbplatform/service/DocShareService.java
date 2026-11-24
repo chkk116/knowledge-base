@@ -49,6 +49,7 @@ public class DocShareService {
     private final SharedDocVersionRepository sharedDocVerRepo;
     private final DocAnnotationRepository annoRepo;
     private final UploadedFileRepository fileRepo;
+    private final com.kb.kbplatform.repository.SpaceInviteRepository inviteRepo;
     private final TransactionTemplate tx;
     private final RelayNotifier relayNotifier;
     private final NotificationService notificationService;
@@ -58,7 +59,9 @@ public class DocShareService {
                            UserRepository userRepo, SharedDocVersionRepository sharedDocVerRepo,
                            DocAnnotationRepository annoRepo, UploadedFileRepository fileRepo,
                            TransactionTemplate tx, RelayNotifier relayNotifier,
-                           NotificationService notificationService) {
+                           NotificationService notificationService,
+                           com.kb.kbplatform.repository.SpaceInviteRepository inviteRepo) {
+        this.inviteRepo = inviteRepo;
         this.relayNotifier = relayNotifier;
         this.notificationService = notificationService;
         this.shareRepo = shareRepo;
@@ -631,7 +634,17 @@ public class DocShareService {
         DocShare s = get(shareId, userId, sysAdmin);
         if (!canAdmin(s.getMyPermission())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要空间管理员权限");
         if (s.getOwnerId().equals(targetUserId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能移除所有者");
+        boolean wasMember = permRepo.findByShareIdAndUserId(shareId, targetUserId).isPresent();
         permRepo.deleteByShareIdAndUserId(shareId, targetUserId);
+        // 名额回退：usedCount 原本只在「加入」时 +1，成员被移除后不回落，
+        // 于是空间只剩 1 人、邀请卡却显示 2/5，再拉人时还会提前撞上限（N79）
+        if (wasMember) {
+            var actives = inviteRepo.findByShareIdAndRevokedFalse(shareId);
+            for (var inv : actives) {
+                if (inv.getUsedCount() > 0) inv.setUsedCount(inv.getUsedCount() - 1);
+            }
+            if (!actives.isEmpty()) inviteRepo.saveAll(actives);
+        }
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);
         relayNotifier.permissionChanged(shareId, targetUserId, null);   // F04：移除成员立即踢下线

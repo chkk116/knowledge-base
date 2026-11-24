@@ -71,7 +71,8 @@ const start = async (p) => {
   ]
   try {
     await ElMessageBox.confirm(rules.join('；') + '。', '考试须知', {
-      type: 'info', confirmButtonText: '开始答题', cancelButtonText: '再看看',
+      // 与列表按钮同一口径（N78）：入口写「开始考试」，弹窗确认也写「开始考试」
+      type: 'info', confirmButtonText: '开始考试', cancelButtonText: '再看看',
     })
   } catch { return }
   router.push('/exams/' + p.id + '/take')

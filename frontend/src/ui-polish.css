@@ -207,7 +207,14 @@ html.dark .el-card { border-color: #26262f; box-shadow: none; }
    ============================================================ */
 .el-message { border-radius: 10px; box-shadow: var(--kb-sh); border: 1px solid var(--kb-line); }
 .el-message-box { border-radius: var(--kb-radius-lg); box-shadow: var(--kb-sh-lg); }
-.el-empty__description { color: var(--kb-txt-3); }
+/* 空态可读性（N76）：Element 默认说明文字是 #909399、插画是 #d5d7de 一档，在白底上几乎看不清。
+   说明文字用次级文本色（对比度 4.5+），插画只提一档，避免抢过正文。 */
+.el-empty__description,
+.el-empty__description p { color: var(--kb-txt-2); }
+.el-empty { --el-svg-monochrome-grey: #c2c8d3; }
+html.dark .el-empty__description,
+html.dark .el-empty__description p { color: var(--kb-txt-3); }
+html.dark .el-empty { --el-svg-monochrome-grey: #4b5563; }
 
 /* ============================================================
    10. 描述列表 / 树

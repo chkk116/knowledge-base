@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { listMyDocs, deleteMyDoc, submitReview, withdrawReview } from '../api/kb'
 import PageBar from '../components/PageBar.vue'
 import { errMsg } from '../utils/errMsg'
+import { fmtDateTime } from '../utils/time'
 
 const route = useRoute()
 const router = useRouter()
@@ -120,7 +121,12 @@ onMounted(load)
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="updatedAt" label="更新时间" width="190" />
+      <!-- 后端是 LocalDateTime 带 6 位小数秒的 ISO 串，直接渲染会把长串折成两行（N67） -->
+      <el-table-column label="更新时间" width="150">
+        <template #default="{ row }">
+          <span>{{ fmtDateTime(row.updatedAt) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="驳回理由" min-width="200">
         <template #default="{ row }">
           <span v-if="row.rejectReason" class="reason">⚠ {{ row.rejectReason }}</span>
