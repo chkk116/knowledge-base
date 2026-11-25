@@ -222,8 +222,12 @@ private fun Sidebar(
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
 
+        // 菜单区可滚动：17 项在 800dp 高的窗口里会正好撑满，不滚动会把底部「用户区」挤出窗口
         Column(
-            Modifier.padding(horizontal = if (rail) 8.dp else 10.dp),
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = if (rail) 8.dp else 10.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             for (kind in MenuKind.entries) {
@@ -236,7 +240,6 @@ private fun Sidebar(
             }
         }
 
-        Spacer(Modifier.weight(1f))
         HorizontalDivider()
 
         // 用户区：窄栏只留头像（点击即退出）
@@ -2620,6 +2623,11 @@ private fun DmPanel(session: Session) {
         msgs = emptyList()
         try {
             msgs = api.dmMessages(session.token, p, null, 30)
+            // 打开会话即标已读：只拉消息不标已读的话，桌面端角标与会话未读数会一直挂着（N85）
+            if (msgs.any { it.fromId == p && !it.read }) {
+                runCatching { api.dmMarkRead(session.token, p) }
+                tick++      // 让左侧会话列表的未读数一起刷新
+            }
         } catch (e: Exception) {
             note = e.message ?: "消息加载失败"
         } finally {
@@ -2636,7 +2644,14 @@ private fun DmPanel(session: Session) {
             } catch (e: Exception) {
                 continue
             }
-            if (fresh.size != msgs.size || fresh.lastOrNull()?.id != msgs.lastOrNull()?.id) msgs = fresh
+            if (fresh.size != msgs.size || fresh.lastOrNull()?.id != msgs.lastOrNull()?.id) {
+                msgs = fresh
+                // 轮询期间收到新消息，同样要标已读（用户正看着这个会话）
+                if (fresh.any { it.fromId == p && !it.read }) {
+                    runCatching { api.dmMarkRead(session.token, p) }
+                    tick++
+                }
+            }
         }
     }
 
@@ -2749,20 +2764,30 @@ private fun DmPanel(session: Session) {
                     ) {
                         items(msgs, key = { it.id }) { m ->
                             val mine = m.fromId != p
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
-                            ) {
-                                Column(
-                                    Modifier
-                                        .widthIn(max = 420.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (mine) KbAccentSoft else KbHoverBg)
-                                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                            // 撤回不是「（非文本消息）」：content 已被清空，按系统提示居中显示（与网页端一致，N88）
+                            if (m.kind == "RECALL") {
+                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        if (m.fromId == p) "对方撤回了一条消息" else "你撤回了一条消息",
+                                        fontSize = 10.5.sp, color = KbTextSub,
+                                    )
+                                }
+                            } else {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
                                 ) {
-                                    Text(m.content.ifBlank { "（非文本消息）" }, fontSize = 12.5.sp, color = KbTextMain, lineHeight = 19.sp)
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(fmtTime(m.createdAt), fontSize = 9.5.sp, color = KbTextSub)
+                                    Column(
+                                        Modifier
+                                            .widthIn(max = 420.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (mine) KbAccentSoft else KbHoverBg)
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    ) {
+                                        Text(m.content.ifBlank { "（非文本消息）" }, fontSize = 12.5.sp, color = KbTextMain, lineHeight = 19.sp)
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(fmtTime(m.createdAt), fontSize = 9.5.sp, color = KbTextSub)
+                                    }
                                 }
                             }
                         }

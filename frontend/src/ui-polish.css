@@ -211,10 +211,33 @@ html.dark .el-card { border-color: #26262f; box-shadow: none; }
    说明文字用次级文本色（对比度 4.5+），插画只提一档，避免抢过正文。 */
 .el-empty__description,
 .el-empty__description p { color: var(--kb-txt-2); }
-.el-empty { --el-svg-monochrome-grey: #c2c8d3; }
+/* 插画本身也要提对比：Element 的默认填充是 #fcfcfd~#d5d7de 一档，白底上几乎看不见。
+   这些颜色由 SVG 里的 var(--el-empty-fill-color-N) 取，先前的 --el-svg-monochrome-grey 根本没有被用到，
+   所以只改它等于没改（N76 反馈「插画仍近乎纯白」）。 */
+.el-empty {
+  --el-empty-fill-color-1: #f0f2f6;
+  --el-empty-fill-color-2: #e9ecf2;
+  --el-empty-fill-color-3: #e2e6ee;
+  --el-empty-fill-color-4: #d8dde7;
+  --el-empty-fill-color-5: #d1d7e2;
+  --el-empty-fill-color-6: #c9d0dd;
+  --el-empty-fill-color-7: #c1c9d7;
+  --el-empty-fill-color-8: #b9c2d2;
+  --el-empty-fill-color-9: #aeb8ca;
+}
 html.dark .el-empty__description,
 html.dark .el-empty__description p { color: var(--kb-txt-3); }
-html.dark .el-empty { --el-svg-monochrome-grey: #4b5563; }
+html.dark .el-empty {
+  --el-empty-fill-color-1: #232838;
+  --el-empty-fill-color-2: #272d3e;
+  --el-empty-fill-color-3: #2c3346;
+  --el-empty-fill-color-4: #313a4e;
+  --el-empty-fill-color-5: #374156;
+  --el-empty-fill-color-6: #3d485e;
+  --el-empty-fill-color-7: #444f67;
+  --el-empty-fill-color-8: #4b5770;
+  --el-empty-fill-color-9: #55627d;
+}
 
 /* ============================================================
    10. 描述列表 / 树

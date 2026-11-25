@@ -842,6 +842,13 @@ class ApiClient(private val base: String) {
             }
         }
 
+    /** POST /api/dm/read {peerId} → 把与某人的消息标为已读（打开会话时调用） */
+    suspend fun dmMarkRead(token: String, peerId: Long) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/dm/read", token, """{"peerId":$peerId}""")
+        }
+    }
+
     /** POST /api/dm/messages {toId, content} → 发送私信 */
     suspend fun dmSend(token: String, toId: Long, content: String) {
         withContext(Dispatchers.IO) {

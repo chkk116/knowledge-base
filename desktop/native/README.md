@@ -546,3 +546,13 @@ Web 端共享文档编辑器（`ShareWebEditor`），这是真正的实时协同
 - 空态：「今天没有要复习的卡片」——新增卡片在手机端 / Web 端（桌面不做建卡表单）。
 - 侧栏 17 项；`MenuGlyph` 为卡片画了两张叠放的正交卡片。
 - 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+
+## 侧栏 17 项溢出修复（2026-11-24）
+
+- 问题：菜单项每项 40dp，17 项 = 680dp，加上品牌行（约 60dp）与底部用户区（约 60dp）≈ 800dp——
+  **正好等于主窗口高度**，任何一点边距就会把「用户区 / 退出登录」挤出可视区；宽度 < 880dp 收成图标栏时
+  （每项 44dp）溢出更明显。
+- 修法：菜单区改为 `Column(Modifier.weight(1f).verticalScroll(...))`，菜单自己滚动，底部用户区永远可见。
+  顺带去掉了原来用来顶开底部的 `Spacer(Modifier.weight(1f))`（现由菜单区占据剩余高度）。
+- 为什么不是缩小项高：40dp 已是 24dp 图标 + 上下留白的下限，再压会让点击目标变小、hover 区域难瞄。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。

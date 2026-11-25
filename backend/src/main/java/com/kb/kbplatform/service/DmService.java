@@ -302,7 +302,9 @@ public class DmService {
                 row.put("name", u == null ? "已注销用户" : (u.getDisplayName() == null || u.getDisplayName().isBlank()
                         ? u.getUsername() : u.getDisplayName()));
                 row.put("avatar", u == null ? null : u.getAvatar());
-                row.put("lastMessage", m.getContent());
+                // 撤回后 content 被清空，列表预览不能只剩一个空白/「我：」——
+                // 前端与桌面端都直接把这段当预览文案
+                row.put("lastMessage", "RECALL".equals(m.getKind()) ? "（消息已撤回）" : m.getContent());
                 row.put("lastFromMe", m.getFromId().equals(me));
                 row.put("lastAt", m.getCreatedAt());
                 row.put("unread", 0);
