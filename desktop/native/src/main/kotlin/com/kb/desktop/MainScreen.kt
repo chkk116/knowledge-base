@@ -529,6 +529,15 @@ private fun HomePanel(
                 onNavigate(MenuKind.FILES)
             }
         }
+        Spacer(Modifier.height(10.dp))
+        // 第二行快捷入口：17 项侧栏太长，把这三个高频页也放到首页，免得每次翻侧栏
+        Row(Modifier.fillMaxWidth()) {
+            QuickCard("我的收藏", "收藏过的文章", KbTileAmber, Modifier.weight(1f)) { onNavigate(MenuKind.FAVORITES) }
+            Spacer(Modifier.width(12.dp))
+            QuickCard("复习卡片", "按间隔复习", KbTileViolet, Modifier.weight(1f)) { onNavigate(MenuKind.CARDS) }
+            Spacer(Modifier.width(12.dp))
+            QuickCard("私信", "与同事一对一沟通", KbTileTeal, Modifier.weight(1f)) { onNavigate(MenuKind.DM) }
+        }
     }
 }
 

@@ -94,7 +94,7 @@ internal fun DocManageTab(session: Session) {
             SearchBox(q, { q = it; page = 0 }, Modifier.weight(1f), "搜索标题 / 正文")
         }
         Spacer(Modifier.height(6.dp))
-        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 1.7f))
+        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 2.4f))
         Box(Modifier.weight(1f)) {
             when {
                 loading -> KbSkeletonList()
@@ -145,8 +145,22 @@ internal fun DocManageTab(session: Session) {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Row(Modifier.weight(1.7f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(Modifier.weight(2.4f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if (d.status != "DELETED") {
+                                    AdminButton(if (d.pinned) "取消置顶" else "置顶", enabled = !busy) {
+                                        busy = true
+                                        scope.launch {
+                                            try {
+                                                api.setDocPinned(session.token, d.id, !d.pinned)
+                                                rows = rows.map { if (it.id == d.id) it.copy(pinned = !d.pinned) else it }
+                                                toast = if (!d.pinned) "已置顶" else "已取消置顶"
+                                            } catch (e: java.util.concurrent.CancellationException) {
+                                                throw e
+                                            } catch (e: Exception) {
+                                                toast = e.message ?: "操作失败"
+                                            } finally { busy = false }
+                                        }
+                                    }
                                     AdminButton(if (d.status == "BLOCKED") "解封" else "封禁", enabled = !busy) {
                                         scope.launch {
                                             busy = true

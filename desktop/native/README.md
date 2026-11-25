@@ -556,3 +556,26 @@ Web 端共享文档编辑器（`ShareWebEditor`），这是真正的实时协同
   顺带去掉了原来用来顶开底部的 `Spacer(Modifier.weight(1f))`（现由菜单区占据剩余高度）。
 - 为什么不是缩小项高：40dp 已是 24dp 图标 + 上下留白的下限，再压会让点击目标变小、hover 区域难瞄。
 - 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+
+## 管理台左栏加滚动（2026-11-24）
+
+- 管理台 15 个 tab × 约 34dp ≈ 510dp，窗口最小高 620dp 时加头部已接近撑满；
+  系统字体放大或窗口更矮时，最后几个 tab（操作审计 / 登录日志 / 孤儿附件）会被裁掉且无法到达。
+- 修法同侧栏：tab 列 `weight(1f) + verticalScroll`，头部「管理」标题固定在顶部。
+- 至此桌面端所有「固定数量条目」的侧栏（主侧栏 17 项、管理台 15 项）都可滚动；
+  其余长列表（会话 / 邮件 / 文档 / 共享空间）本来就是 LazyColumn。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+
+## 首页第二行快捷入口（2026-11-24）
+
+- 侧栏从 11 项涨到 17 项后，收藏 / 复习卡片 / 私信变成「要翻侧栏」才能到。首页快捷区补了第二行三个入口，
+  与原有「问 AI / 全部文章 / 我的文件」并列。
+- 首页整页是 `verticalScroll`，多一行不影响 620dp 最小高度下的可达性。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。
+
+## 帖子置顶/取消置顶（2026-11-24）
+
+- 帖子管理行内新增「置顶 / 取消置顶」：`POST /api/admin/docs/{id}/pin|unpin`（需 POST_MANAGE）。
+- `AdminDocItem` 增加 `pinned` 字段并解析后端 `Document.pinned`，按钮文案随状态切换；成功后行内乐观更新。
+- 后端 `Document.pinned` 存在，列表优先展示置顶文章，桌面端只负责设置状态，不本地排序。
+- 验证：`compileKotlin` BUILD SUCCESSFUL、`KB_SMOKE=1 run` EXIT=0。

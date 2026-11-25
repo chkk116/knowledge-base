@@ -474,6 +474,7 @@ data class AdminDocItem(
     val updatedAt: String,
     val createdAt: String,
     val views: Int,
+    val pinned: Boolean = false,
 )
 
 /** 管理：服务端分页结果（Spring Page 的 content/totalElements 子集，page 为 0 基） */
@@ -1215,9 +1216,17 @@ class ApiClient(private val base: String) {
                 updatedAt = j.str("updatedAt").orEmpty(),
                 createdAt = j.str("createdAt").orEmpty(),
                 views = j.int("views") ?: 0,
+                pinned = j.bool("pinned") ?: false,
             )
         }
         PageBox(items, o.long("totalElements") ?: items.size.toLong(), page, size)
+    }
+
+    /** POST /api/admin/docs/{id}/pin|unpin → 置顶/取消置顶 */
+    suspend fun setDocPinned(token: String, id: Long, pinned: Boolean) {
+        withContext(Dispatchers.IO) {
+            authReq("POST", "/api/admin/docs/$id/" + if (pinned) "pin" else "unpin", token)
+        }
     }
 
     /** POST /api/admin/docs/{id}/block|unblock → 封禁/解封 */

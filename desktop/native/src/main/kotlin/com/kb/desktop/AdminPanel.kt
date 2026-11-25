@@ -3,6 +3,8 @@ package com.kb.desktop
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -84,7 +86,15 @@ fun AdminPanel(session: Session, onOpenDoc: (Long) -> Unit = {}) {
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             )
             HorizontalDivider(color = KbBorder)
-            Column(Modifier.padding(horizontal = 6.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            // 15 个 tab × 约 34dp ≈ 510dp：主窗口 620dp 高时加上头部已经接近撑满，
+// 换成更矮的窗口或系统字体放大后底部 tab 会被裁掉，所以这里也让它自己滚动
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 for ((key, label) in ADMIN_TABS) {
                     val sel = tab == key
                     KbSelectCard(
