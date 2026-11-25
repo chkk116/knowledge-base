@@ -92,6 +92,9 @@ object KbApi {
                 .put("password", password)
                 .put("captchaToken", captchaToken)
             val j = ApiClient.post("/api/auth/login", body)
+            // 业务失败是 200 + {ok:false,error}（如需先完成滑动验证）：不拦的话下面 getString("token")
+            // 会抛 "No value for token"，用户看到的是一句英文异常而不是真正原因
+            if (!j.optBoolean("ok", true)) throw ApiError(200, j.optString("error", "登录失败"))
             Session(
                 token = j.getString("token"),
                 id = j.optLong("id", 0),
