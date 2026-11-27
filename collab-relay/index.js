@@ -320,12 +320,70 @@ async function persistAll() {
  * 版本里于是存的是「上一版协同态」——回滚后就出现「正文列已恢复、协同内容还是旧的」。
  * 返回是否真的存在在线房间：没有在线连接时数据库本来就是最新的，后端直接快照即可。
  */
+
+// ---- REST 建文档的 Yjs 播种 + 保存点回写 content（N17）----
+// REST 建的文档只有 content 列、没有 yjs_state，第一次进编辑器拿到的是空协同态；
+// 之后编辑器把正文写进 Yjs，content 列却不再更新，两条读取路径分叉。
+// 这里在首次加载时从 content 播种一份最小 Yjs 树，并在保存点把 Yjs 正文回写 content。
+function escapeHtmlText(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+function decodeHtmlEntities(s) {
+  return String(s).replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+}
+function plainLinesFromHtml(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|blockquote)>\s*/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .split(/\n+/)
+    .map((x) => decodeHtmlEntities(x).trim())
+    .filter(Boolean)
+}
+function seedFromContent(fragment, html) {
+  const lines = plainLinesFromHtml(html)
+  for (const line of lines) {
+    const p = new Y.XmlElement('paragraph')
+    p.insert(0, [new Y.XmlText(line)])
+    fragment.insert(fragment.length, [p])
+  }
+  return lines.length
+}
+function htmlFromYjs(doc) {
+  const frag = doc.getXmlFragment('default')
+  const parts = []
+  for (const child of frag.toArray()) {
+    const text = decodeHtmlEntities(child.toString().replace(/<[^>]*>/g, ''))
+    if (text.trim()) parts.push('<p>' + escapeHtmlText(text.trim()) + '</p>')
+  }
+  return parts.join('\n')
+}
+async function syncContentToDb(docName, doc) {
+  if (invalidDocuments.has(doc) || !documentRevisions.has(doc)) return
+  const { docId, shareId } = parseName(docName)
+  const html = htmlFromYjs(doc)
+  if (!html) return
+  try {
+    const rows = await db.query('SELECT content FROM kb_shared_document WHERE id = $1 AND share_id = $2', [docId, shareId])
+    if (!rows.rows[0] || rows.rows[0].content === html) return
+    // 不动 yjs_rev / updated_at：编辑器的乐观锁基线不能被中继推进（与 persistCurrent 同口径）
+    await db.query('UPDATE kb_shared_document SET content = $1 WHERE id = $2 AND share_id = $3', [html, docId, shareId])
+  } catch (e) {
+    console.error('[content-sync]', docName, e.message)
+  }
+}
+
 async function flushDocument(shareId, docId) {
   const prefix = shareId + ':' + docId
   let flushed = false
   for (const [name, doc] of [...loadedDocs]) {
     if (name !== prefix && !name.startsWith(prefix + ':')) continue
-    try { await persist(name, doc); flushed = true } catch (e) { console.error('[flush]', name, e.message) }
+    try {
+      await persist(name, doc)
+      await syncContentToDb(name, doc)
+      flushed = true
+    } catch (e) { console.error('[flush]', name, e.message) }
   }
   return flushed
 }
@@ -422,7 +480,23 @@ const server = Server.configure({
     const row = rows[0]
     if (!row) throw new Error('document not found')
     if (Number(row.yjs_rev || 0) !== revision) throw new Error('document revision changed')
-    if (row.yjs_state?.length) Y.applyUpdate(document, row.yjs_state)
+    if (row.yjs_state?.length) {
+      Y.applyUpdate(document, row.yjs_state)
+    } else {
+      // REST/导入建的文档没有协同态：从 content 播一份最小 Yjs 树，避免进编辑器是一片空白（N17）
+      const c = await q('SELECT content FROM kb_shared_document WHERE id = $1 AND share_id = $2', [docId, shareId])
+      if (c[0]?.content) {
+        const seed = new Y.Doc()
+        if (seedFromContent(seed.getXmlFragment('default'), c[0].content)) {
+          Y.applyUpdate(document, Y.encodeStateAsUpdate(seed))
+          await db.query(
+            'UPDATE kb_shared_document SET yjs_state = $1 WHERE id = $2 AND share_id = $3 AND COALESCE(yjs_rev, 0) = $4',
+            [Y.encodeStateAsUpdate(document), docId, shareId, revision]
+          )
+        }
+        seed.destroy()
+      }
+    }
     documentRevisions.set(document, revision)
     loadedDocs.set(documentName, document)
     return document
@@ -449,11 +523,16 @@ const server = Server.configure({
 
   async onStoreDocument({ documentName, document }) {
     await persist(documentName, document)
+    await syncContentToDb(documentName, document)
   },
 
   async onDisconnect({ documentName, document }) {
     // 保留加载代次；保存完成后由框架卸载最后一个连接离开的房间。
     await persist(documentName, document).catch(e => console.error('[save][disconnect]', documentName, e.message))
+    // 最后一人离开时把 Yjs 正文回写 content 一次（不做实时双向同步）
+    if (!document.getConnections?.().length) {
+      await syncContentToDb(documentName, document)
+    }
   },
 })
 
