@@ -18,9 +18,10 @@ public class FilterConfig {
     private long tokenTtl;
 
     @Bean
-    public FilterRegistrationBean<AuthFilter> authFilter(UserRepository userRepo, TokenSecretProvider tokenSecretProvider) {
+    public FilterRegistrationBean<AuthFilter> authFilter(UserRepository userRepo, TokenSecretProvider tokenSecretProvider,
+                                                         ApiKeyRegistry apiKeys) {
         FilterRegistrationBean<AuthFilter> bean =
-                new FilterRegistrationBean<>(new AuthFilter(tokenSecretProvider.get(), tokenTtl, userRepo));
+                new FilterRegistrationBean<>(new AuthFilter(tokenSecretProvider.get(), tokenTtl, userRepo, apiKeys));
         bean.setOrder(-100);   // 尽量靠前执行
         return bean;
     }

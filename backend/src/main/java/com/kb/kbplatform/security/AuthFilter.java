@@ -29,11 +29,13 @@ public class AuthFilter implements Filter {
     private final String secret;
     private final long ttlMillis;
     private final UserRepository userRepo;
+    private final ApiKeyRegistry apiKeys;
 
-    public AuthFilter(String secret, long ttlMillis, UserRepository userRepo) {
+    public AuthFilter(String secret, long ttlMillis, UserRepository userRepo, ApiKeyRegistry apiKeys) {
         this.secret = secret;
         this.ttlMillis = ttlMillis;
         this.userRepo = userRepo;
+        this.apiKeys = apiKeys;
     }
 
     @Override
@@ -69,26 +71,45 @@ public class AuthFilter implements Filter {
         }
 
         boolean publicRequest = isPublic(path, method);
-        String auth = req.getHeader("Authorization");
-        if (!publicRequest && (auth == null || !auth.startsWith("Bearer "))) {
-            // 不再接受 ?token= 查询参数（白盒 T4）：令牌出现在 URL 里会进反代/网关访问日志，
-            // 运维、日志平台、备份都可能留存。前端早已改成 fetch + Authorization 头，
-            // 旧标签页最多重连失败一次，刷新即可。
-        }
+
+        // 静态 API 密钥通道（X-API-Key）：给外部系统用的最简接入，等价于「以该密钥绑定的账号登录」。
+        // 放在 Authorization 之前先认：命中就直接拿这个账号的 role/权限码，后面的门禁一律照旧。
+        // 带了密钥却不认时，受保护接口直接 401 而不是回落匿名——否则调用方会以为"降级成功"，
+        // 排查时只看到一个莫名其妙的部分数据。
+        String apiKey = req.getHeader("X-API-Key");
         TokenClaims claims = null;
-        if (auth != null && auth.startsWith("Bearer ")) {
-            try {
-                claims = TokenUtil.parse(secret, auth.substring(7).trim());
-            } catch (IllegalArgumentException e) {
-                // 仅令牌格式、签名或过期错误按认证失败处理；公开接口降级为匿名。
-                if (!publicRequest) {
-                    send401(res);
-                    return;
-                }
+        if (apiKey != null && !apiKey.isBlank()) {
+            Long apiUid = apiKeys.resolve(apiKey);
+            User ku = apiUid == null ? null : userRepo.findById(apiUid).orElse(null);
+            if (ku != null && ku.isEnabled()) {
+                claims = new TokenClaims(ku.getId(), ku.getUsername(), ku.getRole(),
+                        ku.getPermissions(), Long.MAX_VALUE, ku.getTokenVersion());
+                req.setAttribute("kbApiKey", apiKeys.label(apiKey));
+            } else if (!publicRequest) {
+                send401(res);
+                return;
             }
-        } else if (!publicRequest) {
-            send401(res);
-            return;
+        }
+
+        String auth = req.getHeader("Authorization");
+        if (claims == null) {
+            if (auth != null && auth.startsWith("Bearer ")) {
+                try {
+                    claims = TokenUtil.parse(secret, auth.substring(7).trim());
+                } catch (IllegalArgumentException e) {
+                    // 仅令牌格式、签名或过期错误按认证失败处理；公开接口降级为匿名。
+                    if (!publicRequest) {
+                        send401(res);
+                        return;
+                    }
+                }
+            } else if (!publicRequest) {
+                // 不再接受 ?token= 查询参数（白盒 T4）：令牌出现在 URL 里会进反代/网关访问日志，
+                // 运维、日志平台、备份都可能留存。前端早已改成 fetch + Authorization 头，
+                // 旧标签页最多重连失败一次，刷新即可。
+                send401(res);
+                return;
+            }
         }
 
         if (claims != null) {
