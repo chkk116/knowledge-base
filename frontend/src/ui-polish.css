@@ -214,7 +214,8 @@ html.dark .el-card { border-color: #26262f; box-shadow: none; }
 /* 插画本身也要提对比：Element 的默认填充是 #fcfcfd~#d5d7de 一档，白底上几乎看不见。
    这些颜色由 SVG 里的 var(--el-empty-fill-color-N) 取，先前的 --el-svg-monochrome-grey 根本没有被用到，
    所以只改它等于没改（N76 反馈「插画仍近乎纯白」）。 */
-.el-empty {
+/* 用 html 前缀抬权重：element-plus 的 .el-empty 定义同一批变量，加载顺序靠后时会同权重覆盖 */
+html .el-empty {
   --el-empty-fill-color-1: #f0f2f6;
   --el-empty-fill-color-2: #e9ecf2;
   --el-empty-fill-color-3: #e2e6ee;
@@ -227,7 +228,7 @@ html.dark .el-card { border-color: #26262f; box-shadow: none; }
 }
 html.dark .el-empty__description,
 html.dark .el-empty__description p { color: var(--kb-txt-3); }
-html.dark .el-empty {
+html.dark .el-empty, html.dark body .el-empty {
   --el-empty-fill-color-1: #232838;
   --el-empty-fill-color-2: #272d3e;
   --el-empty-fill-color-3: #2c3346;

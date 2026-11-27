@@ -2080,64 +2080,61 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
     Canvas(modifier) {
         val u = size.width / 24f
         // 24 网格上的统一线宽（约 1.6px），端点/拐角圆角——与 Web 端细线图标一致
-        val stroke = Stroke(width = 1.6f * u, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val stroke = Stroke(width = 1.8f * u, cap = StrokeCap.Round, join = StrokeJoin.Round)
         val p = Path()
         fun line(x1: Float, y1: Float, x2: Float, y2: Float) =
             drawLine(tint, Offset(x1 * u, y1 * u), Offset(x2 * u, y2 * u), stroke.width, StrokeCap.Round)
 
         when (kind) {
             MenuKind.HOME -> {
-                line(3f, 11f, 12f, 4f); line(12f, 4f, 21f, 11f)
-                p.moveTo(6f, 9f); p.lineTo(6f, 20f); p.lineTo(18f, 20f); p.lineTo(18f, 9f)
+                // 房子：屋顶 + 房体 + 门（Lucide 风，比例居中）
+                p.moveTo(3f, 11f); p.lineTo(12f, 4f); p.lineTo(21f, 11f)
+                p.moveTo(6f, 10f); p.lineTo(6f, 20f); p.lineTo(18f, 20f); p.lineTo(18f, 10f)
                 line(10.5f, 20f, 10.5f, 14.5f); line(10.5f, 14.5f, 13.5f, 14.5f); line(13.5f, 14.5f, 13.5f, 20f)
             }
             MenuKind.DOCS -> {
-                p.moveTo(7f, 4f); p.lineTo(17f, 4f); p.lineTo(17f, 20f); p.lineTo(7f, 20f); p.close()
-                line(10f, 9.5f, 14f, 9.5f); line(10f, 12.5f, 14f, 12.5f); line(10f, 15.5f, 13f, 15.5f)
-            }
-            MenuKind.CHAT -> {
-                p.moveTo(4f, 5.5f); p.lineTo(20f, 5.5f); p.lineTo(20f, 15.5f); p.lineTo(11f, 15.5f)
-                p.lineTo(7.5f, 19f); p.lineTo(7.5f, 15.5f); p.lineTo(4f, 15.5f); p.close()
-                line(8.5f, 10.5f, 8.5f, 10.6f); line(12f, 10.5f, 12f, 10.6f); line(15.5f, 10.5f, 15.5f, 10.6f)
-            }
-            MenuKind.FILES -> {
-                p.moveTo(3.5f, 6.5f); p.lineTo(9.5f, 6.5f); p.lineTo(11.5f, 8.5f); p.lineTo(20.5f, 8.5f)
-                p.lineTo(20.5f, 18.5f); p.lineTo(3.5f, 18.5f); p.close()
+                // 文档：外框 + 三行文字
+                p.moveTo(6.5f, 4f); p.lineTo(17.5f, 4f); p.lineTo(17.5f, 20f); p.lineTo(6.5f, 20f); p.close()
+                line(9.5f, 9.5f, 14.5f, 9.5f); line(9.5f, 12.5f, 14.5f, 12.5f); line(9.5f, 15.5f, 13.5f, 15.5f)
             }
             MenuKind.SHARES -> {
-                // 两页重叠的文档（共享/协作语义）
+                // 共享：两页重叠
                 p.moveTo(4f, 9f); p.lineTo(4f, 20f); p.lineTo(13f, 20f); p.lineTo(13f, 9f); p.close()
                 p.moveTo(9f, 4f); p.lineTo(19f, 4f); p.lineTo(19f, 15.5f); p.lineTo(15.5f, 15.5f)
                 line(6.5f, 13f, 10.5f, 13f); line(6.5f, 16.5f, 10.5f, 16.5f)
             }
+            MenuKind.COURSES -> {
+                // 打开的书：中缝 + 两页
+                line(12f, 6.5f, 12f, 19f)
+                p.moveTo(12f, 7f); p.lineTo(5f, 5.5f); p.lineTo(5f, 17.5f); p.lineTo(12f, 19f)
+                p.moveTo(12f, 7f); p.lineTo(19f, 5.5f); p.lineTo(19f, 17.5f); p.lineTo(12f, 19f)
+            }
             MenuKind.EXAMS -> {
-                // 试卷 + 勾选
+                // 试卷：外框 + 勾
                 p.moveTo(6f, 3.5f); p.lineTo(18f, 3.5f); p.lineTo(18f, 20.5f); p.lineTo(6f, 20.5f); p.close()
                 line(9f, 12f, 11f, 14.5f); line(11f, 14.5f, 15.5f, 9f)
             }
             MenuKind.FAVORITES -> {
-                // 书签：上沿平、下沿尖角
+                // 书签
                 p.moveTo(7f, 4f); p.lineTo(17f, 4f); p.lineTo(17f, 20f); p.lineTo(12f, 16f); p.lineTo(7f, 20f); p.close()
             }
             MenuKind.RANKING -> {
-                // 三根高低柱 + 底线
+                // 三根柱 + 底线
                 line(5f, 19.5f, 19f, 19.5f)
-                p.moveTo(7f, 19f); p.lineTo(7f, 13f)
-                p.moveTo(12f, 19f); p.lineTo(12f, 8f)
-                p.moveTo(17f, 19f); p.lineTo(17f, 11f)
+                line(7f, 19f, 7f, 13f); line(12f, 19f, 12f, 8f); line(17f, 19f, 17f, 11f)
             }
             MenuKind.BADGES -> {
                 // 圆章 + 两条下摆
-                drawCircle(tint, radius = 5.5f * u, center = Offset(12f * u, 10.5f * u), style = stroke)
+                drawCircle(tint, 5.5f * u, Offset(12f * u, 10.5f * u), style = stroke)
                 line(9f, 15f, 7.5f, 20.5f); line(15f, 15f, 16.5f, 20.5f)
             }
             MenuKind.POINTS -> {
-                // 硬币：外圆 + 中间横线
-                drawCircle(tint, radius = 8f * u, center = Offset(12f * u, 12f * u), style = stroke)
+                // 硬币：外圆 + 横线
+                drawCircle(tint, 8f * u, Offset(12f * u, 12f * u), style = stroke)
                 line(8.5f, 12f, 15.5f, 12f)
             }
             MenuKind.DM -> {
-                // 两个人对话：两个错开的气泡
+                // 两个错开的对话气泡
                 p.moveTo(3.5f, 6f); p.lineTo(14f, 6f); p.lineTo(14f, 13.5f); p.lineTo(9f, 13.5f)
                 p.lineTo(6.5f, 16.5f); p.lineTo(6.5f, 13.5f); p.lineTo(3.5f, 13.5f); p.close()
                 p.moveTo(10f, 10f); p.lineTo(20.5f, 10f); p.lineTo(20.5f, 17.5f); p.lineTo(17.5f, 17.5f)
@@ -2149,37 +2146,46 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
                 p.moveTo(9f, 9f); p.lineTo(19f, 9f); p.lineTo(19f, 19.5f); p.lineTo(9f, 19.5f); p.close()
                 line(12f, 13f, 16f, 13f); line(12f, 16f, 16f, 16f)
             }
-            MenuKind.COURSES -> {
-                // 打开的书（培训）
-                p.moveTo(12f, 6.5f); p.lineTo(12f, 19f)
-                p.moveTo(12f, 7f); p.lineTo(5f, 5.5f); p.lineTo(5f, 17.5f); p.lineTo(12f, 19f)
-                p.moveTo(12f, 7f); p.lineTo(19f, 5.5f); p.lineTo(19f, 17.5f); p.lineTo(12f, 19f)
+            MenuKind.CHAT -> {
+                // 对话气泡 + 三点
+                p.moveTo(4f, 5.5f); p.lineTo(20f, 5.5f); p.lineTo(20f, 15.5f); p.lineTo(11f, 15.5f)
+                p.lineTo(7.5f, 19f); p.lineTo(7.5f, 15.5f); p.lineTo(4f, 15.5f); p.close()
+                line(8.5f, 10.5f, 8.5f, 10.6f); line(12f, 10.5f, 12f, 10.6f); line(15.5f, 10.5f, 15.5f, 10.6f)
             }
-            MenuKind.ADMIN -> {
-                // 盾牌 + 勾（管理）
-                p.moveTo(12f, 3.5f); p.lineTo(19.5f, 6.5f); p.lineTo(19.5f, 12.5f)
-                p.lineTo(16f, 17f); p.lineTo(12f, 20f); p.lineTo(8f, 17f); p.lineTo(4.5f, 12.5f)
-                p.lineTo(4.5f, 6.5f); p.close()
-                line(9f, 11.5f, 11f, 13.5f); line(11f, 13.5f, 15f, 9f)
-            }
-            MenuKind.SETTINGS -> {
-                line(4f, 7f, 20f, 7f); line(4f, 12f, 20f, 12f); line(4f, 17f, 20f, 17f)
-                drawCircle(tint, 2.1f * u, Offset(14.5f * u, 7f * u), style = Stroke(stroke.width))
-                drawCircle(tint, 2.1f * u, Offset(8.5f * u, 12f * u), style = Stroke(stroke.width))
-                drawCircle(tint, 2.1f * u, Offset(16f * u, 17f * u), style = Stroke(stroke.width))
-            }
-            MenuKind.NOTIFICATIONS -> {
-                // 铃铛：提手 + 铃身折线 + 底座 + 铃舌
-                line(12f, 4f, 12f, 6f)
-                line(8f, 6.5f, 6.2f, 9f); line(6.2f, 9f, 6.2f, 15f); line(6.2f, 15f, 5f, 17.5f)
-                line(5f, 17.5f, 19f, 17.5f); line(19f, 17.5f, 17.8f, 15f); line(17.8f, 15f, 17.8f, 9f)
-                line(17.8f, 9f, 16f, 6.5f); line(16f, 6.5f, 8f, 6.5f)
-                line(10f, 20f, 14f, 20f)
+            MenuKind.FILES -> {
+                // 文件夹
+                p.moveTo(3.5f, 6.5f); p.lineTo(9.5f, 6.5f); p.lineTo(11.5f, 8.5f); p.lineTo(20.5f, 8.5f)
+                p.lineTo(20.5f, 18.5f); p.lineTo(3.5f, 18.5f); p.close()
             }
             MenuKind.MAIL -> {
                 // 信封：外框 + 折角
                 p.moveTo(4f, 6.5f); p.lineTo(20f, 6.5f); p.lineTo(20f, 17.5f); p.lineTo(4f, 17.5f); p.close()
                 line(4f, 7f, 12f, 13f); line(12f, 13f, 20f, 7f)
+            }
+            MenuKind.NOTIFICATIONS -> {
+                // 铃铛：提手 + 铃身 + 底座 + 铃舌（简化为四段）
+                line(12f, 4f, 12f, 6f)
+                p.moveTo(6.5f, 15f); p.lineTo(6.5f, 9f); p.lineTo(8f, 6.5f); p.lineTo(16f, 6.5f)
+                p.lineTo(17.5f, 9f); p.lineTo(17.5f, 15f); p.close()
+                line(5f, 17.5f, 19f, 17.5f)
+                line(10f, 20f, 14f, 20f)
+            }
+            MenuKind.ADMIN -> {
+                // 齿轮：中心圆 + 八齿
+                drawCircle(tint, 3f * u, Offset(12f * u, 12f * u), style = stroke)
+                for (i in 0 until 8) {
+                    val a = Math.PI / 4 * i
+                    val c = kotlin.math.cos(a).toFloat()
+                    val s = kotlin.math.sin(a).toFloat()
+                    line(12f + 6.5f * c, 12f + 6.5f * s, 12f + 8.5f * c, 12f + 8.5f * s)
+                }
+            }
+            MenuKind.SETTINGS -> {
+                // 滑块：三横线 + 三个小圆
+                line(4f, 7f, 20f, 7f); line(4f, 12f, 20f, 12f); line(4f, 17f, 20f, 17f)
+                drawCircle(tint, 2.1f * u, Offset(14.5f * u, 7f * u), style = Stroke(stroke.width))
+                drawCircle(tint, 2.1f * u, Offset(8.5f * u, 12f * u), style = Stroke(stroke.width))
+                drawCircle(tint, 2.1f * u, Offset(16f * u, 17f * u), style = Stroke(stroke.width))
             }
         }
         if (!p.isEmpty) drawPath(p, tint, style = stroke)
@@ -2598,6 +2604,10 @@ private fun pointTypeLabel(t: String): String = when (t.uppercase()) {
     "COURSE" -> "课程"
     else -> "其他"   // 新增类型不该把后端枚举（STREAK/BONUS…）直接显示给用户
 }
+/** 消息流签名：id + 类型 + 内容 + 已读，任一变化都要重绘（撤回会改 kind/content 但条数不变） */
+private fun dmSig(list: List<ApiClient.DmMsg>): String =
+    list.joinToString("|") { "${it.id}:${it.kind}:${it.read}:${it.content.hashCode()}" }
+
 /** 私信：左会话列表 + 右消息流（dm 接口；当前会话 30s 轮询） */
 @Composable
 private fun DmPanel(session: Session) {
@@ -2653,7 +2663,9 @@ private fun DmPanel(session: Session) {
             } catch (e: Exception) {
                 continue
             }
-            if (fresh.size != msgs.size || fresh.lastOrNull()?.id != msgs.lastOrNull()?.id) {
+            // 判据不能只看条数与最后一条 id：撤回不改这两者（content 清空、kind 变 RECALL），
+            // 只看它们的话撤回永远同步不过来，必须重开会话才更新（N105）
+            if (dmSig(fresh) != dmSig(msgs)) {
                 msgs = fresh
                 // 轮询期间收到新消息，同样要标已读（用户正看着这个会话）
                 if (fresh.any { it.fromId == p && !it.read }) {

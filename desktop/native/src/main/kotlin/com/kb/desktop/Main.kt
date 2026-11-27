@@ -20,9 +20,11 @@ import java.awt.Dimension
 import kotlin.system.exitProcess
 
 fun main() {
+    val smoke = System.getenv("KB_SMOKE") == "1"
     // 单实例：第二个进程会和第一个抢 WebView2 数据目录与 config.json，直接退出。
     // 静默退出会让用户以为"双击没反应"，所以给一个原生提示框（无桌面会话时忽略失败）。
-    if (!SingleInstance.acquire()) {
+    // 冒烟 / CI 模式跳过：上一次被强杀的进程可能仍持有锁，这里若弹模态框，进程永远不退出，构建会卡死。
+    if (!smoke && !SingleInstance.acquire()) {
         System.err.println("[kb] 已有实例在运行，本次启动退出")
         runCatching {
             javax.swing.JOptionPane.showMessageDialog(

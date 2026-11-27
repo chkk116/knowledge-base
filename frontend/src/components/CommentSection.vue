@@ -316,7 +316,7 @@ html.dark .cava { background: #2a2a35; color: #a6a7b7; }
   font-size: 14px; line-height: 1.6; color: #0f172a; outline: none;
 }
 .cbox:focus { border-color: #6366f1; }
-.cbox.empty::before { content: attr(data-ph); color: #a8abb2; pointer-events: none; }
+.cbox.empty::before { content: attr(data-ph); color: #7a8494; pointer-events: none; }
 .cbox :deep(img.kb-emoji) { height: 20px; vertical-align: middle; margin: 0 1px; }
 .reply-hint { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 4px 10px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; color: #4f46e5; font-size: 13px; }
 .reply-hint .x { border: none; background: none; color: #6366f1; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }

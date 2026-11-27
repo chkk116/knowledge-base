@@ -85,7 +85,7 @@ onMounted(load)
 .bar { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .bar h2 { margin: 0; font-size: 20px; color: var(--el-text-color-primary); }
 .hint, .tip { color: var(--el-text-color-secondary); font-size: 13px; }
-.empty { padding: 40px; text-align: center; color: var(--el-text-color-secondary); background: var(--el-fill-color-lighter); border-radius: 10px; font-size: 14px; }
+.empty { padding: 40px; text-align: center; color: var(--kb-txt-2, #6b7280); background: var(--el-fill-color-lighter); border-radius: 10px; font-size: 14px; }
 
 .sub-list { display: flex; flex-direction: column; gap: 8px; }
 .sub-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-bg-color); }

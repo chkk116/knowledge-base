@@ -91,7 +91,10 @@ const ready = ref(false) // onMounted 加载完成后再开始监听，避免把
 const dirty = ref(false)
 let baseline = ''
 const syncBaseline = () => { baseline = JSON.stringify(form.value); dirty.value = false }
-useUnsavedGuard(() => dirty.value, '文章还有未保存的修改，确定离开吗？')
+useUnsavedGuard(() => dirty.value, '文章还有未保存的修改，确定离开吗？', {
+  // 选了「离开」等于放弃这次编辑：草稿一起清掉，不然下次进来还会问「是否恢复草稿」
+  onConfirmLeave: () => clearDraft(),
+})
 watch(form, () => {
   if (ready.value) dirty.value = JSON.stringify(form.value) !== baseline
 }, { deep: true })
@@ -121,6 +124,7 @@ const writeDraft = () => {
 const clearDraft = () => {
   localStorage.removeItem(draftKey.value)
   pendingDraft.value = null
+  lastSavedAt.value = 0   // 提示条跟着草稿走，否则清空后仍显示「已自动保存于 …」
 }
 const restoreDraft = () => {
   if (!pendingDraft.value) return
@@ -207,6 +211,12 @@ onBeforeUnmount(() => {
   // 下次进来就会提示「检测到未提交的本地草稿」，用户以为有东西没存（N72）
   if (ready.value && dirty.value && (form.value.title || form.value.content)) writeDraft()
 })
+
+/** 返回上一页；直接打开 /write（没有历史）时回退会原地不动，兜底回列表 */
+const goBack = () => {
+  if (window.history.length > 1) router.back()
+  else router.push(auth.isAdmin ? '/admin/docs' : '/my/posts')
+}
 
 // status: 'DRAFT' 存草稿 / 'PENDING_REVIEW' 提交审核 / null 仅保存（已发布帖编辑）
 const save = async (status) => {
@@ -321,7 +331,7 @@ const restoreVersion = async (v) => {
 
 <template>
   <div class="edit" :class="{ 'writing-fullscreen': fullscreen }">
-    <el-page-header @back="router.back()" :content="isEdit ? '编辑文章' : '写文章'" />
+    <el-page-header @back="goBack" :content="isEdit ? '编辑文章' : '写文章'" />
     <el-alert
       v-if="pendingDraft"
       type="warning" :closable="false" class="draft-tip"
@@ -387,7 +397,7 @@ const restoreVersion = async (v) => {
           <span v-if="!importing">从文档导入</span>
           <span v-else>导入中…</span>
         </el-button>
-        <el-button @click="router.back()">取消</el-button>
+        <el-button @click="goBack">取消</el-button>
         <el-button v-if="isEdit" @click="openVersions">历史版本</el-button>
         <el-button @click="fullscreen = !fullscreen">
           <span v-if="!fullscreen">全屏写作</span>

@@ -1,6 +1,10 @@
 package com.kb.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -60,6 +65,35 @@ internal fun DocManageTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var confirmingId by remember { mutableStateOf<Long?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
+    // 批量操作：多选后统一封禁 / 移入回收站（后端没有批量端点，逐个调用并汇总结果）
+    var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var batchBusy by remember { mutableStateOf(false) }
+
+    fun runBatch(block: suspend (Long) -> Unit) {
+        val ids = selected.toList()
+        if (ids.isEmpty() || batchBusy) return
+        batchBusy = true
+        scope.launch {
+            var ok = 0
+            var fail = 0
+            var firstErr: String? = null
+            for (id in ids) {
+                try {
+                    block(id)
+                    ok++
+                } catch (e: java.util.concurrent.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    fail++
+                    if (firstErr == null) firstErr = e.message
+                }
+            }
+            selected = emptySet()
+            batchBusy = false
+            toast = if (fail == 0) "已处理 $ok 篇" else "成功 $ok 篇，失败 $fail 篇（${firstErr ?: "未知原因"}）"
+            tick++
+        }
+    }
 
     LaunchedEffect(tick, q, page, size) {
         // 输入防抖：每个字符都发请求并把列表替换成「加载中…」，会闪烁且丢滚动位置
@@ -82,7 +116,10 @@ internal fun DocManageTab(session: Session) {
         }
     }
     // 搜索或手动刷新后，旧的「确认删除」待确认状态必须清掉，避免误触删错行
-    LaunchedEffect(tick, q) { confirmingId = null }
+    LaunchedEffect(tick, q) {
+        confirmingId = null
+        selected = emptySet()   // 换页/搜索后旧选择已不在可视范围，留着会造成误批量
+    }
     LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
     Column(Modifier.fillMaxSize()) {
@@ -94,7 +131,28 @@ internal fun DocManageTab(session: Session) {
             SearchBox(q, { q = it; page = 0 }, Modifier.weight(1f), "搜索标题 / 正文")
         }
         Spacer(Modifier.height(6.dp))
-        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 2.4f))
+        if (selected.isNotEmpty()) {
+            // 批量栏：只在实际选中时出现，不占常驻空间
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("已选 ${selected.size} 篇", fontSize = 11.5.sp, color = KbTextMain)
+                Spacer(Modifier.width(10.dp))
+                AdminButton("全选本页", enabled = !batchBusy) { selected = rows.map { it.id }.toSet() }
+                Spacer(Modifier.width(6.dp))
+                AdminButton(if (batchBusy) "处理中…" else "批量封禁", danger = true, enabled = !batchBusy) {
+                    runBatch { id -> api.setDocBlocked(session.token, id, true) }
+                }
+                Spacer(Modifier.width(6.dp))
+                AdminButton(if (batchBusy) "处理中…" else "批量移入回收站", danger = true, enabled = !batchBusy) {
+                    runBatch { id -> api.moveDocToRecycle(session.token, id) }
+                }
+                Spacer(Modifier.weight(1f))
+                AdminButton("取消选择", enabled = !batchBusy) { selected = emptySet() }
+            }
+        }
+        KbTableHead(listOf("" to 0.4f, "标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 2.4f))
         Box(Modifier.weight(1f)) {
             when {
                 loading -> KbSkeletonList()
@@ -103,6 +161,21 @@ internal fun DocManageTab(session: Session) {
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(rows, key = { it.id }) { d ->
                         KbTableRow {
+                            // 自绘小方块而不是 Material Checkbox：后者强制 48dp 触摸区，会把表格行撑高
+                            val checked = d.id in selected
+                            Box(
+                                Modifier
+                                    .size(16.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (checked) KbAccent else Color.Transparent)
+                                    .border(1.dp, if (checked) KbAccent else KbBorder, RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        selected = if (checked) selected - d.id else selected + d.id
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (checked) Text("✓", fontSize = 10.sp, color = Color.White)
+                            }
                             Text(
                                 d.title.ifBlank { "（无标题）" },
                                 modifier = Modifier.weight(3f),
