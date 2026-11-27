@@ -120,7 +120,7 @@ public class AdminExamController {
         int n = 0;
         for (Long id : ids) {
             // 并发/重复点击时 id 可能已被删：跳过而不是整批 500（审查 r12）
-            try { svc.adminDeleteQuestion(id); n++; } catch (IllegalArgumentException ignore) { }
+            try { if (svc.adminDeleteQuestion(id)) n++; } catch (IllegalArgumentException ignore) { }
         }
         return Map.of("ok", true, "deleted", n);
     }
@@ -207,9 +207,13 @@ public class AdminExamController {
         ExamPaper ex = svc.adminGetPaper(id);   // 定向 findById 替代全量列表过滤（M9）
         if (paper.getTitle() != null) ex.setTitle(paper.getTitle());
         if (paper.getDescription() != null) ex.setDescription(paper.getDescription());
-        if (paper.getPassScore() != 0) ex.setPassScore(paper.getPassScore());
-        if (paper.getDurationMin() != null) ex.setDurationMin(paper.getDurationMin());
-        if (paper.getStatus() != null) ex.setStatus(paper.getStatus());
+        // 只认「传了且有意义的数值」：前端表单整体回传时，未填的字段是 0，
+        // 按 0 落库会把 60 分钟静默改成 0（N100）
+        if (paper.getPassScore() > 0) ex.setPassScore(paper.getPassScore());
+        if (paper.getDurationMin() != null && paper.getDurationMin() > 0) ex.setDurationMin(paper.getDurationMin());
+        // 状态没变时不要重设：否则「只改标题」也会走一遍发布校验，
+        // 0 题草稿被误判成「要发布」直接 400（N101）
+        if (paper.getStatus() != null && !paper.getStatus().equals(ex.getStatus())) ex.setStatus(paper.getStatus());
         // 「允许模拟」开关之前只写库不改值（PUT 里漏了），现在补上；null 表示前端没传，保持原值
         if (paper.getPracticeEnabled() != null) ex.setPracticeEnabled(paper.getPracticeEnabled());
         return svc.adminSavePaper(ex);

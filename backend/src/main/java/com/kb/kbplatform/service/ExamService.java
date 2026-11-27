@@ -655,7 +655,10 @@ public class ExamService {
 
     /** 删除题目：选项清理为修改查询，需事务 */
     @Transactional(rollbackFor = Exception.class)
-    public void adminDeleteQuestion(Long id) {
+    public boolean adminDeleteQuestion(Long id) {
+        // 不存在的 id 直接返回 false：原来无论删除与否都算一次成功，批量删除报「deleted:2」
+        // 而两题根本没删，前端以为删掉了（N102）
+        if (id == null || !questionRepo.existsById(id)) return false;
         // 级联清理组卷关联并重算受影响试卷总分（2026-10-13 审查 H4）：
         // 此前只删题目与选项，ExamPaperQuestion 悬空——有外键时报 500，无外键时留脏数据且试卷总分虚高。
         List<ExamPaperQuestion> links = pqRepo.findByQuestionId(id);
@@ -674,6 +677,7 @@ public class ExamService {
         }
         optionRepo.deleteByQuestionId(id);
         questionRepo.deleteById(id);
+        return true;
     }
 
     /** 保存试卷：与 adminDeletePaper / assemble 一致，需要事务保证多步写入原子 */

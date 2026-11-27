@@ -111,7 +111,10 @@ private fun runApp() = application {
             } else {
                 MainScreen(
                     session = s,
-                    onLogout = { session = null },
+                    onLogout = {
+                        // 桌面端令牌只在内存里（不落盘），退出就是丢掉这份会话状态
+                        session = null
+                    },
                 )
             }
         }

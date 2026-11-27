@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -736,6 +737,8 @@ private fun LearnChip(label: String, sel: Boolean, onClick: () -> Unit) {
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier
+            // 单独限宽：超长分类名自己省略，不要把整行推出面板右缘（N97）
+            .widthIn(max = 132.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (sel) KbSidebarSelected else Color(0xFFF1F5F9))
             .clickable(onClick = onClick)
