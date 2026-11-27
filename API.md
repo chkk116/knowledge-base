@@ -2,7 +2,7 @@
 
 知识库平台对外提供 REST API，支持两种调用方式。**推荐用第二种（个人密钥）**——不用共享账号密码，可随时吊销。
 
-- Base URL：你的部署地址（示例用 `https://chkk116.cn`），所有接口前缀 `/api`
+- Base URL：你的部署地址（下文示例统一用 `https://your-host.example`），所有接口前缀 `/api`
 - 请求与响应均为 JSON（`Content-Type: application/json; charset=UTF-8`）
 - 时间字段为 ISO-8601 本地时间（`2026-11-27T16:04:48.123456`），末尾 6 位是微秒，部分语言需要用正则截断到秒再解析
 
@@ -15,7 +15,7 @@
 在**个人资料 → API 密钥**里自助创建（起名字、选有效期、选作用域、可选 IP 白名单），明文只显示一次。
 
 ```bash
-curl -H "X-API-Key: kb_9f3a2c7d5e1b…" https://chkk116.cn/api/docs/163
+curl -H "X-API-Key: kb_9f3a2c7d5e1b…" https://your-host.example/api/docs/163
 ```
 
 | 项 | 说明 |
@@ -32,12 +32,12 @@ curl -H "X-API-Key: kb_9f3a2c7d5e1b…" https://chkk116.cn/api/docs/163
 ### 方式 B：登录令牌
 
 ```bash
-curl -X POST https://chkk116.cn/api/auth/login \
+curl -X POST https://your-host.example/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"zhangsan","password":"…","captchaToken":"…"}'
 # → {"token":"eyJ1c2Vy…","id":3,"username":"zhangsan",...}
 
-curl -H "Authorization: Bearer <token>" https://chkk116.cn/api/auth/me
+curl -H "Authorization: Bearer <token>" https://your-host.example/api/auth/me
 ```
 
 令牌默认 24 小时有效，改密 / 重置密码 / 注销会立即作废。登录需要滑动验证码（`GET /api/auth/captcha` 取图、`POST /api/auth/captcha/slide` 提交轨迹换票据），脚本化登录比较麻烦，**所以脚本请用方式 A**。
@@ -164,17 +164,17 @@ curl -H "Authorization: Bearer <token>" https://chkk116.cn/api/auth/me
 
 ```bash
 # 1. 建一把只读密钥（用登录令牌或已存在的密钥调用）
-curl -X POST https://chkk116.cn/api/me/api-keys \
+curl -X POST https://your-host.example/api/me/api-keys \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"爬取脚本","scopes":["DOC_VIEW"],"expiresInDays":30}'
 # → {"ok":true,"key":"kb_9f3a…"}
 
 # 2. 用它读文档
-curl -H "X-API-Key: kb_9f3a…" https://chkk116.cn/api/docs/163
+curl -H "X-API-Key: kb_9f3a…" https://your-host.example/api/docs/163
 
 # 3. 分页拉列表
-curl -H "X-API-Key: kb_9f3a…" "https://chkk116.cn/api/docs?page=0&size=20&sort=updated"
+curl -H "X-API-Key: kb_9f3a…" "https://your-host.example/api/docs?page=0&size=20&sort=updated"
 ```
 
 ### Python
@@ -182,7 +182,7 @@ curl -H "X-API-Key: kb_9f3a…" "https://chkk116.cn/api/docs?page=0&size=20&sort
 ```python
 import requests
 
-BASE = "https://chkk116.cn/api"
+BASE = "https://your-host.example/api"
 H = {"X-API-Key": "kb_9f3a…"}
 
 # 拉一页文档
@@ -206,7 +206,7 @@ else:
 ### Node.js
 
 ```js
-const BASE = 'https://chkk116.cn/api'
+const BASE = 'https://your-host.example/api'
 const H = { 'X-API-Key': 'kb_9f3a…' }
 
 const res = await fetch(`${BASE}/search?q=${encodeURIComponent('接口')}&size=10`, { headers: H })
