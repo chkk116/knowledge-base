@@ -128,7 +128,7 @@ object YjsHtml {
             "sheet-block", "sheetblock" -> sb.append(sheetBlockHtml(attr("data"), attr("title")))
             "flowchart-block", "flowchartblock" -> sb.append(fcBlockHtml(attr("data"), attr("title")))
             "mindmap-block", "mindmapblock" -> sb.append(
-                blockNotice("🧠", attr("title") ?: "思维导图", "思维导图是交互块，桌面端只显示提示；要编辑请点「编辑」进网页版")
+                blockNotice("🧠", attr("title") ?: "思维导图", "这是交互块，桌面端只显示提示；要编辑请点「编辑」进网页版")
             )
 
             else -> {
@@ -204,16 +204,16 @@ object YjsHtml {
         val name = title ?: "电子表格"
         val nameHtml = escape(name)
         val root = data?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
-            ?: return blockNotice("📊", name, "这个表格块没有可读快照，请点「编辑」在网页版查看")
+            ?: return blockNotice("📊", name, "没有可读快照，请点「编辑」在网页版查看")
         val rows = runCatching { root["rows"]?.jsonObject }.getOrNull()
-            ?: return blockNotice("📊", name, "表格为空，请点「编辑」在网页版查看")
+            ?: return blockNotice("📊", name, "数据为空，请点「编辑」在网页版查看")
         val cellsByRow = sortedMapOf<Int, JsonObject>()
         for ((k, v) in rows) {
             val r = k.toIntOrNull() ?: continue
             val cells = runCatching { (v as JsonObject).get("cells")?.jsonObject }.getOrNull() ?: continue
             if (cells.isNotEmpty()) cellsByRow[r] = cells
         }
-        if (cellsByRow.isEmpty()) return blockNotice("📊", name, "表格为空，请点「编辑」在网页版查看")
+        if (cellsByRow.isEmpty()) return blockNotice("📊", name, "数据为空，请点「编辑」在网页版查看")
         var maxCol = 0
         for (cells in cellsByRow.values) {
             for (k in cells.keys) k.toIntOrNull()?.let { maxCol = maxOf(maxCol, it) }
@@ -249,10 +249,10 @@ object YjsHtml {
         val name = title ?: "流程图"
         val nameHtml = escape(name)
         val root = data?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
-            ?: return blockNotice("🧭", name, "流程图数据为空，请点「编辑」在网页版查看")
+            ?: return blockNotice("🧭", name, "数据为空，请点「编辑」在网页版查看")
         val nodes = runCatching { root["nodes"]?.jsonArray }.getOrNull().orEmpty()
         val edges = runCatching { root["edges"]?.jsonArray }.getOrNull().orEmpty()
-        if (nodes.isEmpty() && edges.isEmpty()) return blockNotice("🧭", name, "流程图数据为空，请点「编辑」在网页版查看")
+        if (nodes.isEmpty() && edges.isEmpty()) return blockNotice("🧭", name, "数据为空，请点「编辑」在网页版查看")
 
         fun text(o: JsonObject, key: String): String? =
             runCatching { (o[key] as JsonObject) }.getOrNull()?.let { inner ->

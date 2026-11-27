@@ -58,12 +58,16 @@ private fun runApp() = application {
     }
 
     LaunchedEffect(session) {
-        if (session != null) {
-            windowState.size = DpSize(1280.dp, 800.dp)
-        } else {
-            windowState.size = DpSize(960.dp, 640.dp)
+        // 退出登录时 session 先被置空，随后这里要改窗口尺寸；某些环境下改尺寸/位置会抛异常，
+        // 一旦在 LaunchedEffect 里漏出去就会打断组合，表现为「点了退出界面没反应」（N106）。
+        runCatching {
+            if (session != null) {
+                windowState.size = DpSize(1280.dp, 800.dp)
+            } else {
+                windowState.size = DpSize(960.dp, 640.dp)
+            }
+            windowState.position = WindowPosition.Aligned(Alignment.Center)
         }
-        windowState.position = WindowPosition.Aligned(Alignment.Center)
     }
 
     val apiServer = remember { ConfigStore.read()["server"]?.takeIf { it.isNotBlank() } ?: ConfigStore.defaultServer }
@@ -79,7 +83,9 @@ private fun runApp() = application {
         // 窗口最小尺寸随状态切换：登录 640×540（保住居中卡构图），主界面 960×620，防止用户缩太小挤破布局
         val awtWindow = LocalAwtWindow.current
         LaunchedEffect(session) {
-            awtWindow?.minimumSize = if (session == null) Dimension(640, 540) else Dimension(960, 620)
+            runCatching {
+                awtWindow?.minimumSize = if (session == null) Dimension(640, 540) else Dimension(960, 620)
+            }
         }
 
         // 调试截图（KB_SHOT=路径）：UI 验收用，抓窗口区域存 PNG 后退出；不设该变量时完全不影响正常使用

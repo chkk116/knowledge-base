@@ -416,7 +416,29 @@ public class RagService {
             if (keywords.isEmpty()) keywords = List.of(q);
             out.addAll(sharedDocRag.search(q, userId, keywords, SHARED_TOP_K));
         }
-        return out;
+        return pruneByKeywords(out, q);
+    }
+
+    /**
+     * 全文检索的无关来源裁剪（N21）：Meili / MySQL 都是按关键词「宽松命中」，
+     * 「极光是怎么形成的？」会把所有讲「形成」的文章都拉进来，无关来源占比能到 80%。
+     * 这里要求每条来源至少命中一个关键词；多关键词时还要命中过半，或标题直接命中。
+     * 向量路径不经过这里——它是语义匹配，没有字面重叠是正常的。
+     */
+    private List<Map<String, Object>> pruneByKeywords(List<Map<String, Object>> sources, String q) {
+        List<String> kws = splitKeywords(q);
+        if (kws.isEmpty() || sources.isEmpty()) return sources;
+        List<Map<String, Object>> kept = new ArrayList<>();
+        for (Map<String, Object> src : sources) {
+            String title = str(src.get("title"));
+            String text = title + " " + str(src.get("snippet")) + " " + str(src.get("fullText"));
+            long hits = kws.stream().filter(text::contains).count();
+            boolean titleHit = kws.stream().anyMatch(title::contains);
+            // 两个关键词时「命中 1 个」太松：蚂蚁那条正是靠「形成可跟随的化学轨迹」混进来的。
+            // 要么标题直接命中，要么全部关键词都命中
+            if (hits > 0 && (titleHit || hits == kws.size())) kept.add(src);
+        }
+        return kept;
     }
 
     private List<Map<String, Object>> retrievePublic(String q) {
@@ -462,7 +484,7 @@ public class RagService {
                     s.put("fullText", focusParagraphs(str(h.get("content")), q));
                     out.add(s);
                 }
-                if (!out.isEmpty()) return out;
+                if (!out.isEmpty()) return pruneByKeywords(out, q);
             } catch (Exception e) {
                 log.warn("Meili 检索失败，回退 MySQL: {}", e.getMessage());
             }
