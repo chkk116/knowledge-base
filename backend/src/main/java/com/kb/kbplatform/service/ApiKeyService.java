@@ -7,6 +7,7 @@ package com.kb.kbplatform.service;
 
 import com.kb.kbplatform.domain.ApiKey;
 import com.kb.kbplatform.repository.ApiKeyRepository;
+import com.kb.kbplatform.security.IpAllowList;
 import com.kb.kbplatform.security.TokenClaims;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,7 +48,7 @@ public class ApiKeyService {
      * @return 明文密钥（形如 kb_9f3a2c7d5e1b...），只此一次
      */
     @Transactional
-    public String create(Long userId, String name, List<String> scopes, Integer expiresInDays) {
+    public String create(Long userId, String name, List<String> scopes, Integer expiresInDays, List<String> allowedIps) {
         if (repo.countByUserIdAndRevokedFalse(userId) >= MAX_KEYS_PER_USER) {
             throw new BizException("密钥数量已达上限（" + MAX_KEYS_PER_USER + " 个），请先吊销不用的");
         }
@@ -58,6 +59,12 @@ public class ApiKeyService {
         k.setKeyPrefix(plain.substring(0, Math.min(11, plain.length())));
         k.setKeyHash(sha256(plain));
         k.setScopes(joinScopes(scopes));
+        // 规范化和校验放在这里：写进库的必须是能用的规则，否则用户以为配了白名单其实没生效
+        try {
+            k.setAllowedIps(IpAllowList.normalize(allowedIps));
+        } catch (IllegalArgumentException e) {
+            throw new BizException(e.getMessage());
+        }
         if (expiresInDays != null && expiresInDays > 0) {
             k.setExpiresAt(LocalDateTime.now().plusDays(Math.min(expiresInDays, 365)));
         }

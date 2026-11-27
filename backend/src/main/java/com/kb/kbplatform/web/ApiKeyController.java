@@ -46,6 +46,7 @@ public class ApiKeyController {
             m.put("name", k.getName());
             m.put("prefix", k.getKeyPrefix());
             m.put("scopes", k.getScopes());
+            m.put("allowedIps", k.getAllowedIps());
             m.put("expiresAt", k.getExpiresAt());
             m.put("lastUsedAt", k.getLastUsedAt());
             m.put("revoked", k.isRevoked());
@@ -69,7 +70,11 @@ public class ApiKeyController {
                 }
             }
         }
-        String plain = svc.create(c.userId(), name, scopes, days);
+        List<String> allowedIps = new ArrayList<>();
+        if (body.get("allowedIps") instanceof List<?> l) {
+            for (Object o : l) if (o instanceof String s && !s.isBlank()) allowedIps.add(s);
+        }
+        String plain = svc.create(c.userId(), name, scopes, days, allowedIps);
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("ok", true);
         r.put("key", plain);   // 只在此刻返回，刷新后拿不回来

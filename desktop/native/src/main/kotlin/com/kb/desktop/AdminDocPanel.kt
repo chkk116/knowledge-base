@@ -310,6 +310,37 @@ internal fun RecycleTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var purging by remember { mutableStateOf<Long?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
+    // 批量：多选后统一恢复 / 彻底删除（彻底删除不可恢复，批量入口必须二次确认）
+    var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var batchBusy by remember { mutableStateOf(false) }
+    var batchConfirm by remember { mutableStateOf(false) }
+
+    fun runBatch(block: suspend (Long) -> Unit) {
+        val ids = selected.toList()
+        if (ids.isEmpty() || batchBusy) return
+        batchBusy = true
+        scope.launch {
+            var ok = 0
+            var fail = 0
+            var firstErr: String? = null
+            for (id in ids) {
+                try {
+                    block(id)
+                    ok++
+                } catch (e: java.util.concurrent.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    fail++
+                    if (firstErr == null) firstErr = e.message
+                }
+            }
+            selected = emptySet()
+            batchConfirm = false
+            batchBusy = false
+            toast = if (fail == 0) "已处理 $ok 篇" else "成功 $ok 篇，失败 $fail 篇（${firstErr ?: "未知原因"}）"
+            tick++
+        }
+    }
 
     LaunchedEffect(tick) {
         loading = true
@@ -339,7 +370,35 @@ internal fun RecycleTab(session: Session) {
             color = Color(0xFFB45309),
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
-        KbTableHead(listOf("标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 1.8f))
+        if (selected.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("已选 ${selected.size} 篇", fontSize = 11.5.sp, color = KbTextMain)
+                Spacer(Modifier.width(10.dp))
+                AdminButton("全选本页", enabled = !batchBusy) { selected = pageRows.map { it.id }.toSet() }
+                Spacer(Modifier.width(6.dp))
+                AdminButton(if (batchBusy) "处理中…" else "批量恢复", enabled = !batchBusy) {
+                    runBatch { id -> api.restoreDoc(session.token, id) }
+                }
+                Spacer(Modifier.width(6.dp))
+                if (batchConfirm) {
+                    AdminButton("确认全部彻底删除", danger = true, enabled = !batchBusy) {
+                        runBatch { id -> api.purgeDoc(session.token, id) }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    AdminButton("取消", enabled = !batchBusy) { batchConfirm = false }
+                } else {
+                    AdminButton(if (batchBusy) "处理中…" else "批量彻底删除", danger = true, enabled = !batchBusy) {
+                        batchConfirm = true
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                AdminButton("取消选择", enabled = !batchBusy) { selected = emptySet(); batchConfirm = false }
+            }
+        }
+        KbTableHead(listOf("" to 0.4f, "标题" to 3f, "分类" to 1f, "作者" to 1f, "状态" to 0.9f, "更新时间" to 1.1f, "操作" to 1.8f))
         Box(Modifier.weight(1f)) {
             when {
                 loading -> KbSkeletonList()
@@ -348,6 +407,20 @@ internal fun RecycleTab(session: Session) {
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(pageRows, key = { it.id }) { d ->
                         KbTableRow {
+                            val checked = d.id in selected
+                            Box(
+                                Modifier
+                                    .size(16.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (checked) KbAccent else Color.Transparent)
+                                    .border(1.dp, if (checked) KbAccent else KbBorder, RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        selected = if (checked) selected - d.id else selected + d.id
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (checked) Text("✓", fontSize = 10.sp, color = Color.White)
+                            }
                             Text(
                                 d.title.ifBlank { "（无标题）" },
                                 modifier = Modifier.weight(3f),
@@ -433,7 +506,7 @@ internal fun RecycleTab(session: Session) {
             total = rows.size.toLong(),
             page = page,
             size = size,
-            onPage = { page = it },
+            onPage = { page = it; selected = emptySet(); batchConfirm = false },
             onSize = { size = it; page = 0 },
         )
     }

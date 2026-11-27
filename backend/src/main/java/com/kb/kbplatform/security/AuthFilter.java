@@ -83,6 +83,13 @@ public class AuthFilter implements Filter {
         if (apiKey != null && !apiKey.isBlank()) {
             ApiKey k = apiKeyService.match(apiKey);   // 未吊销、未过期才返回
             User ku = k == null ? null : userRepo.findById(k.getUserId()).orElse(null);
+            if (ku != null && ku.isEnabled() && !IpAllowList.allows(k.getAllowedIps(), ClientIp.resolve(req))) {
+                // 白名单不匹配要明确拒绝：静默降级会让调用方以为是权限问题
+                res.setStatus(403);
+                res.setContentType("application/json;charset=UTF-8");
+                res.getWriter().write("{\"ok\":false,\"error\":\"来源 IP 不在该密钥的允许范围内\"}");
+                return;
+            }
             if (ku != null && ku.isEnabled()) {
                 TokenClaims account = new TokenClaims(ku.getId(), ku.getUsername(), ku.getRole(),
                         ku.getPermissions(), Long.MAX_VALUE, ku.getTokenVersion());

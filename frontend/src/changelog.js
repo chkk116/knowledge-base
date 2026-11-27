@@ -10,6 +10,16 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.79',
+    date: '2026-11-27',
+    title: 'API 密钥 IP 白名单',
+    items: [
+      'API 密钥可限定来源 IP（支持单个 IP 与网段），其他来源直接拒绝',
+      '新增 API 调用说明文档：接口清单、示例与错误码',
+    ],
+  },
+
+  {
     version: '1.3.78',
     date: '2026-11-27',
     title: 'API 密钥',

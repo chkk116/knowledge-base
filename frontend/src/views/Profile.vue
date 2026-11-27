@@ -96,6 +96,7 @@ const keyDialog = ref(false)
 const keyName = ref('')
 const keyDays = ref(90)
 const keyScopes = ref([])
+const keyIps = ref('')
 const newKey = ref('')
 const keyBusy = ref(false)
 const keyLoading = ref(false)
@@ -131,6 +132,7 @@ const submitKey = async () => {
     const { data } = await createApiKey({
       name: keyName.value.trim(),
       scopes: keyScopes.value,
+      allowedIps: keyIps.value.split(/[\s,;，；]+/).map((x) => x.trim()).filter(Boolean),
       expiresInDays: keyDays.value,
     })
     newKey.value = data.key
@@ -825,6 +827,8 @@ async function doExport() {
                 <span v-if="k.scopes">作用域：{{ k.scopes.split(',').map(permLabel).join('、') }}</span>
                 <span v-else>作用域：与本账号权限相同</span>
                 <span>最后使用：{{ k.lastUsedAt ? fmtDate(k.lastUsedAt) : '从未' }}</span>
+                <span v-if="k.allowedIps">来源 IP：{{ k.allowedIps }}</span>
+                <span v-else>来源 IP：不限</span>
                 <span v-if="k.expiresAt">到期：{{ fmtDate(k.expiresAt) }}</span>
               </div>
               <el-button v-if="!k.revoked" link type="danger" size="small" @click="doRevokeKey(k)">吊销</el-button>
@@ -922,7 +926,12 @@ async function doExport() {
             </el-select>
           </el-form-item>
         </el-form>
-        <p class="key-warn">权限只会比你的账号更小：勾了作用域后，密钥不能再做未勾选的写操作。</p>
+        <el-form-item label="来源 IP 白名单（可选，留空 = 不限）">
+          <el-input v-model="keyIps" type="textarea" :rows="2"
+                    placeholder="203.0.113.7, 10.0.0.0/8（支持 IPv4 网段，多个用逗号或空格分隔）" />
+        </el-form-item>
+        <p class="key-warn">权限只会比你的账号更小：勾了作用域后，密钥不能再做未勾选的写操作。
+          填了 IP 白名单后，其他来源调用会直接 403。</p>
       </div>
       <div v-else>
         <p class="key-warn">这串密钥只显示这一次，关掉就找不回来了：</p>

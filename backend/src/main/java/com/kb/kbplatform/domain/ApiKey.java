@@ -45,6 +45,10 @@ public class ApiKey {
     @Column(length = 2000)
     private String scopes = "";
 
+    /** 允许的来源 IP（逗号分隔，支持 IPv4 CIDR）；空 = 不限制（兼容旧密钥） */
+    @Column(length = 500)
+    private String allowedIps = "";
+
     private LocalDateTime expiresAt;
 
     private LocalDateTime lastUsedAt;
@@ -70,6 +74,9 @@ public class ApiKey {
 
     public String getScopes() { return scopes; }
     public void setScopes(String scopes) { this.scopes = scopes; }
+
+    public String getAllowedIps() { return allowedIps; }
+    public void setAllowedIps(String allowedIps) { this.allowedIps = allowedIps; }
 
     public LocalDateTime getExpiresAt() { return expiresAt; }
     public void setExpiresAt(LocalDateTime expiresAt) { this.expiresAt = expiresAt; }
