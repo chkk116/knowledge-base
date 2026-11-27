@@ -77,6 +77,11 @@ public class AiController {
         // 单张解码后 ≤2MB（base64 长度 ≈ 4/3 原始字节，用 3_000_000 字符近似）。
         // 缺校验会导致内存/带宽放大与 token 费用被刷（外部复审 2026-10-07）。
         List<String> images = parseImages(body.get("images"));
+        // 空问题会被下层和「AI 未启用」混在同一个分支，回一句「AI 问答暂不可用」——
+        // 把参数问题说成服务故障（N103）。这里直接按参数错误挡掉；纯图片提问仍然合法。
+        if (question.isBlank() && images.isEmpty()) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "问题不能为空");
+        }
         return convService.ask(claims.userId(), conversationId, question, mode, modelId, userModelId, images);
     }
 

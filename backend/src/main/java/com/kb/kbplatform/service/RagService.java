@@ -123,11 +123,13 @@ public class RagService {
                              List<String> imageUrls) {
         // 纯图片提问（question 为空但带了 imageUrls）是合法场景，只有两者都为空才拦
         boolean hasImages = imageUrls != null && imageUrls.stream().anyMatch(u -> u != null && !u.isBlank());
-        if (!enabled || ((question == null || question.isBlank()) && !hasImages)) {
-            if (!enabled) {
-                log.warn("AI 问答未启用：kb.ai.enabled=false（若已在「AI 模型管理」配好模型，请改回 true）");
-            }
+        if (!enabled) {
+            log.warn("AI 问答未启用：kb.ai.enabled=false（若已在「AI 模型管理」配好模型，请改回 true）");
             return new Prepared(null, List.of(), "AI 问答暂不可用，请稍后再试或联系管理员。");
+        }
+        // 空问题单独成一支：以前和「未启用」共用同一句提示，用户以为服务坏了（N103）
+        if ((question == null || question.isBlank()) && !hasImages) {
+            return new Prepared(null, List.of(), "问题不能为空，请输入内容后再提问。");
         }
         if (!aiModelClient.hasAvailable()) {
             return new Prepared(null, List.of(), "尚未配置可用的 AI 模型，请联系管理员在「AI 模型管理」中添加。");
