@@ -167,17 +167,21 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchMe() {
-    if (!token.value) {
+    // 记住发起时的令牌：多标签广播换号/退出后，晚到的旧响应会把新账号覆盖掉
+    const atStart = token.value
+    if (!atStart) {
       // 离线冷启动兜底：token 可能来自本地缓存，user 从缓存恢复
       restoreCachedUser()
       return
     }
     try {
       const { data } = await apiMe()
+      if (token.value !== atStart) return
       user.value = toUser(data)
       loggedIn.value = true
       cacheUser(user.value)
     } catch (e) {
+      if (token.value !== atStart) return
       // 关键区分：
       //  - 401/403：token 真的失效 → 清空登录态
       //  - 网络错误（离线/超时）：**不能**清 token，否则断网一刷新就被登出，
@@ -230,12 +234,17 @@ export const useAuthStore = defineStore('auth', () => {
   if (authChannel) {
     authChannel.onmessage = (e) => {
       const m = e.data || {}
-      if (m.type !== 'token') return
+      if (m.type !== 'token' || m.token === token.value) return
+      const hadToken = !!token.value
       applyToken(m.token, false)
       if (!m.token) {
         user.value = null
         clearCachedUser()
       } else {
+        // 换号（另一页直接登录，不经过登出广播）：先丢掉旧账号资料，
+        // 否则 fetchMe 走网络错误分支时 restoreCachedUser 会因 user 已存在而直接返回，
+        // 旧账号的 role / 权限会一直挂在新令牌上
+        if (hadToken) { user.value = null; clearCachedUser() }
         // 只拿到令牌，用户资料还是旧的：重新拉一次 /auth/me 同步权限与头像
         fetchMe()
       }
