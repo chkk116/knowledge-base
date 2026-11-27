@@ -32,12 +32,15 @@ public class AuthFilter implements Filter {
     private final long ttlMillis;
     private final UserRepository userRepo;
     private final ApiKeyService apiKeyService;
+    private final com.kb.kbplatform.service.OrgService orgService;
 
-    public AuthFilter(String secret, long ttlMillis, UserRepository userRepo, ApiKeyService apiKeyService) {
+    public AuthFilter(String secret, long ttlMillis, UserRepository userRepo, ApiKeyService apiKeyService,
+                      com.kb.kbplatform.service.OrgService orgService) {
         this.secret = secret;
         this.ttlMillis = ttlMillis;
         this.userRepo = userRepo;
         this.apiKeyService = apiKeyService;
+        this.orgService = orgService;
     }
 
     @Override
@@ -83,7 +86,7 @@ public class AuthFilter implements Filter {
         if (apiKey != null && !apiKey.isBlank()) {
             ApiKey k = apiKeyService.match(apiKey);   // 未吊销、未过期才返回
             User ku = k == null ? null : userRepo.findById(k.getUserId()).orElse(null);
-            if (ku != null && ku.isEnabled() && !IpAllowList.allows(k.getAllowedIps(), ClientIp.resolve(req))) {
+            if (ku != null && ku.isEnabled() && !IpAllowList.allows(k.getAllowedIps(), ClientIp.resolveStrict(req))) {
                 // 白名单不匹配要明确拒绝：静默降级会让调用方以为是权限问题
                 res.setStatus(403);
                 res.setContentType("application/json;charset=UTF-8");
@@ -91,8 +94,11 @@ public class AuthFilter implements Filter {
                 return;
             }
             if (ku != null && ku.isEnabled()) {
+                // 权限必须取「有效权限」（直接授予 ∪ 角色授权）：只读 permissions 列的话，
+                // 靠角色授权的账号用密钥调接口会全部 403，与它网页端能做的事不一致
+                String effPerms = orgService.effectivePermissionsString(ku);
                 TokenClaims account = new TokenClaims(ku.getId(), ku.getUsername(), ku.getRole(),
-                        ku.getPermissions(), Long.MAX_VALUE, ku.getTokenVersion());
+                        effPerms, Long.MAX_VALUE, ku.getTokenVersion());
                 // 作用域取交集；有作用域时不再继承管理员身份（否则「只读」密钥等于没限制）
                 claims = ApiKeyService.narrow(account, k.getScopes());
                 req.setAttribute("kbApiKey", "key:" + k.getKeyPrefix() + "…");

@@ -49,7 +49,8 @@ public class ApiKeyService {
      */
     @Transactional
     public String create(Long userId, String name, List<String> scopes, Integer expiresInDays, List<String> allowedIps) {
-        if (repo.countByUserIdAndRevokedFalse(userId) >= MAX_KEYS_PER_USER) {
+        // 已吊销的也计入配额：只数「有效」的话，创建→吊销循环可以无限攒记录
+        if (repo.countByUserId(userId) >= MAX_KEYS_PER_USER) {
             throw new BizException("密钥数量已达上限（" + MAX_KEYS_PER_USER + " 个），请先吊销不用的");
         }
         String plain = "kb_" + randomToken(32);
@@ -65,8 +66,11 @@ public class ApiKeyService {
         } catch (IllegalArgumentException e) {
             throw new BizException(e.getMessage());
         }
-        if (expiresInDays != null && expiresInDays > 0) {
-            k.setExpiresAt(LocalDateTime.now().plusDays(Math.min(expiresInDays, 365)));
+        if (expiresInDays != null) {
+            if (expiresInDays <= 0) throw new BizException("有效期必须大于 0 天");
+            // 上限 365 天：传个 9999 不报错却被静默截断，用户会以为自己设了更长期限
+            if (expiresInDays > 365) throw new BizException("有效期最长 365 天");
+            k.setExpiresAt(LocalDateTime.now().plusDays(expiresInDays));
         }
         repo.save(k);
         return plain;
@@ -116,9 +120,12 @@ public class ApiKeyService {
         }
         List<String> kept = new ArrayList<>();
         String acct = account.permissions() == null ? "" : account.permissions();
+        // 管理员账号的 permissions 列是空的（建角色时就清空了），按字符串取交集会把勾选的作用域
+        // 全部丢掉，最后发出去一把「能认证但什么都不能做」的废钥匙。ADMIN 视为拥有全部权限码。
+        boolean all = "ADMIN".equals(account.role()) || "*".equals(acct);
         for (String s : allow) {
             // 只保留账号本来就有的权限码：密钥不能提权
-            if ("*".equals(acct) || containsPerm(acct, s)) kept.add(s);
+            if (all || containsPerm(acct, s)) kept.add(s);
         }
         String role = "ADMIN".equals(account.role()) ? "USER" : account.role();
         return new TokenClaims(account.userId(), account.username(), role,

@@ -19,4 +19,7 @@ public interface ApiKeyRepository extends JpaRepository<ApiKey, Long> {
     List<ApiKey> findByUserIdOrderByIdDesc(Long userId);
 
     long countByUserIdAndRevokedFalse(Long userId);
+
+    /** 含已吊销的总数：配额判定用这个，避免创建→吊销绕过上限 */
+    long countByUserId(Long userId);
 }

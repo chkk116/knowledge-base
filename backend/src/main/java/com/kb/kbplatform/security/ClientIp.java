@@ -37,6 +37,21 @@ public final class ClientIp {
         return remote;
     }
 
+    /**
+     * 安全判定用的来源 IP：只认「受信代理覆写的 X-Real-IP」，**不**回退 X-Forwarded-For。
+     *
+     * <p>XFF 在多级代理下是可被客户端塞首段的（`$proxy_add_x_forwarded_for` 会把客户端自带的
+     * 头原样带上）。用于限流之类还可以接受，但用来做「密钥来源白名单」就等于让人自带一个允许的 IP。
+     */
+    public static String resolveStrict(HttpServletRequest req) {
+        if (req == null) return null;
+        String remote = req.getRemoteAddr();
+        if (!isTrustedProxy(remote)) return remote;
+        String real = req.getHeader("X-Real-IP");
+        if (real != null && !real.isBlank()) return real.trim();
+        return remote;
+    }
+
     private static boolean isTrustedProxy(String remote) {
         if (remote == null || remote.isBlank()) return false;
         if (remote.equals("127.0.0.1") || remote.equals("0:0:0:0:0:0:0:1")

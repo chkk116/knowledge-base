@@ -8,6 +8,7 @@ package com.kb.kbplatform.web;
 import com.kb.kbplatform.domain.ApiKey;
 import com.kb.kbplatform.security.TokenClaims;
 import com.kb.kbplatform.service.ApiKeyService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -37,6 +38,19 @@ public class ApiKeyController {
         this.svc = svc;
     }
 
+    /**
+     * 用密钥调进来时禁止再管密钥。
+     *
+     * <p>否则一把只带 DOC_VIEW 的密钥可以 POST 一把「不带作用域」的新密钥——新密钥继承账号全部权限，
+     * 作用域机制等于被自己绕过去了。管理密钥只能用人登录后的令牌（或网页端）操作。
+     */
+    private void rejectApiKeyChannel(HttpServletRequest req) {
+        if (req != null && req.getAttribute("kbApiKey") != null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "API 密钥不能用于管理密钥，请用登录令牌");
+        }
+    }
+
     @GetMapping
     public List<Map<String, Object>> list(@RequestAttribute("kbUser") TokenClaims c) {
         List<Map<String, Object>> out = new ArrayList<>();
@@ -58,7 +72,9 @@ public class ApiKeyController {
 
     @PostMapping
     public Map<String, Object> create(@RequestAttribute("kbUser") TokenClaims c,
+                                      HttpServletRequest req,
                                       @RequestBody Map<String, Object> body) {
+        rejectApiKeyChannel(req);
         String name = body.get("name") instanceof String s ? s : "";
         Integer days = body.get("expiresInDays") instanceof Number n ? n.intValue() : null;
         List<String> scopes = new ArrayList<>();
@@ -82,7 +98,9 @@ public class ApiKeyController {
     }
 
     @DeleteMapping("/{id}")
-    public Map<String, Object> revoke(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
+    public Map<String, Object> revoke(@RequestAttribute("kbUser") TokenClaims c, HttpServletRequest req,
+                                      @PathVariable Long id) {
+        rejectApiKeyChannel(req);
         svc.revoke(c.userId(), id);
         return Map.of("ok", true);
     }

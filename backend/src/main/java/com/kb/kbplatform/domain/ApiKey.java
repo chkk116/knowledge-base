@@ -46,7 +46,7 @@ public class ApiKey {
     private String scopes = "";
 
     /** 允许的来源 IP（逗号分隔，支持 IPv4 CIDR）；空 = 不限制（兼容旧密钥） */
-    @Column(length = 500)
+    @Column(length = 1000)   // 20 条 IPv6（最长 45 字符）+ 逗号，最坏 919，留余量
     private String allowedIps = "";
 
     private LocalDateTime expiresAt;

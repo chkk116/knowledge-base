@@ -17,6 +17,7 @@ import { saveBinaryFile } from '../utils/shareOut'
 import CertDialog from '../components/CertDialog.vue'
 import WornBadgeStrip from '../components/WornBadgeStrip.vue'
 import { errMsg } from '../utils/errMsg'
+import { PERM_OPTIONS } from '../utils/permCodes'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -104,7 +105,11 @@ const siteOrigin = computed(() => (typeof window === 'undefined' ? '' : window.l
 // 可授予的作用域 = 当前账号已有的权限码（不给管理员「全权限」这种一步登天的选项）
 const scopeOptions = computed(() => {
   const raw = auth.user?.permissions || ''
-  if (!raw || raw === '*') return []
+  // 管理员账号的 permissions 列被清空（权限靠角色隐式获得），这里给全量清单，
+  // 否则管理员永远勾不出作用域——而「给管理员发一把只读密钥」正是这个功能的典型用法
+  if (auth.isAdmin || raw === '*') {
+    return PERM_OPTIONS.map((o) => ({ code: o.value, label: o.label }))
+  }
   return raw.split(',').map((x) => x.trim()).filter(Boolean).map((code) => ({ code, label: permLabel(code) }))
 })
 
@@ -113,7 +118,10 @@ const loadKeys = async () => {
   try {
     const { data } = await listApiKeys()
     apiKeys.value = data || []
-  } catch { /* 非关键区块：拿不到就空着，不打断资料页 */ }
+  } catch (e) {
+    // 非关键区块：不打断资料页，但要说一声——否则「接口挂了」会被读成「你还没有密钥」
+    if (!apiKeys.value.length) ElMessage.warning(errMsg(e, '密钥列表加载失败'))
+  }
   finally { keyLoading.value = false }
 }
 
@@ -121,25 +129,38 @@ const openKeyDialog = () => {
   keyName.value = ''
   keyDays.value = 90
   keyScopes.value = []
+  keyIps.value = ''      // 白名单也要清：否则上一把的规则会静默套到新密钥上
   newKey.value = ''
   keyDialog.value = true
 }
 
 const submitKey = async () => {
   if (!keyName.value.trim()) { ElMessage.warning('给密钥起个名字，方便日后分辨用途'); return }
+  const ips = keyIps.value.split(/[\s,;，；、]+/).map((x) => x.trim()).filter(Boolean)
+  if (ips.length > 20) { ElMessage.warning('IP 白名单最多 20 条'); return }
   keyBusy.value = true
   try {
     const { data } = await createApiKey({
       name: keyName.value.trim(),
       scopes: keyScopes.value,
-      allowedIps: keyIps.value.split(/[\s,;，；]+/).map((x) => x.trim()).filter(Boolean),
+      allowedIps: ips,
       expiresInDays: keyDays.value,
     })
+    if (data && data.ok === false) { ElMessage.error(data.error || '创建失败'); return }
     newKey.value = data.key
     await loadKeys()
   } catch (e) {
     ElMessage.error(errMsg(e, '创建失败'))
   } finally { keyBusy.value = false }
+}
+
+/** 后端时间是 6 位微秒，直接 new Date() 在部分浏览器解析失败 → 「已过期」标签永远不显示 */
+const isExpired = (t) => {
+  if (!t) return false
+  const m = String(t).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/)
+  if (!m) return false
+  const d = new Date(`${m[1]}T${m[2]}`)
+  return !Number.isNaN(d.getTime()) && d.getTime() < Date.now()
 }
 
 const copyNewKey = async () => {
@@ -156,7 +177,8 @@ const doRevokeKey = async (k) => {
     })
   } catch { return }
   try {
-    await revokeApiKey(k.id)
+    const { data } = await revokeApiKey(k.id)
+    if (data && data.ok === false) { ElMessage.error(data.error || '吊销失败'); return }
     ElMessage.success('已吊销')
     await loadKeys()
   } catch (e) { ElMessage.error(errMsg(e, '吊销失败')) }
@@ -820,7 +842,7 @@ async function doExport() {
               <div class="key-name">
                 {{ k.name }}
                 <el-tag v-if="k.revoked" size="small" type="info">已吊销</el-tag>
-                <el-tag v-else-if="k.expiresAt && new Date(k.expiresAt) < new Date()" size="small" type="warning">已过期</el-tag>
+                <el-tag v-else-if="isExpired(k.expiresAt)" size="small" type="warning">已过期</el-tag>
               </div>
               <code class="key-prefix">{{ k.prefix }}…</code>
               <div class="key-meta">
@@ -905,7 +927,7 @@ async function doExport() {
     <CertDialog :visible="certVisible" :cert="activeCert" @update:visible="certVisible = $event" />
   </div>
 
-    <el-dialog v-model="keyDialog" title="新建 API 密钥" width="520px">
+    <el-dialog v-model="keyDialog" title="新建 API 密钥" width="520px" @closed="newKey = ''">
       <div v-if="!newKey">
         <el-form label-position="top">
           <el-form-item label="名称（用于区分用途，例如「每日数据同步」）">
