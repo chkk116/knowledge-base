@@ -10,6 +10,16 @@
  */
 export const CHANGELOG = [
   {
+    version: '1.3.81',
+    date: '2026-11-27',
+    title: '标题净化与徽章计数',
+    items: [
+      '文章标题里的 HTML 标签（script / img 等）入库前剥掉，不再原样留存',
+      '徽章页加载中不再先闪「仅已获得 (0)」「已佩戴 0/3」',
+    ],
+  },
+
+  {
     version: '1.3.80',
     date: '2026-11-27',
     title: 'API 密钥细节',

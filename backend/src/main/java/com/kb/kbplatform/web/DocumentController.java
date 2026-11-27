@@ -219,6 +219,10 @@ public class DocumentController {
             throw new ResponseStatusException(BAD_REQUEST, "标题过长（最多 120 字）");
         }
         d.setTitle(d.getTitle().trim());
+        // 标题在列表/通知/导出里到处回显，不能存原始 HTML：script、img onerror 会原样入库（N32）。
+        // 用 Safelist.none() 剥掉全部标签，只留纯文本；内容仍走富文本净化。
+        d.setTitle(HtmlSanitizer.toText(d.getTitle()).trim());
+        if (d.getTitle().isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "标题不能为空");
         d.setContent(HtmlSanitizer.sanitize(d.getContent()));
         boolean admin = c.isAdmin();   // 与后台门禁同口径（含权限码全覆盖）
         if (admin) {
@@ -238,6 +242,9 @@ public class DocumentController {
     public Document update(@RequestAttribute("kbUser") TokenClaims c,
                            @PathVariable Long id,
                            @RequestBody Document d) {
+        // 更新同理：新建时净化过不代表后续 PUT 不会把标签塞回来
+        if (d.getTitle() != null) d.setTitle(HtmlSanitizer.toText(d.getTitle()).trim());
+        if (d.getTitle() != null && d.getTitle().isEmpty()) throw new ResponseStatusException(BAD_REQUEST, "标题不能为空");
         d.setContent(HtmlSanitizer.sanitize(d.getContent()));
         return svc.updateOwn(id, d, resolveOwner(c));
     }

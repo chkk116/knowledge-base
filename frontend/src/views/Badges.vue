@@ -99,10 +99,10 @@ onMounted(async () => {
       <div class="tiers">
         <button class="tier" :class="{ on: !onlyEarned }" @click="onlyEarned = false">全部</button>
         <button class="tier" :class="{ on: onlyEarned }" @click="onlyEarned = true">
-          仅已获得 ({{ data.earned }})
+          仅已获得 ({{ loading ? '…' : data.earned }})
         </button>
       </div>
-      <div class="worn-count">已佩戴 <b>{{ wornIds.length }}</b> / 3</div>
+      <div class="worn-count">已佩戴 <b>{{ loading ? '…' : wornIds.length }}</b> / 3</div>
     </div>
 
     <div v-if="loading" class="empty">加载中…</div>
