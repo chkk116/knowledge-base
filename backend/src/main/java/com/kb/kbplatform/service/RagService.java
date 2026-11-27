@@ -294,8 +294,12 @@ public class RagService {
 
     private Map<String, Object> assemble(AiModelClient.AiChatResult call, List<Map<String, Object>> sources) {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("answer", call.text());
-        result.put("sources", sources);
+        String answer = call.text() == null ? "" : call.text();
+        result.put("answer", answer);
+        // 模型已经明确说「知识库中未找到」时，再把检索片段列成「引用来源」是矛盾的
+        //（N98）：那些片段正是它判定不相关而没采用的。真没用上就别端出来。
+        boolean saysNotFound = answer.contains("未找到相关内容") || answer.contains("知识库中未找到");
+        result.put("sources", saysNotFound ? List.of() : sources);
         // 可视化：把本次实际用的模型、耗时、token 用量带出去，前端可在回答旁展示
         result.put("model", call.model());
         result.put("modelName", call.modelName());

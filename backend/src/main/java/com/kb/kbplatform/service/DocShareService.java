@@ -48,6 +48,7 @@ public class DocShareService {
     private final UserRepository userRepo;
     private final SharedDocVersionRepository sharedDocVerRepo;
     private final DocAnnotationRepository annoRepo;
+    private final com.kb.kbplatform.repository.SharedLikeRepository sharedLikeRepo;
     private final UploadedFileRepository fileRepo;
     private final com.kb.kbplatform.repository.SpaceInviteRepository inviteRepo;
     private final TransactionTemplate tx;
@@ -60,10 +61,12 @@ public class DocShareService {
                            DocAnnotationRepository annoRepo, UploadedFileRepository fileRepo,
                            TransactionTemplate tx, RelayNotifier relayNotifier,
                            NotificationService notificationService,
+                           com.kb.kbplatform.repository.SharedLikeRepository sharedLikeRepo,
                            com.kb.kbplatform.repository.SpaceInviteRepository inviteRepo) {
         this.inviteRepo = inviteRepo;
         this.relayNotifier = relayNotifier;
         this.notificationService = notificationService;
+        this.sharedLikeRepo = sharedLikeRepo;
         this.shareRepo = shareRepo;
         this.permRepo = permRepo;
         this.docRepo = docRepo;
@@ -1492,6 +1495,7 @@ public class DocShareService {
         docPermRepo.deleteAllByDocId(docId); // 清理文档级权限
         sharedDocVerRepo.deleteAllBySharedDocId(docId); // 清理版本历史，避免孤儿版本行
         annoRepo.deleteByDocId(docId); // 清理批注/摘录，避免孤儿行
+        sharedLikeRepo.deleteByDocId(docId); // 删除后likes计数仍挂着 1（N30）
         s.setUpdatedAt(LocalDateTime.now());
         shareRepo.save(s);
     }
