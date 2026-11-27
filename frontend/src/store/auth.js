@@ -39,6 +39,10 @@ export function permLabel(code) {
 }
 
 export const useAuthStore = defineStore('auth', () => {
+  // 多标签页共用一个 localStorage 令牌键：一个页登录/退出，其它页还拿着旧值和旧用户信息，
+  // 表现为「并发会话登录异常」（N14）。用 BroadcastChannel 把令牌变更即时广播出去。
+  const authChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('kb-auth') : null
+
   const token = ref(localStorage.getItem('kb_token') || '')
   // 首屏先用本地缓存的用户信息渲染（离线冷启动时拿不到接口，否则会一片空白）
   const user = ref((() => {
@@ -101,11 +105,13 @@ export const useAuthStore = defineStore('auth', () => {
   // 把演示状态同步到 window，供 main.js 的全局点击拦截（无法直接访问 pinia）判断
   watch(isDemo, (v) => { window.__kbIsDemo = () => !!v }, { immediate: true })
 
-  function applyToken(t) {
+  function applyToken(t, broadcast = true) {
     token.value = t || ''
     if (t) localStorage.setItem('kb_token', t)
     else localStorage.removeItem('kb_token')
     loggedIn.value = !!t
+    // 接收别的标签页广播时不要回传，否则两个页会互相来回广播
+    if (broadcast && authChannel) authChannel.postMessage({ type: 'token', token: token.value })
   }
 
   function toUser(data) {
@@ -219,6 +225,21 @@ export const useAuthStore = defineStore('auth', () => {
     //   （cacheDoc 标记 userId + mine() 过滤），换号后读不到前任的缓存，清了纯属自伤——
     //   此前「版本更新过程中一次 401 → 登出 → 清缓存」会让用户下载的离线文档全部消失。
     //   待同步草稿（queue 表）本来就保留待下次联网同步。
+  }
+
+  if (authChannel) {
+    authChannel.onmessage = (e) => {
+      const m = e.data || {}
+      if (m.type !== 'token') return
+      applyToken(m.token, false)
+      if (!m.token) {
+        user.value = null
+        clearCachedUser()
+      } else {
+        // 只拿到令牌，用户资料还是旧的：重新拉一次 /auth/me 同步权限与头像
+        fetchMe()
+      }
+    }
   }
 
   return { token, user, loggedIn, isAdmin, isDemo, permissions, hasPerm, demoBlock, login, applySession, fetchMe, setProfile, logout }
