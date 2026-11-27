@@ -1,10 +1,10 @@
 <script setup>
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { useAuthStore } from '../store/auth'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useAuthStore, permLabel } from '../store/auth'
 import { useHistoryStore } from '../store/history'
-import { updateProfile, pointsLogPaged, exportMyData, emailStatus, sendEmailCode, verifyEmailCode, unbindEmailApi, me } from '../api/auth'
+import { updateProfile, pointsLogPaged, exportMyData, emailStatus, sendEmailCode, verifyEmailCode, unbindEmailApi, me, listApiKeys, createApiKey, revokeApiKey } from '../api/auth'
 import { listMyDocs, myLikedDocs, myCommentedDocs, myFavorites, changePassword, userBadges } from '../api/kb'
 import { BADGE_ICONS, DEFAULT_BADGE_ICON, tierGradient } from '../utils/badgeIcons'
 const g0 = (b) => tierGradient(b.tier)[0]
@@ -90,7 +90,78 @@ import { appearanceProfileBg as profileBg, loadAppearance } from '../utils/appea
 // url() 内的引号在 JS 里生成，避免在模板属性值里写裸双引号破坏 HTML 解析
 const coverBlurStyle = computed(() => profileBg.value ? { backgroundImage: 'url("' + profileBg.value + '")' } : null)
 
+// ---- API 密钥（对标 GitHub PAT）：列表只露前缀，明文只在创建那一刻显示一次 ----
+const apiKeys = ref([])
+const keyDialog = ref(false)
+const keyName = ref('')
+const keyDays = ref(90)
+const keyScopes = ref([])
+const newKey = ref('')
+const keyBusy = ref(false)
+const keyLoading = ref(false)
+const siteOrigin = computed(() => (typeof window === 'undefined' ? '' : window.location.origin))
+// 可授予的作用域 = 当前账号已有的权限码（不给管理员「全权限」这种一步登天的选项）
+const scopeOptions = computed(() => {
+  const raw = auth.user?.permissions || ''
+  if (!raw || raw === '*') return []
+  return raw.split(',').map((x) => x.trim()).filter(Boolean).map((code) => ({ code, label: permLabel(code) }))
+})
+
+const loadKeys = async () => {
+  keyLoading.value = true
+  try {
+    const { data } = await listApiKeys()
+    apiKeys.value = data || []
+  } catch { /* 非关键区块：拿不到就空着，不打断资料页 */ }
+  finally { keyLoading.value = false }
+}
+
+const openKeyDialog = () => {
+  keyName.value = ''
+  keyDays.value = 90
+  keyScopes.value = []
+  newKey.value = ''
+  keyDialog.value = true
+}
+
+const submitKey = async () => {
+  if (!keyName.value.trim()) { ElMessage.warning('给密钥起个名字，方便日后分辨用途'); return }
+  keyBusy.value = true
+  try {
+    const { data } = await createApiKey({
+      name: keyName.value.trim(),
+      scopes: keyScopes.value,
+      expiresInDays: keyDays.value,
+    })
+    newKey.value = data.key
+    await loadKeys()
+  } catch (e) {
+    ElMessage.error(errMsg(e, '创建失败'))
+  } finally { keyBusy.value = false }
+}
+
+const copyNewKey = async () => {
+  try {
+    await navigator.clipboard.writeText(newKey.value)
+    ElMessage.success('已复制')
+  } catch { ElMessage.warning('复制失败，请手动选中复制') }
+}
+
+const doRevokeKey = async (k) => {
+  try {
+    await ElMessageBox.confirm(`吊销「${k.name}」后，用它调用的程序会立刻失效，且无法恢复。`, '吊销密钥', {
+      type: 'warning', confirmButtonText: '吊销', cancelButtonText: '取消',
+    })
+  } catch { return }
+  try {
+    await revokeApiKey(k.id)
+    ElMessage.success('已吊销')
+    await loadKeys()
+  } catch (e) { ElMessage.error(errMsg(e, '吊销失败')) }
+}
+
 onMounted(() => {
+  loadKeys()
   displayName.value = auth.user?.displayName || auth.user?.username || ''
   email.value = auth.user?.email || ''
   bio.value = auth.user?.bio || ''
@@ -729,6 +800,39 @@ async function doExport() {
           </ul>
         </section>
 
+
+        <!-- API 密钥 -->
+        <section class="card">
+          <div class="card-hd">
+            <span class="card-title">API 密钥</span>
+            <span class="card-sub">给脚本或外部系统调用，按你账号的权限执行</span>
+            <el-button class="card-link" link type="primary" @click="openKeyDialog">新建密钥</el-button>
+          </div>
+          <p class="key-hint">
+            调用时带请求头 <code>X-API-Key: &lt;密钥&gt;</code>，例如：
+            <code>curl -H "X-API-Key: kb_xxx" {{ siteOrigin }}/api/docs/1</code>
+            。密钥只显示一次，丢了只能重建；不要写进 URL。
+          </p>
+          <ul v-if="apiKeys.length" class="key-list">
+            <li v-for="k in apiKeys" :key="k.id" :class="{ dead: k.revoked }">
+              <div class="key-name">
+                {{ k.name }}
+                <el-tag v-if="k.revoked" size="small" type="info">已吊销</el-tag>
+                <el-tag v-else-if="k.expiresAt && new Date(k.expiresAt) < new Date()" size="small" type="warning">已过期</el-tag>
+              </div>
+              <code class="key-prefix">{{ k.prefix }}…</code>
+              <div class="key-meta">
+                <span v-if="k.scopes">作用域：{{ k.scopes.split(',').map(permLabel).join('、') }}</span>
+                <span v-else>作用域：与本账号权限相同</span>
+                <span>最后使用：{{ k.lastUsedAt ? fmtDate(k.lastUsedAt) : '从未' }}</span>
+                <span v-if="k.expiresAt">到期：{{ fmtDate(k.expiresAt) }}</span>
+              </div>
+              <el-button v-if="!k.revoked" link type="danger" size="small" @click="doRevokeKey(k)">吊销</el-button>
+            </li>
+          </ul>
+          <p v-else-if="!keyLoading" class="key-empty">还没有密钥。需要脚本定时拉数据时再建，平时不用开。</p>
+        </section>
+
         <!-- 我的勋章 -->
         <section class="card">
           <div class="card-hd">
@@ -796,6 +900,42 @@ async function doExport() {
     <!-- 结业证书弹窗 -->
     <CertDialog :visible="certVisible" :cert="activeCert" @update:visible="certVisible = $event" />
   </div>
+
+    <el-dialog v-model="keyDialog" title="新建 API 密钥" width="520px">
+      <div v-if="!newKey">
+        <el-form label-position="top">
+          <el-form-item label="名称（用于区分用途，例如「每日数据同步」）">
+            <el-input v-model="keyName" maxlength="40" show-word-limit placeholder="每日数据同步" />
+          </el-form-item>
+          <el-form-item label="有效期">
+            <el-select v-model="keyDays" style="width: 100%">
+              <el-option :value="7" label="7 天" />
+              <el-option :value="30" label="30 天" />
+              <el-option :value="90" label="90 天" />
+              <el-option :value="365" label="1 年" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="作用域（不选 = 与你账号权限相同）">
+            <el-select v-model="keyScopes" multiple collapse-tags filterable style="width: 100%"
+                       placeholder="全选等于不加限制">
+              <el-option v-for="o in scopeOptions" :key="o.code" :value="o.code" :label="o.label" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <p class="key-warn">权限只会比你的账号更小：勾了作用域后，密钥不能再做未勾选的写操作。</p>
+      </div>
+      <div v-else>
+        <p class="key-warn">这串密钥只显示这一次，关掉就找不回来了：</p>
+        <div class="key-new">
+          <code>{{ newKey }}</code>
+          <el-button size="small" type="primary" @click="copyNewKey">复制</el-button>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="keyDialog = false">{{ newKey ? '完成' : '取消' }}</el-button>
+        <el-button v-if="!newKey" type="primary" :loading="keyBusy" @click="submitKey">创建</el-button>
+      </template>
+    </el-dialog>
 </template>
 
 <style scoped>
@@ -1045,4 +1185,20 @@ html.dark .cert-time { color: #8b8fa0; }
   .plog li { flex-wrap: wrap; row-gap: 2px; }
   .pl-time { flex-basis: 100%; }
 }
+
+/* ---- API 密钥 ---- */
+.key-hint { margin: 0 0 10px; font-size: 12.5px; color: var(--kb-txt-2, #6b7280); line-height: 1.7; }
+.key-hint code { background: #f1f3f7; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; color: #334155; word-break: break-all; }
+.key-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.key-list li { border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 12px; display: grid;
+  grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+.key-list li.dead { opacity: .55; }
+.key-name { font-size: 13.5px; font-weight: 600; color: #0f172a; display: flex; gap: 6px; align-items: center; }
+.key-prefix { font-size: 12px; color: #475569; background: #f7f9fc; padding: 1px 6px; border-radius: 5px; }
+.key-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--kb-txt-3, #94a3b8); }
+.key-empty { margin: 0; font-size: 12.5px; color: var(--kb-txt-3, #94a3b8); }
+.key-new { display: flex; gap: 8px; align-items: center; background: #f7f9fc; border: 1px dashed #cbd5e1;
+  border-radius: 8px; padding: 10px 12px; }
+.key-new code { flex: 1; word-break: break-all; font-size: 12.5px; color: #0f172a; }
+.key-warn { margin: 0 0 8px; font-size: 12.5px; color: #b45309; }
 </style>

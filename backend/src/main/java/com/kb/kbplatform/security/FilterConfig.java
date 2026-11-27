@@ -6,6 +6,7 @@
 package com.kb.kbplatform.security;
 
 import com.kb.kbplatform.repository.UserRepository;
+import com.kb.kbplatform.service.ApiKeyService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -19,9 +20,9 @@ public class FilterConfig {
 
     @Bean
     public FilterRegistrationBean<AuthFilter> authFilter(UserRepository userRepo, TokenSecretProvider tokenSecretProvider,
-                                                         ApiKeyRegistry apiKeys) {
+                                                         ApiKeyService apiKeyService) {
         FilterRegistrationBean<AuthFilter> bean =
-                new FilterRegistrationBean<>(new AuthFilter(tokenSecretProvider.get(), tokenTtl, userRepo, apiKeys));
+                new FilterRegistrationBean<>(new AuthFilter(tokenSecretProvider.get(), tokenTtl, userRepo, apiKeyService));
         bean.setOrder(-100);   // 尽量靠前执行
         return bean;
     }

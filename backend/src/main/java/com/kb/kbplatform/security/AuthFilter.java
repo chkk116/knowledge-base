@@ -14,8 +14,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 
+import com.kb.kbplatform.domain.ApiKey;
 import com.kb.kbplatform.domain.User;
 import com.kb.kbplatform.repository.UserRepository;
+import com.kb.kbplatform.service.ApiKeyService;
 
 import java.io.IOException;
 
@@ -29,13 +31,13 @@ public class AuthFilter implements Filter {
     private final String secret;
     private final long ttlMillis;
     private final UserRepository userRepo;
-    private final ApiKeyRegistry apiKeys;
+    private final ApiKeyService apiKeyService;
 
-    public AuthFilter(String secret, long ttlMillis, UserRepository userRepo, ApiKeyRegistry apiKeys) {
+    public AuthFilter(String secret, long ttlMillis, UserRepository userRepo, ApiKeyService apiKeyService) {
         this.secret = secret;
         this.ttlMillis = ttlMillis;
         this.userRepo = userRepo;
-        this.apiKeys = apiKeys;
+        this.apiKeyService = apiKeyService;
     }
 
     @Override
@@ -79,12 +81,14 @@ public class AuthFilter implements Filter {
         String apiKey = req.getHeader("X-API-Key");
         TokenClaims claims = null;
         if (apiKey != null && !apiKey.isBlank()) {
-            Long apiUid = apiKeys.resolve(apiKey);
-            User ku = apiUid == null ? null : userRepo.findById(apiUid).orElse(null);
+            ApiKey k = apiKeyService.match(apiKey);   // 未吊销、未过期才返回
+            User ku = k == null ? null : userRepo.findById(k.getUserId()).orElse(null);
             if (ku != null && ku.isEnabled()) {
-                claims = new TokenClaims(ku.getId(), ku.getUsername(), ku.getRole(),
+                TokenClaims account = new TokenClaims(ku.getId(), ku.getUsername(), ku.getRole(),
                         ku.getPermissions(), Long.MAX_VALUE, ku.getTokenVersion());
-                req.setAttribute("kbApiKey", apiKeys.label(apiKey));
+                // 作用域取交集；有作用域时不再继承管理员身份（否则「只读」密钥等于没限制）
+                claims = ApiKeyService.narrow(account, k.getScopes());
+                req.setAttribute("kbApiKey", "key:" + k.getKeyPrefix() + "…");
             } else if (!publicRequest) {
                 send401(res);
                 return;

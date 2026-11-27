@@ -50,3 +50,8 @@ export const exportMyData = () => api.get('/me/export', { responseType: 'blob', 
 // ---- 密码重置链接（公开，无需登录）----
 export const resetPwdCheck = (token) => api.get('/auth/reset-password/check', { params: { token } })
 export const resetPwd = (token, password) => api.post('/auth/reset-password', { token, password })
+
+// ---- 个人 API 密钥（对标 GitHub PAT）----
+export const listApiKeys = () => api.get('/me/api-keys')
+export const createApiKey = (data) => api.post('/me/api-keys', data)
+export const revokeApiKey = (id) => api.delete(`/me/api-keys/${id}`)
