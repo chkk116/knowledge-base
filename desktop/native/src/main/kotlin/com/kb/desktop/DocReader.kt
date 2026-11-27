@@ -75,6 +75,8 @@ fun ArticleView(
     val blocks = remember(doc.id, doc.content) { DocHtml.parse(doc.content) }
     val toc = remember(blocks) { DocHtml.tocOf(blocks) }
     var tocOpen by remember(doc.id) { mutableStateOf(true) }
+    // 窄窗口（<1080dp）原来完全不渲染目录，连入口都没有（N89）；补一个悬浮入口
+    var tocOverlay by remember(doc.id) { mutableStateOf(false) }
 
     var crumbs by remember(doc.id) { mutableStateOf(emptyList<CrumbItem>()) }
     var liked by remember(doc.id) { mutableStateOf(false) }
@@ -217,11 +219,22 @@ fun ArticleView(
                 val safe = doc.title.ifBlank { "文档" }
                     .replace(Regex("[\\\\/:*?\"<>|]"), "_")
                     .take(60)
-                val file = Files.createTempDirectory("kb-export").resolve("$safe.doc")
-                Files.writeString(file, html, Charsets.UTF_8)
+                // 让用户自己选保存位置（N90）：原来固定落 /tmp/kb-export<随机数>/，
+                // 只靠几秒就消失的 toast 告知路径，事后根本找不回来，而且 /tmp 随时会被清。
+                val chooser = javax.swing.JFileChooser()
+                chooser.selectedFile = java.io.File("$safe.doc")
+                if (chooser.showSaveDialog(null) != javax.swing.JFileChooser.APPROVE_OPTION) {
+                    return@launch   // 用户取消，别写文件也别弹成功提示
+                }
+                var target = chooser.selectedFile
+                if (!target.name.endsWith(".doc", ignoreCase = true)) {
+                    target = java.io.File(target.absolutePath + ".doc")
+                }
+                Files.createDirectories(target.toPath().parent)
+                Files.writeString(target.toPath(), html, Charsets.UTF_8)
                 // 打开失败不吞掉结果：至少告诉用户文件落在哪
-                val opened = runCatching { java.awt.Desktop.getDesktop().open(file.toFile()) }.isSuccess
-                toast = if (opened) "已导出 $safe.doc" else "已导出到 ${file.toAbsolutePath()}"
+                val opened = runCatching { java.awt.Desktop.getDesktop().open(target) }.isSuccess
+                toast = if (opened) "已导出到 ${target.absolutePath}" else "已导出到 ${target.absolutePath}"
             } catch (e: Exception) {
                 toast = e.message ?: "导出失败"
             } finally {
@@ -495,6 +508,30 @@ fun ArticleView(
                         },
                         modifier = Modifier.width(216.dp).padding(top = 14.dp),
                     )
+                }
+            }
+
+            // 窄窗口的目录入口：宽窗口走右侧常驻 TocPane，窄窗口用右上角悬浮按钮（N89）
+            if (toc.isNotEmpty() && wide < 1080.dp) {
+                Box(Modifier.align(Alignment.TopEnd).padding(10.dp)) {
+                    Column(
+                        Modifier
+                            .background(KbCardBg, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        TextButton(onClick = { tocOverlay = !tocOverlay }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text(if (tocOverlay) "收起目录" else "目录", fontSize = 11.sp, color = KbPrimary)
+                        }
+                        if (tocOverlay) {
+                            TocPane(
+                                toc = toc,
+                                open = true,
+                                onToggle = { tocOverlay = false },
+                                onPick = { idx -> scope.launch { listState.animateScrollToItem(1 + idx) } },
+                                modifier = Modifier.widthIn(max = 220.dp).padding(horizontal = 6.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
                 }
             }
 

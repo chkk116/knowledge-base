@@ -2604,6 +2604,11 @@ private fun pointTypeLabel(t: String): String = when (t.uppercase()) {
     "COURSE" -> "课程"
     else -> "其他"   // 新增类型不该把后端枚举（STREAK/BONUS…）直接显示给用户
 }
+/** 后端只给 2 分钟撤回窗口；本地按同样的口径隐藏按钮（时间解析失败就不显示） */
+private fun canRecall(createdAt: String): Boolean = try {
+    java.time.LocalDateTime.parse(createdAt.take(19)).isAfter(java.time.LocalDateTime.now().minusMinutes(2))
+} catch (e: Exception) { false }
+
 /** 消息流签名：id + 类型 + 内容 + 已读，任一变化都要重绘（撤回会改 kind/content 但条数不变） */
 private fun dmSig(list: List<ApiClient.DmMsg>): String =
     list.joinToString("|") { "${it.id}:${it.kind}:${it.read}:${it.content.hashCode()}" }
@@ -2623,6 +2628,20 @@ private fun DmPanel(session: Session) {
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
+    // 发起新会话（N86）：搜索本站用户，选中后直接切到那个会话
+    var newDlg by remember { mutableStateOf(false) }
+    var newQ by remember { mutableStateOf("") }
+    var picks by remember { mutableStateOf<List<ApiClient.UserPick>>(emptyList()) }
+    var picking by remember { mutableStateOf(false) }
+
+    LaunchedEffect(newQ) {
+        if (newQ.isBlank()) { picks = emptyList(); return@LaunchedEffect }
+        delay(200)
+        picking = true
+        try { picks = api.searchUsers(session.token, newQ.trim()) }
+        catch (e: Exception) { picks = emptyList() }
+        finally { picking = false }
+    }
 
     LaunchedEffect(tick) {
         convLoading = true
@@ -2702,6 +2721,35 @@ private fun DmPanel(session: Session) {
         }
     }
 
+    if (newDlg) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { newDlg = false }) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Text("发起私信", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = newQ, onValueChange = { newQ = it },
+                    placeholder = { Text("输入用户名或昵称", fontSize = 12.sp) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                if (picking) KbSkeletonList(rows = 3)
+                else LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                    items(picks, key = { it.id }) { u ->
+                        KbSelectCard(selected = false, onClick = {
+                            peer = u.id; note = null; newDlg = false
+                        }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)) {
+                            Text(u.name.ifBlank { "用户 ${u.id}" }, fontSize = 12.5.sp, color = KbTextMain)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { newDlg = false }, modifier = Modifier.align(Alignment.End)) {
+                    Text("取消", fontSize = 11.sp)
+                }
+            }
+        }
+    }
+
     Row(Modifier.fillMaxSize()) {
         Column(Modifier.width(260.dp).fillMaxHeight().background(KbRailBg)) {
             Row(
@@ -2710,6 +2758,10 @@ private fun DmPanel(session: Session) {
             ) {
                 Text("私信", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = KbTextMain)
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = { newDlg = true; newQ = ""; picks = emptyList() },
+                    contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("新建", fontSize = 11.sp)
+                }
                 TextButton(onClick = { tick++ }, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     Text("刷新", fontSize = 11.sp)
                 }
@@ -2808,6 +2860,21 @@ private fun DmPanel(session: Session) {
                                         Text(m.content.ifBlank { "（非文本消息）" }, fontSize = 12.5.sp, color = KbTextMain, lineHeight = 19.sp)
                                         Spacer(Modifier.height(2.dp))
                                         Text(fmtTime(m.createdAt), fontSize = 9.5.sp, color = KbTextSub)
+                                        // 2 分钟内可撤回（N96）；后端还有一道时间校验，这里只是别让按钮永远亮着
+                                        if (mine && canRecall(m.createdAt)) {
+                                            Text(
+                                                "撤回",
+                                                fontSize = 9.5.sp,
+                                                color = KbPrimary,
+                                                modifier = Modifier.clickable {
+                                                    scope.launch {
+                                                        runCatching { api.dmRecall(session.token, m.id) }
+                                                        runCatching { msgs = api.dmMessages(session.token, p, null, 30) }
+                                                        tick++
+                                                    }
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }

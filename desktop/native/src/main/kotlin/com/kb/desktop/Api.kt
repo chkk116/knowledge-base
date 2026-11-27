@@ -843,6 +843,24 @@ class ApiClient(private val base: String) {
             }
         }
 
+    /** GET /api/users/search?q= → 选人发起私信（排除自己） */
+    suspend fun searchUsers(token: String, q: String): List<UserPick> = withContext(Dispatchers.IO) {
+        val enc = java.net.URLEncoder.encode(q, "UTF-8")
+        val e = Json.parseToJsonElement(getAuth("/api/users/search?q=$enc", token))
+        (e as? JsonArray).orEmpty().mapNotNull { item ->
+            val j = item as? JsonObject ?: return@mapNotNull null
+            val id = j.long("id") ?: return@mapNotNull null
+            UserPick(id, j.str("displayName").orEmpty().ifBlank { j.str("username").orEmpty() })
+        }
+    }
+
+    data class UserPick(val id: Long, val name: String)
+
+    /** DELETE /api/dm/messages/{id} → 撤回自己 2 分钟内发的消息 */
+    suspend fun dmRecall(token: String, id: Long) {
+        withContext(Dispatchers.IO) { authReq("DELETE", "/api/dm/messages/$id", token) }
+    }
+
     /** POST /api/dm/read {peerId} → 把与某人的消息标为已读（打开会话时调用） */
     suspend fun dmMarkRead(token: String, peerId: Long) {
         withContext(Dispatchers.IO) {
