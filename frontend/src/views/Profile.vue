@@ -85,6 +85,7 @@ const favoriteDocs = ref([])
 const loadingMine = ref(false)
 const showAvatarPicker = ref(false)
 const avatarPending = ref(null)   // 待审新头像 URL（null=无待审）——用于「审核中」持久提示与角标
+const avatarAtLoad = ref('')      // 打开页面时的头像：只有真换了才随资料一起提交（N80）
 
 // 个人资料页背景图：管理员在外观设置里统一配置（utils/appearance 共享缓存），空则用内置默认
 import { appearanceProfileBg as profileBg, loadAppearance } from '../utils/appearance'
@@ -191,6 +192,7 @@ onMounted(() => {
   bio.value = auth.user?.bio || ''
   gender.value = auth.user?.gender || ''
   avatar.value = auth.user?.avatar || ''
+  avatarAtLoad.value = avatar.value
   avatarPending.value = auth.user?.avatarPending || null
   loadAppearance()
   loadEmailStatus()
@@ -315,13 +317,17 @@ function resetAvatar() {
 async function save() {
   saving.value = true
   try {
-    const { data } = await updateProfile({
+    const payload = {
       displayName: displayName.value.trim(),
-      avatar: avatar.value,
       bio: bio.value.trim(),
       gender: gender.value,
       emailNotifyEnabled: emailNotifyEnabled.value,
-    })
+    }
+    // 只有真的换过头像才带上 avatar：原来每次保存资料都重传旧头像，
+    // 待审记录因此反复复现（N80）
+    if (avatar.value !== avatarAtLoad.value) payload.avatar = avatar.value
+    const { data } = await updateProfile(payload)
+    avatarAtLoad.value = avatar.value
     auth.setProfile(data)
     avatarPending.value = data.avatarPending || null
     if (data.avatarPending) {

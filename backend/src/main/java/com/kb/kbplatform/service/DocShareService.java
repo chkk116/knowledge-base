@@ -225,6 +225,16 @@ public class DocShareService {
             relayNotifier.documentPermissionChanged(shareId, docId, targetUserId);
             return null;
         }
+        // 非空间成员不能单独授权：REST 访问仍要求空间成员身份，接口却返回 ok:true，
+        // 让授权人以为已经生效（N36）。已有孤儿权限记录时仍允许「清除」，否则数据永远清不掉。
+        if (spacePerm == null) {
+            if (existing != null) {
+                docPermRepo.delete(existing);
+                relayNotifier.documentPermissionChanged(shareId, docId, targetUserId);
+                return null;
+            }
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "目标用户不是该空间成员，请先加入空间再单独授权");
+        }
         if (existing == null) {
             existing = new SharedDocPermission();
             existing.setShareId(shareId);
