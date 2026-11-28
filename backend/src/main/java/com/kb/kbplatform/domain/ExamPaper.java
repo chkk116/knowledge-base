@@ -29,8 +29,12 @@ public class ExamPaper {
     /**
      * 是否允许学员以「练习模式」作答（不落成绩、逐题看解析）。
      * 用包装类型并允许为 null：老数据没有这列，null 视为允许（2026-10-21）。
+     *
+     * ⚠️ N100：不要把默认值写成 Boolean.TRUE —— PUT /papers/{id} 用本类接收请求体，
+     * Jackson 反序列化新对象时该字段会是 TRUE（而非 null），导致「只传 status 发布」
+     * 把库里的 False 静默翻成 True。未传一律保持 null，由 adminSavePaper 在新建时补默认。
      */
-    private Boolean practiceEnabled = Boolean.TRUE;
+    private Boolean practiceEnabled;
 
     /**
      * 是否为全站「模拟卷」：试卷自身的属性，在试卷列表的操作里直接勾选（2026-10-21 改）。

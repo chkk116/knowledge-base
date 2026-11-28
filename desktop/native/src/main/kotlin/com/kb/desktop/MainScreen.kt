@@ -10,6 +10,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -263,27 +264,30 @@ private fun Sidebar(
     }
 }
 
+/** 语义色板（方案二）：浏览=蓝 学习=绿 社交=琥珀 数据=紫 管理=石板——侧栏与首页卡片共用 */
+private fun menuTile(kind: MenuKind): Pair<Color, Color> = when (kind) {
+    MenuKind.HOME -> KbTileSemBlue
+    MenuKind.DOCS -> KbTileSemBlue
+    MenuKind.SHARES -> KbTileSemBlue
+    MenuKind.FAVORITES -> KbTileSemBlue
+    MenuKind.FILES -> KbTileSemBlue
+    MenuKind.COURSES -> KbTileSemGreen
+    MenuKind.EXAMS -> KbTileSemGreen
+    MenuKind.CARDS -> KbTileSemGreen
+    MenuKind.DM -> KbTileSemAmber
+    MenuKind.CHAT -> KbTileSemAmber
+    MenuKind.MAIL -> KbTileSemAmber
+    MenuKind.NOTIFICATIONS -> KbTileSemAmber
+    MenuKind.RANKING -> KbTileSemViolet
+    MenuKind.POINTS -> KbTileSemViolet
+    MenuKind.BADGES -> KbTileSemViolet
+    MenuKind.ADMIN -> KbTileSemSlate
+    MenuKind.SETTINGS -> KbTileSemSlate
+}
+
 @Composable
 private fun MenuItem(kind: MenuKind, sel: Boolean, rail: Boolean, badge: Int = 0, onClick: () -> Unit) {
-    val tile = when (kind) {
-        MenuKind.HOME -> KbTileBlue
-        MenuKind.DOCS -> KbTileViolet
-        MenuKind.SHARES -> KbTileTeal
-        MenuKind.COURSES -> KbTileGreen
-        MenuKind.EXAMS -> KbTileRose
-        MenuKind.FAVORITES -> KbTileAmber
-        MenuKind.RANKING -> KbTileViolet
-        MenuKind.BADGES -> KbTileGreen
-        MenuKind.POINTS -> KbTileBlue
-        MenuKind.DM -> KbTileTeal
-        MenuKind.CARDS -> KbTileAmber
-        MenuKind.CHAT -> KbTileGreen
-        MenuKind.FILES -> KbTileAmber
-        MenuKind.MAIL -> KbTileTeal
-        MenuKind.NOTIFICATIONS -> KbTileRose
-        MenuKind.ADMIN -> KbTileRose
-        MenuKind.SETTINGS -> KbTileBlue
-    }
+    val tile = menuTile(kind)
     if (rail) {
         Box(
             Modifier
@@ -342,10 +346,10 @@ private fun IconTile(kind: MenuKind, tile: Pair<Color, Color>, size: androidx.co
     Box(
         Modifier
             .size(size)
-            .clip(RoundedCornerShape(7.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(KbIconGradient(tile.first, tile.second)),
         contentAlignment = Alignment.Center,
-    ) { MenuGlyph(kind, Color.White, Modifier.size(size * 0.58f)) }
+    ) { MenuGlyph(kind, Color.White, Modifier.size(size * 0.70f)) }
 }
 
 @Composable
@@ -428,7 +432,7 @@ private fun HomePanel(
         trendCounts = days.map { d -> updatedDays.count { it == d } }
         // 分类分布：前 4 类 + 其余折成「其他」。尾部直接丢掉的话，图例与合计只剩一部分分布，
         // 看着却像完整分类；空数据也不造假分段（DonutChart 自己会画灰色空环）。
-        val palette = listOf(KbTileViolet.first, KbTileGreen.first, KbTileBlue.first, KbTileAmber.first)
+        val palette = listOf(KbTileSemViolet.first, KbTileSemGreen.first, KbTileSemBlue.first, KbTileSemAmber.first)
         val grouped = latest.groupBy { it.category?.takeIf { c -> c.isNotBlank() } ?: "未分类" }
             .map { (k, v) -> k to v.size }
             .sortedByDescending { it.second }
@@ -467,15 +471,15 @@ private fun HomePanel(
         // 概览：已发布文档 / 本周新增 / 成员（+ 管理员待审核）
         val o = ov
         Row(Modifier.fillMaxWidth()) {
-            StatCard("已发布文章", o?.totalDocs ?: 0L, KbTileViolet, Modifier.weight(1f))
+            StatCard("已发布文章", o?.totalDocs ?: 0L, KbTileSemBlue, Modifier.weight(1f))
             Spacer(Modifier.width(12.dp))
-            StatCard("本周新增", o?.weekNew ?: 0L, KbTileGreen, Modifier.weight(1f))
+            StatCard("本周新增", o?.weekNew ?: 0L, KbTileSemGreen, Modifier.weight(1f))
             Spacer(Modifier.width(12.dp))
-            StatCard("在册成员", o?.members ?: 0L, KbTileBlue, Modifier.weight(1f))
+            StatCard("在册成员", o?.members ?: 0L, KbTileSemViolet, Modifier.weight(1f))
             val pending = o?.pendingReview
             if (pending != null) {
                 Spacer(Modifier.width(12.dp))
-                StatCard("待审核", pending, KbTileAmber, Modifier.weight(1f))
+                StatCard("待审核", pending, KbTileSemSlate, Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -487,7 +491,7 @@ private fun HomePanel(
                 LineChart(
                     title = "近 7 天更新（最近 80 篇）",
                     labels = trendLabels,
-                    series = listOf(Triple("更新篇数", trendCounts, KbTileViolet.first)),
+                    series = listOf(Triple("更新篇数", trendCounts, KbTileSemViolet.first)),
                     modifier = Modifier.weight(1.7f),
                 )
                 Spacer(Modifier.width(12.dp))
@@ -517,26 +521,26 @@ private fun HomePanel(
 
         // 快捷入口
         Row(Modifier.fillMaxWidth()) {
-            QuickCard("问 AI", "检索知识库并给出出处", KbTileGreen, Modifier.weight(1f)) {
+            QuickCard("问 AI", "检索知识库并给出出处", MenuKind.CHAT, Modifier.weight(1f)) {
                 onNavigate(MenuKind.CHAT)
             }
             Spacer(Modifier.width(12.dp))
-            QuickCard("全部文章", "浏览与新建文档", KbTileViolet, Modifier.weight(1f)) {
+            QuickCard("全部文章", "浏览与新建文档", MenuKind.DOCS, Modifier.weight(1f)) {
                 onNavigate(MenuKind.DOCS)
             }
             Spacer(Modifier.width(12.dp))
-            QuickCard("我的文件", "附件与上传记录", KbTileAmber, Modifier.weight(1f)) {
+            QuickCard("我的文件", "附件与上传记录", MenuKind.FILES, Modifier.weight(1f)) {
                 onNavigate(MenuKind.FILES)
             }
         }
         Spacer(Modifier.height(10.dp))
         // 第二行快捷入口：17 项侧栏太长，把这三个高频页也放到首页，免得每次翻侧栏
         Row(Modifier.fillMaxWidth()) {
-            QuickCard("我的收藏", "收藏过的文章", KbTileAmber, Modifier.weight(1f)) { onNavigate(MenuKind.FAVORITES) }
+            QuickCard("我的收藏", "收藏过的文章", MenuKind.FAVORITES, Modifier.weight(1f)) { onNavigate(MenuKind.FAVORITES) }
             Spacer(Modifier.width(12.dp))
-            QuickCard("复习卡片", "按间隔复习", KbTileViolet, Modifier.weight(1f)) { onNavigate(MenuKind.CARDS) }
+            QuickCard("复习卡片", "按间隔复习", MenuKind.CARDS, Modifier.weight(1f)) { onNavigate(MenuKind.CARDS) }
             Spacer(Modifier.width(12.dp))
-            QuickCard("私信", "与同事一对一沟通", KbTileTeal, Modifier.weight(1f)) { onNavigate(MenuKind.DM) }
+            QuickCard("私信", "与同事一对一沟通", MenuKind.DM, Modifier.weight(1f)) { onNavigate(MenuKind.DM) }
         }
     }
 }
@@ -689,7 +693,7 @@ private fun HomeDocRow(d: DocSummary, onClick: () -> Unit) {
 }
 
 @Composable
-private fun QuickCard(title: String, desc: String, tile: Pair<Color, Color>, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun QuickCard(title: String, desc: String, kind: MenuKind, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
         modifier
             .clip(RoundedCornerShape(12.dp))
@@ -699,6 +703,7 @@ private fun QuickCard(title: String, desc: String, tile: Pair<Color, Color>, mod
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val tile = menuTile(kind)
         Box(
             Modifier
                 .size(32.dp)
@@ -706,11 +711,6 @@ private fun QuickCard(title: String, desc: String, tile: Pair<Color, Color>, mod
                 .background(KbIconGradient(tile.first, tile.second)),
             contentAlignment = Alignment.Center,
         ) {
-            val kind = when (tile) {
-                KbTileGreen -> MenuKind.CHAT
-                KbTileAmber -> MenuKind.FILES
-                else -> MenuKind.DOCS
-            }
             MenuGlyph(kind, Color.White, Modifier.size(18.dp))
         }
         Spacer(Modifier.width(10.dp))
@@ -2076,43 +2076,46 @@ internal fun hasWebView2Runtime(): Boolean {
 
 /** 菜单线框图标（与 Web 1.3.51 细线风格一致：1.5px 线 + 圆角端点） */
 @Composable
-fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
+fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier, secondary: Color = tint.copy(alpha = 0.55f)) {
     Canvas(modifier) {
         val u = size.width / 24f
         // 24 网格上的统一线宽（约 1.6px），端点/拐角圆角——与 Web 端细线图标一致
         val stroke = Stroke(width = 1.8f * u, cap = StrokeCap.Round, join = StrokeJoin.Round)
         val p = Path()
-        fun line(x1: Float, y1: Float, x2: Float, y2: Float) =
-            drawLine(tint, Offset(x1 * u, y1 * u), Offset(x2 * u, y2 * u), stroke.width, StrokeCap.Round)
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float, c: Color = tint) =
+            drawLine(c, Offset(x1 * u, y1 * u), Offset(x2 * u, y2 * u), stroke.width, StrokeCap.Round)
+        fun subline(x1: Float, y1: Float, x2: Float, y2: Float) =
+            drawLine(secondary, Offset(x1 * u, y1 * u), Offset(x2 * u, y2 * u), stroke.width, StrokeCap.Round)
+        fun subpath(pp: Path) = drawPath(pp, secondary, style = stroke)
 
         when (kind) {
             MenuKind.HOME -> {
                 // 房子：屋顶 + 房体 + 门（Lucide 风，比例居中）
                 p.moveTo(3f, 11f); p.lineTo(12f, 4f); p.lineTo(21f, 11f)
                 p.moveTo(6f, 10f); p.lineTo(6f, 20f); p.lineTo(18f, 20f); p.lineTo(18f, 10f)
-                line(10.5f, 20f, 10.5f, 14.5f); line(10.5f, 14.5f, 13.5f, 14.5f); line(13.5f, 14.5f, 13.5f, 20f)
+                subline(10.5f, 20f, 10.5f, 14.5f); subline(10.5f, 14.5f, 13.5f, 14.5f); subline(13.5f, 14.5f, 13.5f, 20f)
             }
             MenuKind.DOCS -> {
                 // 文档：外框 + 三行文字
                 p.moveTo(6.5f, 4f); p.lineTo(17.5f, 4f); p.lineTo(17.5f, 20f); p.lineTo(6.5f, 20f); p.close()
-                line(9.5f, 9.5f, 14.5f, 9.5f); line(9.5f, 12.5f, 14.5f, 12.5f); line(9.5f, 15.5f, 13.5f, 15.5f)
+                subline(9.5f, 9.5f, 14.5f, 9.5f); subline(9.5f, 12.5f, 14.5f, 12.5f); subline(9.5f, 15.5f, 13.5f, 15.5f)
             }
             MenuKind.SHARES -> {
                 // 共享：两页重叠
                 p.moveTo(4f, 9f); p.lineTo(4f, 20f); p.lineTo(13f, 20f); p.lineTo(13f, 9f); p.close()
                 p.moveTo(9f, 4f); p.lineTo(19f, 4f); p.lineTo(19f, 15.5f); p.lineTo(15.5f, 15.5f)
-                line(6.5f, 13f, 10.5f, 13f); line(6.5f, 16.5f, 10.5f, 16.5f)
+                subline(6.5f, 13f, 10.5f, 13f); subline(6.5f, 16.5f, 10.5f, 16.5f)
             }
             MenuKind.COURSES -> {
                 // 打开的书：中缝 + 两页
-                line(12f, 6.5f, 12f, 19f)
+                subline(12f, 6.5f, 12f, 19f)
                 p.moveTo(12f, 7f); p.lineTo(5f, 5.5f); p.lineTo(5f, 17.5f); p.lineTo(12f, 19f)
                 p.moveTo(12f, 7f); p.lineTo(19f, 5.5f); p.lineTo(19f, 17.5f); p.lineTo(12f, 19f)
             }
             MenuKind.EXAMS -> {
                 // 试卷：外框 + 勾
                 p.moveTo(6f, 3.5f); p.lineTo(18f, 3.5f); p.lineTo(18f, 20.5f); p.lineTo(6f, 20.5f); p.close()
-                line(9f, 12f, 11f, 14.5f); line(11f, 14.5f, 15.5f, 9f)
+                subline(9f, 12f, 11f, 14.5f); subline(11f, 14.5f, 15.5f, 9f)
             }
             MenuKind.FAVORITES -> {
                 // 书签
@@ -2120,18 +2123,18 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
             }
             MenuKind.RANKING -> {
                 // 三根柱 + 底线
-                line(5f, 19.5f, 19f, 19.5f)
+                subline(5f, 19.5f, 19f, 19.5f)
                 line(7f, 19f, 7f, 13f); line(12f, 19f, 12f, 8f); line(17f, 19f, 17f, 11f)
             }
             MenuKind.BADGES -> {
                 // 圆章 + 两条下摆
                 drawCircle(tint, 5.5f * u, Offset(12f * u, 10.5f * u), style = stroke)
-                line(9f, 15f, 7.5f, 20.5f); line(15f, 15f, 16.5f, 20.5f)
+                subline(9f, 15f, 7.5f, 20.5f); subline(15f, 15f, 16.5f, 20.5f)
             }
             MenuKind.POINTS -> {
                 // 硬币：外圆 + 横线
                 drawCircle(tint, 8f * u, Offset(12f * u, 12f * u), style = stroke)
-                line(8.5f, 12f, 15.5f, 12f)
+                subline(8.5f, 12f, 15.5f, 12f)
             }
             MenuKind.DM -> {
                 // 两个错开的对话气泡
@@ -2144,13 +2147,13 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
                 // 两张叠放的卡片
                 p.moveTo(6f, 4.5f); p.lineTo(16f, 4.5f); p.lineTo(16f, 15f); p.lineTo(6f, 15f); p.close()
                 p.moveTo(9f, 9f); p.lineTo(19f, 9f); p.lineTo(19f, 19.5f); p.lineTo(9f, 19.5f); p.close()
-                line(12f, 13f, 16f, 13f); line(12f, 16f, 16f, 16f)
+                subline(12f, 13f, 16f, 13f); subline(12f, 16f, 16f, 16f)
             }
             MenuKind.CHAT -> {
                 // 对话气泡 + 三点
                 p.moveTo(4f, 5.5f); p.lineTo(20f, 5.5f); p.lineTo(20f, 15.5f); p.lineTo(11f, 15.5f)
                 p.lineTo(7.5f, 19f); p.lineTo(7.5f, 15.5f); p.lineTo(4f, 15.5f); p.close()
-                line(8.5f, 10.5f, 8.5f, 10.6f); line(12f, 10.5f, 12f, 10.6f); line(15.5f, 10.5f, 15.5f, 10.6f)
+                subline(8.5f, 10.5f, 8.5f, 10.6f); subline(12f, 10.5f, 12f, 10.6f); subline(15.5f, 10.5f, 15.5f, 10.6f)
             }
             MenuKind.FILES -> {
                 // 文件夹
@@ -2160,15 +2163,15 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
             MenuKind.MAIL -> {
                 // 信封：外框 + 折角
                 p.moveTo(4f, 6.5f); p.lineTo(20f, 6.5f); p.lineTo(20f, 17.5f); p.lineTo(4f, 17.5f); p.close()
-                line(4f, 7f, 12f, 13f); line(12f, 13f, 20f, 7f)
+                subline(4f, 7f, 12f, 13f); subline(12f, 13f, 20f, 7f)
             }
             MenuKind.NOTIFICATIONS -> {
                 // 铃铛：提手 + 铃身 + 底座 + 铃舌（简化为四段）
-                line(12f, 4f, 12f, 6f)
+                subline(12f, 4f, 12f, 6f)
                 p.moveTo(6.5f, 15f); p.lineTo(6.5f, 9f); p.lineTo(8f, 6.5f); p.lineTo(16f, 6.5f)
                 p.lineTo(17.5f, 9f); p.lineTo(17.5f, 15f); p.close()
-                line(5f, 17.5f, 19f, 17.5f)
-                line(10f, 20f, 14f, 20f)
+                subline(5f, 17.5f, 19f, 17.5f)
+                subline(10f, 20f, 14f, 20f)
             }
             MenuKind.ADMIN -> {
                 // 齿轮：中心圆 + 八齿
@@ -2177,12 +2180,12 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier) {
                     val a = Math.PI / 4 * i
                     val c = kotlin.math.cos(a).toFloat()
                     val s = kotlin.math.sin(a).toFloat()
-                    line(12f + 6.5f * c, 12f + 6.5f * s, 12f + 8.5f * c, 12f + 8.5f * s)
+                    subline(12f + 6.5f * c, 12f + 6.5f * s, 12f + 8.5f * c, 12f + 8.5f * s)
                 }
             }
             MenuKind.SETTINGS -> {
                 // 滑块：三横线 + 三个小圆
-                line(4f, 7f, 20f, 7f); line(4f, 12f, 20f, 12f); line(4f, 17f, 20f, 17f)
+                subline(4f, 7f, 20f, 7f); subline(4f, 12f, 20f, 12f); subline(4f, 17f, 20f, 17f)
                 drawCircle(tint, 2.1f * u, Offset(14.5f * u, 7f * u), style = Stroke(stroke.width))
                 drawCircle(tint, 2.1f * u, Offset(8.5f * u, 12f * u), style = Stroke(stroke.width))
                 drawCircle(tint, 2.1f * u, Offset(16f * u, 17f * u), style = Stroke(stroke.width))
@@ -2624,7 +2627,11 @@ private fun DmPanel(session: Session) {
     var tick by remember { mutableStateOf(0) }
     var peer by remember { mutableStateOf<Long?>(null) }
     var msgs by remember { mutableStateOf<List<ApiClient.DmMsg>>(emptyList()) }
+    // N108：发送消息后消息流自动滚到底部（原来没有 listState，新消息在下方看不见）
+    val msgListState = rememberLazyListState()
     var msgLoading by remember { mutableStateOf(false) }
+    // N109：每 30s 轮询推进一次，强制撤回按钮按当前时间重算可见性
+    var recallTick by remember { mutableStateOf(0) }
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
@@ -2661,6 +2668,8 @@ private fun DmPanel(session: Session) {
         msgs = emptyList()
         try {
             msgs = api.dmMessages(session.token, p, null, 30)
+            // N108：打开会话先定位到最新一条
+            if (msgs.isNotEmpty()) msgListState.animateScrollToItem(msgs.lastIndex)
             // 打开会话即标已读：只拉消息不标已读的话，桌面端角标与会话未读数会一直挂着（N85）
             if (msgs.any { it.fromId == p && !it.read }) {
                 runCatching { api.dmMarkRead(session.token, p) }
@@ -2686,12 +2695,20 @@ private fun DmPanel(session: Session) {
             // 只看它们的话撤回永远同步不过来，必须重开会话才更新（N105）
             if (dmSig(fresh) != dmSig(msgs)) {
                 msgs = fresh
+                // N108：轮询到新消息也滚到底（仅当用户本来就在底部附近，避免打断向上翻阅）
+                val atBottom = msgListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+                    ?.let { it >= msgListState.layoutInfo.totalItemsCount - 2 } ?: true
+                if (atBottom && fresh.isNotEmpty()) msgListState.animateScrollToItem(fresh.lastIndex)
                 // 轮询期间收到新消息，同样要标已读（用户正看着这个会话）
                 if (fresh.any { it.fromId == p && !it.read }) {
                     runCatching { api.dmMarkRead(session.token, p) }
                     tick++
                 }
             }
+            // N109：撤回窗口到点自动隐藏。canRecall 依赖当前时间，但消息内容不变时
+            // 上面不会更新 msgs → 不重组 → 按钮一直亮着。这里每轮推进一个分钟级 tick，
+            // 强制消息流重组并重算 canRecall（毫秒级无需，2 分钟窗口按分钟推进足够）。
+            recallTick++
         }
     }
 
@@ -2709,6 +2726,8 @@ private fun DmPanel(session: Session) {
                     draft = ""
                     note = null
                     msgs = api.dmMessages(session.token, p, null, 30)
+                    // N108：自己发完消息滚到最新一条
+                    if (msgs.isNotEmpty()) msgListState.animateScrollToItem(msgs.lastIndex)
                 }
                 tick++
             } catch (ce: kotlinx.coroutines.CancellationException) {
@@ -2826,12 +2845,16 @@ private fun DmPanel(session: Session) {
                 note?.let { Text(it, fontSize = 10.5.sp, color = Color(0xFFDC2626)) }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(KbBorder))
+            // N109：读取 recallTick 使其成为重组依赖，轮询推进时 canRecall 按当前时间重算，
+            // 超过 2 分钟的「撤回」按钮自动隐藏（否则消息内容不变就不重组，按钮一直亮着）
+            @Suppress("UNUSED_VARIABLE") val recallClock = recallTick
             Box(Modifier.weight(1f)) {
                 when {
                     msgLoading -> KbSkeletonList(rows = 5)
                     msgs.isEmpty() -> PanelHint("还没有消息，打个招呼吧")
                     else -> LazyColumn(
                         Modifier.fillMaxSize(),
+                        state = msgListState,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {

@@ -684,6 +684,9 @@ public class ExamService {
     @Transactional(rollbackFor = Exception.class)
     public ExamPaper adminSavePaper(ExamPaper p) {
         if (p.getTitle() == null || p.getTitle().isBlank()) throw new IllegalArgumentException("试卷标题不能为空");
+        // N100：新建试卷补「允许练习」默认值；PUT 更新时未传该字段保持 null，
+        // 由控制器跳过不写库（见 AdminExamController.updatePaper），避免静默翻转已保存的值。
+        if (p.getId() == null && p.getPracticeEnabled() == null) p.setPracticeEnabled(Boolean.TRUE);
         if (p.getStatus() == null || p.getStatus().isBlank()) p.setStatus("PUBLISHED");
         // 新建的试卷必然还没题目：直接按 PUBLISHED 落库就会变成「学生看到、点开始即 0 分」的空卷
         // （E2/N4 里那两份 0 题卷就是这么来的）。先落草稿，组完卷再发布。
