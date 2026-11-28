@@ -70,8 +70,39 @@ internal fun UsersTab(session: Session) {
     var toast by remember { mutableStateOf<String?>(null) }
     // 「管理」对话框的目标用户（改角色 / 调积分 / 重置密码）
     var acting by remember { mutableStateOf<AdminUserItem?>(null) }
+    // 批量启用 / 停用：后端只有单个 toggle，逐个调用后汇总
+    var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var batchBusy by remember { mutableStateOf(false) }
+
+    fun runBatch(enabled: Boolean) {
+        val ids = selected.toList()
+        if (ids.isEmpty() || batchBusy) return
+        batchBusy = true
+        scope.launch {
+            var ok = 0
+            var fail = 0
+            var firstErr: String? = null
+            for (id in ids) {
+                try {
+                    api.setUserEnabled(session.token, id, enabled)
+                    ok++
+                } catch (e: java.util.concurrent.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    fail++
+                    if (firstErr == null) firstErr = e.message
+                }
+            }
+            selected = emptySet()
+            batchBusy = false
+            toast = if (fail == 0) "已${if (enabled) "启用" else "停用"} $ok 人"
+            else "成功 $ok 人，失败 $fail 人（${firstErr ?: "未知原因"}）"
+            tick++
+        }
+    }
 
     LaunchedEffect(tick, q, page, size) {
+        selected = emptySet()   // 换页 / 搜索 / 刷新后清空选择，避免批量到看不见的人
         loading = true
         err = null
         try {
@@ -96,7 +127,23 @@ internal fun UsersTab(session: Session) {
             SearchBox(q, { q = it; page = 0 }, Modifier.weight(1f))
         }
         Spacer(Modifier.height(6.dp))
-        KbTableHead(listOf("用户" to 3f, "角色" to 1f, "积分" to 0.9f, "注册时间" to 1.5f, "操作" to 1.7f))
+        if (selected.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("已选 ${selected.size} 人", fontSize = 11.5.sp, color = KbTextMain)
+                Spacer(Modifier.width(10.dp))
+                AdminButton("全选本页", enabled = !batchBusy) { selected = users.map { it.id }.toSet() }
+                Spacer(Modifier.width(6.dp))
+                AdminButton(if (batchBusy) "处理中…" else "批量停用", danger = true, enabled = !batchBusy) { runBatch(false) }
+                Spacer(Modifier.width(6.dp))
+                AdminButton(if (batchBusy) "处理中…" else "批量启用", enabled = !batchBusy) { runBatch(true) }
+                Spacer(Modifier.weight(1f))
+                AdminButton("取消选择", enabled = !batchBusy) { selected = emptySet() }
+            }
+        }
+        KbTableHead(listOf("" to 0.4f, "用户" to 3f, "角色" to 1f, "积分" to 0.9f, "注册时间" to 1.5f, "操作" to 1.7f))
         Box(Modifier.weight(1f)) {
             when {
                 loading -> KbSkeletonList()
@@ -105,6 +152,20 @@ internal fun UsersTab(session: Session) {
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(users, key = { it.id }) { u ->
                         KbTableRow {
+                            val checked = u.id in selected
+                            Box(
+                                Modifier
+                                    .size(16.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (checked) KbAccent else Color.Transparent)
+                                    .border(1.dp, if (checked) KbAccent else KbBorder, RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        selected = if (checked) selected - u.id else selected + u.id
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (checked) Text("✓", fontSize = 10.sp, color = Color.White)
+                            }
                             Column(Modifier.weight(3f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(

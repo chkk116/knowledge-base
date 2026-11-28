@@ -91,6 +91,7 @@ outputs/*.jar
 # 发布脚本与发版数据含部署信息；图标素材为本机产物，两类都只留本地
 # （.gitignore 不支持行尾注释，注释必须独立成行）
 outputs/publish-*.sh
+outputs/sync-*.sh
 outputs/seed/
 outputs/logo/
 outputs/.deploykey
