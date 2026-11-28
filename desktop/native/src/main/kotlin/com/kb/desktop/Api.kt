@@ -563,12 +563,104 @@ data class AnnouncementItem(
 /** HTTP + JSON 访问层。登录三步 + 文章/文件只读接口。 */
 class ApiClient(private val base: String) {
 
+    /** 无凭据请求（验证码、图片等）沿用系统默认跟随，不涉及 token 泄漏。 */
     private val http: HttpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build()
 
+    /**
+     * 带 Authorization 的请求专用：底层一律不自动跟随，改由 [sendAuth] 逐跳处理，
+     * 这样跨源重定向时才有机会剥离凭据（否则 JDK 会把 Bearer token 原样带给外域）。
+     */
+    private val authHttp: HttpClient = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .followRedirects(HttpClient.Redirect.NEVER)
+        .build()
+
     private fun uri(path: String): URI = URI.create(base.trimEnd('/') + path)
+
+    /** 认证请求最多跟随 5 跳，超出即报错，避免环路把连接耗死。 */
+    private val maxAuthRedirects = 5
+
+    /** 凭据类请求头：一旦跳到别的源（scheme+host+port 变化）就不再发送。 */
+    private val credentialHeaders = setOf("authorization", "proxy-authorization", "x-api-key", "cookie")
+
+    private fun isAuthRedirect(code: Int): Boolean =
+        code == 301 || code == 302 || code == 303 || code == 307 || code == 308
+
+    /** 同源判定口径：scheme + host + port 全一致（缺省端口按协议归一）。 */
+    private fun originOf(u: URI): String {
+        val scheme = (u.scheme ?: "").lowercase()
+        val port = if (u.port != -1) u.port else if (scheme == "https") 443 else 80
+        return "$scheme://${(u.host ?: "").lowercase()}:$port"
+    }
+
+    private fun closeQuietly(resp: HttpResponse<*>) {
+        (resp.body() as? java.io.Closeable)?.let { runCatching { it.close() } }
+    }
+
+    /**
+     * 手动跟随重定向的认证请求（最多 5 跳）：
+     * - 同源（scheme+host+port 相同）继续跟随并保留 Authorization；
+     * - 跨源则从这一跳起剥离 [credentialHeaders] 里的凭据，绝不带着 token 去外域；
+     * - 303 一律转 GET；301/302 的 POST 转 GET（浏览器口径）；307/308 保持方法与 body。
+     * 超时、body 编码与原实现一致，仅在跳转时重建请求。
+     */
+    private fun <T> sendAuth(
+        method: String,
+        url: URI,
+        token: String,
+        body: ByteArray?,
+        contentType: String?,
+        timeoutSeconds: Long,
+        handler: HttpResponse.BodyHandler<T>,
+    ): HttpResponse<T> {
+        val origin = originOf(url)
+        var current = url
+        var verb = method.uppercase()
+        var payload = body
+        var type = contentType
+        var keepCredential = true
+        var hops = 0
+        while (true) {
+            val headers = ArrayList<Pair<String, String>>(2)
+            headers.add("Authorization" to "Bearer $token")
+            if (payload != null && type != null) headers.add("Content-Type" to type)
+            val builder = HttpRequest.newBuilder(current)
+                .timeout(Duration.ofSeconds(timeoutSeconds))
+                .method(
+                    verb,
+                    if (payload != null) HttpRequest.BodyPublishers.ofByteArray(payload)
+                    else HttpRequest.BodyPublishers.noBody(),
+                )
+            headers.forEach { (name, value) ->
+                if (keepCredential || name.lowercase() !in credentialHeaders) builder.header(name, value)
+            }
+            val resp = try {
+                authHttp.send(builder.build(), handler)
+            } catch (e: Exception) {
+                throw ApiError("无法连接服务器：${e.message ?: "网络错误"}")
+            }
+            val code = resp.statusCode()
+            if (!isAuthRedirect(code)) return resp
+            val location = resp.headers().firstValue("Location").orElse(null) ?: return resp
+            val next = runCatching { current.resolve(location) }.getOrNull() ?: return resp
+            if (hops >= maxAuthRedirects) {
+                closeQuietly(resp)
+                throw ApiError("重定向次数过多：$location")
+            }
+            closeQuietly(resp)   // 丢弃这一跳的响应体（流式接口也能及时释放）
+            if (originOf(next) != origin) keepCredential = false
+            if (code == 303 || ((code == 301 || code == 302) && verb == "POST")) {
+                verb = "GET"
+                payload = null
+                type = null
+            }
+            current = next
+            hops++
+        }
+    }
 
     private fun send(req: HttpRequest): HttpResponse<String> = try {
         val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
@@ -596,12 +688,10 @@ class ApiClient(private val base: String) {
             .GET()
             .build()).body()
 
-    private fun getAuth(path: String, token: String): String = try {
-        val resp = http.send(HttpRequest.newBuilder(uri(path))
-            .header("Authorization", "Bearer $token")
-            .timeout(Duration.ofSeconds(20))
-            .GET().build(), HttpResponse.BodyHandlers.ofString())
-        when {
+    private fun getAuth(path: String, token: String): String {
+        // 走 sendAuth：同源重定向保留 token，跨源重定向自动剥离（不再由 JDK 盲目跟随）
+        val resp = sendAuth("GET", uri(path), token, null, null, 20, HttpResponse.BodyHandlers.ofString())
+        return when {
             resp.statusCode() == 401 -> throw ApiError("登录已过期，请重新登录")
             resp.statusCode() >= 400 -> {
                 val msg = parse(resp.body())?.str("error")
@@ -609,10 +699,6 @@ class ApiClient(private val base: String) {
             }
             else -> resp.body()
         }
-    } catch (e: ApiError) {
-        throw e
-    } catch (e: Exception) {
-        throw ApiError("无法连接服务器：${e.message ?: "网络错误"}")
     }
 
     private fun parse(text: String?): JsonObject? =
@@ -2151,14 +2237,11 @@ class ApiClient(private val base: String) {
             w("Content-Type: $mime\r\n\r\n")
             body.write(file.readBytes())
             w("\r\n--$boundary--\r\n")
-            val resp = http.send(
-                HttpRequest.newBuilder(uri("/api/files/mine"))
-                    .header("Authorization", "Bearer $token")
-                    .header("Content-Type", "multipart/form-data; boundary=$boundary")
-                    .timeout(Duration.ofSeconds(120))
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
-                    .build(),
-                HttpResponse.BodyHandlers.ofString(),
+            // 走 sendAuth：上传同样带 token，跨源重定向必须剥离凭据
+            val resp = sendAuth(
+                "POST", uri("/api/files/mine"), token,
+                body.toByteArray(), "multipart/form-data; boundary=$boundary",
+                120, HttpResponse.BodyHandlers.ofString(),
             )
             if (resp.statusCode() == 401) throw ApiError("登录已过期，请重新登录")
             if (resp.statusCode() >= 400) {
@@ -2224,16 +2307,17 @@ class ApiClient(private val base: String) {
         )
     }
 
-    /** 通用带认证请求（GET/POST/PUT/DELETE）。[timeoutSeconds] 默认 20s；AI 单步推理等长任务可调大。 */
-    private fun authReq(method: String, path: String, token: String, body: String? = null, timeoutSeconds: Long = 20): String = try {
-        val resp = http.send(HttpRequest.newBuilder(uri(path))
-            .header("Authorization", "Bearer $token")
-            .apply { if (body != null) header("Content-Type", "application/json") }
-            .method(method, if (body != null) HttpRequest.BodyPublishers.ofString(body)
-                else HttpRequest.BodyPublishers.noBody())
-            .timeout(Duration.ofSeconds(timeoutSeconds))
-            .build(), HttpResponse.BodyHandlers.ofString())
-        when {
+    /**
+     * 通用带认证请求（GET/POST/PUT/DELETE）。[timeoutSeconds] 默认 20s；AI 单步推理等长任务可调大。
+     * 重定向由 [sendAuth] 手动跟随：同源保留 token，跨源剥离凭据。
+     */
+    private fun authReq(method: String, path: String, token: String, body: String? = null, timeoutSeconds: Long = 20): String {
+        val resp = sendAuth(
+            method, uri(path), token,
+            body?.toByteArray(Charsets.UTF_8), if (body != null) "application/json" else null,
+            timeoutSeconds, HttpResponse.BodyHandlers.ofString(),
+        )
+        return when {
             resp.statusCode() == 401 -> throw ApiError("登录已过期，请重新登录")
             resp.statusCode() >= 400 -> {
                 val msg = parse(resp.body())?.str("error")
@@ -2241,10 +2325,6 @@ class ApiClient(private val base: String) {
             }
             else -> resp.body()
         }
-    } catch (e: ApiError) {
-        throw e
-    } catch (e: Exception) {
-        throw ApiError("无法连接服务器：${e.message ?: "网络错误"}")
     }
 
     /** GET /api/ai/models → 可选模型列表（不含 Key） */
@@ -2352,18 +2432,13 @@ class ApiClient(private val base: String) {
                 append("}")
             }
         }
-        val req = HttpRequest.newBuilder(uri("/api/ai/ask/stream"))
-            .header("Authorization", "Bearer $token")
-            .header("Content-Type", "application/json")
-            // 只约束拿到响应头（含较慢的鉴权）；流式正文不设超时，靠用户停止/服务端结束收尾
-            .timeout(Duration.ofSeconds(30))
-            .POST(HttpRequest.BodyPublishers.ofString(body))
-            .build()
-        val resp = try {
-            http.send(req, HttpResponse.BodyHandlers.ofInputStream())
-        } catch (e: Exception) {
-            throw ApiError("无法连接服务器：${e.message ?: "网络错误"}")
-        }
+        // 只约束拿到响应头（含较慢的鉴权）；流式正文不设超时，靠用户停止/服务端结束收尾。
+        // 重定向同样走 sendAuth：同源保留 token，跨源剥离后重发（流式响应体在跳转时丢弃）。
+        val resp = sendAuth(
+            "POST", uri("/api/ai/ask/stream"), token,
+            body.toByteArray(Charsets.UTF_8), "application/json",
+            30, HttpResponse.BodyHandlers.ofInputStream(),
+        )
         if (resp.statusCode() == 401) {
             resp.body().close()
             throw ApiError("登录已过期，请重新登录")
@@ -2409,14 +2484,19 @@ class ApiClient(private val base: String) {
         o.str("answer") ?: throw ApiError(o.str("error") ?: "Agent 无回答")
     }
 
-    /** POST /api/agent/save → 保存 Agent 最终问答（不触发模型调用）。 */
-    suspend fun aiAgentSave(token: String, conversationId: Long, question: String, answer: String) = withContext(Dispatchers.IO) {
-        runCatching {
-            authReq(
-                "POST", "/api/ai/agent/save", token,
-                """{"conversationId":$conversationId,"question":${jsonStr(question)},"answer":${jsonStr(answer)}}""",
-            )
-        }
+    /**
+     * POST /api/ai/agent/save → 保存 Agent 最终问答（不触发模型调用）。
+     * 失败一律抛 [ApiError]（401/断网/服务端 {ok:false} 都算失败），由界面提示；
+     * 调用方不要吞掉异常，否则用户会误以为已保存。
+     */
+    suspend fun aiAgentSave(token: String, conversationId: Long, question: String, answer: String): Unit = withContext(Dispatchers.IO) {
+        val body = authReq(
+            "POST", "/api/ai/agent/save", token,
+            """{"conversationId":$conversationId,"question":${jsonStr(question)},"answer":${jsonStr(answer)}}""",
+        )
+        // HTTP 200 但业务失败（{ok:false,error}）同样按失败处理，并带上服务端文案
+        val o = parse(body)
+        if (o != null && o.bool("ok") == false) throw ApiError(o.str("error") ?: "保存失败：服务端拒绝写入")
     }
 
     /**

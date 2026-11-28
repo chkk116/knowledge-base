@@ -149,6 +149,8 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
     // 图片附件（vision）：本地压缩成 dataURL，随问发送
     var atts by remember { mutableStateOf<List<Att>>(emptyList()) }
     var attachError by remember { mutableStateOf<String?>(null) }
+    // Agent 问答落库失败提示（内容仍留在本机，只是没写进服务器会话）
+    var saveError by remember { mutableStateOf<String?>(null) }
 
     // 面板销毁（切菜单/退出登录）时断开还在生成的连接，避免后台空转
     DisposableEffect(Unit) { onDispose { streamHandle.value?.abort() } }
@@ -166,7 +168,16 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
         }
     }
 
-    LaunchedEffect(Unit) {
+    // 切换服务器/账号：会话列表、当前会话与消息都属于上一个会话，先清掉再拉，
+    // 避免旧会话 id 配新 token 继续提问/删除
+    LaunchedEffect(session.server, session.token) {
+        convs = emptyList()
+        currentConv = null
+        msgs = emptyList()
+        models = emptyList()
+        selModel = null
+        editingConvId = null
+        atts = emptyList()
         reloadConvs()
         // 模型列表失败不阻塞：下拉只显示「默认模型」
         try { models = api.aiModels(session.token) } catch (_: Exception) {}
@@ -327,8 +338,16 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
             msgs = msgs.mapIndexed { i, m ->
                 if (i == aiIdx) m.copy(streaming = false, content = r.answer, sources = r.sources) else m
             }
-            // 落库最终问答（不触发模型），失败不影响展示
-            runCatching { api.aiAgentSave(session.token, convId, qText, r.answer) }
+            // 落库最终问答（不触发模型）：失败只提示，**不清**本地已展示的答案与当前会话，
+            // 用户可继续阅读/复制，也可等网络恢复后重问一次（会再次保存）。
+            try {
+                api.aiAgentSave(session.token, convId, qText, r.answer)
+                saveError = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                saveError = "本轮问答未保存到服务器（内容仍在本机）：${e.message ?: "网络错误"}"
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -355,6 +374,7 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
             input = ""
             atts = emptyList()
             attachError = null
+            saveError = null   // 新一轮提问：清掉上一轮「未保存」提示
             streaming = true   // 先置位再起协程，双击不会发两问
             scope.launch {
                 if (mode == "agent") {
@@ -532,6 +552,24 @@ fun ChatPanel(session: Session, onOpenDoc: (Long) -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
                             itemsIndexed(msgs) { _, m -> ChatMsgRow(m, onOpenDoc = onOpenDoc, rateMsg = rateMsg) }
+                        }
+                    }
+                }
+                // 保存失败横幅：内容还在，只是没落库；点「知道了」收起
+                if (saveError != null) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            saveError.orEmpty(),
+                            fontSize = 11.sp,
+                            color = ChatErrRed,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { saveError = null }) {
+                            Text("知道了", fontSize = 11.sp, color = KbTextSub)
                         }
                     }
                 }
