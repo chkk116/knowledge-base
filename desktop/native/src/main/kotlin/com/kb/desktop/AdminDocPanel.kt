@@ -95,7 +95,7 @@ internal fun DocManageTab(session: Session) {
         }
     }
 
-    LaunchedEffect(tick, q, page, size) {
+    LaunchedEffect(session.server, session.token, tick, q, page, size) {
         // 输入防抖：每个字符都发请求并把列表替换成「加载中…」，会闪烁且丢滚动位置
         delay(300)
         loading = true
@@ -115,8 +115,8 @@ internal fun DocManageTab(session: Session) {
             loading = false
         }
     }
-    // 搜索或手动刷新后，旧的「确认删除」待确认状态必须清掉，避免误触删错行
-    LaunchedEffect(tick, q) {
+    // 搜索、手动刷新、切换服务器/账号后，旧的「确认删除」与多选必须清掉，避免误触删错行
+    LaunchedEffect(session.server, session.token, tick, q) {
         confirmingId = null
         selected = emptySet()   // 换页/搜索后旧选择已不在可视范围，留着会造成误批量
     }
@@ -342,7 +342,15 @@ internal fun RecycleTab(session: Session) {
         }
     }
 
-    LaunchedEffect(tick) {
+    // 切换服务器/账号：回收站列表与多选/批量确认都属于上一个会话，清掉后重拉
+    LaunchedEffect(session.server, session.token) {
+        rows = emptyList()
+        selected = emptySet()
+        batchConfirm = false
+        purging = null
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {

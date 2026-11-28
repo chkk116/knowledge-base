@@ -66,7 +66,14 @@ internal fun ReviewTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick) {
+    // 切换服务器/账号：待审列表与「驳回中的文档 id」都属于上一个会话，清掉后再拉
+    LaunchedEffect(session.server, session.token) {
+        docs = emptyList()
+        rejecting = null
+        reason = ""
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -211,7 +218,15 @@ internal fun GradingTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick) {
+    // 切换服务器/账号：阅卷列表与已打开的卷面（含打分草稿）都属于上一个会话，清掉后再拉
+    LaunchedEffect(session.server, session.token) {
+        rows = emptyList()
+        detail = null
+        scores = emptyMap()
+        comments = emptyMap()
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try { rows = api.gradingPending(session.token) } catch (e: Exception) { err = e.message ?: "加载失败" } finally { loading = false }
@@ -414,7 +429,16 @@ internal fun ReportsTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(status, tick, page, size) {
+    // 切换服务器/账号：举报列表与「处理中的举报 id」都属于上一个会话，清掉后回到第一页重拉
+    LaunchedEffect(session.server, session.token) {
+        rows = emptyList()
+        total = 0L
+        page = 0
+        handling = null
+        note = ""
+    }
+
+    LaunchedEffect(session.server, session.token, status, tick, page, size) {
         loading = true
         err = null
         try {

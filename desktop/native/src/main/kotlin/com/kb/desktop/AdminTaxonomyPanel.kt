@@ -65,7 +65,17 @@ internal fun TaxonomyTab(session: Session) {
     var confirmingTag by remember { mutableStateOf<Long?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick) {
+    // 切换服务器/账号：分类/标签与选中项都属于上一个会话，清掉后再拉，
+    // 避免旧选中分类配新数据继续执行改名/删除/排序
+    LaunchedEffect(session.server, session.token) {
+        tree = emptyList()
+        tags = emptyList()
+        sel = null
+        confirmingCat = null
+        confirmingTag = null
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {

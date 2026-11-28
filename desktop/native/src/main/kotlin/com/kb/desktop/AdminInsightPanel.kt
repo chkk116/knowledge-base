@@ -85,7 +85,7 @@ internal fun StatsTab(session: Session, onOpenDoc: (Long) -> Unit = {}) {
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -340,7 +340,7 @@ internal fun AuditTab(session: Session) {
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick, page, size) {
+    LaunchedEffect(session.server, session.token, tick, page, size) {
         loading = true
         err = null
         try {
@@ -425,7 +425,7 @@ internal fun LoginLogsTab(session: Session) {
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick, page, size) {
+    LaunchedEffect(session.server, session.token, tick, page, size) {
         loading = true
         err = null
         try {

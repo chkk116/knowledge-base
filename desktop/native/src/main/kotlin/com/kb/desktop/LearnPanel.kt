@@ -82,11 +82,24 @@ fun CoursesPanel(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
+    // 切换服务器/账号：清掉上一个会话的分类、课程与选中项，避免旧选中课程配新数据继续标记进度
+    LaunchedEffect(session.server, session.token) {
+        cats = emptyList()
+        cat = null
+        courses = emptyList()
+        courseId = null
+        detail = null
+        progress = emptyList()
+        chapterId = null
+        listErr = null
+        detailErr = null
+    }
+
+    LaunchedEffect(session.server, session.token) {
         cats = runCatching { api.courseCategories(session.token) }.getOrDefault(emptyList())
     }
 
-    LaunchedEffect(cat, listTick) {
+    LaunchedEffect(session.server, session.token, cat, listTick) {
         listLoading = true
         listErr = null
         try {
@@ -99,7 +112,7 @@ fun CoursesPanel(session: Session) {
         }
     }
 
-    LaunchedEffect(courseId, detailTick) {
+    LaunchedEffect(session.server, session.token, courseId, detailTick) {
         val cid = courseId ?: return@LaunchedEffect
         detailLoading = true
         detailErr = null
@@ -509,7 +522,14 @@ fun ExamsPanel(session: Session) {
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick) {
+    // 切换服务器/账号：试卷与成绩都属于上一个会话，清掉后重新拉（旧 paperId 不能带过来）
+    LaunchedEffect(session.server, session.token) {
+        papers = emptyList()
+        records = emptyList()
+        paperId = null
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {

@@ -71,7 +71,15 @@ internal fun AnnouncementsTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick, page, size) {
+    // 切换服务器/账号：公告列表属于上一个会话，清掉后回到第一页重拉
+    LaunchedEffect(session.server, session.token) {
+        items = emptyList()
+        total = 0L
+        page = 0
+        creating = false
+    }
+
+    LaunchedEffect(session.server, session.token, tick, page, size) {
         loading = true
         err = null
         try {
@@ -235,7 +243,15 @@ internal fun BannedWordsTab(session: Session) {
     var confirming by remember { mutableStateOf<Long?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick) {
+    // 切换服务器/账号：词库/违禁词与「待确认删除」都属于上一个会话，清掉再拉
+    LaunchedEffect(session.server, session.token) {
+        libs = emptyList()
+        libId = null
+        words = emptyList()
+        confirming = null
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -247,7 +263,7 @@ internal fun BannedWordsTab(session: Session) {
             loading = false
         }
     }
-    LaunchedEffect(libId, tick) {
+    LaunchedEffect(session.server, session.token, libId, tick) {
         val id = libId ?: run { words = emptyList(); return@LaunchedEffect }
         words = runCatching { api.bannedWords(session.token, id) }.getOrDefault(emptyList())
     }
@@ -475,7 +491,13 @@ internal fun OrphanFilesTab(session: Session) {
     var busy by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick) {
+    // 切换服务器/账号：清掉旧列表与「待确认删除」的文件地址，避免删到新账号的同名文件
+    LaunchedEffect(session.server, session.token) {
+        files = emptyList()
+        confirming = null
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try { files = api.orphanFiles(session.token) } catch (e: Exception) { err = e.message ?: "加载失败" } finally { loading = false }

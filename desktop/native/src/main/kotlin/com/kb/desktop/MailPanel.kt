@@ -82,11 +82,27 @@ internal fun MailPanel(session: Session) {
     // 签名编辑（非空即弹窗，只对选中的账号生效）
     var signingAccount by remember { mutableStateOf<MailAccountItem?>(null) }
 
-    LaunchedEffect(refresh) {
+    // 切换服务器/账号：账号、邮件与选中项都属于上一个会话，必须先清掉，
+    // 否则界面上还是旧账号的邮件，而删除/回复会带着新 token 打到新账号
+    LaunchedEffect(session.server, session.token) {
+        accounts = emptyList()
+        accId = 0L
+        mails = emptyList()
+        total = 0L
+        sel = null
+        detail = null
+        confirmingDelete = false
+        signingAccount = null
+        composeOpen = false
+        composeReplyTo = null
+        page = 0
+    }
+
+    LaunchedEffect(session.server, session.token, refresh) {
         accounts = runCatching { api.mailAccounts(session.token) }.getOrDefault(emptyList())
     }
 
-    LaunchedEffect(accId, folder, refresh) {
+    LaunchedEffect(session.server, session.token, accId, folder, refresh) {
         loading = true
         err = ""
         page = 0
@@ -104,7 +120,7 @@ internal fun MailPanel(session: Session) {
         }
     }
 
-    LaunchedEffect(sel) {
+    LaunchedEffect(session.server, session.token, sel) {
         val s = sel ?: return@LaunchedEffect
         detail = null
         detailLoading = true
@@ -527,7 +543,7 @@ private fun MailBindDialog(session: Session, onDismiss: () -> Unit, onBound: () 
     var busy by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(session.server, session.token) {
         providers = runCatching { api.mailProviders(session.token) }.getOrDefault(emptyList())
     }
 
@@ -626,7 +642,7 @@ private fun MailComposeDialog(
                 Field("收件人（多个用逗号分隔）", to, { to = it }, "someone@example.com")
                 // 历史收件人补全：取最后一段做关键词，300ms 防抖（/contacts 未升级时返回空，不报错）
                 var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
-                LaunchedEffect(to) {
+                LaunchedEffect(session.server, session.token, to) {
                     val frag = to.substringAfterLast(',').trim()
                     if (frag.length >= 2 && !frag.contains('@')) {
                         delay(300)

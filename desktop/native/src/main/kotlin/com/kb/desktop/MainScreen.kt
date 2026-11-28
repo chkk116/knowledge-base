@@ -94,7 +94,7 @@ fun MainScreen(session: Session, onLogout: () -> Unit) {
     }
 
     // 启动后静默检查更新：发现更高 versionCode 就在顶部提示（不打断使用）
-    LaunchedEffect(Unit) {
+    LaunchedEffect(session.server) {
         try {
             val v = ApiClient(session.server).appVersion(AppInfo.channel)
             if (v.versionCode > AppInfo.versionCode) update = v
@@ -415,7 +415,7 @@ private fun HomePanel(
     var catSegments by remember { mutableStateOf<List<Triple<String, Int, Color>>>(emptyList()) }
 
     // 首页各块独立降级：某一块取不到不拖垮整页（概览/公告失败就是空，不弹错）
-    LaunchedEffect(refresh) {
+    LaunchedEffect(session.server, session.token, refresh) {
         loading = true
         ov = runCatching { api.overview(session.token) }.getOrNull()
         notices = runCatching { api.announcements(session.token) }.getOrDefault(emptyList())
@@ -772,7 +772,7 @@ private fun NotificationsPanel(
 
     fun report() = onUnreadChanged(items.count { !it.read })
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -1143,7 +1143,7 @@ private fun DocsPanel(
     var mineLoading by remember { mutableStateOf(false) }
     var mineErr by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(mode, refresh) {
+    LaunchedEffect(session.server, session.token, mode, refresh) {
         if (mode == "sub") {
             subLoading = true
             subErr = null
@@ -1219,7 +1219,14 @@ private fun DocsPanel(
         }
     }
 
-    LaunchedEffect(refresh, sort) {
+    // 切账号/服务器后清掉上一篇文档的编辑目标与搜索词，避免旧文档 id 配新 token 继续操作
+    LaunchedEffect(session.server, session.token) {
+        editTarget = null
+        q = ""
+        results = emptyList()
+    }
+
+    LaunchedEffect(session.server, session.token, refresh, sort) {
         loading = true
         error = null
         listGen++            // 作废在途的加载更多
@@ -1238,7 +1245,7 @@ private fun DocsPanel(
     }
 
     // 搜索：清空输入即回到服务端分页列表；失败保留上一次结果并给出小提示，不替掉整个列表
-    LaunchedEffect(q) {
+    LaunchedEffect(session.server, session.token, q) {
         val query = q.trim()
         if (query.isEmpty()) {
             results = emptyList()
@@ -1263,7 +1270,7 @@ private fun DocsPanel(
     }
 
     // 阅读详情：原生渲染（2026-11-13 起不再喂 WebView；WebView 只服务编辑视图）
-    LaunchedEffect(selected?.id, detailTick) {
+    LaunchedEffect(session.server, session.token, selected?.id, detailTick) {
         val s = selected
         if (s == null) {
             detail = null
@@ -1287,7 +1294,7 @@ private fun DocsPanel(
         wv2Ok = hasWebView2Runtime()
     }
 
-    LaunchedEffect(editing, editTarget) {
+    LaunchedEffect(session.server, session.token, editing, editTarget) {
         if (editing) {
             val root = session.server.trimEnd('/')
             webState.content = WebContent.Url(
@@ -1800,7 +1807,7 @@ private fun FilesPanel(session: Session) {
     // 右侧预览选中项
     var sel by remember { mutableStateOf<FileItem?>(null) }
 
-    LaunchedEffect(refresh) {
+    LaunchedEffect(session.server, session.token, refresh) {
         loading = true
         error = null
         try {
@@ -2238,7 +2245,7 @@ private fun FavoritesPanel(session: Session, onOpenDoc: (Long) -> Unit) {
     var tick by remember { mutableStateOf(0) }
     var busyId by remember { mutableStateOf<Long?>(null) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -2339,7 +2346,7 @@ private fun RankingPanel(session: Session) {
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -2418,7 +2425,7 @@ private fun BadgesPanel(session: Session) {
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -2533,7 +2540,7 @@ private fun PointsPanel(session: Session) {
     var err by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -2662,7 +2669,14 @@ private fun DmPanel(session: Session) {
         finally { picking = false }
     }
 
-    LaunchedEffect(tick) {
+    // 切账号/服务器后清掉上一个会话的收件人与草稿，避免旧对话配新 token 继续发送/撤回
+    LaunchedEffect(session.server, session.token) {
+        peer = null
+        msgs = emptyList()
+        draft = ""
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         convLoading = true
         convErr = null
         try {
@@ -2674,7 +2688,7 @@ private fun DmPanel(session: Session) {
         }
     }
 
-    LaunchedEffect(peer) {
+    LaunchedEffect(session.server, session.token, peer) {
         val p = peer ?: return@LaunchedEffect
         msgLoading = true
         msgs = emptyList()
@@ -2955,7 +2969,7 @@ private fun CardsPanel(session: Session) {
     // 当前这张卡、翻转状态、进度全丢掉，复习会话被迫中断。
     var note by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {

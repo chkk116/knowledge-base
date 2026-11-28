@@ -59,7 +59,16 @@ internal fun SpacesTab(session: Session) {
     var rejectTarget by remember { mutableStateOf<Pair<String, Long>?>(null) }  // (kind, id)
     var confirmTarget by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
-    LaunchedEffect(kind, tick) {
+    // 切换服务器/账号：申请列表与待审批目标都属于上一个会话，清掉后再拉（旧申请 id 不能带着批）
+    LaunchedEffect(session.server, session.token) {
+        creates = emptyList()
+        capacities = emptyList()
+        rejectTarget = null
+        confirmTarget = null
+        msg = ""
+    }
+
+    LaunchedEffect(session.server, session.token, kind, tick) {
         loading = true
         err = null
         try {

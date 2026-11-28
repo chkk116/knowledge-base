@@ -101,8 +101,8 @@ internal fun UsersTab(session: Session) {
         }
     }
 
-    LaunchedEffect(tick, q, page, size) {
-        selected = emptySet()   // 换页 / 搜索 / 刷新后清空选择，避免批量到看不见的人
+    LaunchedEffect(session.server, session.token, tick, q, page, size) {
+        selected = emptySet()   // 换页 / 搜索 / 刷新 / 换账号后清空选择，避免批量到看不见的人
         loading = true
         err = null
         try {
@@ -418,7 +418,16 @@ internal fun DepartmentsTab(session: Session) {
     var toast by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(toast) { if (toast != null) { delay(2400); toast = null } }
 
-    LaunchedEffect(tick) {
+    // 切换服务器/账号：部门树与各个弹窗目标都属于上一个会话，清掉后再拉（旧部门 id 不能带着删除）
+    LaunchedEffect(session.server, session.token) {
+        depts = emptyList()
+        editOpen = false
+        editTarget = null
+        memberTarget = null
+        confirmDelete = null
+    }
+
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -664,7 +673,7 @@ private fun DeptMemberDialog(
     var busy by remember { mutableStateOf(false) }
     var added by remember { mutableStateOf<Long?>(null) }
 
-    LaunchedEffect(q) {
+    LaunchedEffect(session.server, session.token, q) {
         loading = true
         err = null
         kotlinx.coroutines.delay(300)

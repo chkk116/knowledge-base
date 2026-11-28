@@ -121,7 +121,32 @@ fun SharesPanel(session: Session) {
     var q by remember { mutableStateOf("") }
     var order by remember { mutableStateOf("time") }
 
-    LaunchedEffect(spacesTick) {
+    // 切换服务器/账号：空间、文档、选中项与已打开的弹窗都属于上一个会话，先清掉再拉，
+    // 避免旧 docId/docShareId 配新 token 继续编辑、回滚版本或改权限
+    LaunchedEffect(session.server, session.token) {
+        spaces = emptyList()
+        spaceId = null
+        docs = emptyList()
+        docId = null
+        docShareId = null
+        detail = null
+        yjsHtml = null
+        versionNote = ""
+        links = null
+        spaceStorage = null
+        versions = emptyList()
+        showSpaceSettings = false
+        showCreateSpace = false
+        showCapacity = false
+        showEditor = false
+        showMembers = false
+        showShareLink = false
+        showDocPerm = false
+        showOrganize = false
+        showVersions = false
+    }
+
+    LaunchedEffect(session.server, session.token, spacesTick) {
         spacesLoading = true
         spacesErr = null
         try {
@@ -136,7 +161,7 @@ fun SharesPanel(session: Session) {
     }
 
     // 空间用量：切空间/刷新文档后重拉（失败静默，不显示该行）
-    LaunchedEffect(spaceId, docsTick) {
+    LaunchedEffect(session.server, session.token, spaceId, docsTick) {
         val sid = spaceId
         if (sid == null || sid == ALL_SPACES) {
             spaceStorage = null
@@ -151,7 +176,7 @@ fun SharesPanel(session: Session) {
         }
     }
 
-    LaunchedEffect(spaceId, docsTick) {
+    LaunchedEffect(session.server, session.token, spaceId, docsTick) {
         val sid = spaceId ?: return@LaunchedEffect
         docsLoading = true
         docsErr = null
@@ -175,7 +200,7 @@ fun SharesPanel(session: Session) {
         }
     }
 
-    LaunchedEffect(docShareId, docId, detailTick) {
+    LaunchedEffect(session.server, session.token, docShareId, docId, detailTick) {
         val sid = docShareId ?: return@LaunchedEffect
         val did = docId ?: return@LaunchedEffect
         detailLoading = true
@@ -247,7 +272,7 @@ fun SharesPanel(session: Session) {
     }
 
     // 版本面板打开时才拉列表（后端返回完整实体，含大字段，不能每次进详情都拉）
-    LaunchedEffect(showVersions, docShareId, docId, versionsTick) {
+    LaunchedEffect(session.server, session.token, showVersions, docShareId, docId, versionsTick) {
         if (!showVersions) return@LaunchedEffect
         val sid = docShareId ?: return@LaunchedEffect
         val did = docId ?: return@LaunchedEffect
@@ -1164,7 +1189,7 @@ private fun SpaceMembersDialog(
     var invitePerm by remember { mutableStateOf("WRITE") }
     val canManage = space.myPermission.uppercase().let { it == "OWNER" || it == "ADMIN" }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -1179,7 +1204,7 @@ private fun SpaceMembersDialog(
     }
 
     // 邀请候选：展开面板时按关键词防抖查询（空关键词返回最近 20 个启用账号）
-    LaunchedEffect(inviting, kw) {
+    LaunchedEffect(session.server, session.token, inviting, kw) {
         if (!inviting) return@LaunchedEffect
         kotlinx.coroutines.delay(250)
         candidates = runCatching { api.shareInviteUsers(session.token, kw.trim()) }.getOrDefault(emptyList())
@@ -1452,7 +1477,7 @@ private fun ShareLinkDialog(
     var days by remember { mutableStateOf(0) }
     var noCopy by remember { mutableStateOf(false) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -1638,7 +1663,7 @@ private fun DocPermDialog(
     var tick by remember { mutableStateOf(0) }
     var busyId by remember { mutableStateOf<Long?>(null) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
@@ -2230,7 +2255,7 @@ private fun CapacityRequestDialog(
     var customGb by remember { mutableStateOf("") }
     var reason by remember { mutableStateOf("") }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(session.server, session.token, tick) {
         loading = true
         err = null
         try {
