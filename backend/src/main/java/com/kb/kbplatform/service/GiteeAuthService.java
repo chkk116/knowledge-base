@@ -22,8 +22,11 @@ import org.springframework.stereotype.Service;
  *
  * 流程与 GitHub 基本一致，差异：
  *   1. 换 token 是 POST 表单，但**参数走 query 或 form 都行**，这里统一放 form；
- *   2. 取用户信息可以直接把 access_token 放 query（`/api/v5/user?access_token=`），
- *      也支持 `Authorization: token xxx` —— 这里用 query，避免个别网关改写 Authorization；
+ *   2. 取用户信息 / 邮箱**只走 `Authorization: token xxx` 头**，URL 里不再出现 access_token。
+ *      （2026-11-28 实测：`/api/v5/user` 带 `Authorization: token bogus` 返回
+ *       `401 Access token does not exist`，与 query 形式完全一致；而 token/Bearer 之外的
+ *       Authorization 值、以及完全不带认证，都返回 `401 code=40001 登录失效`，
+ *       说明网关确实解析该头。避免 token 落进 access log / Referer / 浏览器历史。）
  *   3. 用户标识用数字 `id`（login 可以改名），前缀 gitee_ 与其它身份源区分。
  *
  * 配置（SysSetting，改完即生效）：sso.gitee.enabled / clientId / clientSecret / redirectUri / buttonLabel / autoRegister
@@ -43,6 +46,7 @@ public class GiteeAuthService {
     private static final String AUTHORIZE = "https://gitee.com/oauth/authorize";
     private static final String TOKEN_URL = "https://gitee.com/oauth/token";
     private static final String USER_URL = "https://gitee.com/api/v5/user";
+    private static final String EMAILS_URL = "https://gitee.com/api/v5/emails";
 
     private final SysSettingRepository repo;
     private final KvStore kv;
@@ -130,7 +134,8 @@ public class GiteeAuthService {
                 throw new IllegalStateException("Gitee 未返回 access_token" + (err == null ? "" : "：" + err));
             }
 
-            HttpFetch.Resp ur = HttpFetch.get(USER_URL + "?access_token=" + enc(access), null);
+            // token 只放请求头，绝不拼进 URL（URL 会进 access log / 错误日志 / Referer）
+            HttpFetch.Resp ur = HttpFetch.get(USER_URL, authHeader(access));
             if (ur.status() >= 300) throw new IllegalStateException("取用户信息失败：HTTP " + ur.status());
             Map<String, Object> u = parse(ur.body());
 
@@ -167,7 +172,7 @@ public class GiteeAuthService {
     /** 取 Gitee 邮箱列表的第一个（需要 emails 权限；用户没公开邮箱时兜底） */
     private String fetchFirstEmail(String access) {
         try {
-            HttpFetch.Resp r = HttpFetch.get("https://gitee.com/api/v5/emails?access_token=" + enc(access), null);
+            HttpFetch.Resp r = HttpFetch.get(EMAILS_URL, authHeader(access));
             if (r.status() >= 300) return null;
             java.util.List<?> list = tools.jackson.databind.json.JsonMapper.builder()
                     .build().readValue(r.body(), java.util.List.class);
@@ -183,12 +188,19 @@ public class GiteeAuthService {
         }
     }
 
+    /**
+     * state 一次性消费：get + delete 拆开会有竞态（并发回调各自拿到同一份 state，
+     * 等于授权码可被兑换两次），必须用 KvStore 的原子 getAndDelete（Redis GETDEL）。
+     */
     private String[] takeState(String state) {
         if (state == null) return null;
-        String key = STATE_PREFIX + state;
-        String v = kv.get(key);
-        kv.delete(key);
+        String v = kv.getAndDelete(STATE_PREFIX + state);
         return v == null ? null : v.split("\n", -1);
+    }
+
+    /** Gitee 认证头：scheme 必须是 token / Bearer（其它值会被当成未认证） */
+    private static Map<String, String> authHeader(String access) {
+        return Map.of("Authorization", "token " + nvl(access).trim());
     }
 
     private String get(String key) {
