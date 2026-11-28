@@ -637,6 +637,7 @@ App 壳内走 WebView 需在 preferences 里写死后端地址，不能用相对
 - **权限模型**：细粒度权限码（`Perm` 集中白名单）+ 角色聚合 + 全权限视同管理员；资源审批类接口刻意仅认真实 ADMIN
 - **敏感词**：评论过滤，≤4 位纯 ASCII 词要求词边界匹配，命中返回 400 + 中文 error
 - **公开资源**：`/uploads`、`/api/thumb` 在 AuthFilter 白名单放行（ThumbController 内做穿越防护）
+- **第三方登录**：GitHub / Gitee 的 access_token 只在请求头里传（`Authorization: token …`），不拼进 URL，避免落进 access log；授权回跳的 state 用原子 getAndDelete 消费，防止并发重复兑换
 - **富文本双层净化**：AI 生成的正文提交前先过前端 `sanitizeDocHtml()`（整棵删除 script/style/svg/iframe 等危险子树，剔除 `on*` 事件属性、`javascript:`、`style` 里的 `url()`、外站 `src|poster|srcset`，未闭合的脚本连内容丢弃），入库再走服务端 `HtmlSanitizer` 白名单；聊天里的回答渲染始终按 Markdown 转义，不直接 `v-html`
 - **外站资源不外发**：文档与回答里的第三方图片/音视频降级为链接文字，只放行站内 `/uploads`、`/emojis` 与内联 `data:`
 - **文章短码是混淆、不是加密**：短码由 id 可逆映射得到（35 位仿射置换 + 5 位校验 + base32），算法在前端包里；为不弄坏已分享的地址，纯数字老链接仍可用并自动升级，`/api/docs` 列表也仍返回数字 id。它解决的是「链接暴露序号、随手改号」，**不是访问控制**；要防批量抓取应走登录 / 权限，真正不可枚举需要服务端随机短码 + 数据库字段
