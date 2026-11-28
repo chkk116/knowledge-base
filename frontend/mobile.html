@@ -25,14 +25,10 @@
   <div id="boot-loading" role="status" aria-live="polite">
     <div class="boot-spinner"></div>
     <div class="boot-text">加载中…</div>
-    <div class="boot-fail">加载时间有点久，可能是网络不稳。<br /><a onclick="location.reload()">点此刷新</a></div>
+    <div class="boot-fail">加载时间有点久，可能是网络不稳。<br /><a href="#">点此刷新</a></div>
   </div>
-  <script>
-    setTimeout(function () {
-      var el = document.getElementById('boot-loading')
-      if (el) el.classList.add('is-timeout')
-    }, 15000)
-  </script>
+  <!-- 兜底逻辑走外部文件：CSP script-src 不含 'unsafe-inline'，内联脚本会被拦掉 -->
+  <script src="/boot-timeout.js"></script>
   <script type="module" src="/src/main-mobile.js"></script>
 </body>
 </html>

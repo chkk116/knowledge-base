@@ -77,7 +77,9 @@ onMounted(async () => {
   // 客户端下载配置：决定页脚是否显示「客户端下载」入口，登录前也要拉
   download.load()
   // 场景模板：登录后拉一次，侧栏菜单等术语随之切换（未配置回落通用）
-  scenario.load()
+  // 读接口要求登录态，匿名请求只会换来一条 401 噪音，故与 wm.load() 同样按登录态把关；
+  // 登录页是 router.push 进来的（不刷新页面），所以登录成功后再补拉一次。
+  if (auth.loggedIn) scenario.load()
   // 水印配置与 client-info 都要求登录态（匿名访问会 401），仅登录后拉取；
   // 匿名用户本就不显示水印，无需请求。等 fetchMe 恢复登录态/令牌后再调，避免 401 噪音。
   if (auth.loggedIn) wm.load()
@@ -89,6 +91,9 @@ onMounted(async () => {
 })
 
 // 外观配置见 utils/appearance.js（共享缓存：Logo + 资料页背景，一次拉取全站使用）
+
+// 登录成功（含另一标签页广播来的令牌）后再补拉场景模板：登录是 SPA 跳转，不会重跑 onMounted
+watch(() => auth.loggedIn, (v) => { if (v) scenario.load() })
 
 // 核心维护开关变更后即时刷新侧边栏菜单（无需整页刷新）：
 // 监听全局事件 + 路由守卫缓存重置，保证普通用户立即看到入口变化。
