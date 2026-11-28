@@ -465,6 +465,8 @@ const menus = computed(() => {
   if (auth.loggedIn) {
     // 偏好设置紧邻个人资料（2026-10-22：只放头像下拉时用户找不到，提到侧边栏一级入口）
     base.push({ index: '/preferences', title: '偏好设置', icon: 'Operation' })
+    // 开发者：API 接入指南（接口调用 / 密钥说明），与个人成就类页面分开
+    base.push({ index: '/developer', title: '开发者', icon: 'Connection' })
     // 个人资料放在最底部，符合常见布局习惯
     base.push({ index: '/profile', title: '个人资料', icon: 'UserFilled' })
   }
@@ -1132,6 +1134,7 @@ function openPalette() { window.dispatchEvent(new Event('kb-open-command-palette
                     <el-dropdown-item divided @click="fbOpen = true">意见反馈</el-dropdown-item>
                     <el-dropdown-item v-if="download.visible" @click="router.push('/download')">客户端下载</el-dropdown-item>
                     <el-dropdown-item @click="router.push('/preferences')">偏好设置</el-dropdown-item>
+                    <el-dropdown-item @click="router.push('/developer')">开发者</el-dropdown-item>
                     <el-dropdown-item @click="goProfile">个人资料</el-dropdown-item>
                     <el-dropdown-item @click="onLogout">退出登录</el-dropdown-item>
                   </el-dropdown-menu>

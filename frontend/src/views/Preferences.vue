@@ -146,27 +146,214 @@
           </div>
         </section>
       </el-tab-pane>
+
+      <!-- ============ 开放接口 ============ -->
+      <el-tab-pane label="开放接口" name="api">
+        <section class="pf-sec">
+          <div class="sec-title-row">
+            <div class="sec-title">API 密钥</div>
+            <el-button size="small" type="primary" plain @click="openKeyDialog">新建密钥</el-button>
+          </div>
+          <p class="sec-tip">
+            给脚本或外部系统调用，按你账号的权限执行。调用时带请求头
+            <code>X-API-Key: &lt;密钥&gt;</code>，例如：
+          </p>
+          <pre class="key-example">curl -H "X-API-Key: kb_xxx" {{ siteOrigin }}/api/docs/1</pre>
+          <p class="sec-tip">
+            密钥只显示一次，丢了只能重建；不要写进 URL。
+            完整接口说明见
+            <el-button link type="primary" size="small" @click="router.push('/developer')">API 接入指南 →</el-button>
+          </p>
+
+          <ul v-if="apiKeys.length" class="key-list">
+            <li v-for="k in apiKeys" :key="k.id" :class="{ dead: k.revoked }">
+              <div class="key-name">
+                {{ k.name }}
+                <el-tag v-if="k.revoked" size="small" type="info">已吊销</el-tag>
+                <el-tag v-else-if="isExpired(k.expiresAt)" size="small" type="warning">已过期</el-tag>
+              </div>
+              <code class="key-prefix">{{ k.prefix }}…</code>
+              <div class="key-meta">
+                <span v-if="k.scopes">作用域：{{ k.scopes.split(',').map(permLabel).join('、') }}</span>
+                <span v-else>作用域：与本账号权限相同</span>
+                <span>最后使用：{{ k.lastUsedAt || '从未' }}</span>
+                <span v-if="k.allowedIps">来源 IP：{{ k.allowedIps }}</span>
+                <span v-else>来源 IP：不限</span>
+                <span v-if="k.expiresAt">到期：{{ k.expiresAt }}</span>
+              </div>
+              <el-button v-if="!k.revoked" link type="danger" size="small" @click="doRevokeKey(k)">吊销</el-button>
+            </li>
+          </ul>
+          <p v-else-if="!keyLoading" class="key-empty">还没有密钥。需要脚本定时拉数据时再建，平时不用开。</p>
+        </section>
+      </el-tab-pane>
     </el-tabs>
+
+    <el-dialog v-model="keyDialog" title="新建 API 密钥" width="520px" @closed="newKey = ''">
+      <div v-if="!newKey">
+        <el-form label-position="top">
+          <el-form-item label="名称（用于区分用途，例如「每日数据同步」）">
+            <el-input v-model="keyName" maxlength="40" show-word-limit placeholder="每日数据同步" />
+          </el-form-item>
+          <el-form-item label="有效期">
+            <el-select v-model="keyDays" style="width: 100%">
+              <el-option :value="7" label="7 天" />
+              <el-option :value="30" label="30 天" />
+              <el-option :value="90" label="90 天" />
+              <el-option :value="365" label="1 年" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="作用域（不选 = 与你账号权限相同）">
+            <el-select v-model="keyScopes" multiple collapse-tags filterable style="width: 100%"
+                       placeholder="全选等于不加限制">
+              <el-option v-for="o in scopeOptions" :key="o.code" :value="o.code" :label="o.label" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <el-form-item label="来源 IP 白名单（可选，留空 = 不限）">
+          <el-input v-model="keyIps" type="textarea" :rows="2"
+                    placeholder="203.0.113.7, 10.0.0.0/8（支持 IPv4 网段，多个用逗号或空格分隔）" />
+        </el-form-item>
+        <p class="key-warn">权限只会比你的账号更小：勾了作用域后，密钥不能再做未勾选的写操作。
+          填了 IP 白名单后，其他来源调用会直接 403。</p>
+      </div>
+      <div v-else>
+        <p class="key-warn">这串密钥只显示这一次，关掉就找不回来了：</p>
+        <div class="key-new">
+          <code>{{ newKey }}</code>
+          <el-button size="small" type="primary" @click="copyNewKey">复制</el-button>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="keyDialog = false">{{ newKey ? '完成' : '取消' }}</el-button>
+        <el-button v-if="!newKey" type="primary" :loading="keyBusy" @click="submitKey">创建</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 /**
  * 偏好设置（2026-10-22）
- * 布局 / 外观 / 快捷键 / 通用四个分页；所有改动写 store/prefs.js，watch 里即时 apply 到 DOM。
+ * 外观 / 布局 / 快捷键 / 通用 / 开放接口五个分页；界面偏好写 store/prefs.js，watch 里即时 apply 到 DOM。
+ * 「开放接口」（2026-11-28）：API 密钥管理，从个人资料页迁入——账号级开发配置不和个人成就混在一起。
  */
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePrefsStore, ACCENTS, DEFAULTS } from '../store/prefs'
+import { useAuthStore, permLabel } from '../store/auth'
+import { listApiKeys, createApiKey, revokeApiKey } from '../api/auth'
+import { PERM_OPTIONS } from '../utils/permCodes'
+import { errMsg } from '../utils/errMsg'
 
 const prefs = usePrefsStore()
 const p = computed(() => prefs.state)
-const tab = ref('layout')
+const route = useRoute()
+// 支持 /preferences?tab=api 直达「开放接口」（个人资料页的「去管理」链接用）
+const tab = ref(route.query.tab === 'api' ? 'api' : 'layout')
+const router = useRouter()
+const auth = useAuthStore()
 const hasCustomOrder = computed(() => (prefs.state.menuOrder || []).length > 0)
 function resetMenuOrder() {
   prefs.set({ menuOrder: [] })
   ElMessage.success('已恢复默认菜单顺序')
 }
+
+// ---- API 密钥：列表只露前缀，明文只在创建那一刻显示一次 ----
+// 2026-11-28 从「个人资料」迁到这里：密钥是账号级开发配置，和头像/简介混在一起不合语义。
+const apiKeys = ref([])
+const keyDialog = ref(false)
+const keyName = ref('')
+const keyDays = ref(90)
+const keyScopes = ref([])
+const keyIps = ref('')
+const newKey = ref('')
+const keyBusy = ref(false)
+const keyLoading = ref(false)
+const siteOrigin = computed(() => (typeof window === 'undefined' ? '' : window.location.origin))
+// 可授予的作用域 = 当前账号已有的权限码（不给管理员「全权限」这种一步登天的选项）
+const scopeOptions = computed(() => {
+  const raw = auth.user?.permissions || ''
+  // 管理员账号的 permissions 列被清空（权限靠角色隐式获得），这里给全量清单，
+  // 否则管理员永远勾不出作用域——而「给管理员发一把只读密钥」正是这个功能的典型用法
+  if (auth.isAdmin || raw === '*') {
+    return PERM_OPTIONS.map((o) => ({ code: o.value, label: o.label }))
+  }
+  return raw.split(',').map((x) => x.trim()).filter(Boolean).map((code) => ({ code, label: permLabel(code) }))
+})
+
+async function loadKeys() {
+  keyLoading.value = true
+  try {
+    const { data } = await listApiKeys()
+    apiKeys.value = data || []
+  } catch (e) {
+    // 非关键区块：不打断偏好页，但要说一声——否则「接口挂了」会被读成「你还没有密钥」
+    if (!apiKeys.value.length) ElMessage.warning(errMsg(e, '密钥列表加载失败'))
+  } finally { keyLoading.value = false }
+}
+
+function openKeyDialog() {
+  keyName.value = ''
+  keyDays.value = 90
+  keyScopes.value = []
+  keyIps.value = ''      // 白名单也要清：否则上一把的规则会静默套到新密钥上
+  newKey.value = ''
+  keyDialog.value = true
+}
+
+async function submitKey() {
+  if (!keyName.value.trim()) { ElMessage.warning('给密钥起个名字，方便日后分辨用途'); return }
+  const ips = keyIps.value.split(/[\s,;，；、]+/).map((x) => x.trim()).filter(Boolean)
+  if (ips.length > 20) { ElMessage.warning('IP 白名单最多 20 条'); return }
+  keyBusy.value = true
+  try {
+    const { data } = await createApiKey({
+      name: keyName.value.trim(),
+      scopes: keyScopes.value,
+      allowedIps: ips,
+      expiresInDays: keyDays.value,
+    })
+    if (data && data.ok === false) { ElMessage.error(data.error || '创建失败'); return }
+    newKey.value = data.key
+    await loadKeys()
+  } catch (e) {
+    ElMessage.error(errMsg(e, '创建失败'))
+  } finally { keyBusy.value = false }
+}
+
+/** 后端时间是 6 位微秒，直接 new Date() 在部分浏览器解析失败 → 「已过期」标签永远不显示 */
+const isExpired = (t) => {
+  if (!t) return false
+  const m = String(t).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/)
+  if (!m) return false
+  const d = new Date(`${m[1]}T${m[2]}`)
+  return !Number.isNaN(d.getTime()) && d.getTime() < Date.now()
+}
+
+async function copyNewKey() {
+  try {
+    await navigator.clipboard.writeText(newKey.value)
+    ElMessage.success('已复制')
+  } catch { ElMessage.warning('复制失败，请手动选中复制') }
+}
+
+async function doRevokeKey(k) {
+  try {
+    await ElMessageBox.confirm(`吊销「${k.name}」后，用它调用的程序会立刻失效，且无法恢复。`, '吊销密钥', {
+      type: 'warning', confirmButtonText: '吊销', cancelButtonText: '取消',
+    })
+  } catch { return }
+  try {
+    const { data } = await revokeApiKey(k.id)
+    if (data && data.ok === false) { ElMessage.error(data.error || '吊销失败'); return }
+    ElMessage.success('已吊销')
+    await loadKeys()
+  } catch (e) { ElMessage.error(errMsg(e, '吊销失败')) }
+}
+
+onMounted(loadKeys)
 
 const THEMES = [
   { key: 'auto', name: '跟随系统' },
@@ -277,4 +464,30 @@ void DEFAULTS
 kbd { min-width: 26px; padding: 2px 7px; border: 1px solid var(--el-border-color); border-bottom-width: 2px;
   border-radius: 6px; background: var(--el-fill-color-light); font-size: 11.5px; font-family: inherit;
   color: var(--el-text-color-regular); text-align: center; }
+
+/* ---- 开放接口 / API 密钥 ---- */
+.sec-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.sec-title-row .sec-title { margin-bottom: 0; }
+.key-example {
+  margin: 8px 0 10px; padding: 9px 12px; border-radius: 8px;
+  background: var(--el-fill-color-light); border: 1px solid var(--el-border-color-lighter);
+  font-size: 12.5px; color: var(--el-text-color-regular);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-x: auto;
+}
+.sec-tip code { background: var(--el-fill-color-light); padding: 1px 5px; border-radius: 4px;
+  font-size: 11.5px; color: var(--el-text-color-regular); word-break: break-all; }
+.key-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.key-list li { border: 1px solid var(--el-border-color-lighter); border-radius: 10px; padding: 10px 12px;
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+.key-list li.dead { opacity: .55; }
+.key-name { font-size: 13.5px; font-weight: 600; color: var(--el-text-color-primary); display: flex; gap: 6px; align-items: center; }
+.key-prefix { font-size: 12px; color: var(--el-text-color-regular); background: var(--el-fill-color-light);
+  padding: 1px 6px; border-radius: 5px; justify-self: start; }
+.key-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--el-text-color-secondary); }
+.key-empty { margin: 12px 0 0; font-size: 12.5px; color: var(--el-text-color-secondary); }
+.key-new { display: flex; gap: 8px; align-items: center; background: var(--el-fill-color-light);
+  border: 1px dashed var(--el-border-color); border-radius: 8px; padding: 10px 12px; }
+.key-new code { flex: 1; word-break: break-all; font-size: 12.5px; color: var(--el-text-color-primary); }
+.key-warn { margin: 0 0 8px; font-size: 12.5px; color: var(--el-color-warning-dark-2); }
 </style>

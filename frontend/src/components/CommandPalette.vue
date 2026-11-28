@@ -55,6 +55,8 @@ const PAGES = [
   { label: '回收站', path: '/recycle', kw: 'huishouzhan recycle trash' },
   { label: '搜索', path: '/search', kw: 'sousuo search' },
   { label: '个人资料', path: '/profile', kw: 'geren ziliao profile' },
+  { label: 'API 接入指南', path: '/developer', kw: 'api jiekou 接入 接口 密钥 token developer docs 开发者' },
+  { label: '偏好设置', path: '/preferences', kw: 'pianhao shezhi preferences 主题 外观' },
 
   { label: '数据看板', path: '/admin/stats', perm: 'STATS_VIEW', kw: 'shuju kanban dashboard' },
   { label: '用户管理', path: '/admin/users', perm: 'USER_MANAGE', kw: 'yonghu user' },

@@ -45,6 +45,8 @@ const routes = [
   { path: '/my-ai-models', component: () => import('../views/MyAiModels.vue'), meta: { title: '我的 AI 模型', maintenance: 'profile' } },
   // 偏好设置：布局 / 外观 / 快捷键 / 通用（2026-10-22，存本机 localStorage）
   { path: '/preferences', component: () => import('../views/Preferences.vue'), meta: { title: '偏好设置' } },
+  // 开发者：API 接入指南（对标飞书开放平台文档：左树目录 + 右正文），内容读仓库根 API.md
+  { path: '/developer', component: () => import('../views/Developer.vue'), meta: { title: 'API 接入指南' } },
   // 我的文件：文件中心（与移动端 MobileFiles 共用一套接口）
   { path: '/files', component: () => import('../views/FileCenter.vue'), meta: { title: '我的文件', maintenance: 'profile' } },
   { path: '/ranking', component: () => import('../views/Ranking.vue'), meta: { title: '积分排行榜' } },
