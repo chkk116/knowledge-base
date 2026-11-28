@@ -15,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -109,6 +110,12 @@ public class BannedWordAdminController {
     }
 
     /** 删除词库（级联删除其下词条） */
+    /**
+     * 删除词库：先删词条、再删词库本体。两步必须在同一事务里——
+     * 派生删除本身也要求事务，否则直接抛 TransactionRequiredException；
+     * 而分开提交时第二步失败会留下「有词条、无词库」的半删数据，谁也清不掉。
+     */
+    @Transactional
     @DeleteMapping("/libraries/{id}")
     public Map<String, Object> deleteLibrary(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
         requirePerm(c);
@@ -232,7 +239,8 @@ public class BannedWordAdminController {
         return m;
     }
 
-    /** 删除词条 */
+    /** 删除词条（派生删除需事务，否则 JPA 执行时抛 TransactionRequiredException） */
+    @Transactional
     @DeleteMapping("/{id}")
     public Map<String, Object> delete(@RequestAttribute("kbUser") TokenClaims c, @PathVariable Long id) {
         requirePerm(c);
