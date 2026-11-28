@@ -40,7 +40,7 @@ public class TagAdminController {
     }
 
     private void requirePerm(TokenClaims c) {
-        if (c == null || (!"ADMIN".equals(c.role()) && !c.hasPerm("TAXONOMY_MANAGE"))) {
+        if (c == null || (!c.isAdmin() && !c.hasPerm("TAXONOMY_MANAGE"))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要分类标签管理权限");
         }
     }

@@ -69,7 +69,8 @@ public class DocumentController {
         m.put("totalDocs", docRepo.countByStatus("PUBLISHED"));
         m.put("weekNew", docRepo.countByStatusAndCreatedAtAfter("PUBLISHED", java.time.LocalDateTime.now().minusDays(7)));
         m.put("members", userRepo.count() - userRepo.countByEnabledFalse());
-        if ("ADMIN".equals(c.role()) || c.hasPerm("STATS_VIEW")) {
+        // S-M6 口径统一：管理员含「权限码勾满全集」的非 ADMIN 账号（isAdmin()），不再只看 role 字面值
+        if (c.isAdmin() || c.hasPerm("STATS_VIEW")) {
             m.put("pendingReview", docRepo.countByStatus("PENDING_REVIEW"));
         }
         return m;
@@ -260,7 +261,8 @@ public class DocumentController {
     @PostMapping("/{id}/withdraw")
     public Document withdraw(@RequestAttribute("kbUser") TokenClaims c,
                              @PathVariable Long id) {
-        boolean admin = "ADMIN".equals(c.role());
+        // S-M6 口径统一：全权限非 ADMIN 账号等同管理员，可撤回任意帖（原先只看 role 字面值，全权限账号被当普通作者）
+        boolean admin = c.isAdmin();
         return svc.withdraw(id, resolveOwner(c), admin);
     }
 
@@ -299,7 +301,7 @@ public class DocumentController {
         if (!"word".equals(format)) throw new ResponseStatusException(BAD_REQUEST, "暂仅支持 word 导出");
         Document d = svc.get(id);
         // 安全：非 ADMIN 仅可导出自己名下、或已发布(PUBLISHED)的文档，禁止导出他人草稿/封禁文档
-        boolean isAdmin = c != null && "ADMIN".equals(c.role());
+        boolean isAdmin = c != null && c.isAdmin();   // S-M6 口径统一：含权限码勾满的非 ADMIN 账号
         boolean ownDoc = c != null && d.getOwnerId() != null && d.getOwnerId().equals(c.userId());
         boolean published = "PUBLISHED".equals(d.getStatus());
         if (!isAdmin && !ownDoc && !published) {
@@ -363,7 +365,7 @@ public class DocumentController {
     /** 仅作者本人或管理员可查看/操作该文档的版本历史 */
     private void requireSelfOrAdmin(TokenClaims c, Document d) {
         if (c == null) throw new ResponseStatusException(UNAUTHORIZED, "请先登录");
-        boolean admin = "ADMIN".equals(c.role());
+        boolean admin = c.isAdmin();   // S-M6 口径统一：含权限码勾满的非 ADMIN 账号
         boolean owner = d.getOwnerId() != null && d.getOwnerId().equals(c.userId());
         if (!admin && !owner) {
             throw new ResponseStatusException(FORBIDDEN, "无权查看该文档的历史版本");

@@ -218,38 +218,16 @@ public class AuthFilter implements Filter {
         if (path.startsWith("/api/auth/sso/wps/")) return true;
         // 邮箱 OAuth 回调：浏览器整页跳回，不带 Authorization，靠 state（10 分钟一次性）认用户
         if ("/api/mail/oauth/callback".equals(path) && "GET".equals(method)) return true;
-        if (path.startsWith("/api/users/") && "GET".equals(method)) return true;  // 作者卡片公开可读
-        if (path.startsWith("/api/search") && "GET".equals(method)) return true;
-        // 文档只读接口公开；/api/docs/mine 含个人数据，需登录
-        if ("GET".equals(method) && isPublicDocRead(path)) return true;
-        // 培训/考试「只读浏览」公开：仅 课程列表 / 课程分类 / 课程详情(数字id) / 试卷列表。
-        // ⚠️ 不能整段前缀放行（2026-10-14 修）：/courses/mine、/courses/{id}/progress、
-        //    /courses/certificates、/courses/{id}/certificate、/exams/mine、/exams/{id}、
-        //    /exams/records/* 都需要登录（控制器用 @RequestAttribute("kbUser")）。若被当匿名放行，
-        //    未带/过期 token 时会因缺 kbUser 抛 ServletRequestBindingException → 500（而非 401），
-        //    前端显示「服务暂时不可用」且不触发重登 → 用户卡死。
-        if ("GET".equals(method) && isPublicCourseExamRead(path)) return true;
+        // N104 私有系统口径（2026-11-28 用户拍板）：站内内容一律需登录。
+        // 原先这里放行了 /api/search、/api/docs/*、/api/users/*、课程/试卷列表，
+        // 导致未登录可直接读已发布正文/搜索/评论，与前端「未登录跳登录」矛盾。
+        // 保留公开的只有：/api/public/*（站点配置/下载页/分享令牌）、登录注册验证码、
+        // 以及下方明确的静态资源与 /error。前端公开路由（privacy/download/login/s/:token）
+        // 均不依赖这些站内内容接口，收紧不影响它们。
+        //
+        // 注意：/uploads 与 /api/thumb 图片资源仍放行——img 标签无法带 Authorization 头，
+        // 若收紧需改用带签名的 URL 或 Blob 取图，属另一轮改造，本轮不动（见记忆）。
         if ("/error".equals(path)) return true;
-        return false;
-    }
-
-    /** 允许公开访问的培训/考试读取路径：课程列表 / 分类 / 数字 id 详情 / 试卷列表 */
-    private boolean isPublicCourseExamRead(String path) {
-        if ("/api/courses".equals(path)) return true;
-        if ("/api/courses/categories".equals(path)) return true;
-        if (path.matches("/api/courses/\\d+$")) return true;   // 课程详情（不含 /progress、/certificate）
-        if ("/api/exams".equals(path)) return true;            // 试卷列表（不含 /mine、/{id}、/records）
-        return false;
-    }
-
-    /** 允许公开访问的文档读取路径（列表 / 分类 / 数字 id 详情 / 数字 id 评论 / 相关推荐 / 订阅状态只读） */
-    private boolean isPublicDocRead(String path) {
-        if ("/api/docs".equals(path)) return true;
-        if ("/api/docs/categories".equals(path)) return true;
-        if (path.matches("/api/docs/\\d+/comments$")) return true;  // 评论列表
-        if (path.matches("/api/docs/\\d+$")) return true;            // 文档详情
-        if (path.matches("/api/docs/\\d+/related$")) return true;    // 相关文档推荐（仅回标题等公开字段）
-        if (path.matches("/api/docs/\\d+/subscribed$")) return true; // 订阅状态只读：未登录时返回 subscribed=false
         return false;
     }
 

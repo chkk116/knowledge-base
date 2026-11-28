@@ -88,7 +88,7 @@ public class AnnouncementAdminController {
     }
 
     private void requirePerm(TokenClaims c) {
-        if (c == null || (!"ADMIN".equals(c.role()) && !c.hasPerm("ANNOUNCEMENT_MANAGE"))) {
+        if (c == null || (!c.isAdmin() && !c.hasPerm("ANNOUNCEMENT_MANAGE"))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要公告管理权限");
         }
     }

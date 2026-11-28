@@ -49,7 +49,7 @@ public class SpaceInviteController {
     }
 
     private boolean sysAdmin(TokenClaims c) {
-        return c != null && "ADMIN".equals(c.role());
+        return c != null && c.isAdmin();   // S-M6 口径统一：含权限码勾满的非 ADMIN 账号
     }
 
     private Integer intOf(Map<String, Object> body, String key) {

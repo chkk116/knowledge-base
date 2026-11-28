@@ -48,7 +48,7 @@ public class BannedWordAdminController {
 
     private void requirePerm(TokenClaims c) {
         if (c == null) throw new org.springframework.web.server.ResponseStatusException(UNAUTHORIZED, "请先登录");
-        if (!"ADMIN".equals(c.role()) && !c.hasPerm("BANNED_WORDS_MANAGE"))
+        if (!c.isAdmin() && !c.hasPerm("BANNED_WORDS_MANAGE"))
             throw new org.springframework.web.server.ResponseStatusException(FORBIDDEN, "需要违禁词管理权限");
     }
 

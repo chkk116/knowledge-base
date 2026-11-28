@@ -32,15 +32,28 @@ public class CommentController {
     private final CommentService svc;
     private final com.kb.kbplatform.repository.DocumentRepository docRepo;
     private final com.kb.kbplatform.repository.UserRepository userRepo;
+    private final com.kb.kbplatform.repository.CommentRepository commentRepo;
+    private final com.kb.kbplatform.service.AuditService auditService;
     private final RateLimitService rateLimit;
 
     public CommentController(CommentService svc, RateLimitService rateLimit,
                              com.kb.kbplatform.repository.DocumentRepository docRepo,
-                             com.kb.kbplatform.repository.UserRepository userRepo) {
+                             com.kb.kbplatform.repository.UserRepository userRepo,
+                             com.kb.kbplatform.repository.CommentRepository commentRepo,
+                             com.kb.kbplatform.service.AuditService auditService) {
         this.docRepo = docRepo;
         this.svc = svc;
         this.rateLimit = rateLimit;
         this.userRepo = userRepo;
+        this.commentRepo = commentRepo;
+        this.auditService = auditService;
+    }
+
+    /** 操作者显示名：优先昵称，回退用户名 */
+    private String actorName(TokenClaims c) {
+        return userRepo.findByUsername(c.username())
+                .map(u -> (u.getDisplayName() != null && !u.getDisplayName().isBlank()) ? u.getDisplayName() : u.getUsername())
+                .orElse(c.username());
     }
 
     /** 评论列表附带评论人昵称与头像（username 仍是唯一标识；匿名/已注销用户两字段为空） */
@@ -146,6 +159,16 @@ public class CommentController {
         // 与网关同一口径。原先写死 role=="ADMIN"，勾满权限的非 ADMIN 角色在别处是管理员，
         // 到这儿却只能删自己的评论（S-M6）。
         if (c.isAdmin()) {
+            // 管理员等价操作（删他人评论）必须留审计：权限可以等价，责任要能追溯。
+            // 记清操作者（含全权限非 ADMIN 账号，其 role 仍是 USER，靠 isAdmin() 等价）与评论作者。
+            Comment target = commentRepo.findById(id).orElse(null);
+            boolean other = target != null && c.username() != null && !c.username().equals(target.getUsername());
+            if (other) {
+                auditService.log(c.userId(), actorName(c), "ADMIN_DELETE_OTHER_COMMENT", "COMMENT", id,
+                        target.getUsername(),
+                        "管理员等价操作删除他人评论：operator=" + c.username() + " role=" + c.role()
+                                + " targetType=" + target.getTargetType() + " docId=" + target.getDocId());
+            }
             svc.delete(id);
         } else {
             svc.deleteOwn(id, c);
