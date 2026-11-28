@@ -89,7 +89,20 @@ function isProxyPath(url) {
 
 // 反向代理单个 HTTP 请求到后端（流式转发，支持大文件 / 文件上传 / Range）
 function proxyToBackend(req, res) {
-  const target = new URL(req.url, BACKEND)
+  // 只接受 origin-form（以单个 / 开头）。绝对形式请求行（如 `GET http://evil/...`）会让
+  // new URL(req.url, BACKEND) 忽略 BACKEND 直接变成开放代理，这里一律拒绝。
+  const raw = typeof req.url === 'string' ? req.url : ''
+  if (!raw.startsWith('/') || raw.startsWith('//')) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+    res.end('Bad Request')
+    return
+  }
+  // 目标只用 BACKEND 的 scheme://host:port，路径与查询串自行拼接
+  const base = new URL(BACKEND)
+  const q = raw.indexOf('?')
+  const target = new URL(base.protocol + '//' + base.host)
+  target.pathname = q < 0 ? raw : raw.slice(0, q)
+  target.search = q < 0 ? '' : raw.slice(q)
   const headers = { ...req.headers, host: target.host }
   const lib = target.protocol === 'https:' ? https : http
   const preq = lib.request(target, { method: req.method, headers }, (pres) => {
@@ -105,16 +118,18 @@ function proxyToBackend(req, res) {
 
 // 托管 desktop/web 下的静态资源，并做 SPA history fallback
 function serveStatic(req, res) {
+  const root = path.resolve(WEB_ROOT)
   let urlPath = decodeURIComponent(req.url.split('?')[0])
   if (urlPath === '/') urlPath = '/index.html'
-  let file = path.normalize(path.join(WEB_ROOT, urlPath))
-  if (!file.startsWith(WEB_ROOT)) {
+  // 先 resolve 再按「路径分隔符边界」比较，避免 /web 与 /web2 的裸字符串前缀误判越界
+  let file = path.resolve(root, '.' + urlPath)
+  if (file !== root && !file.startsWith(root + path.sep)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' })
     res.end('Forbidden')
     return
   }
   fs.stat(file, (err, stat) => {
-    if (err || !stat.isFile()) file = path.join(WEB_ROOT, 'index.html') // SPA fallback
+    if (err || !stat.isFile()) file = path.join(root, 'index.html') // SPA fallback
     fs.readFile(file, (e, data) => {
       if (e) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -272,7 +287,8 @@ function createServer() {
     console.error('[kb-desktop] 本地服务异常：', err)
   })
 
-  server.listen(PORT, () => {
+  // 只绑定本机回环地址，避免同网段机器访问本地服务
+  server.listen(PORT, '127.0.0.1', () => {
     console.log(`[kb-desktop] 本地服务已启动 http://localhost:${PORT}（后端 ${BACKEND}，协同 ${BACKEND_WS}）`)
   })
 }

@@ -95,8 +95,8 @@ object YjsHtml {
             "horizontalrule" -> sb.append("<hr>")
             "hardbreak" -> sb.append("<br>")
             "image" -> {
-                val src = attr("src").orEmpty()
-                if (src.isNotBlank()) {
+                val src = safeImgSrc(attr("src"))
+                if (src != null) {
                     sb.append("<img src=\"").append(escape(src)).append('"')
                     attr("alt")?.let { sb.append(" alt=\"").append(escape(it)).append('"') }
                     attr("title")?.let { sb.append(" title=\"").append(escape(it)).append('"') }
@@ -116,7 +116,7 @@ object YjsHtml {
             "code" -> inline("code", e, sb, depth)
             "highlight", "mark" -> inline("mark", e, sb, depth)
             "link" -> {
-                val href = attr("href")
+                val href = safeHref(attr("href"))
                 if (href != null) {
                     sb.append("<a href=\"").append(escape(href)).append("\">")
                     renderChildren(e, sb, depth)
@@ -175,7 +175,8 @@ object YjsHtml {
             var href: String? = null
             if (linkAttrs is Map<*, *>) href = linkAttrs["href"]?.toString()
             else if (linkAttrs is String) href = linkAttrs
-            if (!href.isNullOrBlank()) { open.add("<a href=\"" + escape(href) + "\">"); close.add("</a>") }
+            val safeLink = safeHref(href)
+            if (safeLink != null) { open.add("<a href=\"" + escape(safeLink) + "\">"); close.add("</a>") }
 
             for (o in open) sb.append(o)
             sb.append(escape(c.getText()))
@@ -288,6 +289,38 @@ object YjsHtml {
             sb.append("</ul>")
         }
         return sb.toString()
+    }
+
+    /**
+     * 图片 src 协议白名单：仅 http/https 与站内相对路径（单个 / 开头）。
+     * 其余（javascript: / data: / vbscript: 等）一律返回 null 丢弃该属性。
+     */
+    private fun safeImgSrc(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isEmpty()) return null
+        val lower = s.lowercase()
+        return when {
+            lower.startsWith("http://") || lower.startsWith("https://") -> s
+            s.startsWith("/") && !s.startsWith("//") -> s
+            else -> null
+        }
+    }
+
+    /**
+     * 链接 href 协议白名单：http/https、mailto:、`#` 锚点与站内相对路径（单个 / 开头）。
+     * 其余一律返回 null，丢弃该属性（避免 javascript: 之类被执行）。
+     */
+    private fun safeHref(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isEmpty()) return null
+        val lower = s.lowercase()
+        return when {
+            lower.startsWith("http://") || lower.startsWith("https://") -> s
+            lower.startsWith("mailto:") -> s
+            s.startsWith("#") -> s
+            s.startsWith("/") && !s.startsWith("//") -> s
+            else -> null
+        }
     }
 
     private fun escape(s: String?): String {

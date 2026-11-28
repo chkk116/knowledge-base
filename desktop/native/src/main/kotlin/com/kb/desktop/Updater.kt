@@ -35,15 +35,32 @@ object KbUpdater {
     }
 
     /**
+     * 把外部传入的文件名收敛成**纯文件名**：丢弃所有路径分隔符（绝对路径 / `../` 全部失效）、
+     * 非法字符替换为 `_`；为空、`.`、`..` 或仍含 `..` 的一律拒绝，防止写到更新目录之外。
+     */
+    fun sanitizeFileName(raw: String): String {
+        val base = raw.substringAfterLast('/').substringAfterLast('\\').trim()
+        val name = base.replace(Regex("[\\x00-\\x1f<>:\"|?*]"), "_")
+        require(name.isNotEmpty() && name != "." && name != ".." && !name.contains("..")) {
+            "非法的更新包文件名：" + raw
+        }
+        return name
+    }
+
+    /**
      * 下载到 [updatesDir]，边下边回调 `(已下载字节, 总字节)`（总字节未知时为 -1）。
-     * 文件名用 URL 末段，没有就按版本号兜底，避免覆盖正在用的旧包。
+     * 文件名先净化为纯文件名，再校验规范化后的落盘路径仍在更新目录内。
      */
     suspend fun download(
         url: String,
         fileName: String,
         onProgress: (Long, Long) -> Unit = { _, _ -> },
     ): Path = withContext(Dispatchers.IO) {
-        val dest = updatesDir().resolve(fileName)
+        val dir = updatesDir().toAbsolutePath().normalize()
+        val dest = dir.resolve(sanitizeFileName(fileName)).normalize()
+        if (!dest.startsWith(dir) || dest == dir) {
+            throw IllegalStateException("非法的更新包路径：" + fileName)
+        }
         // 上一次残留的先删掉，避免续传到坏文件
         runCatching { if (Files.exists(dest)) Files.delete(dest) }
         val client = HttpClient.newBuilder()
@@ -96,21 +113,26 @@ object KbUpdater {
     fun launchApplyScript(setup: Path): Boolean = runCatching {
         val selfExe = currentExePath()
         val script = updatesDir().resolve("apply-update.cmd")
+        // 路径**不拼进命令行**：改用环境变量传给 cmd，脚本内以 "%VAR%" 引用。
+        // Windows 文件名不含 " 与换行（我们这里再净化过），引号内的 & | < > ^ 不会被当成命令，
+        // 环境变量展开也不会二次解析 %，因此不存在命令注入。
         val lines = buildList {
             add("@echo off")
             add("rem 等待主程序释放文件")
             add("timeout /t 2 /nobreak >nul")
-            add("start \"\" /wait \"${setup.toAbsolutePath()}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART")
+            add("start \"\" /wait \"%KB_UPDATE_SETUP%\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART")
             if (selfExe != null) {
-                add("start \"\" \"$selfExe\"")
+                add("start \"\" \"%KB_UPDATE_EXE%\"")
             }
             add("del \"%~f0\"")
         }
         Files.write(script, lines.joinToString("\r\n").toByteArray(Charsets.UTF_8))
         // 用最小化窗口的 cmd 跑，避免黑框挡在前面；脚本自身带 /wait，安装完才启动新版
-        ProcessBuilder("cmd.exe", "/c", "start", "/min", "", script.toAbsolutePath().toString())
+        val pb = ProcessBuilder("cmd.exe", "/c", "start", "/min", "", script.toAbsolutePath().toString())
             .redirectErrorStream(true)
-            .start()
+        pb.environment()["KB_UPDATE_SETUP"] = setup.toAbsolutePath().normalize().toString()
+        if (selfExe != null) pb.environment()["KB_UPDATE_EXE"] = selfExe
+        pb.start()
         true
     }.getOrElse { false }
 

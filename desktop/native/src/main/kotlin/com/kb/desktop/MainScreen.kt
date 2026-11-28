@@ -962,7 +962,8 @@ private fun SettingsPanel(session: Session, onLogout: () -> Unit = {}) {
                                         updateMsg = ""
                                         scope.launch {
                                             try {
-                                                val name = "kb-desktop-" + r.versionName + "-setup.exe"
+                                                // 版本号来自服务端，先净化成纯文件名再拼，避免 ../ 之类的目录穿越
+                                                val name = "kb-desktop-" + KbUpdater.sanitizeFileName(r.versionName) + "-setup.exe"
                                                 // url 可能是相对路径（nginx 代理 /kb/app-release/…），补成绝对地址
                                                 val fullUrl = if (r.url.startsWith("http")) r.url else session.server.trimEnd('/') + "/" + r.url.trimStart('/')
                                                 val file = KbUpdater.download(fullUrl, name) { got, total ->
