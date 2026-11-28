@@ -2129,12 +2129,23 @@ fun MenuGlyph(kind: MenuKind, tint: Color, modifier: Modifier, secondary: Color 
             MenuKind.BADGES -> {
                 // 圆章 + 两条下摆
                 drawCircle(tint, 5.5f * u, Offset(12f * u, 10.5f * u), style = stroke)
+                // 章内小星（Web 家族 Medal 同款细节）
+                val star = Path().apply {
+                    moveTo(12f * u, 7.9f * u); lineTo(12.95f * u, 9.85f * u)
+                    lineTo(15.1f * u, 10.15f * u); lineTo(13.55f * u, 11.65f * u)
+                    lineTo(13.9f * u, 13.8f * u); lineTo(12f * u, 12.75f * u)
+                    lineTo(10.1f * u, 13.8f * u); lineTo(10.45f * u, 11.65f * u)
+                    lineTo(8.9f * u, 10.15f * u); lineTo(11.05f * u, 9.85f * u)
+                    close()
+                }
+                drawPath(star, tint, alpha = 0.92f)
                 subline(9f, 15f, 7.5f, 20.5f); subline(15f, 15f, 16.5f, 20.5f)
             }
             MenuKind.POINTS -> {
                 // 硬币：外圆 + 横线
                 drawCircle(tint, 8f * u, Offset(12f * u, 12f * u), style = stroke)
-                subline(8.5f, 12f, 15.5f, 12f)
+                drawCircle(secondary, 5.2f * u, Offset(12f * u, 12f * u), style = stroke)
+                subline(9.6f, 12f, 14.4f, 12f)
             }
             MenuKind.DM -> {
                 // 两个错开的对话气泡
