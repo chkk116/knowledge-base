@@ -41,7 +41,9 @@ public final class HtmlSanitizer {
             }
             // 放行站内相对链接（如 /post/123、/#anchor），避免文章内跳转失效；
             // 注意禁止协议相对地址（//evil.com）——否则会被浏览器当作 https://evil.com 用于钓鱼/跳转
-            if ("a".equals(tagName) && "href".equals(key)
+            // 反斜杠必须排除：浏览器会把 /\evil.com 归一化成 //evil.com 当协议相对地址跳转，
+            // 单看「以 / 开头且不是 //」拦不住，等于给钓鱼链接留了口子。
+            if ("a".equals(tagName) && "href".equals(key) && val.indexOf('\\') < 0
                     && ((val.startsWith("/") && !val.startsWith("//")) || val.startsWith("#"))) {
                 return true;
             }

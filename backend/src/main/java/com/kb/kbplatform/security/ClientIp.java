@@ -31,8 +31,11 @@ public final class ClientIp {
         if (real != null && !real.isBlank()) return real.trim();
         String xff = req.getHeader("X-Forwarded-For");
         if (xff != null && !xff.isBlank()) {
-            int i = xff.indexOf(',');
-            return (i > 0 ? xff.substring(0, i) : xff).trim();
+            // 取最后一段：nginx 的 $proxy_add_x_forwarded_for 会把客户端自带的头原样保留、
+            // 再把真实来源追加到末尾，取首段等于让客户端自己填 IP，限流与锁定都会被绕过。
+            int i = xff.lastIndexOf(',');
+            String last = (i >= 0 ? xff.substring(i + 1) : xff).trim();
+            if (!last.isEmpty()) return last;
         }
         return remote;
     }

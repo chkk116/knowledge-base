@@ -13,6 +13,8 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 全局分页参数收敛（安全加固）：
@@ -55,6 +57,27 @@ public class PageParamFilter implements Filter {
             String[] out = new String[vs.length];
             for (int i = 0; i < vs.length; i++) {
                 out[i] = "size".equals(name) ? String.valueOf(clampSize(vs[i])) : String.valueOf(clampPage(vs[i]));
+            }
+            return out;
+        }
+
+        /**
+         * 绑定到对象/Map 的控制器读的是整张参数表而不是 getParameter：
+         * 不覆写这里，size=9999 会从参数表原样进到绑定器，这个过滤器等于没生效。
+         */
+        @Override
+        public Map<String, String[]> getParameterMap() {
+            Map<String, String[]> raw = super.getParameterMap();
+            if (raw == null || raw.isEmpty()) return raw;
+            Map<String, String[]> out = new LinkedHashMap<>(raw);
+            for (String k : new String[] { "size", "page" }) {
+                String[] vs = raw.get(k);
+                if (vs == null) continue;
+                String[] fixed = new String[vs.length];
+                for (int i = 0; i < vs.length; i++) {
+                    fixed[i] = "size".equals(k) ? String.valueOf(clampSize(vs[i])) : String.valueOf(clampPage(vs[i]));
+                }
+                out.put(k, fixed);
             }
             return out;
         }

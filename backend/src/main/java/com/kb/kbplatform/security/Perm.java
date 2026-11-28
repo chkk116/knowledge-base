@@ -108,6 +108,9 @@ public final class Perm {
      * 这里把口径收到一处，语义与 TokenClaims.isAdmin() 完全一致（含演示号不提升）。
      */
     public static boolean isFullAdmin(String role, String permissions) {
+        // 演示标记必须先判：ADMIN 账号若被带上 DEMO_MODE，网关 TokenClaims.isAdmin() 会按非管理员处理，
+        // 这里若先看 role 就会分叉——同一账号在网关只读、在服务层却享受管理员回滚待遇。
+        if (isDemo(permissions)) return false;
         if ("ADMIN".equals(role)) return true;
         if (permissions == null || permissions.isBlank()) return false;
         java.util.Set<String> have = new java.util.HashSet<>();

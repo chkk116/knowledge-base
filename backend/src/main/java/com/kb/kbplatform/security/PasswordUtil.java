@@ -24,6 +24,9 @@ public final class PasswordUtil {
     private PasswordUtil() {}
 
     private static final int ITERATIONS = 210_000;
+    /** 校验时的合法迭代区间：低于下限等于对方自己降了工作因子，高于上限是被篡改后的 CPU 炸弹 */
+    private static final int MIN_ITERATIONS = 100_000;
+    private static final int MAX_ITERATIONS = 1_000_000;
     private static final int SALT_BYTES = 16;
     private static final int KEY_BITS = 256;
     private static final String PREFIX = "pbkdf2$";
@@ -66,9 +69,15 @@ public final class PasswordUtil {
         if (stored.startsWith(PREFIX)) {
             try {
                 String[] p = stored.split("\\$");
+                // 只认自家写的四段格式：字段数、迭代次数、盐/密钥长度都先卡住，
+                // 否则一个被写坏或被篡改的存储值可以把迭代次数抬到天文数字，
+                // 每次登录都在替攻击者烧 CPU（低于政策的迭代次数也会绕过工作因子）。
+                if (p.length != 4) return false;
                 int iter = Integer.parseInt(p[1]);
+                if (iter < MIN_ITERATIONS || iter > MAX_ITERATIONS) return false;
                 byte[] salt = Base64.getDecoder().decode(p[2]);
                 byte[] expected = Base64.getDecoder().decode(p[3]);
+                if (salt.length < 8 || expected.length != KEY_BITS / 8) return false;
                 byte[] actual = pbkdf2(rawPassword, salt, iter);
                 return MessageDigest.isEqual(expected, actual);
             } catch (Exception e) {

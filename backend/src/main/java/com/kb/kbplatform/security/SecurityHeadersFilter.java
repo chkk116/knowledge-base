@@ -45,10 +45,13 @@ public class SecurityHeadersFilter implements Filter {
         // 注意：音频/图片/视频等被动资源绝不能加 sandbox —— 浏览器对媒体走带源缓存，
         // 响应带 opaque 源(CSP sandbox) 会让媒体缓存不可用，报
         // net::ERR_CACHE_OPERATION_NOT_SUPPORTED（音频/视频直接播不了）。故按扩展名收口。
-        if (req.getRequestURI().startsWith("/uploads/")
-                && isSandboxableUpload(req.getRequestURI())) {
+        String path = req.getRequestURI();
+        String ctx = req.getContextPath();
+        if (ctx != null && !ctx.isEmpty() && path.startsWith(ctx)) path = path.substring(ctx.length());
+        if (path.startsWith("/uploads/")
+                && isSandboxableUpload(path)) {
             res.setHeader("Content-Security-Policy", "sandbox");
-        } else if (!req.getRequestURI().startsWith("/uploads/")) {
+        } else if (!path.startsWith("/uploads/")) {
             // SPA 页面与静态资源：加一层 CSP（外部审查 2026-10-29 建议）。
             // Vite 产物为外部脚本 + 运行时注入 <style>，故 style-src 需 'unsafe-inline'；
             // 头像/远端图片允许 https: 与 data:；协同走同源 ws/wss。
@@ -135,6 +138,9 @@ public class SecurityHeadersFilter implements Filter {
 
     /** 屏蔽 Accept-Ranges 响应头，使浏览器不再对该资源发起 Range 分段请求 */
     private static class NoAcceptRangesResponseWrapper extends HttpServletResponseWrapper {
+
+        /** 降级成 200 时必须一并摘掉的分段头，否则客户端会把半截正文当完整响应缓存 */
+        private static final Set<String> RANGE_HEADERS = Set.of("content-range");
         NoAcceptRangesResponseWrapper(HttpServletResponse response) {
             super(response);
         }
@@ -142,12 +148,14 @@ public class SecurityHeadersFilter implements Filter {
         @Override
         public void setHeader(String name, String value) {
             if ("Accept-Ranges".equalsIgnoreCase(name)) return;
+            if (RANGE_HEADERS.contains(name.toLowerCase())) return;
             super.setHeader(name, value);
         }
 
         @Override
         public void addHeader(String name, String value) {
             if ("Accept-Ranges".equalsIgnoreCase(name)) return;
+            if (RANGE_HEADERS.contains(name.toLowerCase())) return;
             super.addHeader(name, value);
         }
 

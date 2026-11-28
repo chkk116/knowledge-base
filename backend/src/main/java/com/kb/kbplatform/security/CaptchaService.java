@@ -190,6 +190,15 @@ public class CaptchaService {
      *  @param clientIp 调用方 IP（来自 HttpServletRequest），用于 IP 级限流
      *  @return true=通过，false=未通过（含被锁定/超次/轨迹非人类） */
     public boolean markPassed(String token, Integer userX, List<Map<String, Object>> trajectory, String clientIp) {
+        // 票据的状态流转（读 tries/正确性 → 删或置通过）必须是一个整体：两个并发请求读同一个
+        // Entry 时，失败方 remove 完、成功方再 put(true) 会把刚作废的票据“复活”成已通过。
+        // 登录验证码是低频操作，直接在实例上加锁最省事，也不会成为瓶颈。
+        synchronized (this) {
+            return verifyAndMark(token, userX, trajectory, clientIp);
+        }
+    }
+
+    private boolean verifyAndMark(String token, Integer userX, List<Map<String, Object>> trajectory, String clientIp) {
         // 1) IP 级锁定：连续失败过多则窗口内拒绝，迫使脚本等待
         if (clientIp != null && isIpLocked(clientIp)) return false;
 
