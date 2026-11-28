@@ -14,6 +14,14 @@ import { Server } from '@hocuspocus/server'
 import * as Y from 'yjs'
 import pg from 'pg'
 import crypto from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// 本文件是 ESM（package.json "type": "module"），没有 CommonJS 的 require/__dirname。
+// 曾经这里写成 require('path')，导致进程在 import 阶段就抛 ReferenceError，
+// systemd 每 10 秒重启一次、协同全站不可用——务必保持 ESM 写法。
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const PORT = Number(process.env.COLLAB_PORT || 1234)
 
@@ -116,11 +124,11 @@ let ADMIN_PERM_TRUSTED = true
 
 /** 启动自检：读后端 Perm.java 的 WHITELIST，与本文件的清单比对 */
 function verifyAdminPermSet() {
-  const path = require('path').join(__dirname, '..', 'backend', 'src', 'main', 'java',
+  const file = join(__dirname, '..', 'backend', 'src', 'main', 'java',
     'com', 'kb', 'kbplatform', 'security', 'Perm.java')
   let src
   try {
-    src = require('fs').readFileSync(path, 'utf8')
+    src = readFileSync(file, 'utf8')
   } catch {
     console.log('[relay] 未找到后端 Perm.java（独立部署？），跳过权限码清单自检')
     return
@@ -142,7 +150,13 @@ function verifyAdminPermSet() {
     ADMIN_PERM_TRUSTED = false
   }
 }
-verifyAdminPermSet()
+// 自检只是防越权的保险丝，不能反过来把服务打死：任何异常一律按「不信任」处理
+try {
+  verifyAdminPermSet()
+} catch (e) {
+  console.error('[relay][警告] 权限码自检异常，关闭「全权限码视为管理员」的旁路：' + e.message)
+  ADMIN_PERM_TRUSTED = false
+}
 
 // 与 REST 的 docPermission 保持一致：真实管理员/空间所有者/文档所有者优先，
 // 文档单独授权优先于空间授权。使用下划线别名，避免 PG 把 ownerId 折叠成 ownerid。
