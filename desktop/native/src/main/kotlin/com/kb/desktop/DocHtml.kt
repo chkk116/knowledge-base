@@ -42,6 +42,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
@@ -50,6 +51,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.io.StringReader
 import java.net.URI
 import java.net.URLEncoder
@@ -58,6 +61,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.Base64
+import javax.imageio.ImageIO
 import javax.swing.text.MutableAttributeSet
 import javax.swing.text.html.HTML
 import javax.swing.text.html.HTMLEditorKit
@@ -461,6 +465,36 @@ object DocHtml {
 
 // ---------- 图片加载（站内 uploads 走 /api/thumb 缩略，data: 直接解码） ----------
 
+// 单张图片的硬上限。正文里的图可能是几十 MB 的原图，也可能是「解压炸弹」——几百 KB 的 PNG
+// 声明 30000×30000 画布，解码时才炸。所以三重设限：传输字节、解码宽高、解码总像素；
+// 任何一项超限都不加载、不进缓存，直接出占位文字（绝不因为一张图把整篇正文拖死或 OOM）。
+// 值都放成常量，以后要调只改这里。
+private const val DOC_IMG_MAX_BYTES = 10 * 1024 * 1024   // 10MB（下载/data URI 解码后字节数）
+private const val DOC_IMG_MAX_EDGE = 10_000             // 宽、高各不超过 10000 像素
+private const val DOC_IMG_MAX_PIXELS = 40_000_000L      // 总像素不超过 4000 万
+
+/** 日志里 URL 的截断长度：data: 图片的 base64 动辄上 MB，绝不能整条打进日志 */
+private const val DOC_IMG_LOG_URL_MAX = 200
+
+private const val DOC_IMG_NOTE_TOO_LARGE = "图片过大，未加载（单张上限 10MB）"
+private const val DOC_IMG_NOTE_BAD_SIZE = "图片尺寸异常，未加载（宽高上限 10000，总像素上限 4000 万）"
+
+/** 图片加载结果：要么拿到位图，要么带一句「为什么没加载」的说明（渲染成占位文字） */
+private sealed interface DocImgResult {
+    data class Ok(val bitmap: ImageBitmap) : DocImgResult
+    data class Failed(val note: String) : DocImgResult
+}
+
+/** 单图未加载日志：桌面端没有日志框架，沿用 Main.kt 的 System.err + "[kb]" 前缀。 */
+private fun docImgLog(reason: String, url: String, bytes: Long?, extra: String = "") {
+    val shown = if (url.length > DOC_IMG_LOG_URL_MAX) url.take(DOC_IMG_LOG_URL_MAX) + "…" else url
+    val tail = if (extra.isEmpty()) "" else " $extra"
+    System.err.println(
+        "[kb] 正文图片未加载 reason=$reason url(len=${url.length})=$shown " +
+            "bytes=${bytes ?: -1} limit=$DOC_IMG_MAX_BYTES$tail"
+    )
+}
+
 private object DocImgCache {
     private const val MAX = 60
 
@@ -509,38 +543,151 @@ internal fun resolveDocImgUrl(src: String, server: String): String {
     }
 }
 
-private fun fetchDocBitmap(url: String): ImageBitmap? = runCatching {
-    val bytes: ByteArray = if (url.startsWith("data:")) {
-        val b64 = url.substringAfter("base64,", "")
-        if (b64.isEmpty()) return null
-        Base64.getDecoder().decode(b64)
-    } else {
-        val req = HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(15))
-            .header("User-Agent", "kb-desktop/${AppInfo.versionName}")
-            .GET().build()
-        val resp = docImgHttp.send(req, HttpResponse.BodyHandlers.ofByteArray())
-        if (resp.statusCode() >= 400) return null
-        resp.body()
-    }
-    if (bytes.isEmpty()) return null
-    loadImageBitmap(ByteArrayInputStream(bytes))
-}.getOrNull()
+private fun fetchDocBitmap(url: String): DocImgResult = try {
+    if (url.startsWith("data:")) decodeDataUriImage(url) else downloadDocImage(url)
+} catch (e: Exception) {
+    // 网络/解码异常一律降级成占位，不往上抛（否则一张坏图会中断整篇正文渲染）
+    docImgLog("error", url, null, "err=${e.javaClass.simpleName}")
+    DocImgResult.Failed("下载或解码失败")
+}
 
-/** 单张正文图片：占位 → 加载 → 失败提示；结果进内存缓存（同页翻回来秒开）。 */
+/** 网络图：流式读、边读边计数，超过 DOC_IMG_MAX_BYTES 立刻断开，不把整个响应读进内存。 */
+private fun downloadDocImage(url: String): DocImgResult {
+    val req = HttpRequest.newBuilder(URI.create(url))
+        .timeout(Duration.ofSeconds(15))
+        .header("User-Agent", "kb-desktop/${AppInfo.versionName}")
+        .GET().build()
+    val resp = docImgHttp.send(req, HttpResponse.BodyHandlers.ofInputStream())
+    val body: InputStream = resp.body()
+    try {
+        if (resp.statusCode() >= 400) {
+            docImgLog("http${resp.statusCode()}", url, null)
+            return DocImgResult.Failed("下载失败（HTTP ${resp.statusCode()}）")
+        }
+        // 服务端给了 Content-Length 就先判：超限连 body 都不读
+        val declared = resp.headers().firstValueAsLong("content-length").orElse(-1L)
+        if (declared > DOC_IMG_MAX_BYTES) {
+            docImgLog("too-large", url, declared)
+            return DocImgResult.Failed(DOC_IMG_NOTE_TOO_LARGE)
+        }
+        val bytes = readCapped(url, body) ?: return DocImgResult.Failed(DOC_IMG_NOTE_TOO_LARGE)
+        if (bytes.isEmpty()) {
+            docImgLog("empty", url, 0)
+            return DocImgResult.Failed("图片内容为空")
+        }
+        return decodeDocImage(bytes, url)
+    } finally {
+        runCatching { body.close() }
+    }
+}
+
+/** 边读边计数：超过 limit 立即返回 null（此时已读字节数会进日志），不占大内存。 */
+private fun readCapped(url: String, input: InputStream): ByteArray? {
+    val buf = ByteArrayOutputStream(64 * 1024)
+    val chunk = ByteArray(16 * 1024)
+    var total = 0L
+    while (true) {
+        val n = input.read(chunk)
+        if (n < 0) break
+        if (n == 0) continue
+        total += n
+        if (total > DOC_IMG_MAX_BYTES) {
+            docImgLog("too-large", url, total)
+            return null
+        }
+        buf.write(chunk, 0, n)
+    }
+    return buf.toByteArray()
+}
+
+/** data: 分支：先按 base64 长度估算字节数，超限连解码都不做。 */
+private fun decodeDataUriImage(url: String): DocImgResult {
+    val comma = url.indexOf(',')
+    if (comma < 0) {
+        docImgLog("bad-data-uri", url, null)
+        return DocImgResult.Failed("图片地址无效")
+    }
+    if (!url.substring(0, comma).contains(";base64", ignoreCase = true)) {
+        docImgLog("bad-data-uri", url, null, "kind=non-base64")
+        return DocImgResult.Failed("图片格式不支持")
+    }
+    val payload = url.substring(comma + 1)
+    // base64 4 字符 → 3 字节：估算值足够判上限，避免为一个超大 data URI 先堆一份解码结果
+    val approx = payload.length.toLong() * 3 / 4
+    if (approx > DOC_IMG_MAX_BYTES) {
+        docImgLog("too-large", url, approx)
+        return DocImgResult.Failed(DOC_IMG_NOTE_TOO_LARGE)
+    }
+    val bytes = Base64.getDecoder().decode(payload)
+    if (bytes.size > DOC_IMG_MAX_BYTES) {
+        docImgLog("too-large", url, bytes.size.toLong())
+        return DocImgResult.Failed(DOC_IMG_NOTE_TOO_LARGE)
+    }
+    if (bytes.isEmpty()) {
+        docImgLog("empty", url, 0)
+        return DocImgResult.Failed("图片内容为空")
+    }
+    return decodeDocImage(bytes, url)
+}
+
+/** 解码 + 像素上限校验（先读文件头拿宽高，再解码；解码后按位图尺寸兜底再校一次）。 */
+private fun decodeDocImage(bytes: ByteArray, url: String): DocImgResult {
+    // 只读图片头拿宽高，不分配像素缓冲：解压炸弹就是「小体积声明大画布」，等解码时才发现就晚了
+    val dims = probeImageSize(bytes)
+    if (dims != null && !sizeWithinLimit(dims.first, dims.second)) {
+        docImgLog("too-many-pixels", url, bytes.size.toLong(), "size=${dims.first}x${dims.second}")
+        return DocImgResult.Failed(DOC_IMG_NOTE_BAD_SIZE)
+    }
+    val bmp = loadImageBitmap(ByteArrayInputStream(bytes))
+    // ImageIO 不认的格式（webp/avif 等）拿不到头，只能解码完再兜底校验
+    if (!sizeWithinLimit(bmp.width, bmp.height)) {
+        docImgLog("too-many-pixels", url, bytes.size.toLong(), "size=${bmp.width}x${bmp.height}(decoded)")
+        return DocImgResult.Failed(DOC_IMG_NOTE_BAD_SIZE)
+    }
+    return DocImgResult.Ok(bmp)
+}
+
+/** 用 ImageIO 的 reader 只读元数据（setInput 不触发解码），拿不到返回 null。 */
+private fun probeImageSize(bytes: ByteArray): Pair<Int, Int>? {
+    val iis = runCatching { ImageIO.createImageInputStream(ByteArrayInputStream(bytes)) }.getOrNull() ?: return null
+    return try {
+        val readers = ImageIO.getImageReaders(iis)
+        if (!readers.hasNext()) return null
+        val reader = readers.next()
+        try {
+            reader.setInput(iis, true, true)
+            reader.getWidth(0) to reader.getHeight(0)
+        } finally {
+            reader.dispose()
+        }
+    } catch (e: Exception) {
+        null
+    } finally {
+        runCatching { iis.close() }
+    }
+}
+
+private fun sizeWithinLimit(w: Int, h: Int): Boolean =
+    w in 1..DOC_IMG_MAX_EDGE && h in 1..DOC_IMG_MAX_EDGE && w.toLong() * h <= DOC_IMG_MAX_PIXELS
+
+/** 单张正文图片：占位 → 加载 → 失败/超限提示；结果进内存缓存（同页翻回来秒开）。 */
 @Composable
 fun DocImage(src: String, server: String, modifier: Modifier = Modifier) {
     val url = remember(src, server) { resolveDocImgUrl(src, server) }
     var bitmap by remember(url) { mutableStateOf(DocImgCache.map[url]) }
     var failed by remember(url) { mutableStateOf(false) }
+    var note by remember(url) { mutableStateOf<String?>(null) }
     LaunchedEffect(url) {
         if (bitmap == null && !failed) {
-            val bmp = withContext(Dispatchers.IO) { fetchDocBitmap(url) }
-            if (bmp != null) {
-                DocImgCache.map[url] = bmp
-                bitmap = bmp
-            } else {
-                failed = true
+            when (val r = withContext(Dispatchers.IO) { fetchDocBitmap(url) }) {
+                is DocImgResult.Ok -> {
+                    DocImgCache.map[url] = r.bitmap
+                    bitmap = r.bitmap
+                }
+                is DocImgResult.Failed -> {
+                    note = r.note
+                    failed = true
+                }
             }
         }
     }
@@ -561,7 +708,25 @@ fun DocImage(src: String, server: String, modifier: Modifier = Modifier) {
                 contentScale = ContentScale.Fit,
             )
         } else {
-            Text(if (failed) "图片加载失败" else "图片加载中…", fontSize = 11.5.sp, color = DocSub)
+            // 失败/超限都走占位：主行沿用旧失败态文案，下面一行说明原因（过大 / 尺寸异常 / 网络）
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(if (failed) "图片加载失败" else "图片加载中…", fontSize = 11.5.sp, color = DocSub)
+                if (failed) {
+                    Text(
+                        note ?: "稍后重试",
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        color = DocSub,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
         }
     }
 }
